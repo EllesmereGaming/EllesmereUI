@@ -553,7 +553,7 @@ function ns.ReconcileAssignedSpellDrops(barKey)
            and not (groups and groups[id])
            and not (hosted and hosted[id]
                     and not (hostedMarkerFor and hostedMarkerFor[id]))
-           -- Drawn by an aura icon of ours (the WoW Forever Seals stand-in):
+           -- Drawn by an aura icon of ours (a registered provider's spell ID):
            -- user-added like a racial, never "owned but not displayed".
            and not (ns.CDM_AuraIconKeeps and ns.CDM_AuraIconKeeps(id)) then
             -- Plain Blizzard cooldown. Keep if still displayed OR if the
@@ -1287,7 +1287,7 @@ function ns.RepopulateFromBlizzard(fromRequest)
         if id < 0 then return true end
         if sd.customSpellIDs and sd.customSpellIDs[id] then return true end
         if _myRacialsSet and _myRacialsSet[id] and not racialMoves then return true end
-        -- Drawn by an aura icon of ours (the WoW Forever Seals stand-in): no
+        -- Drawn by an aura icon of ours (a registered provider's spell ID): no
         -- Blizzard frame would bring it back.
         if ns.CDM_AuraIconKeeps and ns.CDM_AuraIconKeeps(id) then return true end
         -- A positive id carrying a stored duration is one of OUR injected preset/custom buffs

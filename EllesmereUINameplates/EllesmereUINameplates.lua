@@ -357,6 +357,13 @@ local defaults = {
     classPowerGap = 2,
     classPowerShape = "rectangle",  -- rectangle | square | circle | diamond | hexagon | shield
     classPowerBorder = false,
+    classPowerEnergyBar = false,  -- Rogue / Druid: energy bar beside the pips
+    classPowerEnergyHeight = 4,
+    classPowerEnergyWidth = 1.0,      -- multiple of the pip row width
+    classPowerEnergyAnchor = "outer", -- outer: past the pips | inner: next to the health bar
+    classPowerEnergyXOffset = 0,
+    classPowerEnergyYOffset = 0,
+    classPowerEnergyHideFull = false, -- hide while capped and out of combat
     classPowerBorderColor = { r = 0, g = 0, b = 0, a = 1.0 },
     classPowerBorderSize = 1,
     healthBarWidth = 6,

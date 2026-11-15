@@ -99,7 +99,7 @@ ns.ResolveFrameSpellID = ResolveFrameSpellID
 -- identity set: direct hit, linkedSpellIDs, then override resolution in BOTH
 -- directions (assigned id may be the base whose live override is an identity id,
 -- e.g. Corruption 172 -> Wither 445468, or vice versa).
-local function ResolveSpellSettingsUncached(frame, sid2, sd2, barKey)
+local function ResolveSpellSettingsUncached(frame, sid2, sd2, barKey, asBuff)
     if not sid2 then return nil end
     -- Bar identity: explicit barKey wins (nil-frame callers), else frame context.
     local fc0 = frame and _ecmeFC[frame]
@@ -117,8 +117,10 @@ local function ResolveSpellSettingsUncached(frame, sid2, sd2, barKey)
     -- family store below falls back to spellSettingsCD and applies a CD-era
     -- entry under the same id to the buff.
     local hostedFrame = false
-    -- A "Replace with Buff" frame takes the cooldown's identity: resolve it as that cooldown.
-    if frame and bk and sd2 and sd2.hostedBuffSpellIDs and not (fc0 and fc0.replacesCd) then
+    if fc0 and fc0.replacesCd then
+        -- "Replace with Buff" frame: the cooldown's entry, unless the caller asks for the buff's.
+        hostedFrame = asBuff and true or false
+    elseif frame and bk and sd2 and sd2.hostedBuffSpellIDs then
         local fdH = ns._hookFrameData and ns._hookFrameData[frame]
         if (fc0 and fc0.isHostedBuff)
            or (fdH and fdH._isBuffViewerFrame)
@@ -320,6 +322,14 @@ local function ResolveSpellSettings(frame, sid2, sd2, barKey)
     return res
 end
 ns.ResolveSpellSettings = ResolveSpellSettings
+
+-- Buff-side lookups (Buff Glow, Duration Text): a "Replace with Buff" frame reads the buff's own entry.
+function ns.ResolveBuffSettings(frame, sid2, sd2, barKey)
+    local fc0 = frame and _ecmeFC[frame]
+    if not (fc0 and fc0.replacesCd) then return ResolveSpellSettings(frame, sid2, sd2, barKey) end
+    if sd2 == false then sd2 = ns.GetBarSpellData and ns.GetBarSpellData(barKey or fc0.barKey) end
+    return ResolveSpellSettingsUncached(frame, sid2, sd2, barKey, true)
+end
 
 -- Effective swipe direction for a CDM frame: the frame-KIND baseline (buffs fill
 -- up, cooldowns deplete) flipped by per-spell / preset "Reverse Swipe". Every

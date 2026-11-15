@@ -255,6 +255,25 @@ end
 local function CogHidden(self)
     if self == cogTipCog then HideCogTip() end
     self._euiCogPulse:Stop()
+    if self._euiSearchHit then
+        self._euiSearchHit = nil
+        self._euiCogState()
+    end
+end
+
+-- After a search jump to a row inside a cog's popup: that cog, shown on the
+-- page, wears the accent until it is opened or hidden. Returns whether one was found.
+function EllesmereUI.MarkSearchCog(key)
+    local found
+    for b in pairs(CogDot.live) do
+        local hit = key ~= nil and b._euiSearchKey == key and b:IsVisible()
+        if (b._euiSearchHit or nil) ~= (hit or nil) then
+            b._euiSearchHit = hit or nil
+            if b._euiCogState then b._euiCogState() end
+        end
+        found = found or hit
+    end
+    return found
 end
 
 local function InScrollArea(f)
@@ -341,6 +360,8 @@ end
 -- A cog with a dot is the one its region's writes light (the cog notice above; the last such cog built on the region).
 -- opts.quiet: a cog whose rows are not for most users; its region's writes never light its dot or bring the cog tip up.
 local function BuildInlineCog(rgn, opts)
+    -- No-op until the optional EllesmereUI_GlobalSearch.lua defines it.
+    local searchKey = EllesmereUI._RegisterCogSearch and EllesmereUI._RegisterCogSearch(rgn, opts)
     if EllesmereUI._prebuilding then return end
     -- A disabled cog with no tooltip of its own explains itself with its host control's requirement.
     local tipSrc = (opts.disabled and not opts.disabledTooltip) and rgn._cfg or opts
@@ -397,6 +418,8 @@ local function BuildInlineCog(rgn, opts)
         id = CogDot.Id(CogDot.Key(rgn, opts))
         hostCfg = rgn._cfg
         btn._euiCogId, btn._euiCogNote, btn._euiCogPulse = id, note, pulse
+        -- The options search marks it (MarkSearchCog) after jumping to one of its rows.
+        btn._euiSearchKey = searchKey
         CogDot.live[btn] = true
         -- The cog notice: the region's writes light this cog, unless it is a quiet one.
         btn._euiCogOff = opts.disabled
@@ -435,10 +458,15 @@ local function BuildInlineCog(rgn, opts)
         if paint then paint(btn, off, hot)
         else
             btn:SetAlpha(off and 0.3 or 1)
-            local a = off and 0.5 or (hot and 0.75 or 0.55)
-            L[1]:SetAlpha(a)
-            L[2]:SetAlpha(a)
-            L[3]:SetAlpha(a)
+            -- A search result inside its popup: accent dots at full until opened.
+            local hit = btn._euiSearchHit
+            local a = off and 0.5 or (hit and 1 or (hot and 0.75 or 0.55))
+            local r, g, b = 1, 1, 1
+            if hit then r, g, b = EllesmereUI.GetAccentColor() end
+            for i = 1, 3 do
+                L[i]:SetAlpha(a)
+                L[i]:SetVertexColor(r, g, b)
+            end
             local dot = CogDot.edited[id] == true and not (off or CogDot.Seen()[id]
                 or (hostCfg and hostCfg.disabled and hostCfg.disabled()))
             note:SetShown(dot)
@@ -466,7 +494,10 @@ local function BuildInlineCog(rgn, opts)
             if cogTipCog then CogTipDone() end
             CogDot.Mark(id)
         end
+        local wasHit = self._euiSearchHit
+        self._euiSearchHit = nil
         show(self)
+        if wasHit then State() end
     end)
     State()
     -- A refresh re-reads the disabled states: the cog's own and, for the dot,

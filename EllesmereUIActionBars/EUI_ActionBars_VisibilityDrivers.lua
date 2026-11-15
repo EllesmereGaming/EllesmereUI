@@ -21,6 +21,7 @@ local barFrames, blizzMovableHolders, dataBarFrames = I.barFrames, I.blizzMovabl
 local extraBarHolders, SecureSetupHandler_PrepareRefs = I.extraBarHolders, I.SecureSetupHandler_PrepareRefs
 local LayoutBar = I.LayoutBar
 local SetSecureRefsReady = I.SetSecureRefsReady
+local AttachHoverHooks, _quickKeybindState = I.AttachHoverHooks, I._quickKeybindState
 -- Written by ApplyAll (EUI_ActionBars_ApplyAll.lua);
 -- SetIsApplyingAll hands the value to this copy.
 local _isApplyingAll = false
@@ -382,6 +383,7 @@ ns._eabBuildSkippedBars = function()
            and (not ns.IsNeverBar(info) or ns.BarHasBoundKeys(info)) then
             ns.BuildBarButtons(info, frame, false)
             LayoutBar(key)
+            AttachHoverHooks(key)
             -- Still hidden (keybind case, or a reveal whose driver has not
             -- shown the frame yet): the hide edge already passed with no
             -- buttons, so park the new mixin event lists the way it would
@@ -397,6 +399,12 @@ ns._eabBuildSkippedBars = function()
         -- The refs pass already ran without these buttons in it.
         SetSecureRefsReady(false)
         SecureSetupHandler_PrepareRefs()
+        -- Quick Keybind's button pass ran without these buttons. It keeps a
+        -- mark per button, so its next run (the next open, or now while it
+        -- is open) hooks only the new ones. The cooldown edge hooks come
+        -- with the full apply below.
+        _quickKeybindState.buttonsInit = nil
+        if _quickKeybindState.open then _quickKeybindState.InitButtons() end
         -- Everything cosmetic (borders, shapes, fonts, backgrounds, button
         -- art, cooldown visuals, range colouring) converges through the
         -- full apply. Next frame, not inline: ApplyAll calls back into

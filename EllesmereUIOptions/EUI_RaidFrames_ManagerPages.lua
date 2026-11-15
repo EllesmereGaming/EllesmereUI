@@ -116,7 +116,7 @@ function ns.RFO_AuraBorderSettings(parent, y, W, get, set, apply, disabled, disp
         EllesmereUI.RegisterWidgetRefresh(refresh)
     end
     local tex = Val("Texture", "solid")
-    if tex ~= "solid" and tex ~= "" and not EllesmereUI._prebuilding then
+    if tex ~= "solid" and tex ~= "" then
         local rows = {}
         for i, axis in ipairs({ "X", "Y" }) do
             rows[#rows + 1] = { type="slider", label="Shift " .. axis, min=-10, max=10, step=1,

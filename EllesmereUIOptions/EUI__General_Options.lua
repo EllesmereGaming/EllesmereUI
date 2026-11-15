@@ -150,7 +150,7 @@ EllesmereUI._LEGENDS.staff = {
         "cassidymichael", "jixinliu666", "Cawfee", "Jetro974", "RoakStatic",
         "zanthor", "denis-makula", "brokencrown", "Tzahal", "Aelexe",
         "grant-shoemaker", "mariusch", "Nialoshaar", "lkshrk", "PeluxGit",
-        "tekert", "friberg1991", "steakbbq",
+        "tekert", "friberg1991", "steakbbq", "suhteevah",
     } },
     { group = "Multi-language Support Contributors", members = {
         "LoChinAn", "Crazyyoungs", "Barbiero", "Dlarge", "labrie75",
@@ -234,6 +234,134 @@ end
 --  deep-links via NavigateToElementSettings(module, page, section, preSelect, highlight).
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
+    {
+        version = "9.8.6",
+        thanks = true,
+        features = {
+            {
+                -- The Action Picker row of DISPLAY on the Auras, Buffs & Consumables page; the food grid opens from
+                -- the Well Fed reminder itself (WoW Forever only).
+                module  = "AuraBuff Reminders",
+                forever = true,
+                title   = "Pick Your Food",
+                desc    = "With Action Picker on, right-click the Well Fed reminder to choose a food from your bags; the reminder then shows that food and its left click eats it",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "DISPLAY", highlight = "Action Picker" } or nil,
+            },
+            {
+                -- The Show Recent Items row of CATEGORIES on the Bags page; New Items Only is in its cog (both
+                -- clients).
+                module = "Bags",
+                title  = "New Items Only",
+                desc   = "A new option in the Recent Items Options cog leaves out more of a stackable item you already carry; new items, gear and anything from mail or a trade still show, off by default",
+                nav    = { module = "EllesmereUIBags", page = "Bags", section = "CATEGORIES", highlight = "Show Recent Items" },
+            },
+            {
+                -- The Window Scale row of LAYOUT on the Bags page: Anchor to Nearest Corner is in its cog, Shrink
+                -- and Max Height in the cog on Auto-Size to Fit beside it (both clients).
+                module = "Bags",
+                title  = "Window Anchor and Auto-Size Options",
+                desc   = "New cogs on Window Scale and Auto-Size to Fit: the bag and bank windows can hold the screen corner nearest them, and Auto-Size can shrink to a smaller tab and take a Max Height",
+                nav    = { module = "EllesmereUIBags", page = "Bags", section = "LAYOUT", highlight = "Window Scale" },
+            },
+            {
+                -- The Pet Stable card of Window Skins (WoW Forever only). A card's header is found by its title and
+                -- description joined by a space, so this section follows the card's desc in the options file.
+                module  = "Blizzard Skins+",
+                forever = true,
+                title   = "Pet Stable Skin",
+                desc    = "The hunter Pet Stable window takes the Window Skins look, with a card of its own",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins", section = "Pet Stable The hunter pet stable: pet model, XP bar, pet slots and the slot purchase row." } or nil,
+            },
+            {
+                -- The Icon Scale row of ICON DISPLAY on the CDM Bars page; Icon Alignment is in its cog (both
+                -- clients).
+                module = "Cooldown Manager",
+                title  = "Icon Alignment",
+                desc   = "A bar with a Minimum Width or Height can place its icons at the start, middle or end of the reserved space, from the cog on Icon Scale",
+                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "ICON DISPLAY", highlight = "Icon Scale" },
+            },
+            {
+                -- The Use Auction Prices row of ITEMS on Forever Essentials' Loot page; Junk Items on the General
+                -- page has the same row and cog (WoW Forever only).
+                module  = "Forever Essentials",
+                forever = true,
+                title   = "Auction Price Source",
+                desc    = "Use Auctionator Prices is now Use Auction Prices: Junk Items and the Loot Feed can take their prices from Auctionator or BootyBayBroker, picked in the option's cog",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIForeverEssentials", page = "Loot", section = "ITEMS", highlight = "Use Auction Prices" } or nil,
+            },
+            {
+                -- The Show the Game Behind the Map row of WORLD MAP on Forever Essentials' General page (WoW Forever
+                -- only).
+                module  = "Forever Essentials",
+                forever = true,
+                title   = "Map Background Options",
+                desc    = "Show the Game Behind the Map has a cog: set how dark the background stays, and let clicks and camera turns pass through it",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIForeverEssentials", page = "General", section = "WORLD MAP", highlight = "Show the Game Behind the Map" } or nil,
+            },
+            {
+                -- The Reskin Tooltip row of BLIZZARD TOOLTIP on Blizzard Skins+' Tooltips & Menus page; Rounded
+                -- Corners is in its cog (both clients).
+                module = "General",
+                title  = "Rounded Tooltips and Menus",
+                desc   = "EllesmereUI's tooltips, right-click menus, hint callouts and the Minimap's middle-click menu now have rounded corners, and so do reskinned game tooltips with a Solid border (toggle in the new cog on Reskin Tooltip)",
+                nav    = { module = "EllesmereUIBlizzardSkin", page = "Tooltips, Menus & Popups", section = "BLIZZARD TOOLTIP", highlight = "Reskin Tooltip" },
+            },
+            {
+                -- The Remember Picks toggle of SEARCH on Global Settings > General (both clients).
+                module = "General",
+                title  = "Smarter Options Search",
+                desc   = "The options search now finds settings inside cog popups, matches words across a setting's name, tooltip and page, and folds same-named results into one expandable row; turn on Remember Picks to rank your frequent picks higher",
+                nav    = { module = "_EUIGlobal", page = "General", section = "SEARCH", highlight = "Remember Picks" },
+            },
+            {
+                -- The Show Energy Bar row of CLASS RESOURCE on the Enemy (Display) page, built for rogues and druids
+                -- (WoW Forever only).
+                module  = "Nameplates",
+                forever = true,
+                title   = "Energy Bar",
+                desc    = "Rogues and druids can show their energy as a thin bar beside the combo points on the target's nameplate; off by default",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUINameplates", page = "Display", section = "CLASS RESOURCE", highlight = "Show Energy Bar" } or nil,
+            },
+            {
+                -- The Enable /euipaste Command toggle of WAYPOINT COMMAND on the Quality of Life page (both
+                -- clients).
+                module = "Quality of Life",
+                title  = "Paste Waypoints",
+                desc   = "The new /euipaste command opens a window to paste a whole list of /way lines and run them in one click, with an action bar macro for it; off by default",
+                nav    = { module = "EllesmereUIQoL", page = "QoL", section = "WAYPOINT COMMAND", highlight = "Enable /euipaste Command" },
+            },
+            {
+                -- The Macro Factory card that opens the Quality of Life page (WoW Forever gains it; retail has had
+                -- it). The card's own section name carries its translated description, so the jump opens the page.
+                module  = "Quality of Life",
+                forever = true,
+                title   = "Macro Factory",
+                desc    = "The Macro Factory is now available: food, drink, healthstone and potion macros that follow your level and bags, plus Warlock stone and Mage Mana Gem macros",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIQoL", page = "QoL" } or nil,
+            },
+        },
+        fixes = {
+            { module = "Action Bars", text = "A bar that was hidden at login and shown later now fades in on mouseover, takes Quick Keybind mouse binds and shows its cooldown edge without a reload." },
+            { module = "Bags", text = "Collapsing the bank's sidebar no longer pushes a bank window on the right side of the screen sideways." },
+            { module = "Bags", text = "Item cooldowns now show on bag slots as soon as an item is used with the bags open." },
+            { module = "Bags", forever = true, text = "A quiver, ammo pouch or soul, herb or enchanting bag in the fifth bag slot no longer counts toward the bag window's slot count." },
+            { module = "Blizzard Skins+", text = "Trainer window skin: the button for your next profession rank shows its hover and selected highlight again, and Quality of Life's Train All button is styled like the Train button beside it." },
+            { module = "Cooldown Manager", text = "A Replace with Buff icon shows the buff's own settings again while the buff is up, such as its Buff Glow, border and duration text." },
+            { module = "Cooldown Manager", forever = true, text = "Paladins: Seals now uses Blizzard's own cooldown entry, which Blizzard fixed, so the temporary Seals row in a bar's Add menu is gone; a Seals tracking bar now shows your active seal and its time left." },
+            { module = "Forever Essentials", forever = true, text = "The Loot Feed shows skill-ups on the Spanish client." },
+            { module = "Forever Essentials", forever = true, text = "Threat meter: the tank's Tank % now always reads 100%." },
+            { module = "Group Finder", retail = true, text = "The Row Height slider and the Group Finder reset no longer raise an error." },
+            { module = "Quality of Life", retail = true, text = "Bonus Roll Confirmation: confirming a roll no longer raises an error, and in combat it now tells you to confirm after combat." },
+            { module = "Quality of Life", retail = true, text = "The Transparent World Map Sidebars cog has a Click Through toggle: turn it off to keep the bars catching clicks." },
+            { module = "Quality of Life", forever = true, text = "Secondary Stats: Hit now includes hit from gear, and stats that cannot be read in combat keep their last value instead of showing a question mark." },
+            { module = "Quest Tracker", forever = true, text = "The Custom Quest Tracker now hides when no quests or recipes are tracked." },
+            { module = "Quest Tracker", forever = true, text = "Show Toggle on Quests Header now shows its filter button on the Custom Quest Tracker's header." },
+            { module = "Resource Bars", text = "Cast bar: a long spell name no longer runs under the timer when Show Total Duration, the latency text or Full Craft Time is on." },
+            { module = "Resource Bars", text = "After a cancelled craft batch, the next batch of the same recipe no longer shows the old batch's craft count and total on the cast bar." },
+            { module = "Resource Bars", forever = true, text = "Arcane Missiles shows its cast bar tick marks at every rank, one per missile." },
+            { module = "Localization", text = "Brazilian Portuguese, German, Korean, Simplified Chinese and Traditional Chinese translations updated." },
+        },
+    },
     {
         version = "9.8.5",
         thanks = true,
@@ -1065,17 +1193,6 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Unlock Mode", forever = true, text = "The Encounter Bar box no longer shows while no encounter bar is up." },
         },
     },
-    {
-        version = "9.7.5",
-        mini = true,
-        fixes = {
-            { module = "Action Bars", text = "Turning Cooldown Numbers on or off now updates your bars at once instead of after a reload." },
-            { module = "Chat", text = "With Input on Top and Blizzard's IM chat style, the empty space above your messages now closes while you aren't typing, and links on the top line can be clicked." },
-            { module = "Cooldown Manager", text = "Buffs set to Also Show Below, buffs with a Stack Count glow and Stack Based Bar Tracking Bars no longer cause Lua errors in combat when the game hides an aura's details from addons." },
-            { module = "Cooldown Manager", forever = true, text = "The Anti-Clip Glow no longer causes Lua errors in combat when the game hides an aura's details from addons; that aura shows no glow there." },
-            { module = "General", forever = true, text = "Blizzard Skins+ window and tooltip skins, friend tiles, the Minimap Friends button, the Chat Menu icon, /cd, the Quest Tracker tools and the Action Bars spellbook, macro and flyout extras now work with the Gamepad interface style, since the 1.60.1 update stops addon hooks from blocking its navigation." },
-        },
-    },
 }
 
 -------------------------------------------------------------------------------
@@ -1780,7 +1897,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
         end
         -- Cog with "Only Hide Fully Synced" toggle on Disable Sync Icons (right region)
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = euiBtnRow._rightRegion
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Sync Icon Options",
@@ -1995,16 +2112,18 @@ initFrame:SetScript("OnEvent", function(self)
                     cancelText  = "Later",
                 })
               end });  y = y - h
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = combatTextRow._leftRegion
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rgn, 210, rgn:GetFrameLevel() + 2, COMBAT_TEXT,
-                function(key) return GetCVarBool(key) end,
-                function(key, v) SetCVarSafe(key, v and "1" or "0") end)
-            PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
-            rgn._control = cbDD
-            rgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+            if not EllesmereUI._prebuilding then
+                local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    rgn, 210, rgn:GetFrameLevel() + 2, COMBAT_TEXT,
+                    function(key) return GetCVarBool(key) end,
+                    function(key, v) SetCVarSafe(key, v and "1" or "0") end)
+                PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+                rgn._control = cbDD
+                rgn._lastInline = nil
+                EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+            end
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Combat Text Size",
                 rows = {
@@ -2060,6 +2179,32 @@ initFrame:SetScript("OnEvent", function(self)
               end },
             swiftmendCfg
         ); y = y - h
+
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+
+        -- The options search box: results picked often rank higher.
+        _, h = W:SectionHeader(parent, "SEARCH", y);  y = y - h
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Remember Picks",
+              tooltip="Results you pick often rank higher in the search.",
+              getValue=function() return EllesmereUI.SearchPicksOn() end,
+              setValue=function(v)
+                  EllesmereUI.SetSearchPicksOn(v)
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="labeledButton", text="Pick History", buttonText="Clear", width=90,
+              tooltip="Forgets the results you have picked.",
+              disabled=function() return not EllesmereUI.SearchPicksOn() end,
+              disabledTooltip="Remember Picks",
+              onClick=function()
+                  EllesmereUI:ShowConfirmPopup({
+                      title       = "Clear Pick History",
+                      message     = "Forget every search result you have picked? Search ranking goes back to the default order.",
+                      confirmText = "Clear",
+                      cancelText  = "Cancel",
+                      onConfirm   = function() EllesmereUI.ClearSearchPicks() end,
+                  })
+              end });  y = y - h
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -2261,6 +2406,8 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.ApplyColorsToOUF()
             -- Reset the active profile's Number Format to defaults
             EllesmereUI.ResetNumberFormat()
+            -- Remember Picks off again, its pick history gone with it
+            EllesmereUI.SetSearchPicksOn(false)
             -- Reset panel scale to 100%
             EllesmereUI:SetPanelScale(1.0)
             -- Reset right-click targeting to default (disabled = off)
@@ -2549,6 +2696,7 @@ initFrame:SetScript("OnEvent", function(self)
             title       = "Patch Notes",
             description = EllesmereUI.L("What's new in EllesmereUI."),
             pages       = { PAGE_WHATSNEW },
+            _searchPrebuild = false, -- a feed with no settings: the pass indexed nothing here
             buildPage   = function(pageName, parent, yOffset)
                 return EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
             end,

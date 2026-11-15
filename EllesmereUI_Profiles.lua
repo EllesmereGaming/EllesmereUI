@@ -2121,6 +2121,7 @@ do
         "tooltipShowBuffs", "tooltipBuffPosition", "tooltipBuffSize",
         "tooltipBuffsPerRow", "tooltipBuffOffsetX", "tooltipBuffOffsetY",
         "tooltipBgColor", "tooltipBgOpacity", "tooltipBorderSize",
+        "tooltipRoundedCorners",
         "showSpellID", "spellIDModifier", "showIconID", "showItemID",
         "showItemMaxStacks", "itemStackModifier",
         "reskinPopupsMenus", "reskinGameMenu", "reskinQueuePopup",
@@ -2164,7 +2165,7 @@ do
         "reskinMicroMenu", "reskinBagBar", "reskinLegacySystem", "reskinHousing", "reskinDressUp", "reskinTransmog",
         "reskinMerchant", "reskinAuctionHouse", "reskinMacros",
         "reskinSettings", "reskinAddonList", "reskinCraftOrders",
-        "reskinTrainer", "reskinGossip", "reskinQuest", "reskinInspectRecipe",
+        "reskinTrainer", "reskinStable", "reskinGossip", "reskinQuest", "reskinInspectRecipe",
         "reskinDelves", "reskinSocialUI",
         "reskinQueueStatus", "reskinDelvePicker", "reskinPlayerChoice",
         "reskinTrade", "reskinFlagCarriers",
@@ -2483,6 +2484,7 @@ local FULL_EXPORT_EXCLUDED = {
     mailAltHidden         = true, -- and the characters it hides
     lootFeedHistory       = true, -- Forever Loot History rows
     raidHoroscope         = true, -- Party Mode birthdays
+    searchPicks           = true, -- options search: the player's own picks
     bagCurrencyByChar     = true, -- Bags tracked currencies
     bagPinnedByChar       = true, -- Bags pinned items
     mageArmorByChar       = true, -- AuraBuff Reminders (Forever): last mage armor
@@ -4925,15 +4927,27 @@ end
 -------------------------------------------------------------------------------
 --  Import Popup
 -------------------------------------------------------------------------------
--- opts: confirmLabel (button text), rawPaste (no paste absorber; for short multi-line text).
+-- opts: confirmLabel (button text), rawPaste (no paste absorber; for short multi-line text), keep (a
+-- key, with rawPaste: the popup is built once for that key and shown again with an empty box; its
+-- title, subtitle, label and callback are the first call's).
+local keptImportPopups = {}
 function EllesmereUI:ShowImportPopup(onImport, title, subtitle, opts)
     opts = opts or {}
-    local dimmer, editBox = BuildStringPopup(
-        title or "Import Profile",
-        subtitle or "Paste an EllesmereUI profile string below",
-        false,
-        function(str) if onImport then onImport(str) end end,
-        opts.confirmLabel or "Import", opts.rawPaste)
+    local key = opts.rawPaste and opts.keep
+    local kept = key and keptImportPopups[key]
+    local dimmer, editBox
+    if kept then
+        dimmer, editBox = kept.dimmer, kept.editBox
+        editBox:SetText("")
+    else
+        dimmer, editBox = BuildStringPopup(
+            title or "Import Profile",
+            subtitle or "Paste an EllesmereUI profile string below",
+            false,
+            function(str) if onImport then onImport(str) end end,
+            opts.confirmLabel or "Import", opts.rawPaste)
+        if key then keptImportPopups[key] = { dimmer = dimmer, editBox = editBox } end
+    end
 
     dimmer:Show()
     C_Timer.After(0.05, function() editBox:SetFocus() end)

@@ -155,7 +155,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
           end }
     );  y = y - h
     -- Inline cog on Show Spell Icon
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = iconRow._leftRegion
         local FREE_TIP = "This option requires the icon at bar size with no offset."
         local function IconFree() local p = DB(); return p and ns.ERB_CastIconFree(p.castBar) end
@@ -400,7 +400,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
             EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch(); UpdateBorderSwatchState() end)
             UpdateBorderSwatchState()
         end
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = cbBsRow._leftRegion
             local sepValues, sepOrder = ns.ERB_SeparatorArtValues(true)
             local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
@@ -494,13 +494,15 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
                       end },
                 },
             })
-            local function UpdateCogVis()
-                local p = DB()
-                local tex = p and p.castBar.borderTexture or "solid"
-                if tex == "solid" or EllesmereUI.BlizzStyle.Get("castbar") then cogBtn:Hide() else cogBtn:Show() end
+            if not EllesmereUI._prebuilding then
+                local function UpdateCogVis()
+                    local p = DB()
+                    local tex = p and p.castBar.borderTexture or "solid"
+                    if tex == "solid" or EllesmereUI.BlizzStyle.Get("castbar") then cogBtn:Hide() else cogBtn:Show() end
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
+                UpdateCogVis()
             end
-            EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
-            UpdateCogVis()
         end
     end
 
@@ -531,7 +533,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
     -- Inline cog on Fill Color: the gradient and the channel / uninterruptible
     -- color overrides (not under Blizzard Style, whose fill art is stock) and Out
     -- of Range Gray (every style).
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = castColorRow._leftRegion
         local function gradientOff() return castFillBlizz end
         EllesmereUI.BuildInlineCog(rgn, {
@@ -763,7 +765,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
     );  y = y - h
     -- Inline cog on Bar Texture: Textured Background (greyed while the cast bar
     -- is off, and under Blizzard Style, whose own background art stays).
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(textRow._leftRegion, {
             disabled = function() return castOff() or EllesmereUI.BlizzStyle.Active("castbar") == "blizzard" end,
             disabledTooltip = function()
@@ -776,7 +778,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
         })
     end
     -- Inline cog (RESIZE) on Spell Text for text size + x/y
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = textRow._rightRegion
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local p = DB(); return p and (not p.castBar.enabled or not p.castBar.showSpellText) end,
@@ -871,7 +873,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
           end }
     );  y = y - h
     -- Inline cog (RESIZE) on Duration Text for timer size + x/y
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = timerRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local p = DB(); return p and (not p.castBar.enabled or not p.castBar.showTimer) end,

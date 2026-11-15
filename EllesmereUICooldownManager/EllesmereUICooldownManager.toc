@@ -57,7 +57,6 @@ EllesmereUICdmTalentConditions.lua
 EllesmereUICdmStanceBar.lua
 EUI_CDM_ForeverAntiClip.lua
 EUI_CDM_AuraIcons.lua
-EUI_CDM_ForeverSeals.lua
 EUI_CDM_ForeverLinkedAura.lua
 
 # Options

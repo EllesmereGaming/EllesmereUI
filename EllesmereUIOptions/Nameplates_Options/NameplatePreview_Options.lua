@@ -980,6 +980,21 @@ local function BuildNameplatePreview(parent, parentW, mode)
     CP.bar._bg = CP.bar:CreateTexture(nil, "BACKGROUND")
     CP.bar._bg:SetAllPoints()
     CP.bar._bg:SetColorTexture(0.082, 0.082, 0.082, 1)
+    -- Energy bar preview (WoW Forever rogues and druids: ns.NP_ENERGY_BAR)
+    if ns.NP_ENERGY_BAR then
+        CP.energy = CreateFrame("StatusBar", nil, pf)
+        CP.energy:SetStatusBarTexture(CP.WHITE)
+        CP.energy:SetFrameLevel(pf:GetFrameLevel() + 5)
+        CP.energy:Hide()
+        CP.energy._bg = CP.energy:CreateTexture(nil, "BACKGROUND")
+        CP.energy._bg:SetAllPoints()
+    end
+    function CP.EnergyOn()
+        return ns.NP_ENERGY_BAR and DBVal("classPowerEnergyBar") == true
+    end
+    function CP.HideEnergy()
+        if CP.energy then CP.energy:Hide() end
+    end
 
     -- Offset badge: shown by UpdateCP (via CP.Clamp) only when the class-resource
     -- Y offset is clamped to the plate in the preview. Reports the real offset
@@ -1465,6 +1480,11 @@ local function BuildNameplatePreview(parent, parentW, mode)
                 -- NOT added here so the preview frame never grows with the offset.
                 -- UpdateCP clamps the pips inside the plate and badges the real value.
                 cpPush = CP.PIP_H * cpScale
+                if CP.EnergyOn() then
+                    local cpGap = DBVal("classPowerGap") or defaults.classPowerGap
+                    cpPush = cpPush + (DBVal("classPowerEnergyHeight") or defaults.classPowerEnergyHeight)
+                        + math.max(cpGap * cpScale, 1)
+                end
             end
         end
         -- Apply current random preview values (regenerated on tab switch only)
@@ -3056,6 +3076,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                 end
                 local cpYShown, cpYReal, cpEdgeIn, cpDirIn = CP.Clamp(cpPos == "top", yDir, cpYOff, scaledH, -healthFromTop, castBotY)
 
+                CP.HideEnergy()
                 local bar = CP.bar
                 bar:ClearAllPoints()
                 bar:SetSize(barW, scaledH)
@@ -3078,6 +3099,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                     ns.HidePipDecor(CP.pips[i])
                 end
                 CP.bar:Hide()
+                CP.HideEnergy()
             else
                 CP.bar:Hide()
                 local cpScale = DBVal("classPowerScale") or defaults.classPowerScale
@@ -3095,6 +3117,11 @@ local function BuildNameplatePreview(parent, parentW, mode)
                 local scaledH   = cpSquare and scaledW or Snap(CP.PIP_H * cpScale)
                 local scaledGap = Snap(cpGap * cpScale)
                 local totalPipW = cpMax * scaledW + (cpMax - 1) * scaledGap
+                -- Energy bar: "inner" sits against the health bar and pushes the pips outward.
+                local eOn    = CP.EnergyOn()
+                local eH     = eOn and Snap(DBVal("classPowerEnergyHeight") or defaults.classPowerEnergyHeight) or 0
+                local eGap   = eOn and math.max(scaledGap, 1) or 0
+                local eInner = eOn and (DBVal("classPowerEnergyAnchor") or defaults.classPowerEnergyAnchor) == "inner"
 
                 -- Determine anchor frame and direction
                 local anchorPoint, anchorRelPoint, anchorFrame, yDir
@@ -3110,7 +3137,8 @@ local function BuildNameplatePreview(parent, parentW, mode)
                     anchorFrame    = cast
                     yDir = -1
                 end
-                local cpYShown, cpYReal, cpEdgeIn, cpDirIn = CP.Clamp(cpPos == "top", yDir, cpYOff, scaledH, -healthFromTop, castBotY)
+                local cpYShown, cpYReal, cpEdgeIn, cpDirIn = CP.Clamp(cpPos == "top", yDir, cpYOff, scaledH + eH + eGap, -healthFromTop, castBotY)
+                local pipY = Snap(yDir * (cpYShown + (eInner and (eH + eGap) or 0)))
 
                 local cpEmptyCol = (DB() and DB().classPowerEmptyColor) or defaults.classPowerEmptyColor
 
@@ -3131,7 +3159,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                         pip:SetSize(scaledW, scaledH)
                         local pipLeftX = Snap(pipPositions[i] - halfGroup + cpXOff)
                         pip:SetPoint(leftAnchor, anchorFrame, anchorRelPoint,
-                            pipLeftX, Snap(yDir * cpYShown))
+                            pipLeftX, pipY)
 
                         -- Background behind each pip
                         local bg = pip._bg
@@ -3194,10 +3222,27 @@ local function BuildNameplatePreview(parent, parentW, mode)
                         if pip._borderBox then pip._borderBox:Hide() end
                     end
                 end
+                if eOn then
+                    local e = CP.energy
+                    local eW = Snap(groupW * (DBVal("classPowerEnergyWidth") or defaults.classPowerEnergyWidth))
+                    local eEdge = eInner and cpYShown or (cpYShown + scaledH + eGap)
+                    e:ClearAllPoints()
+                    e:SetSize(eW, eH)
+                    e:SetPoint(leftAnchor, anchorFrame, anchorRelPoint,
+                        Snap(cpXOff - eW / 2 + (DBVal("classPowerEnergyXOffset") or defaults.classPowerEnergyXOffset)),
+                        Snap(yDir * eEdge + (DBVal("classPowerEnergyYOffset") or defaults.classPowerEnergyYOffset)))
+                    e:SetMinMaxValues(0, 100)
+                    e:SetValue(65)
+                    e:SetStatusBarColor(cpColor[1], cpColor[2], cpColor[3], 1)
+                    e._bg:SetColorTexture(cpBgCol.r, cpBgCol.g, cpBgCol.b, cpBgCol.a)
+                    e:Show()
+                else
+                    CP.HideEnergy()
+                end
                 -- Base reservation only -- the offset never grows the frame (pips
                 -- are clamped to the plate by CP.Clamp instead).
                 if cpPos ~= "top" then
-                    cpExtraH = scaledH
+                    cpExtraH = scaledH + eH + eGap
                 end
                 if cpYReal then CP.ShowBadge(cpEdgeIn, cpDirIn, cpCenterX + cpXOff, cpYReal) end
             end
@@ -3208,6 +3253,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                 ns.HidePipDecor(CP.pips[i])
             end
             CP.bar:Hide()
+            CP.HideEnergy()
         end
         return cpExtraH
         end

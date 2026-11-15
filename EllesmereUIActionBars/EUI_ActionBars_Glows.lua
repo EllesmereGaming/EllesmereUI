@@ -1075,7 +1075,6 @@ end
 
 -- Per-button hooks avoid tainting the secure execution path.
 local _cdEdge = {
-    hooked = false,
     pending = {},       -- reusable { [cdFrame] = btn, ... }
     pendingCount = 0,
     timerScheduled = false,
@@ -1191,25 +1190,11 @@ function EAB_VTABLE.CooldownFonts.HookButton(btn)
     -- queues the font patch. If it has not run yet, it picks fonts up when it does.
 end
 
-local function HookCooldownEdge()
-    if _cdEdge.hooked then return end
-    _cdEdge.hooked = true
-    for _, info in ipairs(BAR_CONFIG) do
-        local buttons = barButtons[info.key]
-        if buttons then
-            for i = 1, #buttons do
-                local btn = buttons[i]
-                if btn and EFD(btn).squared then
-                    HookButtonCooldownEdge(btn)
-                end
-            end
-        end
-    end
-end
-
+-- Every squared button is hooked here, once each (HookButtonCooldownEdge keeps
+-- a mark per button), so a button built or squared after an earlier pass is
+-- hooked by the next one.
 function EAB:ApplyCooldownEdge()
     if not self.db.profile.squareIcons then return end
-    HookCooldownEdge()
     local p = self.db.profile
     local cr, cg, cb, ca = ResolveCooldownEdgeColor(p)
     local sz = p.cooldownEdgeSize or 2.1
@@ -1219,6 +1204,7 @@ function EAB:ApplyCooldownEdge()
             for i = 1, #buttons do
                 local btn = buttons[i]
                 if btn and EFD(btn).squared then
+                    HookButtonCooldownEdge(btn)
                     -- Clear edge cache so the hook re-applies on next cooldown
                     if btn.cooldown then EFD(btn.cooldown).edgeDone = nil end
                     if btn.chargeCooldown then EFD(btn.chargeCooldown).edgeDone = nil end

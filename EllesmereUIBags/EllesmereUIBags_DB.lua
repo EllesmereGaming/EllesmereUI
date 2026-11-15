@@ -43,6 +43,7 @@ local BAGS_DEFAULTS = {
         bagDimPinnedInOneBag  = false,   -- Dim Items in OneBag/MultiBag (the Pinned Items cog)
         bagRecentInOneBag     = false,
         bagShowRecentClear    = false,
+        bagRecentNewOnly      = false,   -- Recent Items: only items not carried before (gear, mail, trade always)
         -- Bag Top Bar Icons: the header's Show Bags, Junk Marker, Quick Actions and Sort icons
         bagShowBagsIcon       = true,
         bagShowJunkIcon       = true,    -- the Junk Marker: header coin, Junk category, Sell Junk at merchants

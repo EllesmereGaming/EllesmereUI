@@ -378,7 +378,8 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         MF.Apply()
     end
 
-    _, h = W:DualRow(parent, y,
+    local fadeRow
+    fadeRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Fade Map While Moving",
           tooltip = "The world map fades while you move and comes back when you stop or hover it.",
           getValue = function() return MF.Get("enabled") end,
@@ -386,8 +387,28 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         { type = "toggle", text = "Show the Game Behind the Map",
           tooltip = "Lightens the black behind the maximized world map.",
           getValue = function() return MF.Get("dim") end,
-          setValue = function(v) SetFade("dim", v) end }
+          setValue = function(v)
+              SetFade("dim", v)
+              EllesmereUI:RefreshPage()  -- the cog's disabled state
+          end }
     );  y = y - h
+    do
+        EllesmereUI.BuildInlineCog(fadeRow._rightRegion, {
+            title = "Map Background Settings",
+            rows = {
+                { type = "slider", label = "Opacity", min = 0, max = 100, step = 5,
+                  get = function() return MF.Get("dimOpacity") end,
+                  set = function(v) SetFade("dimOpacity", v) end },
+                { type = "toggle", label = "Click Through",
+                  tooltip = "Lets clicks and camera turns pass through.",
+                  get = function() return MF.Get("dimClickThrough") == true end,
+                  set = function(v) SetFade("dimClickThrough", v) end },
+            },
+            gap = 9,
+            disabled = function() return not MF.Get("dim") end,
+            disabledTooltip = "Show the Game Behind the Map",
+        })
+    end
 
     local revealRow
     revealRow, h = W:DualRow(parent, y,
@@ -426,7 +447,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               ZL.Apply()
           end }
     );  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(revealRow._leftRegion, {
             title = "Reveal Unexplored Areas Settings",
             rows = {
@@ -447,7 +468,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
 
     -- Map Markers: one toggle; the cog picks the kinds, as the map's filter
     -- menu does, all shown until turned off.
-    if not EllesmereUI._prebuilding then
+    do
         local TIPS = {
             exits = "On zone maps, an arrow on each road out of the zone, pointing to the zone it leads to.",
             flights = "On zone maps, the flight masters, those you have not found yet included.",
@@ -719,7 +740,11 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               setValue = function(v) JunkSet("showFreeSlots", v) end }
         );  y = y - h
 
-        -- Only Show When Bag Space Is Low (its threshold in the cog) | Use Auctionator Prices
+        local FE = EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"]
+        local function noPriceAddon()
+            return not (FE.PriceSourceLoaded("AUCTIONATOR") or FE.PriceSourceLoaded("BBB"))
+        end
+        -- Only Show When Bag Space Is Low (its threshold in the cog) | Use Auction Prices (its addon in the cog)
         local lowRow
         lowRow, h = W:DualRow(parent, y,
             { type = "toggle", text = "Only Show When Bag Space Is Low",
@@ -729,16 +754,29 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
                   JunkSet("onlyLowBagSpace", v)
                   EllesmereUI:RefreshPage()  -- the cog's disabled state
               end },
-            { type = "toggle", text = "Use Auctionator Prices",
-              tooltip = "Prices items from Auctionator scans.",
-              disabled = function()
-                  return EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"].AuctionAPI() == nil
-              end,
-              disabledTooltip = "This option requires Auctionator to be loaded.",
+            { type = "toggle", text = "Use Auction Prices",
+              tooltip = "Prices items from your auction addon's scans. Use the cog to pick the addon.",
+              disabled = noPriceAddon,
+              disabledTooltip = "This option requires Auctionator or BootyBayBroker to be loaded.",
               getValue = function() return JI.Get("auctionPrices") == true end,
-              setValue = function(v) JunkSet("auctionPrices", v) end }
+              setValue = function(v)
+                  JunkSet("auctionPrices", v)
+                  EllesmereUI:RefreshPage()  -- the cog's disabled state
+              end }
         );  y = y - h
-        if not EllesmereUI._prebuilding then
+        do
+            EllesmereUI.BuildInlineCog(lowRow._rightRegion, {
+                title = "Use Auction Prices",
+                disabled = function() return noPriceAddon() or JI.Get("auctionPrices") ~= true end,
+                disabledTooltip = "Use Auction Prices",
+                rows = {
+                    { type = "dropdown", label = "Price Source",
+                      values = FE.PRICE_SOURCES, order = FE.PRICE_SOURCE_ORDER,
+                      get = function() return FE.PriceSource(JI.Get("priceSource")) end,
+                      set = function(v) JunkSet("priceSource", v) end,
+                      itemDisabled = function(v) return not FE.PriceSourceLoaded(v) end },
+                },
+            })
             EllesmereUI.BuildInlineCog(lowRow._leftRegion, {
                 title = "Only Show When Bag Space Is Low",
                 disabled = function() return JI.Get("onlyLowBagSpace") ~= true end,
@@ -790,9 +828,12 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               EllesmereUI:RefreshPage()  -- the cog's disabled state
           end }
     );  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = fishKeyRow._leftRegion
-        local kbBtn, refresh = EllesmereUI.BuildKeybindButton(rgn, {
+        local kbBtn
+        if not EllesmereUI._prebuilding then
+        local refresh
+        kbBtn, refresh = EllesmereUI.BuildKeybindButton(rgn, {
             w = 140, h = 30, font = 13,
             get = function() return FI.Get("key") end,
             set = function(v)
@@ -803,6 +844,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         })
         EllesmereUI.PanelPP.Point(kbBtn, "RIGHT", rgn, "RIGHT", -20, 0)
         EllesmereUI.RegisterWidgetRefresh(refresh)
+        end
 
         local function fishRow(label, tooltip, key)
             return { type = "toggle", label = label, tooltip = tooltip,

@@ -96,7 +96,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
     end }
 
     -- Max health reduction overlay, off by default: its texture and colour are listed while it is on.
-    if not EllesmereUI._prebuilding then
+    do
         local k = ns.HEALTH_INDICATORS[3]
         local function lossOff() local c = cfg(); return not (c and c[k.show] == true) end
         EllesmereUI.BuildInlineCog(healthEnableRow._leftRegion, {
@@ -162,91 +162,91 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                   c[k.opacity] = v; RefreshHealth()
               end }
         );  y = y - h
-        if not EllesmereUI._prebuilding then
-            local rgn = absorbRow._leftRegion
-            do
-                local isHeal = k.key == "healAbsorb"
-                local edgeKey = isHeal and "healAbsorbEdgeMode" or "absorbEdgeMode"
-                local edgeDefault = isHeal and "overlay" or "overlayReverse"
-                local edgeLabels = { overlay = "Overlay" }
-                if not isHeal then
-                    edgeLabels.overlayReverse = "Overlay Reverse"
-                    edgeLabels.overlayReverseFull = "Overlay Reverse (Full)"
-                end
-                local lastVertical
-                local function isVertical()
-                    local c, p = cfg(), DB()
-                    local ori = (c and c.orientation) or (p and p.general.orientation) or "HORIZONTAL"
-                    return ori == "VERTICAL_UP" or ori == "VERTICAL_DOWN"
-                end
-                local function syncLabels()
-                    local vertical = isVertical()
-                    if lastVertical == vertical then return false end
-                    lastVertical = vertical
-                    edgeLabels.right = vertical and "From Top Edge" or "From Right Edge"
-                    edgeLabels.left = vertical and "From Bottom Edge" or "From Left Edge"
-                    return true
-                end
-                local function get(key, fallback)
-                    local c = cfg()
-                    if c and c[key] ~= nil then return c[key] end
-                    return fallback
-                end
-                local function set(key, value)
-                    local c = cfg(); if not c then return end
-                    c[key] = value; RefreshHealth()
-                end
-                local function glowUnavailable()
-                    return styleOff() or isVertical() or get("absorbEdgeMode", "overlayReverse") == "left"
-                end
-                syncLabels()
-                local rows = {
-                        { type = "dropdown", label = "Placement", values = edgeLabels, ddWidth = 190,
-                          order = isHeal and { "overlay", "right", "left" }
-                              or { "overlay", "overlayReverse", "overlayReverseFull", "right", "left" },
-                          disabled = isHeal and styleOff or nil,
-                          disabledTooltip = styleText,
-                          get = function() syncLabels(); return get(edgeKey, edgeDefault) end,
-                          set = function(v) set(edgeKey, v) end },
-                }
-                if isHeal then
-                    rows[2] = { type = "slider", label = "Backing Opacity", min = 0, max = 100, step = 1,
-                        disabled = styleOff, disabledTooltip = styleText,
-                        get = function() return get("healAbsorbBgOpacity", 0) end,
-                        set = function(v) set("healAbsorbBgOpacity", v) end }
-                else
-                    rows[2] = { type = "dropdown", label = "Show Overshield",
-                          tooltip = "Overshield is the part of an absorb exceeding your empty health. Always backfills it over current health from the shield's edge; From Left grows it from the opposite end of the bar; Never hides it.",
-                          values = { never = "Never", always = "Always", fromleft = "From Left" },
-                          order = { "never", "always", "fromleft" },
-                          itemDisabled = function(v)
-                              return v == "fromleft" and get("absorbEdgeMode", "overlayReverse") ~= "overlay"
-                          end,
-                          get = function() return get("overshieldMode", "always") end,
-                          set = function(v) set("overshieldMode", v) end }
-                    rows[3] = { type = "toggle", label = "Blizzard Glow Line",
-                          tooltip = "Adds the Blizzard shield glow line where the shield meets current health.",
-                          disabled = glowUnavailable,
-                          disabledTooltip = function()
-                              if styleOff() then return "The glow line is not shown with Absorb Style None" end
-                              return "The glow line is not shown on a vertical fill or with the From Left Edge placement"
-                          end,
-                          rawTooltip = true,
-                          get = function() return get("absorbGlowLine", false) == true end,
-                          set = function(v) set("absorbGlowLine", v) end }
-                    rows[4] = { type = "dropdown", label = "Glow Line Texture",
-                          tooltip = "Art used for the glow line and the overshield edge.",
-                          values = { blizzard = "Blizzard", pixelsGlow = "Pixels Glow Line", pixelsOvershield = "Pixels Overshield Line" },
-                          order = { "blizzard", "pixelsGlow", "pixelsOvershield" },
-                          disabled = function() return glowUnavailable() or get("absorbGlowLine", false) ~= true end,
-                          disabledTooltip = "Blizzard Glow Line",
-                          get = function() return get("absorbGlowLineTexture", "blizzard") end,
-                          set = function(v) set("absorbGlowLineTexture", v) end }
-                end
-                local _, cogShow = EllesmereUI.BuildInlineCog(rgn, {
-                    title = isHeal and "Heal Absorb Rendering" or "Absorb Rendering",
-                    rows = rows,
-                })
+        local rgn = absorbRow._leftRegion
+        do
+            local isHeal = k.key == "healAbsorb"
+            local edgeKey = isHeal and "healAbsorbEdgeMode" or "absorbEdgeMode"
+            local edgeDefault = isHeal and "overlay" or "overlayReverse"
+            local edgeLabels = { overlay = "Overlay" }
+            if not isHeal then
+                edgeLabels.overlayReverse = "Overlay Reverse"
+                edgeLabels.overlayReverseFull = "Overlay Reverse (Full)"
+            end
+            local lastVertical
+            local function isVertical()
+                local c, p = cfg(), DB()
+                local ori = (c and c.orientation) or (p and p.general.orientation) or "HORIZONTAL"
+                return ori == "VERTICAL_UP" or ori == "VERTICAL_DOWN"
+            end
+            local function syncLabels()
+                local vertical = isVertical()
+                if lastVertical == vertical then return false end
+                lastVertical = vertical
+                edgeLabels.right = vertical and "From Top Edge" or "From Right Edge"
+                edgeLabels.left = vertical and "From Bottom Edge" or "From Left Edge"
+                return true
+            end
+            local function get(key, fallback)
+                local c = cfg()
+                if c and c[key] ~= nil then return c[key] end
+                return fallback
+            end
+            local function set(key, value)
+                local c = cfg(); if not c then return end
+                c[key] = value; RefreshHealth()
+            end
+            local function glowUnavailable()
+                return styleOff() or isVertical() or get("absorbEdgeMode", "overlayReverse") == "left"
+            end
+            syncLabels()
+            local rows = {
+                    { type = "dropdown", label = "Placement", values = edgeLabels, ddWidth = 190,
+                      order = isHeal and { "overlay", "right", "left" }
+                          or { "overlay", "overlayReverse", "overlayReverseFull", "right", "left" },
+                      disabled = isHeal and styleOff or nil,
+                      disabledTooltip = styleText,
+                      get = function() syncLabels(); return get(edgeKey, edgeDefault) end,
+                      set = function(v) set(edgeKey, v) end },
+            }
+            if isHeal then
+                rows[2] = { type = "slider", label = "Backing Opacity", min = 0, max = 100, step = 1,
+                    disabled = styleOff, disabledTooltip = styleText,
+                    get = function() return get("healAbsorbBgOpacity", 0) end,
+                    set = function(v) set("healAbsorbBgOpacity", v) end }
+            else
+                rows[2] = { type = "dropdown", label = "Show Overshield",
+                      tooltip = "Overshield is the part of an absorb exceeding your empty health. Always backfills it over current health from the shield's edge; From Left grows it from the opposite end of the bar; Never hides it.",
+                      values = { never = "Never", always = "Always", fromleft = "From Left" },
+                      order = { "never", "always", "fromleft" },
+                      itemDisabled = function(v)
+                          return v == "fromleft" and get("absorbEdgeMode", "overlayReverse") ~= "overlay"
+                      end,
+                      get = function() return get("overshieldMode", "always") end,
+                      set = function(v) set("overshieldMode", v) end }
+                rows[3] = { type = "toggle", label = "Blizzard Glow Line",
+                      tooltip = "Adds the Blizzard shield glow line where the shield meets current health.",
+                      disabled = glowUnavailable,
+                      disabledTooltip = function()
+                          if styleOff() then return "The glow line is not shown with Absorb Style None" end
+                          return "The glow line is not shown on a vertical fill or with the From Left Edge placement"
+                      end,
+                      rawTooltip = true,
+                      get = function() return get("absorbGlowLine", false) == true end,
+                      set = function(v) set("absorbGlowLine", v) end }
+                rows[4] = { type = "dropdown", label = "Glow Line Texture",
+                      tooltip = "Art used for the glow line and the overshield edge.",
+                      values = { blizzard = "Blizzard", pixelsGlow = "Pixels Glow Line", pixelsOvershield = "Pixels Overshield Line" },
+                      order = { "blizzard", "pixelsGlow", "pixelsOvershield" },
+                      disabled = function() return glowUnavailable() or get("absorbGlowLine", false) ~= true end,
+                      disabledTooltip = "Blizzard Glow Line",
+                      get = function() return get("absorbGlowLineTexture", "blizzard") end,
+                      set = function(v) set("absorbGlowLineTexture", v) end }
+            end
+            local _, cogShow = EllesmereUI.BuildInlineCog(rgn, {
+                title = isHeal and "Heal Absorb Rendering" or "Absorb Rendering",
+                rows = rows,
+            })
+            if not EllesmereUI._prebuilding then
                 EllesmereUI.RegisterWidgetRefresh(function()
                     if not syncLabels() then return end
                     local popup = cogShow and cogShow._popupFrame
@@ -257,6 +257,8 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                     end
                 end)
             end
+        end
+        if not EllesmereUI._prebuilding then
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, absorbRow:GetFrameLevel() + 3,
                 function()
@@ -428,12 +430,12 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                     EllesmereUI.BlizzStyle.Gate("resourcebars", ocfgR));  y = y - h
             end
         end
-        if not EllesmereUI._prebuilding and not ns.ERB_ClassicBorderRow() then
+        if not ns.ERB_ClassicBorderRow() then
             local rgn = hpBsRow._rightRegion
             local ctrl = rgn._control
             -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
             -- border size control. The stock styles keep the bars square.
-            if not EllesmereUI._prebuilding then
+            do
                 EllesmereUI.BuildInlineCog(hpBsRow._rightRegion, {
                     title = "Corner Radius", tip = "Corner Radius",
                     disabled = function()
@@ -454,36 +456,38 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                        function(v) local c = cfg(); if not c then return end; c.cornerMask = v; RebuildHealth() end),
                 })
             end
-            local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
-                rgn, hpBsRow:GetFrameLevel() + 3,
-                function()
-                    local c = cfg()
-                    return (c and c.borderR or 0), (c and c.borderG or 0),
-                           (c and c.borderB or 0), (c and c.borderA or 1)
-                end,
-                function(r, g, b, a)
-                    local c = cfg(); if not c then return end
-                    c.borderR, c.borderG, c.borderB, c.borderA = r, g, b, a
-                    SmoothRefresh(); EllesmereUI:RefreshPage()
-                end,
-                true, 20)
-            PP.Point(borderSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
-            rgn._lastInline = borderSwatch  -- left of the Corner Radius cog
-            EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
-            local swBlock = CreateFrame("Frame", nil, borderSwatch)
-            swBlock:SetAllPoints()
-            swBlock:SetFrameLevel(borderSwatch:GetFrameLevel() + 10)
-            swBlock:EnableMouse(true)
-            swBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(borderSwatch, EllesmereUI.DisabledTooltip("Health Bar")) end)
-            swBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateBorderSwDis()
-                if healthOff() then borderSwatch:SetAlpha(0.3); swBlock:Show()
-                else borderSwatch:SetAlpha(1); swBlock:Hide() end
+            if not EllesmereUI._prebuilding then
+                local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
+                    rgn, hpBsRow:GetFrameLevel() + 3,
+                    function()
+                        local c = cfg()
+                        return (c and c.borderR or 0), (c and c.borderG or 0),
+                               (c and c.borderB or 0), (c and c.borderA or 1)
+                    end,
+                    function(r, g, b, a)
+                        local c = cfg(); if not c then return end
+                        c.borderR, c.borderG, c.borderB, c.borderA = r, g, b, a
+                        SmoothRefresh(); EllesmereUI:RefreshPage()
+                    end,
+                    true, 20)
+                PP.Point(borderSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
+                rgn._lastInline = borderSwatch  -- left of the Corner Radius cog
+                EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
+                local swBlock = CreateFrame("Frame", nil, borderSwatch)
+                swBlock:SetAllPoints()
+                swBlock:SetFrameLevel(borderSwatch:GetFrameLevel() + 10)
+                swBlock:EnableMouse(true)
+                swBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(borderSwatch, EllesmereUI.DisabledTooltip("Health Bar")) end)
+                swBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdateBorderSwDis()
+                    if healthOff() then borderSwatch:SetAlpha(0.3); swBlock:Show()
+                    else borderSwatch:SetAlpha(1); swBlock:Hide() end
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateBorderSwDis)
+                UpdateBorderSwDis()
             end
-            EllesmereUI.RegisterWidgetRefresh(UpdateBorderSwDis)
-            UpdateBorderSwDis()
         end
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = hpBsRow._leftRegion
             local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
                 title = "Border Options",
@@ -520,13 +524,15 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                       end },
                 },
             })
-            local function UpdateCogVis()
-                local c = cfg()
-                local tex = c and c.borderTexture or "solid"
-                if tex == "solid" or ns.ERB_ClassicBorderRow() then cogBtn:Hide() else cogBtn:Show() end
+            if not EllesmereUI._prebuilding then
+                local function UpdateCogVis()
+                    local c = cfg()
+                    local tex = c and c.borderTexture or "solid"
+                    if tex == "solid" or ns.ERB_ClassicBorderRow() then cogBtn:Hide() else cogBtn:Show() end
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
+                UpdateCogVis()
             end
-            EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
-            UpdateCogVis()
         end
         -- Cross-bar "apply to all" sync icons: Simple only
         if not ctx.advanced and ctx.syncRows and not EllesmereUI._prebuilding and ns.ERB_ClassicBorderRow() then
@@ -617,7 +623,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
           end }
     );  y = y - h
     -- Fill Color inline cog: gradient settings
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = healthBorderRow._rightRegion
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local c = cfg(); return c and not c.enabled end,
@@ -739,7 +745,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
     end
 
     -- Out of Combat Opacity & Visibility cog: Fade Out of Combat dims the Health bar to this alpha out of combat (100 = no fade; ns.ResolveBarAlpha in UpdateVisibility, which reacts to combat). Show When Health Missing shows the bar at its normal opacity while health is below full, a rule-hidden bar and a faded one alike (ns.ERB_MissingWanted / ns.ERB_MissingLiftFloor, same pass).
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = healthBorderRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local c = cfg(); return c and not c.enabled end,
@@ -847,7 +853,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
           } }
     );  y = y - h
     -- Health Text inline cog: anchor + x/y offsets
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = healthTextSizeRow._leftRegion
         local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local c = cfg(); return c and not c.enabled end,
@@ -877,7 +883,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                   end },
             },
         })
-        AddFormTextBtn(rgn, cogBtn, cfg, RefreshHealth)
+        if not EllesmereUI._prebuilding then AddFormTextBtn(rgn, cogBtn, cfg, RefreshHealth) end
     end
 
     -- Row 5: Text Size | Threshold & Hash Lines
@@ -895,8 +901,9 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
     );  y = y - h
     -- Threshold & Hash Lines editor: edits the health bar config (multi-spec, with the spec dropdown).
 
+    local healthSettingsBtn
     if not EllesmereUI._prebuilding then
-    local healthSettingsBtn = BuildThresholdSettingsButton({
+    healthSettingsBtn = BuildThresholdSettingsButton({
         parentRgn = healthColorRow._rightRegion,
         getBarData = function() return cfg() end,
         pageParent = parent, pageTopY = _advTop, pageBotY = function() return y end,
@@ -909,6 +916,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
         threshMin = 1, threshMax = 99,
         defaultR = 1.0, defaultG = 0.2, defaultB = 0.2, defaultA = 1,
     })
+    end
 
     -- Bar-wide hash lines (the fallback when the active threshold entry has none of its own).
     BuildHashCog({
@@ -918,7 +926,6 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
         refreshFn = function() RebuildHealth() end,
         popupTitle = EllesmereUI.L("Health Bar Hash Lines"),
     })
-    end
     -- Thresholds have their own per-spec system, so lock the slot during a Spec Overrides editing session.
     if EllesmereUI.SpecOverrides_AttachEditLock and not EllesmereUI._prebuilding then
         EllesmereUI.SpecOverrides_AttachEditLock(healthColorRow._rightRegion,

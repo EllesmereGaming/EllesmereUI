@@ -162,7 +162,7 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
           setPx = function(v) FT.Cfg().borderSizePx = v end,
           apply = function() FT.ApplyStyle(); EllesmereUI:RefreshPage() end }
     );  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         local offsetX, offsetY = BorderOffsets("borderTexture")
         EllesmereUI.BuildInlineCog(borderRow._leftRegion, { title = "Border Options",
             disabled = function() return off() or SolidBorder() end,
@@ -179,6 +179,8 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
                   get = function() return FT.Get("borderBehind") end,
                   set = function(v) Set("borderBehind", v) end },
             } })
+    end
+    if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineSwatches(borderRow._rightRegion, {
             { tooltip = "Border Color",
               disabled = function() return off() or FT.Get("borderSize") == 0 end,
