@@ -373,7 +373,9 @@ function EAB:FinishSetup()
                     -- (or you're just hovering it), so keep it shown and let the
                     -- normal OnLeave fade it on real exit. Otherwise hide as before.
                     local state = hoverStates[key]
-                    if frame:IsMouseOver() then
+                    if _gridState._sbMoForced and _gridState._sbMoForced[key] then
+                        -- Held up by the open spellbook/macro panel: leave it shown.
+                    elseif frame:IsMouseOver() then
                         if state then state.isHovered = true; state.fadeDir = "in" end
                         StopFade(frame, s._savedBarAlpha or 1)
                         if key == "MainBar" then SyncPagingAlpha(s._savedBarAlpha or 1) end
@@ -746,7 +748,9 @@ function EAB:FinishSetup()
                     -- Fade back out if mouseover-enabled and not hovered. Skip
                     -- position-only Blizzard-owned bars (the QueueStatus eye): EUI
                     -- controls only their position, never fades them out.
-                    if s.mouseoverEnabled and not info.noManagedVisibility then
+                    -- Bars the open spellbook/macro panel holds up stay visible.
+                    local sbHeld = _gridState._sbMoForced and _gridState._sbMoForced[key]
+                    if s.mouseoverEnabled and not info.noManagedVisibility and not sbHeld then
                         if not (state and state.isHovered) then
                             StopFade(frame)
                             FadeTo(frame, 0, s.mouseoverSpeed or 0.15)
