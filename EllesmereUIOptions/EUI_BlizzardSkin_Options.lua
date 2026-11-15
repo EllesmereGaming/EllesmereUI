@@ -3288,6 +3288,16 @@ initFrame:SetScript("OnEvent", function(self)
             end,
         },
         {
+            key   = "keyring",
+            title = "Keyring",
+            desc  = "The keyring window: its frame, title and key slots.",
+            reloadMsg = "Changing the Keyring reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
+            setEnabled = function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.reskinKeyring = v
+            end,
+        },
+        {
             key   = "gossip",
             title = "Gossip",
             desc  = "The NPC dialog window: greeting text, gossip and quest options, and goodbye button.",
@@ -3411,11 +3421,13 @@ initFrame:SetScript("OnEvent", function(self)
             if foreverDropped[WINDOWS[i].key] then table.remove(WINDOWS, i) end
         end
     else
-        -- The Bag Bar, Progress Legacy and Pet Stable skins exist only on
-        -- Forever; drop their cards on retail.
+        -- The Bag Bar, Progress Legacy, Pet Stable and Keyring skins exist
+        -- only on Forever; drop their cards on retail.
         for i = #WINDOWS, 1, -1 do
             local key = WINDOWS[i].key
-            if key == "bagbar" or key == "legacysystem" or key == "stable" then table.remove(WINDOWS, i) end
+            if key == "bagbar" or key == "legacysystem" or key == "stable" or key == "keyring" then
+                table.remove(WINDOWS, i)
+            end
         end
     end
 
@@ -5016,6 +5028,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinCraftOrders = nil
                 EllesmereUIDB.reskinTrainer = nil
                 EllesmereUIDB.reskinStable = nil
+                EllesmereUIDB.reskinKeyring = nil
                 EllesmereUIDB.reskinGossip = nil
                 EllesmereUIDB.reskinQuest = nil
                 EllesmereUIDB.reskinInspectRecipe = nil
