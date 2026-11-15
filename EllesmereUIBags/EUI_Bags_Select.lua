@@ -542,9 +542,58 @@ local function BuildButtons()
     EUI_Bags._sellJunkBtn = sell
 end
 
+-- WoW Forever's Keyring Icon: opens the keyring popup above itself
+-- (EUI_Bags_Keyring.lua), for players who hide the bag bar. Built on the
+-- first enable, wearing the bag bar keyring button's own glyph.
+local function BuildKeyringButton()
+    local b = CreateFrame("Button", nil, EUI_Bags._bagsBtn:GetParent())
+    b:SetSize(24, 24)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetSize(19, 19)
+    b.icon:SetPoint("CENTER")
+    b.icon:SetAlpha(0.9)
+    -- The gold rim of the bag slot buttons, matching Show Bags' bag-main art
+    if C_Texture.GetAtlasInfo("bag-border") then
+        b.rim = b:CreateTexture(nil, "OVERLAY")
+        b.rim:SetAllPoints()
+        b.rim:SetAtlas("bag-border")
+        b.rim:SetAlpha(0.9)
+    end
+    local kb = _G.KeyRingButton
+    local src = _G.KeyRingButtonIconTexture
+    if not (src and src.GetTexture and src:GetTexture()) then
+        src = kb and kb.GetNormalTexture and kb:GetNormalTexture()
+    end
+    local atlas = src and src.GetAtlas and src:GetAtlas()
+    if atlas then
+        b.icon:SetAtlas(atlas)
+    elseif src and src:GetTexture() then
+        b.icon:SetTexture(src:GetTexture())
+        b.icon:SetTexCoord(src:GetTexCoord())
+    else
+        b.icon:SetTexture("Interface\\Buttons\\UI-Button-KeyRing")
+        b.icon:SetTexCoord(0, 0.5625, 0, 0.609375)
+    end
+    b:SetScript("OnEnter", function(self)
+        self.icon:SetAlpha(1)
+        if self.rim then self.rim:SetAlpha(1) end
+        EUI.ShowWidgetTooltip(self, EllesmereUI.L("Keyring"))
+    end)
+    b:SetScript("OnLeave", function(self)
+        self.icon:SetAlpha(0.9)
+        if self.rim then self.rim:SetAlpha(0.9) end
+        EUI.HideWidgetTooltip()
+    end)
+    b:SetScript("OnClick", function(self)
+        EUI.HideWidgetTooltip()
+        if ns.ToggleKeyringWindow then ns.ToggleKeyringWindow(self) end
+    end)
+    EUI_Bags._keyringBtn = b
+end
+
 -- The header's icons (Bag Top Bar Icons), right to left from the search box:
--- Sort, Show Bags, Quick Actions and the Junk Marker's coin, each shown one left of the next
--- shown one; Sell Junk sits left of the coin while a merchant is open, and
+-- Sort, Show Bags, Quick Actions, the Junk Marker's coin and WoW Forever's Keyring, each
+-- shown one left of the next shown one; Sell Junk sits left of the coin while a merchant is open, and
 -- mark mode ends when the Junk Marker goes off. Hidden icons keep a point (the
 -- bags overview window hangs from Show Bags). Run at header build, by the
 -- options dropdown, on profile changes and on merchant open / close.
@@ -581,6 +630,16 @@ function EUI_Bags:SyncHeaderIcons()
     if junkOn and self._junkBtn then
         edge = self._sellJunkBtn:IsShown() and self._sellJunkBtn or self._junkBtn
     end
+    -- Keyring (WoW Forever only), off by default
+    local keyOn = EUI.IS_FOREVER == true and p.bagShowKeyringIcon == true
+    if keyOn and not self._keyringBtn then BuildKeyringButton() end
+    if self._keyringBtn then
+        self._keyringBtn:ClearAllPoints()
+        self._keyringBtn:SetPoint("RIGHT", edge, "LEFT", -6, 0)
+        self._keyringBtn:SetShown(keyOn)
+        if keyOn then edge = self._keyringBtn end
+    end
+    if not keyOn and self._keyringWin then self._keyringWin:Hide() end
     -- The leftmost shown icon bounds the search on Forever and the title on EUI.
     if forever then
         local search, header = self._searchBox, bags:GetParent()

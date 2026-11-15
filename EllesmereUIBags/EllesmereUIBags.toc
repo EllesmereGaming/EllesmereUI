@@ -30,6 +30,7 @@ EllesmereUIBags_List.lua
 EllesmereUIBags_Compact.lua
 EllesmereUIBags_Bank.lua
 EllesmereUIBags_QuickActions.lua
+EUI_Bags_Keyring.lua
 EllesmereUIBags_Offline.lua
 EllesmereUIBags_OfflineView.lua
 EllesmereUIBags_AutoGold.lua

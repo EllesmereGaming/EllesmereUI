@@ -1096,6 +1096,9 @@ initFrame:SetScript("OnEvent", function(self)
                         { key = "bagShowQuickIcon", label = "Quick Actions Icon" },
                         { key = "bagShowSortIcon", label = "Sort Icon" },
                     }
+                    if EllesmereUI.IS_FOREVER then
+                        TOP_BAR_ICONS[#TOP_BAR_ICONS + 1] = { key = "bagShowKeyringIcon", label = "Keyring Icon" }
+                    end
                     local iconsDD, iconsDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                         leftRgn, 210, leftRgn:GetFrameLevel() + 2, TOP_BAR_ICONS,
                         function(key) return db.profile[key] ~= false end,
