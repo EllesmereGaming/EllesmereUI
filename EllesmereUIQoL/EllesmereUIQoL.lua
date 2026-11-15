@@ -926,9 +926,15 @@ qolFrame:SetScript("OnEvent", function(self)
             return n, gold
         end
 
+        -- Forever pet trainer (Beast Training): purchase is protected for addons.
+        local function IsPetTrainer()
+            return C_Trainer and C_Trainer.GetTrainerType and Enum.TrainerType
+                and C_Trainer.GetTrainerType() == Enum.TrainerType.Pet
+        end
+
         local function RefreshButton()
             if not trainBtn then return end
-            if not (EllesmereUIDB and EllesmereUIDB.trainAllButton) then
+            if not (EllesmereUIDB and EllesmereUIDB.trainAllButton) or IsPetTrainer() then
                 trainBtn:Hide(); return
             end
             local n = TrainableSummary()
@@ -948,6 +954,7 @@ qolFrame:SetScript("OnEvent", function(self)
             trainBtn:SetPoint("RIGHT", ClassTrainerTrainButton, "LEFT", -2, 0)
 
             trainBtn:SetScript("OnClick", function()
+                if IsPetTrainer() then return end
                 local wallet = GetMoney and GetMoney() or 0
                 local slots  = FreeProfessionSlots()
                 -- Descending: a purchase reindexes the list, so only already-
