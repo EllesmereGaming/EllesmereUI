@@ -1742,23 +1742,24 @@ function FriendlyFrame:UpdateRaidIcon()
     if type(idx) == "nil" then self.raidFrame:Hide(); return end
     SetRaidTargetIconTexture(self.raid, idx)
     local sz = ns.GetRaidMarkerSize()
-    local rmY = ns.GetRaidMarkerYOffset()
+    -- The slot's X/Y offsets, as the enemy plates' marker takes them.
+    local xOff, yOff = ns.GetAuraSlotOffsets("raidMarker")
     self.raidFrame:SetSize(sz, sz)
     self.raidFrame:ClearAllPoints()
     if pos == "top" then
-        self.raidFrame:SetPoint("BOTTOM", self.health, "TOP", 0, ns.GetDebuffYOffset())
+        self.raidFrame:SetPoint("BOTTOM", self.health, "TOP", xOff, ns.GetDebuffYOffset() + yOff)
     elseif pos == "left" then
         -- Classic WoW UI: gap off the border art (sized by the friendly bar's
         -- own height), not the bare bar edge.
-        self.raidFrame:SetPoint("RIGHT", self.health, "LEFT", -(ns.GetSideAuraXOffset() + ns.NP_ClassicSide("left", GetFriendlyHealthBarHeight())), 0)
+        self.raidFrame:SetPoint("RIGHT", self.health, "LEFT", -(ns.GetSideAuraXOffset() + ns.NP_ClassicSide("left", GetFriendlyHealthBarHeight())) + xOff, yOff)
     elseif pos == "right" then
-        self.raidFrame:SetPoint("LEFT", self.health, "RIGHT", ns.GetSideAuraXOffset() + ns.NP_ClassicSide("right", GetFriendlyHealthBarHeight()), 0)
+        self.raidFrame:SetPoint("LEFT", self.health, "RIGHT", ns.GetSideAuraXOffset() + ns.NP_ClassicSide("right", GetFriendlyHealthBarHeight()) + xOff, yOff)
     elseif pos == "topleft" then
         -- Flush with the nameplate's left edge (PP borders inset -> bar corner is
         -- the outer edge; offset 0 = flush). Matches the enemy plate convention.
-        self.raidFrame:SetPoint("BOTTOMLEFT", self.health, "TOPLEFT", 0, rmY)
+        self.raidFrame:SetPoint("BOTTOMLEFT", self.health, "TOPLEFT", xOff, yOff)
     elseif pos == "topright" then
-        self.raidFrame:SetPoint("BOTTOMRIGHT", self.health, "TOPRIGHT", 0, rmY)
+        self.raidFrame:SetPoint("BOTTOMRIGHT", self.health, "TOPRIGHT", xOff, yOff)
     end
     self.raidFrame:Show()
 end
