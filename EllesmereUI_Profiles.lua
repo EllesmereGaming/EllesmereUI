@@ -4645,13 +4645,13 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
     -- Title
     local titleFS = EllesmereUI.MakeFont(popup, 15, "", 1, 1, 1)
     titleFS:SetPoint("TOP", popup, "TOP", 0, -20)
-    titleFS:SetText(title)
+    titleFS:SetText(EllesmereUI.L(title))
 
     -- Subtitle
     local subFS = EllesmereUI.MakeFont(popup, 11, "", 1, 1, 1)
     subFS:SetAlpha(0.45)
     subFS:SetPoint("TOP", titleFS, "BOTTOM", 0, -4)
-    subFS:SetText(subtitle)
+    subFS:SetText(EllesmereUI.L(subtitle))
 
     -- An empty editable box needs a visible field to paste into.
     if not readOnly then
