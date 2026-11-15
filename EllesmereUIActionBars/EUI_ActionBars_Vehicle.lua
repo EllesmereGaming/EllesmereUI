@@ -303,6 +303,12 @@ if IsHouseEditorActive then
             _bindState.housingCleared = true
             if not InCombatLockdown() then
                 ClearOverrideBindings(_eabBindOwner)
+                local mainFrame = I.barFrames.MainBar
+                if mainFrame then
+                    mainFrame:SetAttribute("eabdynn", 0)
+                    mainFrame:SetAttribute("eabdynclick", nil)
+                    mainFrame:Execute(ns._eabDynBindSnippet)
+                end
                 -- Bindings no longer match the cached signature; force the
                 -- next UpdateKeybinds to rebuild even if routing is identical.
                 _bindState.sigValid = false
