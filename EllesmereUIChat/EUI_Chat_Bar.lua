@@ -27,6 +27,14 @@ local PP = EUI.PP
 local CFD, GetFont, GetOutlineFlag = I.CFD, I.GetFont, I.GetOutlineFlag
 local issecretvalue = _G.issecretvalue
 
+-- The bar's font, as the tab font resolves it: the EUI chat font
+-- ("__global", the default) or a font picked by name.
+local function BarFont(cfg)
+    local key = cfg.chatBarFont
+    local path = key and key ~= "__global" and EUI.ResolveFontName(key)
+    return path or (EUI.GetFontPath("chat")) or STANDARD_TEXT_FONT
+end
+
 local _alpha = I._chatAlphaCurrent
 I.chatAlphaCurrentSetters[#I.chatAlphaCurrentSetters + 1] = function(v) _alpha = v end
 
@@ -693,7 +701,7 @@ local function Layout()
 
     local w, h = cfg.chatBarButtonWidth or 22, cfg.chatBarButtonHeight or 20
     local gap = cfg.chatBarSpacing or 2
-    local font, size, flags = GetFont(), cfg.chatBarFontSize or 11, GetOutlineFlag()
+    local font, size, flags = BarFont(cfg), cfg.chatBarFontSize or 11, GetOutlineFlag()
     for i = 1, #shown do
         local btn = shown[i]
         btn:ClearAllPoints()

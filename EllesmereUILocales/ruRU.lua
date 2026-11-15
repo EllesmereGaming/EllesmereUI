@@ -12786,3 +12786,6 @@ L["Opens the chat input box when you click a channel button. Off: the click only
 L["Right-click the button to start a role check."] = "ПКМ по кнопке запускает проверку ролей."
 L["Left-click the Pull Timer button to start a pull timer of this many seconds."] = "ЛКМ по кнопке таймера пула запускает таймер на столько секунд."
 L["Right-click the Pull Timer button to start a break of this many minutes. It runs on the BigWigs or DBM break bar; without them it runs on the game's countdown, which boss mods in the group show as a pull."] = "ПКМ по кнопке таймера пула запускает перерыв на столько минут. Перерыв идет полосой BigWigs или DBM, а без них — игровым обратным отсчетом, который аддоны боссов у группы покажут как пул."
+
+L["Chat Bar Font"] = "Шрифт панели чата"
+L["Chat Bar Font Size"] = "Размер шрифта панели чата"
