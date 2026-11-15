@@ -1143,14 +1143,15 @@ end
 
 -- does a group pass the client-side filters? info: readable info, false if none,
 -- nil to fetch it
-function XF.PassesFilters(id, info)
+-- asIfNew: judge an application as a group you haven't applied to (no longer matches)
+function XF.PassesFilters(id, info, asIfNew)
     local P = XF.Pass()
     if not SP or P.secret or not P.any then return true end
     local c = Cfg()
     local _, appStatus = C_LFGList.GetApplicationInfo(id)
     if IsSecret(appStatus) then return true end
     if info == nil then info = ResultInfo(id) or false end
-    if appStatus and appStatus ~= "none" then
+    if appStatus and appStatus ~= "none" and not asIfNew then
         -- applied groups stay lit, unless declined with not declined on.
         return not (P.extraOn and c.notDeclined and XF.IsDeclinedResult(id, info))
     end
@@ -1168,6 +1169,7 @@ end
 
 -- read-only filter checks for our results list
 ns.ExtraPasses = function(id) return XF.PassesFilters(id) end
+ns.ExtraPassesAsNew = function(id) return XF.PassesFilters(id, nil, true) end
 ns.ExtraResultsSecret = function() return XF.ResultsSecret() end
 
 -- filters changed: re-fade the visible rows, no search.
