@@ -668,6 +668,23 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
+        -- Inline cog on In-Group Button Size: Show as List
+        do
+            EllesmereUI.BuildInlineCog(ungroupRow._rightRegion, {
+                title = "Addon Buttons",
+                rows = {
+                    { type = "toggle", label = "Show as List",
+                      tooltip = "Shows the grouped buttons as a one-column list with each addon's name next to its icon.",
+                      get = function() local m = MinimapDB(); return m and m.flyoutAsList or false end,
+                      set = function(v)
+                          local m = MinimapDB(); if not m then return end
+                          m.flyoutAsList = v
+                          RefreshMinimap()
+                      end },
+                },
+            })
+        end
+
         -- Replace placeholder dropdown with checkbox dropdown
         if not EllesmereUI._prebuilding then
             local leftRgn = ungroupRow._leftRegion

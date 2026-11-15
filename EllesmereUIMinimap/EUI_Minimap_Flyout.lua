@@ -38,6 +38,7 @@ local flyoutSavedRegions = {}  -- original region states for restore
 local FLYOUT_BTN_SIZE = 24
 local FLYOUT_PADDING  = 4
 local FLYOUT_COLS     = 4
+local FLYOUT_NAME_GAP = 6
 
 -- Textures that are decorative borders/backgrounds on minimap buttons
 local MINIMAP_BTN_JUNK = {
@@ -150,6 +151,38 @@ local function CollectFlyoutButtons()
     return collected
 end
 
+-- Show as List: the name sits on the button, right of the icon, and the
+-- button's hit rect stretches over it so the whole row hovers and clicks.
+local function ShowFlyoutName(btn)
+    local d = GetFFD(btn)
+    local fs = d.flyoutName
+    if not fs then
+        fs = btn:CreateFontString(nil, "OVERLAY")
+        EllesmereUI.PrimeFontShadow(fs, true)
+        fs:SetTextColor(0.9, 0.9, 0.9)
+        fs:SetWordWrap(false)
+        fs:SetPoint("LEFT", btn, "RIGHT", FLYOUT_NAME_GAP, 0)
+        d.flyoutName = fs
+    end
+    fs:SetFont((EllesmereUI.GetFontPath("minimap")) or "Fonts\\FRIZQT__.TTF", 11, "")
+    fs:SetText(GetMinimapButtonLabel(btn))
+    fs:Show()
+    if not d.flyoutHitRect then
+        d.flyoutHitRect = { btn:GetHitRectInsets() }
+    end
+    return fs:GetStringWidth()
+end
+
+local function ClearFlyoutName(btn)
+    local d = GetFFD(btn)
+    if d.flyoutName then d.flyoutName:Hide() end
+    local r = d.flyoutHitRect
+    if r then
+        btn:SetHitRectInsets(r[1], r[2], r[3], r[4])
+        d.flyoutHitRect = nil
+    end
+end
+
 local function GetAddonBtnSize()
     local mp = EBS.db and EBS.db.profile.minimap
     return mp and mp.addonBtnSize or FLYOUT_BTN_SIZE
@@ -255,9 +288,19 @@ local function LayoutFlyoutButtons()
     -- Boxes: the outer margin matches the gaps. Ring: margin=8, since the ring overlay
     -- overhangs each button by 3px, leaving 5px of visible clearance.
     local margin = boxes and FLYOUT_PADDING or 8
-    local cols = math.min(count, FLYOUT_COLS)
+    -- Show as List: one column, each row as wide as the longest name.
+    local names = mp and mp.flyoutAsList
+    local nameW = 0
+    if names then
+        for _, btn in ipairs(buttons) do
+            nameW = math.max(nameW, ShowFlyoutName(btn))
+        end
+        nameW = math.ceil(nameW)
+    end
+    local cols = names and 1 or math.min(count, FLYOUT_COLS)
     local rows = math.ceil(count / cols)
     local pw = margin * 2 + cols * btnSize + (cols - 1) * FLYOUT_PADDING
+    if names then pw = pw + FLYOUT_NAME_GAP + nameW end
     local ph = margin * 2 + rows * btnSize + (rows - 1) * FLYOUT_PADDING
     flyoutPanel:SetSize(pw, ph)
 
@@ -292,6 +335,11 @@ local function LayoutFlyoutButtons()
         btn:SetFrameLevel(flyoutPanel:GetFrameLevel() + 5)
         if btn.SetFixedFrameLevel then btn:SetFixedFrameLevel(true) end
         StripButtonDecorations(btn)
+        if names then
+            btn:SetHitRectInsets(0, -(FLYOUT_NAME_GAP + nameW), 0, 0)
+        else
+            ClearFlyoutName(btn)
+        end
         -- Overlays left over from a previous ungroup cycle (or the other cell style)
         if not boxes and GetFFD(btn).ungroupBg then GetFFD(btn).ungroupBg:Hide() end
         if boxes and GetFFD(btn).flyoutRing then GetFFD(btn).flyoutRing:Hide() end
@@ -629,6 +677,7 @@ local function CreateFlyoutToggle()
 end
 
 I.BuildFlyoutContents, I.CollectFlyoutButtons = BuildFlyoutContents, CollectFlyoutButtons
+I.ClearFlyoutName = ClearFlyoutName
 I.CreateFlyoutToggle, I.flyoutSavedParents = CreateFlyoutToggle, flyoutSavedParents
 I.flyoutSavedRegions, I.GetBtnRowMode = flyoutSavedRegions, GetBtnRowMode
 I.GetCustomTooltipScale, I.GetElementRowMode = GetCustomTooltipScale, GetElementRowMode
