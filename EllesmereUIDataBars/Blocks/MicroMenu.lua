@@ -506,6 +506,7 @@ end
 -- parentheses. Versatility is pcall-wrapped: GetVersatilityBonus/GetCombatRatingBonus
 -- can return a secret value under tainted execution (arithmetic on it errors), so drop the line instead.
 local CS_DIM = "|cffaaaaaa"
+local FV_STAT_NAMES = { "Strength", "Agility", "Stamina", "Intellect", "Spirit" }
 
 local function MMPrimaryStat()
     local specIndex = C_SpecializationInfo.GetSpecialization()
@@ -542,7 +543,21 @@ local function MMAddCharStats()
         ns.Tip_AddDouble(STAT_AVERAGE_ITEM_LEVEL or "Item Level", format("%.1f", eq), ar, ag, ab, 1, 1, 1)
     end
 
-    local pLabel, pIdx = MMPrimaryStat()
+    -- WoW Forever has no primary stat (one class-wide spec), so list all five
+    -- attributes in UNITSTAT order, as its own character sheet does.
+    if EllesmereUI.IS_FOREVER then
+        for i = 1, 5 do
+            local _, eff = UnitStat("player", i)
+            eff = clean(eff)
+            if eff then
+                ns.Tip_AddDouble(_G["SPELL_STAT" .. i .. "_NAME"] or FV_STAT_NAMES[i],
+                    format("%.0f", eff), ar, ag, ab, 1, 1, 1)
+            end
+        end
+    end
+
+    local pLabel, pIdx
+    if not EllesmereUI.IS_FOREVER then pLabel, pIdx = MMPrimaryStat() end
     if pLabel and pIdx then
         local _, eff = UnitStat("player", pIdx)
         eff = clean(eff)
