@@ -6556,7 +6556,7 @@ L["Apply Lure"] = "Применять приманку"
 L["With no lure on your pole, the key applies your best lure first."] = "Если на удочке нет приманки, клавиша сначала применяет вашу лучшую приманку."
 L["With no lure on your pole, a double-click applies your best lure first."] = "Если на удочке нет приманки, двойной клик сначала применяет вашу лучшую приманку."
 L["Fishing Sounds"] = "Звуки рыбалки"
-L["While you fish: music and ambience down, effects up, sound on in the background."] = "Пока вы рыбачите: музыка и окружение тише, эффекты громче, звук в фоне включен."
+L["While you fish: sound and effects on and louder, music and ambience down (muted if your sound was off), sound on in the background."] = "Пока вы рыбачите: звук и эффекты включены и громче, музыка и окружение тише (без звука, если звук был выключен), звук в фоне включен."
 
 -- == ForeverEssentials_Loot options (v9.7.8 update) ==========================
 L["LOOT FEED"] = "ЛЕНТА ДОБЫЧИ"

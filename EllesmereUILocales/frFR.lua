@@ -6096,7 +6096,7 @@ L["Double-Click to Cast"] = "Double clic pour lancer"
 L["With a fishing pole in hand, double right-click the world to cast."] = "Canne en main, un double clic droit sur le monde lance votre ligne."
 L["With no lure on your pole, a double-click applies your best lure first."] = "Quand votre canne n'a pas d'appât, un double clic pose d'abord votre meilleur appât."
 L["Fishing Sounds"] = "Sons de pêche"
-L["While you fish: music and ambience down, effects up, sound on in the background."] = "Pendant que vous pêchez : musique et ambiance baissées, effets montés, son gardé en arrière-plan."
+L["While you fish: sound and effects on and louder, music and ambience down (muted if your sound was off), sound on in the background."] = "Pendant que vous pêchez : son et effets activés et plus forts, musique et ambiance baissées (coupées si votre son était désactivé), son gardé en arrière-plan."
 -- Map markers (EllesmereUIForeverEssentials_MapTravel.lua)
 L["WORLD MAP"] = "CARTE DU MONDE"
 L["Show Map Markers"] = "Afficher les marqueurs de carte"
