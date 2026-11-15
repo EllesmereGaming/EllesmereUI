@@ -869,26 +869,24 @@ initFrame:SetScript("OnEvent", function(self)
             bgRow, h = W:DualRow(parent, y,
                 Slider("Button Spacing", "chatBarSpacing", 0, 10, 1, 2),
                 customBgCfg)
-            if not EllesmereUI._prebuilding then
-                EllesmereUI.BuildInlineCog(bgRow._rightRegion, {
-                    disabled = function()
-                        return STOCK or BarOff() or Cfg("chatBarBgCustom") ~= true
-                    end,
-                    -- Under a stock look the switch's own gate tooltip speaks.
-                    disabledTooltip = not STOCK and function()
-                        return BarOff() and "Enable Chat Bar" or "Custom Background Opacity"
-                    end or nil,
-                    title = "Background",
-                    rows = {
-                        { type="slider", label="Opacity", min=0, max=100, step=5,
-                          get=function()
-                              local a = Cfg("chatBarBgAlpha") or Cfg("bgAlpha") or 0.65
-                              return math.floor(a * 100 + 0.5)
-                          end,
-                          set=function(v) Set("chatBarBgAlpha", v / 100); ApplyBar() end },
-                    },
-                })
-            end
+            EllesmereUI.BuildInlineCog(bgRow._rightRegion, {
+                disabled = function()
+                    return STOCK or BarOff() or Cfg("chatBarBgCustom") ~= true
+                end,
+                -- Under a stock look the switch's own gate tooltip speaks.
+                disabledTooltip = not STOCK and function()
+                    return BarOff() and "Enable Chat Bar" or "Custom Background Opacity"
+                end or nil,
+                title = "Background",
+                rows = {
+                    { type="slider", label="Opacity", min=0, max=100, step=5,
+                      get=function()
+                          local a = Cfg("chatBarBgAlpha") or Cfg("bgAlpha") or 0.65
+                          return math.floor(a * 100 + 0.5)
+                      end,
+                      set=function(v) Set("chatBarBgAlpha", v / 100); ApplyBar() end },
+                },
+            })
             y = y - h
 
             local hideCfg = Toggle("Hide Unavailable Buttons", "chatBarHideUnavailable")
@@ -931,33 +929,31 @@ initFrame:SetScript("OnEvent", function(self)
             _, h = W:DualRow(parent, y, Toggle("Roll", "chatBarShowRoll"), readyCfg); y = y - h
             local timerRow
             timerRow, h = W:DualRow(parent, y, Toggle("Pull Timer", "chatBarShowPullTimer"), Toggle("Reload UI", "chatBarShowReload"))
-            if not EllesmereUI._prebuilding then
-                -- Cog: the Pull Timer button's timings (left click pulls,
-                -- right click breaks). Dimmed and inert while the button is off.
-                local function Num(key, def)
-                    return function() return Cfg(key) or def end
-                end
-                local function SetNum(key)
-                    return function(v) Set(key, v); ApplyBar() end
-                end
-                EllesmereUI.BuildInlineCog(timerRow._leftRegion, {
-                    disabled = function() return BarOff() or Cfg("chatBarShowPullTimer") == false end,
-                    disabledTooltip = "Pull Timer",
-                    title = "Pull Timer",
-                    rows = {
-                        { type="slider", label="Pull Timer Duration", min = 3, max = 60, step = 1,
-                          tooltip="Left-click the Pull Timer button to start a pull timer of this many seconds.",
-                          get=Num("chatBarPullDuration", 10), set=SetNum("chatBarPullDuration") },
-                        { type="slider", label="Break Duration (min)", min = 1, max = 30, step = 1,
-                          tooltip="Right-click the Pull Timer button to start a break of this many minutes. It runs on the BigWigs or DBM break bar; without them it runs on the game's countdown, which boss mods in the group show as a pull.",
-                          get=Num("chatBarBreakMinutes", 5), set=SetNum("chatBarBreakMinutes") },
-                        { type="toggle", label="Announce Break",
-                          tooltip="Tells your raid or group in chat when you start a break. Only the group's leader or an assist can start one.",
-                          get=function() return Cfg("chatBarBreakAnnounce") ~= false end,
-                          set=function(v) Set("chatBarBreakAnnounce", v); ApplyBar() end },
-                    },
-                })
+            -- Cog: the Pull Timer button's timings (left click pulls,
+            -- right click breaks). Dimmed and inert while the button is off.
+            local function Num(key, def)
+                return function() return Cfg(key) or def end
             end
+            local function SetNum(key)
+                return function(v) Set(key, v); ApplyBar() end
+            end
+            EllesmereUI.BuildInlineCog(timerRow._leftRegion, {
+                disabled = function() return BarOff() or Cfg("chatBarShowPullTimer") == false end,
+                disabledTooltip = "Pull Timer",
+                title = "Pull Timer",
+                rows = {
+                    { type="slider", label="Pull Timer Duration", min = 3, max = 60, step = 1,
+                      tooltip="Left-click the Pull Timer button to start a pull timer of this many seconds.",
+                      get=Num("chatBarPullDuration", 10), set=SetNum("chatBarPullDuration") },
+                    { type="slider", label="Break Duration (min)", min = 1, max = 30, step = 1,
+                      tooltip="Right-click the Pull Timer button to start a break of this many minutes. It runs on the BigWigs or DBM break bar; without them it runs on the game's countdown, which boss mods in the group show as a pull.",
+                      get=Num("chatBarBreakMinutes", 5), set=SetNum("chatBarBreakMinutes") },
+                    { type="toggle", label="Announce Break",
+                      tooltip="Tells your raid or group in chat when you start a break. Only the group's leader or an assist can start one.",
+                      get=function() return Cfg("chatBarBreakAnnounce") ~= false end,
+                      set=function(v) Set("chatBarBreakAnnounce", v); ApplyBar() end },
+                },
+            })
             y = y - h
 
         end
