@@ -2186,7 +2186,7 @@ do
         "flyoutItemLevels", "flyoutItemStats", "charSheetItemStats",
         "flyoutItemStatsTertiary", "charSheetItemStatsTertiary", "charSheetSocketPanelStats",
         "showCharSheetDurability", "charSheetDurabilityLocation",
-        "charSheetDurabilityShowLabel", "showSecondaryRaw", "showSecondaryBoth",
+        "charSheetDurabilityShowLabel", "charSheetItemLevelPos", "showSecondaryRaw", "showSecondaryBoth",
         "showTertiaryRaw", "showTertiaryBoth", "showAdjustedStats",
         "showManaStat", "highlightSecondaryItems", "highlightTertiaryItems",
         -- Character Sheet stock styles' "Blizzard UI Color" (the style itself

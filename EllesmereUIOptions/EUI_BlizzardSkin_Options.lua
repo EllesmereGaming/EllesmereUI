@@ -1518,6 +1518,27 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._refreshCharSheetIconZoom then EllesmereUI._refreshCharSheetIconZoom() end
               end })
 
+        -- WoW Forever's item level position cog: beside the slot, or inside
+        -- its icon (Icon Bottom unless set).
+        local function AttachItemLevelCog(rgn)
+            EllesmereUI.BuildInlineCog(rgn, {
+                disabled = function() return EllesmereUIDB and EllesmereUIDB.showItemLevel == false end,
+                disabledTooltip = "Show Item Level",
+                title = "Item Level Settings",
+                rows = {
+                    { type="dropdown", label="Position",
+                      values={ beside="Beside Slot", icontop="Icon Top", iconcenter="Icon Center", iconbottom="Icon Bottom" },
+                      order={ "beside", "icontop", "iconcenter", "iconbottom" },
+                      get=function() return EllesmereUIDB and EllesmereUIDB.charSheetItemLevelPos or "iconbottom" end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.charSheetItemLevelPos = v
+                          if EllesmereUI._refreshItemLevelVisibility then EllesmereUI._refreshItemLevelVisibility() end
+                      end },
+                },
+            })
+        end
+
         if not EllesmereUI.IS_FOREVER then
             -- Mythic+ Rating | Item Details: a checkbox dropdown, a view over
             -- the item level, upgrade track and gem keys (each on unless
@@ -1615,12 +1636,21 @@ initFrame:SetScript("OnEvent", function(self)
                 })
             end
         else
-            -- WoW Forever has no Mythic+, item level text, upgrade tracks or
-            -- sockets: the track key shows each item's main and secondary stat
-            -- (or its armor when it has none) and each weapon's damage per
-            -- second there. Icon Zoom greys out under Blizz Default.
+            -- WoW Forever has no Mythic+, upgrade tracks or sockets: the
+            -- track key shows each item's main and secondary stat (or its
+            -- armor when it has none) and each weapon's damage per second
+            -- there. Icon Zoom greys out under Blizz Default.
             local statsRow
             statsRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Show Item Level",
+                  tooltip="Show each item's item level on its slot, in the item's quality colour. The cog sets where.",
+                  getValue=function() return not (EllesmereUIDB and EllesmereUIDB.showItemLevel == false) end,
+                  setValue=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      EllesmereUIDB.showItemLevel = v
+                      if EllesmereUI._refreshItemLevelVisibility then EllesmereUI._refreshItemLevelVisibility() end
+                      EllesmereUI:RefreshPage()
+                  end },
                 { type="toggle", text="Show Item Stats",
                   tooltip="Show each item's main and secondary stat (or its armor) and each weapon's damage per second beside its slot.",
                   getValue=function() return EllesmereUIDB and EllesmereUIDB.showUpgradeTrack ~= false end,
@@ -1628,9 +1658,9 @@ initFrame:SetScript("OnEvent", function(self)
                       if not EllesmereUIDB then EllesmereUIDB = {} end
                       EllesmereUIDB.showUpgradeTrack = v
                       if EllesmereUI._refreshUpgradeTrackVisibility then EllesmereUI._refreshUpgradeTrackVisibility() end
-                  end },
-                iconZoomCfg);  y = y - h
+                  end });  y = y - h
             AttachDisabledOverlay(statsRow)
+            AttachItemLevelCog(statsRow._leftRegion)
         end
 
         -- Enchants (this sheet and the inspect sheet): a view over the
@@ -1672,7 +1702,8 @@ initFrame:SetScript("OnEvent", function(self)
                   -- Shows or hides the Text Size cog
                   EllesmereUI:RefreshPage()
               end },
-            { type="toggle", text="Show PvP Item Level",
+            -- WoW Forever has no PvP item level: Icon Zoom takes its place.
+            EllesmereUI.IS_FOREVER and iconZoomCfg or { type="toggle", text="Show PvP Item Level",
               tooltip="Display your PvP item level above the Mythic+ rating on the character sheet.",
               getValue=function() return EllesmereUIDB and EllesmereUIDB.showPvpItemLevel or false end,
               setValue=function(v)
@@ -1720,6 +1751,16 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage()
               end }
         end
+        -- Gear flyout item levels: its own section on retail, beside
+        -- Durability on WoW Forever (the section's only option there).
+        local flyoutLevelsCfg = { type="toggle",
+              text=EllesmereUI.IS_FOREVER and "Flyout Item Levels" or "Show Item Levels",
+              tooltip="Shows the item level on each item in the character sheet gear flyout (the popup of same-slot bag items that appears when hovering an equipped slot), coloured by quality.",
+              getValue=function() return EllesmereUIDB and EllesmereUIDB.flyoutItemLevels or false end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.flyoutItemLevels = v
+              end }
         local durSeasonRow
         durSeasonRow, h = W:DualRow(parent, y,
             { type="toggle", text="Show Item Durability",
@@ -1740,15 +1781,11 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._updateScrollHeaderOffset then EllesmereUI._updateScrollHeaderOffset() end
                   EllesmereUI:RefreshPage()
               end },
-            seasonCfg or EllesmereUI.BlankRowCfg()
+            seasonCfg or (EllesmereUI.IS_FOREVER and flyoutLevelsCfg) or EllesmereUI.BlankRowCfg()
         );  y = y - h
 
         do
-            EllesmereUI.BuildInlineCog(durSeasonRow._leftRegion, {
-                disabled = function() return not (EllesmereUIDB and EllesmereUIDB.showCharSheetDurability) end,
-                disabledTooltip = "Show Item Durability",
-                title = "Durability Settings",
-                rows = {
+            local durRows = {
                     { type="dropdown", label="Location",
                       values={ model="Above Model", header="Stats Header", footer="Frame Footer" },
                       order={ "model", "header", "footer" },
@@ -1769,7 +1806,14 @@ initFrame:SetScript("OnEvent", function(self)
                           EllesmereUIDB.charSheetDurabilityShowLabel = v
                           if EllesmereUI._updateCharSheetDurability then EllesmereUI._updateCharSheetDurability() end
                       end },
-                },
+            }
+            -- WoW Forever: always above the model, so no Location.
+            if EllesmereUI.IS_FOREVER then table.remove(durRows, 1) end
+            EllesmereUI.BuildInlineCog(durSeasonRow._leftRegion, {
+                disabled = function() return not (EllesmereUIDB and EllesmereUIDB.showCharSheetDurability) end,
+                disabledTooltip = "Show Item Durability",
+                title = "Durability Settings",
+                rows = durRows,
             })
 
             -- Inline cog on Season Panel: the Great Vault shortcut is its own opt-in.
@@ -1802,31 +1846,20 @@ initFrame:SetScript("OnEvent", function(self)
         -- sheet off; the slot arrows belong to the sheet and grey out with it.
         -- The sheet's own slot letters live under Item Details (Stat Letters,
         -- Tertiary Stats). All off unless turned on.
-        _, h = WSCardSection(parent, "GEAR FLYOUT", y);  y = y - h
-
-        local flyoutStatsCfg
+        -- WoW Forever: its one option sits beside Durability instead.
         if not EllesmereUI.IS_FOREVER then
-            flyoutStatsCfg = { type="toggle", text="Show Item Stats",
-              tooltip="Shows each item's secondary stats as letters in the gear flyout, largest first (C Crit, H Haste, M Mastery, V Versatility), so items with the same icon are told apart.",
-              getValue=function() return EllesmereUIDB and EllesmereUIDB.flyoutItemStats or false end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.flyoutItemStats = v
-                  EllesmereUI:RefreshPage()
-              end }
-        end
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Show Item Levels",
-              tooltip="Shows the item level on each item in the character sheet gear flyout (the popup of same-slot bag items that appears when hovering an equipped slot), coloured by quality.",
-              getValue=function() return EllesmereUIDB and EllesmereUIDB.flyoutItemLevels or false end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.flyoutItemLevels = v
-              end },
-            flyoutStatsCfg or EllesmereUI.BlankRowCfg()
-        );  y = y - h
+            _, h = WSCardSection(parent, "GEAR FLYOUT", y);  y = y - h
 
-        if not EllesmereUI.IS_FOREVER then
+            local flyoutStatsCfg = { type="toggle", text="Show Item Stats",
+                  tooltip="Shows each item's secondary stats as letters in the gear flyout, largest first (C Crit, H Haste, M Mastery, V Versatility), so items with the same icon are told apart.",
+                  getValue=function() return EllesmereUIDB and EllesmereUIDB.flyoutItemStats or false end,
+                  setValue=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      EllesmereUIDB.flyoutItemStats = v
+                      EllesmereUI:RefreshPage()
+                  end }
+            _, h = W:DualRow(parent, y, flyoutLevelsCfg, flyoutStatsCfg);  y = y - h
+
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Tertiary Stat Letters",
                   tooltip="Adds Leech, Avoidance and Speed (L, A, S) in smaller letters behind the secondary stats in the gear flyout.",
@@ -1847,189 +1880,192 @@ initFrame:SetScript("OnEvent", function(self)
                       if EllesmereUI._refreshCharSheetSlotFlyoutArrows then EllesmereUI._refreshCharSheetSlotFlyoutArrows() end
                   end }
             );  y = y - h
-        end
 
-        _, h = W:Spacer(parent, y, 10);  y = y - h
+            _, h = W:Spacer(parent, y, 10);  y = y - h
+        end
 
         ---------------------------------------------------------------------------
         --  STAT DISPLAY
         ---------------------------------------------------------------------------
-        _, h = WSCardSection(parent, "STAT DISPLAY", y);  y = y - h
+        -- WoW Forever keeps Blizzard's own stat list: none of these apply.
+        if not EllesmereUI.IS_FOREVER then
+            _, h = WSCardSection(parent, "STAT DISPLAY", y);  y = y - h
 
-        -- Every control here is a view over the keys the sheet already reads
-        -- (showStatCategory_*, the Secondary/Tertiary Raw and Both pairs, the
-        -- highlight pair, showManaStat, showCrest_*, statCategoryColors):
-        -- nothing new is stored and nothing is written until a control changes.
-        -- key = the showStatCategory_ suffix, color = the statCategoryColors key.
-        local STAT_SECTIONS = {
-            { key = "Attributes",     label = "Attributes",      color = "Attributes",      def = { r = 0.047, g = 0.824, b = 0.616 } },
-            { key = "SecondaryStats", label = "Secondary Stats", color = "Secondary Stats", def = { r = 0.471, g = 0.255, b = 0.784 } },
-            { key = "Tertiary",       label = "Tertiary Stats",  color = "Tertiary Stats",  def = { r = 0.859, g = 0.325, b = 0.855 } },
-            { key = "Attack",         label = "Attack",          color = "Attack",          def = { r = 1,     g = 0.353, b = 0.122 } },
-            { key = "Defense",        label = "Defense",         color = "Defense",         def = { r = 0.247, g = 0.655, b = 1 } },
-            { key = "Crests",         label = "Crests",          color = "Crests",          def = { r = 1,     g = 0.784, b = 0.341 } },
-            { key = "PvP",            label = "PvP",             color = "PvP",             def = { r = 0.671, g = 0.431, b = 0.349 } },
-        }
-        -- Same test as the sheet's own UpdateStatCategoryVisibility
-        local function SectionShown(key)
-            return not (EllesmereUIDB and EllesmereUIDB["showStatCategory_" .. key] == false)
-        end
-        local function SecOrTerShown()
-            return SectionShown("SecondaryStats") or SectionShown("Tertiary")
-        end
-
-        -- Stat Sections (checkbox dropdown + cog) | Show Diminishing Returns
-        local sectionsRow
-        sectionsRow, h = W:DualRow(parent, y,
-            { type="label", text="Stat Sections" },
-            { type="toggle", text="Show Diminishing Returns",
-              tooltip="Adds diminishing returns info to Secondary and Tertiary stat tooltips.",
-              getValue=function() return EllesmereUIDB and EllesmereUIDB.showAdjustedStats or false end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.showAdjustedStats = v
-              end }
-        );  y = y - h
-        local leftRgn = sectionsRow._leftRegion
-        if not EllesmereUI._prebuilding then
-            -- Each section's colour swatch sits on its row of the dropdown; dimmed while
-            -- Blizzard UI Color applies or the section is unchecked.
-            local items = {}
-            for i, sec in ipairs(STAT_SECTIONS) do
-                local key, label, colorKey, def = sec.key, sec.label, sec.color, sec.def
-                items[i] = { key = key, label = label, swatch = {
-                    get = function()
-                        local c = EllesmereUIDB and EllesmereUIDB.statCategoryColors and EllesmereUIDB.statCategoryColors[colorKey]
-                        if c then return c.r, c.g, c.b, 1 end
-                        return def.r, def.g, def.b, 1
-                    end,
-                    set = function(r, g, b)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        if not EllesmereUIDB.statCategoryColors then EllesmereUIDB.statCategoryColors = {} end
-                        if not EllesmereUIDB.statCategoryUseColor then EllesmereUIDB.statCategoryUseColor = {} end
-                        EllesmereUIDB.statCategoryColors[colorKey] = { r = r, g = g, b = b }
-                        EllesmereUIDB.statCategoryUseColor[colorKey] = true
-                        if EllesmereUI._refreshCharacterSheetColors then EllesmereUI._refreshCharacterSheetColors() end
-                    end,
-                    disabled = function() return blizzColorsOn() or not SectionShown(key) end,
-                    -- Two requirements with opposite wording: pre-wrapped, so raw.
-                    disabledTooltip = function()
-                        if blizzColorsOn() then
-                            return not EllesmereUI.IS_FOREVER
-                                and EllesmereUI.DisabledTooltip("Blizzard UI Color", "disabled") or nil
-                        end
-                        return EllesmereUI.DisabledTooltip(label)
-                    end,
-                    rawTooltip = true,
-                } }
-            end
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                leftRgn, 210, leftRgn:GetFrameLevel() + 2, items,
-                SectionShown,
-                function(key, v)
-                    if not EllesmereUIDB then EllesmereUIDB = {} end
-                    EllesmereUIDB["showStatCategory_" .. key] = v
-                    if EllesmereUI._updateStatCategoryVisibility then
-                        EllesmereUI._updateStatCategoryVisibility()
-                    end
-                    local sf = CharacterFrame and EllesmereUI._GetFFD(CharacterFrame).scrollFrame
-                    if sf then sf:SetVerticalScroll(0) end
-                    EllesmereUI:RefreshPage()
-                end)
-            PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
-            leftRgn._control = cbDD
-            leftRgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
-        end
-        do
-            -- Cog: the per-section extras the old per-section rows held (outside the
-            -- prebuild guard so the index pass sees its rows)
-            local rows = {
-                { type="toggle", label="Show Mana",
-                  tooltip="Adds Mana to the Attributes section.",
-                  disabled=function() return not SectionShown("Attributes") end,
-                  disabledTooltip="Attributes",
-                  get=function() return EllesmereUIDB and EllesmereUIDB.showManaStat == true end,
-                  set=function(v)
-                      if not EllesmereUIDB then EllesmereUIDB = {} end
-                      EllesmereUIDB.showManaStat = v
-                      if EllesmereUI._refreshStatsVisibility then EllesmereUI._refreshStatsVisibility() end
-                  end },
-                { type="reordercheck", label="Crests", ddWidth=150,
-                  disabled=function() return not SectionShown("Crests") end,
-                  disabledTooltip="Crests",
-                  items={
-                      { key="Myth",       label="Myth",       fixed=true },
-                      { key="Hero",       label="Hero",       fixed=true },
-                      { key="Champion",   label="Champion",   fixed=true },
-                      { key="Veteran",    label="Veteran",    fixed=true },
-                      { key="Adventurer", label="Adventurer", fixed=true },
-                  },
-                  get=function(key) return not (EllesmereUIDB and EllesmereUIDB["showCrest_" .. key] == false) end,
-                  set=function(key, v)
-                      if not EllesmereUIDB then EllesmereUIDB = {} end
-                      EllesmereUIDB["showCrest_" .. key] = v
-                      if EllesmereUI._refreshStatsVisibility then EllesmereUI._refreshStatsVisibility() end
-                  end },
+            -- Every control here is a view over the keys the sheet already reads
+            -- (showStatCategory_*, the Secondary/Tertiary Raw and Both pairs, the
+            -- highlight pair, showManaStat, showCrest_*, statCategoryColors):
+            -- nothing new is stored and nothing is written until a control changes.
+            -- key = the showStatCategory_ suffix, color = the statCategoryColors key.
+            local STAT_SECTIONS = {
+                { key = "Attributes",     label = "Attributes",      color = "Attributes",      def = { r = 0.047, g = 0.824, b = 0.616 } },
+                { key = "SecondaryStats", label = "Secondary Stats", color = "Secondary Stats", def = { r = 0.471, g = 0.255, b = 0.784 } },
+                { key = "Tertiary",       label = "Tertiary Stats",  color = "Tertiary Stats",  def = { r = 0.859, g = 0.325, b = 0.855 } },
+                { key = "Attack",         label = "Attack",          color = "Attack",          def = { r = 1,     g = 0.353, b = 0.122 } },
+                { key = "Defense",        label = "Defense",         color = "Defense",         def = { r = 0.247, g = 0.655, b = 1 } },
+                { key = "Crests",         label = "Crests",          color = "Crests",          def = { r = 1,     g = 0.784, b = 0.341 } },
+                { key = "PvP",            label = "PvP",             color = "PvP",             def = { r = 0.671, g = 0.431, b = 0.349 } },
             }
-            -- Blizz Default only (not WoW Forever, whose sheet has no
-            -- EllesmereUI stats section): on unless turned off.
-            if stock and not EllesmereUI.IS_FOREVER then
-                rows[#rows + 1] = { type="toggle", label="Blizzard UI Color",
-                  tooltip="Shows the item level and stat titles in Blizzard's yellow.",
-                  get=function() return not (EllesmereUIDB and EllesmereUIDB.charSheetBlizzColors == false) end,
-                  set=function(v)
-                      if not EllesmereUIDB then EllesmereUIDB = {} end
-                      EllesmereUIDB.charSheetBlizzColors = v
-                      if EllesmereUI._refreshCharacterSheetColors then EllesmereUI._refreshCharacterSheetColors() end
-                      EllesmereUI:RefreshPage()
-                  end }
+            -- Same test as the sheet's own UpdateStatCategoryVisibility
+            local function SectionShown(key)
+                return not (EllesmereUIDB and EllesmereUIDB["showStatCategory_" .. key] == false)
             end
-            EllesmereUI.BuildInlineCog(leftRgn, {
-                title = "Stat Section Settings", rows = rows,
-                disabled = themedOff, disabledTooltip = "Character Sheet",
-            })
-        end
-        AttachDisabledOverlay(sectionsRow)
+            local function SecOrTerShown()
+                return SectionShown("SecondaryStats") or SectionShown("Tertiary")
+            end
 
-        -- Secondary/Tertiary Text | Secondary/Tertiary Highlights (both write
-        -- the Secondary and the Tertiary keys; the Secondary pair is shown)
-        local stRow
-        stRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Secondary/Tertiary Text",
-              tooltip="How Secondary and Tertiary stat values are shown.",
-              values={ pct="Percent", value="Value", both="Value (Percent)" },
-              order={ "pct", "value", "both" },
-              disabled=function() return not SecOrTerShown() end,
-              disabledTooltip="Secondary Stats or Tertiary Stats",
-              getValue=function()
-                  -- Both wins over Raw, as on the sheet
-                  if EllesmereUIDB and EllesmereUIDB.showSecondaryBoth then return "both" end
-                  if EllesmereUIDB and EllesmereUIDB.showSecondaryRaw then return "value" end
-                  return "pct"
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  local raw, both = v == "value", v == "both"
-                  EllesmereUIDB.showSecondaryRaw, EllesmereUIDB.showSecondaryBoth = raw, both
-                  EllesmereUIDB.showTertiaryRaw, EllesmereUIDB.showTertiaryBoth = raw, both
-                  if EllesmereUI._refreshStatFormats then EllesmereUI._refreshStatFormats() end
-              end },
-            { type="toggle", text="Secondary/Tertiary Highlights",
-              tooltip="Hovering a Secondary or Tertiary stat highlights the gear that has it.",
-              disabled=function() return not SecOrTerShown() end,
-              disabledTooltip="Secondary Stats or Tertiary Stats",
-              getValue=function()
-                  return EllesmereUIDB and (EllesmereUIDB.highlightSecondaryItems == true
-                      or EllesmereUIDB.highlightTertiaryItems == true) or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.highlightSecondaryItems = v
-                  EllesmereUIDB.highlightTertiaryItems = v
-              end }
-        );  y = y - h
-        AttachDisabledOverlay(stRow)
+            -- Stat Sections (checkbox dropdown + cog) | Show Diminishing Returns
+            local sectionsRow
+            sectionsRow, h = W:DualRow(parent, y,
+                { type="label", text="Stat Sections" },
+                { type="toggle", text="Show Diminishing Returns",
+                  tooltip="Adds diminishing returns info to Secondary and Tertiary stat tooltips.",
+                  getValue=function() return EllesmereUIDB and EllesmereUIDB.showAdjustedStats or false end,
+                  setValue=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      EllesmereUIDB.showAdjustedStats = v
+                  end }
+            );  y = y - h
+            local leftRgn = sectionsRow._leftRegion
+            if not EllesmereUI._prebuilding then
+                -- Each section's colour swatch sits on its row of the dropdown; dimmed while
+                -- Blizzard UI Color applies or the section is unchecked.
+                local items = {}
+                for i, sec in ipairs(STAT_SECTIONS) do
+                    local key, label, colorKey, def = sec.key, sec.label, sec.color, sec.def
+                    items[i] = { key = key, label = label, swatch = {
+                        get = function()
+                            local c = EllesmereUIDB and EllesmereUIDB.statCategoryColors and EllesmereUIDB.statCategoryColors[colorKey]
+                            if c then return c.r, c.g, c.b, 1 end
+                            return def.r, def.g, def.b, 1
+                        end,
+                        set = function(r, g, b)
+                            if not EllesmereUIDB then EllesmereUIDB = {} end
+                            if not EllesmereUIDB.statCategoryColors then EllesmereUIDB.statCategoryColors = {} end
+                            if not EllesmereUIDB.statCategoryUseColor then EllesmereUIDB.statCategoryUseColor = {} end
+                            EllesmereUIDB.statCategoryColors[colorKey] = { r = r, g = g, b = b }
+                            EllesmereUIDB.statCategoryUseColor[colorKey] = true
+                            if EllesmereUI._refreshCharacterSheetColors then EllesmereUI._refreshCharacterSheetColors() end
+                        end,
+                        disabled = function() return blizzColorsOn() or not SectionShown(key) end,
+                        -- Two requirements with opposite wording: pre-wrapped, so raw.
+                        disabledTooltip = function()
+                            if blizzColorsOn() then
+                                return not EllesmereUI.IS_FOREVER
+                                    and EllesmereUI.DisabledTooltip("Blizzard UI Color", "disabled") or nil
+                            end
+                            return EllesmereUI.DisabledTooltip(label)
+                        end,
+                        rawTooltip = true,
+                    } }
+                end
+                local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    leftRgn, 210, leftRgn:GetFrameLevel() + 2, items,
+                    SectionShown,
+                    function(key, v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB["showStatCategory_" .. key] = v
+                        if EllesmereUI._updateStatCategoryVisibility then
+                            EllesmereUI._updateStatCategoryVisibility()
+                        end
+                        local sf = CharacterFrame and EllesmereUI._GetFFD(CharacterFrame).scrollFrame
+                        if sf then sf:SetVerticalScroll(0) end
+                        EllesmereUI:RefreshPage()
+                    end)
+                PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
+                leftRgn._control = cbDD
+                leftRgn._lastInline = nil
+                EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+            end
+            do
+                -- Cog: the per-section extras the old per-section rows held (outside the
+                -- prebuild guard so the index pass sees its rows)
+                local rows = {
+                    { type="toggle", label="Show Mana",
+                      tooltip="Adds Mana to the Attributes section.",
+                      disabled=function() return not SectionShown("Attributes") end,
+                      disabledTooltip="Attributes",
+                      get=function() return EllesmereUIDB and EllesmereUIDB.showManaStat == true end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.showManaStat = v
+                          if EllesmereUI._refreshStatsVisibility then EllesmereUI._refreshStatsVisibility() end
+                      end },
+                    { type="reordercheck", label="Crests", ddWidth=150,
+                      disabled=function() return not SectionShown("Crests") end,
+                      disabledTooltip="Crests",
+                      items={
+                          { key="Myth",       label="Myth",       fixed=true },
+                          { key="Hero",       label="Hero",       fixed=true },
+                          { key="Champion",   label="Champion",   fixed=true },
+                          { key="Veteran",    label="Veteran",    fixed=true },
+                          { key="Adventurer", label="Adventurer", fixed=true },
+                      },
+                      get=function(key) return not (EllesmereUIDB and EllesmereUIDB["showCrest_" .. key] == false) end,
+                      set=function(key, v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB["showCrest_" .. key] = v
+                          if EllesmereUI._refreshStatsVisibility then EllesmereUI._refreshStatsVisibility() end
+                      end },
+                }
+                -- Blizz Default only (not WoW Forever, whose sheet has no
+                -- EllesmereUI stats section): on unless turned off.
+                if stock and not EllesmereUI.IS_FOREVER then
+                    rows[#rows + 1] = { type="toggle", label="Blizzard UI Color",
+                      tooltip="Shows the item level and stat titles in Blizzard's yellow.",
+                      get=function() return not (EllesmereUIDB and EllesmereUIDB.charSheetBlizzColors == false) end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.charSheetBlizzColors = v
+                          if EllesmereUI._refreshCharacterSheetColors then EllesmereUI._refreshCharacterSheetColors() end
+                          EllesmereUI:RefreshPage()
+                      end }
+                end
+                EllesmereUI.BuildInlineCog(leftRgn, {
+                    title = "Stat Section Settings", rows = rows,
+                    disabled = themedOff, disabledTooltip = "Character Sheet",
+                })
+            end
+            AttachDisabledOverlay(sectionsRow)
+
+            -- Secondary/Tertiary Text | Secondary/Tertiary Highlights (both write
+            -- the Secondary and the Tertiary keys; the Secondary pair is shown)
+            local stRow
+            stRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Secondary/Tertiary Text",
+                  tooltip="How Secondary and Tertiary stat values are shown.",
+                  values={ pct="Percent", value="Value", both="Value (Percent)" },
+                  order={ "pct", "value", "both" },
+                  disabled=function() return not SecOrTerShown() end,
+                  disabledTooltip="Secondary Stats or Tertiary Stats",
+                  getValue=function()
+                      -- Both wins over Raw, as on the sheet
+                      if EllesmereUIDB and EllesmereUIDB.showSecondaryBoth then return "both" end
+                      if EllesmereUIDB and EllesmereUIDB.showSecondaryRaw then return "value" end
+                      return "pct"
+                  end,
+                  setValue=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      local raw, both = v == "value", v == "both"
+                      EllesmereUIDB.showSecondaryRaw, EllesmereUIDB.showSecondaryBoth = raw, both
+                      EllesmereUIDB.showTertiaryRaw, EllesmereUIDB.showTertiaryBoth = raw, both
+                      if EllesmereUI._refreshStatFormats then EllesmereUI._refreshStatFormats() end
+                  end },
+                { type="toggle", text="Secondary/Tertiary Highlights",
+                  tooltip="Hovering a Secondary or Tertiary stat highlights the gear that has it.",
+                  disabled=function() return not SecOrTerShown() end,
+                  disabledTooltip="Secondary Stats or Tertiary Stats",
+                  getValue=function()
+                      return EllesmereUIDB and (EllesmereUIDB.highlightSecondaryItems == true
+                          or EllesmereUIDB.highlightTertiaryItems == true) or false
+                  end,
+                  setValue=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      EllesmereUIDB.highlightSecondaryItems = v
+                      EllesmereUIDB.highlightTertiaryItems = v
+                  end }
+            );  y = y - h
+            AttachDisabledOverlay(stRow)
+        end
 
         ---------------------------------------------------------------------------
         --  INSPECT SHEET
@@ -2111,7 +2147,8 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI._refreshInspectItemLevelVisibility()
                   end
               end },
-            { type="toggle", text="Upgrade Track",
+            -- WoW Forever has no upgrade tracks.
+            EllesmereUI.IS_FOREVER and EllesmereUI.BlankRowCfg() or { type="toggle", text="Upgrade Track",
               tooltip="Toggle visibility of upgrade track text on the inspect sheet.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.inspectShowUpgradeTrack ~= false
@@ -5044,6 +5081,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.charSheetBlizzColors = nil
                 EllesmereUIDB.inspectEnchantNames = nil
                 EllesmereUIDB.inspectEnchantSize = nil
+                EllesmereUIDB.charSheetItemLevelPos = nil
                 -- The rest of what the export bundle carries for these two tabs
                 -- (BLIZZ_SKIN_GLOBAL_KEYS): card and tooltip settings, defaults too.
                 for _, k in ipairs({
