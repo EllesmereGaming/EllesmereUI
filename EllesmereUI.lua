@@ -4652,12 +4652,13 @@ initFrame:SetScript("OnEvent", function(self, event)
                 extraH = extraH + (showEUI and 40 or 40)
             end
 
-            -- Push all Blizzard buttons below the anchor down
-            local anchorBottom = anchorBtn:GetBottom()
-            if anchorBottom then
+            -- Push all Blizzard buttons below the anchor down. Order by layoutIndex, not screen
+            -- position: freshly pooled buttons have no valid rect until first rendered.
+            local anchorIndex = anchorBtn.layoutIndex
+            if anchorIndex then
                 for menuBtn in GameMenuFrame.buttonPool:EnumerateActive() do
-                    local top = menuBtn:GetTop()
-                    if top and top < anchorBottom + 2 then
+                    local idx = menuBtn.layoutIndex
+                    if idx and idx > anchorIndex then
                         local p, rel, rp, x, y = menuBtn:GetPoint(1)
                         if p then
                             menuBtn:ClearAllPoints()
