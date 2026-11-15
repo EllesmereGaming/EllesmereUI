@@ -2423,7 +2423,9 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end },
             { type="toggle", text="Train All Button",
-              tooltip="Adds a 'Train All' button next to the Train button at profession trainers, allowing you to learn all available skills with one click.",
+              tooltip=EllesmereUI.IS_FOREVER
+                  and "Adds a 'Train All' button next to the Train button at profession trainers, allowing you to learn all available skills with one click. Not available in Beast Training."
+                  or "Adds a 'Train All' button next to the Train button at profession trainers, allowing you to learn all available skills with one click.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.trainAllButton or false
               end,
