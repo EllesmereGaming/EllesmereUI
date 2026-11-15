@@ -30,6 +30,7 @@ local ApplyButtonBorders, ApplyShapeToButton = I.ApplyButtonBorders, I.ApplyShap
 local SafeEnableMouse, SafeEnableMouseMotionOnly = I.SafeEnableMouse, I.SafeEnableMouseMotionOnly
 local ShouldQuickKeybindSurfaceBar = I.ShouldQuickKeybindSurfaceBar
 local SHOWGRID, SetShowGridInsecure = I.SHOWGRID, I.SetShowGridInsecure
+local GetButtonActionSlot = I.GetButtonActionSlot
 
 -------------------------------------------------------------------------------
 --  EAB Methods Apply functions called by the options UI
@@ -343,6 +344,12 @@ function EAB:ApplyFontsForBar(barKey)
                 hk:Show()
                 EllesmereUI.ApplyIconTextFont(hk, fontPath, kbSize, "actionBars")
                 hk:SetTextColor(kbColor.r, kbColor.g, kbColor.b)
+                -- The color above also replaces Blizzard's out-of-range red,
+                -- which it repaints only on the next range change.
+                local slot = GetButtonActionSlot(btn)
+                if slot and IsActionInRange(slot) == false then
+                    hk:SetTextColor(RED_FONT_COLOR:GetRGB())
+                end
                 -- Anchor unset (the default) = the stock placement below; the
                 -- nil test is the whole cost of the feature while it is off.
                 if not (kbAnchor and EAB.PlaceButtonText(hk, btn, kbAnchor, kbOX, kbOY)) then
