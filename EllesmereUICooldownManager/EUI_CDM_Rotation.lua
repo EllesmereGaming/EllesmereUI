@@ -384,6 +384,15 @@ end
 -- range-on-override-swap staleness it replaced is cosmetic, and is repainted
 -- below WITHIN this law: our own texture only, no frame field, no paint call.
 
+-- Blizzard hands pooled item frames to other cooldowns, so an override kept
+-- for the frame's previous spell is dropped once the frame shows another one.
+local function DropStaleOverride(icon, fd)
+    if icon.rangeCheckSpellID == fd._oorBaseID then return false end
+    fd._oorSpellID, fd._oorBaseID = nil, nil
+    ns._oorLiveCount = ns._oorLiveCount - 1
+    return true
+end
+
 -- Blizzard arms the range check on the BASE spell, so while an override is up the
 -- icon tracks the wrong spell's range. Repainted on fd.tex and the side table,
 -- never the frame. The hook RE-POLLS instead of replaying a stored answer: it
@@ -406,12 +415,13 @@ function ns.ApplyOverrideRangeTint(icon, overrideSpellID)
         ns._oorLiveCount = (ns._oorLiveCount or 0) + (overrideSpellID and 1 or -1)
     end
     fd._oorSpellID = overrideSpellID
+    fd._oorBaseID = overrideSpellID and icon.rangeCheckSpellID
     if not fd._oorHooked then
         fd._oorHooked = true
         local guard = false
         hooksecurefunc(tex, "SetVertexColor", function()
             local sid = fd._oorSpellID
-            if guard or not sid then return end
+            if guard or not sid or DropStaleOverride(icon, fd) then return end
             local r = C_Spell.IsSpellInRange(sid)
             if issecretvalue and issecretvalue(r) then return end
             if r ~= false then return end
@@ -515,7 +525,7 @@ function ns.RepaintOverrideRange(spellID)
     for _, icons in pairs(cdmBarIcons) do
         for _, icon in ipairs(icons) do
             local fd = _getFD(icon)
-            if fd and fd._oorSpellID == spellID then
+            if fd and fd._oorSpellID == spellID and not DropStaleOverride(icon, fd) then
                 ns.ApplyOverrideRangeTint(icon, spellID)
             end
         end
