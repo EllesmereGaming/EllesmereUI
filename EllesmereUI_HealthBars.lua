@@ -484,7 +484,8 @@ function H.UNIT_MAXHEALTH(unit)
     local hasPlate, hasRaid = false, false
     if set and next(set) then
         hasPlate, hasRaid = CheckUnit(unit, set)
-        for bar, e in pairs(set) do Apply(bar, e, true) end
+        -- Through Attach, so a crowd's max health changes share the frame budget.
+        for bar, e in pairs(set) do Attach(bar, e.place, e.unit, e.kind, e.owner, true, e.ffd) end
     end
     FindMissing(unit, hasPlate, hasRaid)
 end
