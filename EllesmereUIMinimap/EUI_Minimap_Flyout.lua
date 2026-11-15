@@ -225,6 +225,17 @@ function EBS._RaiseLateFlyoutChildren(btn)
     raise(btn, flyoutPanel:GetFrameLevel() + 6)
 end
 
+-- Some addons re-anchor their button to the map in its own OnShow, which fires on
+-- every flyout open; this post-hook puts it back in its cell.
+local function RepinFlyoutButton(btn)
+    if not flyoutPanel or btn:GetParent() ~= flyoutPanel then return end
+    if InCombatLockdown() and btn:IsProtected() then return end
+    local d = GetFFD(btn)
+    if not d.flyoutX then return end
+    btn:ClearAllPoints()
+    btn:SetPoint("TOPLEFT", flyoutPanel, "TOPLEFT", d.flyoutX, d.flyoutY)
+end
+
 -- Keep the grid open for a press on anything parented under it (forbidden frames never).
 function EBS._MouseOverFlyoutChild(panel)
     local focus = GetMouseFoci()[1]
@@ -328,6 +339,15 @@ local function LayoutFlyoutButtons()
         btn:ClearAllPoints()
         btn:SetPoint("TOPLEFT", flyoutPanel, "TOPLEFT", xOff, yOff)
         btn:SetSize(btnSize, btnSize)
+        -- A grouped button stays in its cell: no drag (the row does the same) and
+        -- re-pinned after its own OnShow.
+        local d = GetFFD(btn)
+        d.flyoutX, d.flyoutY = xOff, yOff
+        btn:RegisterForDrag()
+        if not d.flyoutShowHook then
+            d.flyoutShowHook = true
+            btn:HookScript("OnShow", RepinFlyoutButton)
+        end
         EBS._suppressVisTrack = true
         btn:SetAlpha(1)
         btn:Show()
