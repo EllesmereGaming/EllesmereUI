@@ -264,3 +264,5 @@ L["How the picked channel is marked: a line in the channel's color under the but
 L["Only the group's leader or an assist can start a break."] = "Solo el líder del grupo o un asistente puede iniciar un descanso."
 L["World Channels"] = "Canales generales"
 L["Yell"] = "Gritar"
+L["Chat Bar Font"] = "Fuente de la barra de chat"
+L["Chat Bar Font Size"] = "Tamaño de fuente de la barra de chat"

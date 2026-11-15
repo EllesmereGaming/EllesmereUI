@@ -13236,6 +13236,8 @@ L["Channel Color Fill"] = "Relleno"
 L["How the picked channel is marked: a line in the channel's color under the button, or the whole button filled with that color."] = "Cómo se marca el canal elegido: una línea del color del canal bajo el botón o todo el botón relleno de ese color."
 L["Only the group's leader or an assist can start a break."] = "Solo el líder del grupo o un asistente puede iniciar un descanso."
 L["World Channels"] = "Canales generales"
+L["Chat Bar Font"] = "Fuente barra de chat"
+L["Chat Bar Font Size"] = "Tam. fuente barra de chat"
 
 -- == 9.8.9-9.9.1 ===========================================================
 L["Primary Spec"] = "Espec. principal"

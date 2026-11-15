@@ -11349,6 +11349,8 @@ L["Channel Color Fill"] = "Preenchimento"
 L["How the picked channel is marked: a line in the channel's color under the button, or the whole button filled with that color."] = "Como o canal escolhido é marcado: uma linha na cor do canal sob o botão ou o botão inteiro preenchido com essa cor."
 L["Only the group's leader or an assist can start a break."] = "Só o líder do grupo ou um assistente pode iniciar um intervalo."
 L["World Channels"] = "Canais gerais"
+L["Chat Bar Font"] = "Fonte da barra de bate-papo"
+L["Chat Bar Font Size"] = "Tamanho da fonte da barra de bate-papo"
 
 -- == Talent Reminders Import / Export ==========================================
 L["Export All"] = "Exportar tudo"

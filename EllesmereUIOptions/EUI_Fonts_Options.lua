@@ -731,6 +731,38 @@ local function TileChat(parent, y, W, tile)
               p.editBoxFontSize = v
               if ECHAT and ECHAT.ApplyFonts then ECHAT.ApplyFonts() end
           end });  y = y - h
+    -- The chat bar (Chat > Chat Bar), dimmed while the bar is off.
+    local function BarOff()
+        local p = db()
+        return not (p and p.chatBarEnabled)
+    end
+    local function ApplyBar()
+        if ECHAT and ECHAT.ApplyChatBar then ECHAT.ApplyChatBar() end
+    end
+    _, h = W:DualRow(parent, y,
+        { type = "dropdown", text = "Chat Bar Font",
+          values = fontValues, order = fontOrder,
+          disabled = BarOff, disabledTooltip = "Enable Chat Bar",
+          getValue = function()
+              local p = db()
+              return (p and p.chatBarFont) or "__global"
+          end,
+          setValue = function(v)
+              local p = db(); if not p then return end
+              p.chatBarFont = v
+              ApplyBar()
+          end },
+        { type = "slider", text = "Chat Bar Font Size", min = 8, max = 20, step = 1,
+          disabled = BarOff, disabledTooltip = "Enable Chat Bar",
+          getValue = function()
+              local p = db()
+              return (p and p.chatBarFontSize) or 11
+          end,
+          setValue = function(v)
+              local p = db(); if not p then return end
+              p.chatBarFontSize = v
+              ApplyBar()
+          end });  y = y - h
     return y
 end
 

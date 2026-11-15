@@ -839,7 +839,11 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.BuildSectionUnlockJump(hdr, { key = "ECHAT_ChatBar",
                 disabled = BarOff, disabledTooltip = "Enable Chat Bar" })
 
-            _, h = W:DualRow(parent, y,
+            -- Font: the EUI global font by default, as the tab font; the size
+            -- sits in the cog next to the dropdown. Also on the Fonts page.
+            local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
+            local fontRow
+            fontRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Enable Chat Bar",
                   getValue=function() return Cfg("chatBarEnabled") == true end,
                   setValue=function(v)
@@ -847,7 +851,21 @@ initFrame:SetScript("OnEvent", function(self)
                       ApplyBar()
                       EllesmereUI:RefreshPage()
                   end },
-                Slider("Font Size", "chatBarFontSize", 8, 20, 1, 11))
+                { type="dropdown", text="Font",
+                  disabled=BarOff, disabledTooltip="Enable Chat Bar",
+                  values=fontValues, order=fontOrder,
+                  getValue=function() return Cfg("chatBarFont") or "__global" end,
+                  setValue=function(v) Set("chatBarFont", v); ApplyBar() end })
+            EllesmereUI.BuildInlineCog(fontRow._rightRegion, {
+                disabled = BarOff,
+                disabledTooltip = "Enable Chat Bar",
+                title = "Font Settings",
+                rows = {
+                    { type="slider", label="Font Size", min=8, max=20, step=1,
+                      get=function() return Cfg("chatBarFontSize") or 11 end,
+                      set=function(v) Set("chatBarFontSize", v); ApplyBar() end },
+                },
+            })
             y = y - h
 
             _, h = W:DualRow(parent, y,

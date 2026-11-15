@@ -170,6 +170,7 @@ local CHAT_DEFAULTS = {
             chatBarButtonWidth = 22,
             chatBarButtonHeight = 20,
             chatBarSpacing = 2,
+            chatBarFont = "__global",
             chatBarFontSize = 11,
             chatBarHideUnavailable = true,
             chatBarOpenOnClick = false,

@@ -7094,6 +7094,8 @@ L["How the picked channel is marked: a line in the channel's color under the but
 L["Only the group's leader or an assist can start a break."] = "Seul le chef du groupe ou un assistant peut lancer une pause."
 L["World Channels"] = "Canaux généraux"
 L["Yell"] = "Crier"
+L["Chat Bar Font"] = "Police de la barre de chat"
+L["Chat Bar Font Size"] = "Taille de police de la barre de chat"
 -- Unspent Legacy Points alert (EllesmereUIQoL_Alerts.lua, WoW Forever)
 L["Unspent Legacy points"] = "Points Legacy non dépensés"
 L["Unspent Legacy Points Alert"] = "Alerte de points Legacy non dépensés"
