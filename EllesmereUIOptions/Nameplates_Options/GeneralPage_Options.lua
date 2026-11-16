@@ -586,6 +586,8 @@ local function BuildGeneralPage(pageName, parent, yOffset)
           setValue=function(v)
             DB().showEnemyPets = v
             pcall(EllesmereUI.SetCVar, "nameplateShowEnemyPets", v and 1 or 0, "EllesmereUINameplates")
+            pcall(EllesmereUI.SetCVar, "nameplateShowEnemyMinions", v and 1 or 0, "EllesmereUINameplates")
+            pcall(EllesmereUI.SetCVar, "UnitNameEnemyMinionName", v and 1 or 0, "EllesmereUINameplates")
           end,
           tooltip="Toggle visibility of enemy pet nameplates." }
     -- (also found by the section name it is known under)

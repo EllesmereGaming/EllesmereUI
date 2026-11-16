@@ -361,7 +361,15 @@ local function SetupAuraCVars()
         end
         EllesmereUI.SetCVar("nameplateShowFriendlyNPCs", showNPCs and 1 or 0, "EllesmereUINameplates")
         EllesmereUI.SetCVar("nameplateShowFriendlyNpcs", showNPCs and 1 or 0, "EllesmereUINameplates")
-        EllesmereUI.SetCVar("nameplateShowEnemyPets", (db.showEnemyPets == true) and 1 or 0, "EllesmereUINameplates")
+        local showFriendlyPets = (db.showFriendlyPets == true)
+        EllesmereUI.SetCVar("nameplateShowFriendlyPlayerMinions", showFriendlyPets and 1 or 0, "EllesmereUINameplates")
+        EllesmereUI.SetCVar("nameplateShowFriendlyMinions", showFriendlyPets and 1 or 0, "EllesmereUINameplates")
+        EllesmereUI.SetCVar("nameplateShowFriendlyPets", showFriendlyPets and 1 or 0, "EllesmereUINameplates")
+        EllesmereUI.SetCVar("UnitNameFriendlyMinionName", showFriendlyPets and 1 or 0, "EllesmereUINameplates")
+        local showEnemyPets = (db.showEnemyPets == true)
+        EllesmereUI.SetCVar("nameplateShowEnemyPets", showEnemyPets and 1 or 0, "EllesmereUINameplates")
+        EllesmereUI.SetCVar("nameplateShowEnemyMinions", showEnemyPets and 1 or 0, "EllesmereUINameplates")
+        EllesmereUI.SetCVar("UnitNameEnemyMinionName", showEnemyPets and 1 or 0, "EllesmereUINameplates")
         if showPlayers then
             EllesmereUI.SetCVar("ShowClassColorInFriendlyNameplate", (db.classColorFriendly ~= false) and 1 or 0, "EllesmereUINameplates")
         end
