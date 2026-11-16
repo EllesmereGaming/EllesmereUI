@@ -199,19 +199,37 @@ local function InitializeFrames()
                     local db = EllesmereUIDB
                     return (db and db.restedIndicatorXOffset) or 0, (db and db.restedIndicatorYOffset) or 0
                 end
-                local function PlaceRest(region)
+                -- Anchor Portrait: the shown portrait backdrop, else nil (the health bar).
+                local function RestPortrait()
+                    if not (EllesmereUIDB and EllesmereUIDB.restedIndicatorAnchor == "portrait") then return nil end
+                    local bd = pf.Portrait and pf.Portrait.backdrop
+                    if bd and bd:IsShown() then return bd end
+                    return nil
+                end
+                local function PlaceRest(region, anchor)
                     local rx, ry = RestOffsets()
                     region:ClearAllPoints()
-                    region:SetPoint("TOPLEFT", pf.Health, "TOPLEFT", 3 + rx, -2 + ry)
+                    region:SetPoint("TOPLEFT", anchor, "TOPLEFT", 3 + rx, -2 + ry)
                 end
                 -- Places the text, and the animated icon once built, at the cog's X/Y
                 -- offsets (and the icon at its Size). The icon's spot depends on the
                 -- frame's art: the stock layout pass runs this again when that changes
-                -- (ns.UF_RestFollowArt).
+                -- (ns.UF_RestFollowArt). On the portrait, the text leaves the bar clip
+                -- and both sit above the portrait (a detached one is raised over the
+                -- frame); the portrait's live show / hide runs this again.
                 pf._restPlace = function()
-                    PlaceRest(pf._restText)
+                    local bd = RestPortrait()
+                    local host = bd or pf.Health
+                    local holder = pf._restHolder
+                    if holder:GetParent() ~= host then holder:SetParent(host) end
+                    holder:ClearAllPoints()
+                    holder:SetAllPoints(host)
+                    holder:SetFrameLevel(host:GetFrameLevel() + (bd and 10 or 5))
+                    PlaceRest(pf._restText, host)
                     local a = pf._restAnim
                     if a then
+                        a:SetFrameLevel(bd and (bd:GetFrameLevel() + 10)
+                            or (((pf._barClip or pf):GetFrameLevel()) + 10))
                         local size = (EllesmereUIDB and EllesmereUIDB.restedIndicatorAnimatedSize) or 24
                         local tex = pf._restAnimTex
                         if ns.UF_Forever() and pf._blizzGeom == ns.UF_BLIZZ.player then
@@ -228,7 +246,7 @@ local function InitializeFrames()
                             tex:SetSize(30 * k, 30 * k)
                         else
                             a:SetSize(size, size)
-                            PlaceRest(a)
+                            PlaceRest(a, host)
                             tex:ClearAllPoints()
                             tex:SetAllPoints(a)
                         end
@@ -256,9 +274,9 @@ local function InitializeFrames()
                     if on and animated and not pf._restAnim then
                         -- On the unit frame, not the health bar: the bar sits in the frame's
                         -- bar clip, which would cut off the z's as they float up past its edge.
-                        -- Its level keeps it above that clip, which draws as one group.
+                        -- Its level (set by _restPlace) keeps it above that clip, which
+                        -- draws as one group.
                         local restAnim = CreateFrame("Frame", nil, pf)
-                        restAnim:SetFrameLevel(((pf._barClip or pf):GetFrameLevel()) + 10)
                         restAnim:Hide()
                         local restTex = restAnim:CreateTexture(nil, "OVERLAY")
                         EllesmereUI.AddRestFlipbook(restAnim, restTex)
@@ -307,8 +325,6 @@ local function InitializeFrames()
                 pf._restEventFrame = CreateFrame("Frame", nil, pf)
                 pf._restEventFrame:SetScript("OnEvent", function() pf._restUpdate() end)
             end
-            pf._restHolder:SetAllPoints(pf.Health)
-            pf._restHolder:SetFrameLevel(pf.Health:GetFrameLevel() + 5)
             pf._restPlace()
             pf._restUpdate()
         end

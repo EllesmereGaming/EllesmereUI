@@ -1048,11 +1048,19 @@ function EllesmereUI.RestedIndicatorCfg()
       end }
 end
 
--- Animated, Size, X / Y Offset; greyed while the indicator is off.
+-- Anchor, Animated, Size, X / Y Offset; greyed while the indicator is off.
 function EllesmereUI.BuildRestedIndicatorCog(region)
     return EllesmereUI.BuildInlineCog(region, {
         title = "Rested Indicator",
         rows = {
+            { type="dropdown", label="Anchor",
+              values={ health="Health Bar", portrait="Portrait" }, order={ "health", "portrait" },
+              tooltip="Pins the indicator to the health bar or the portrait. The X / Y Offset start from its top-left corner. Without a portrait it stays on the health bar.",
+              get=function() return (EllesmereUIDB and EllesmereUIDB.restedIndicatorAnchor) or "health" end,
+              set=function(v)
+                  RestSet("restedIndicatorAnchor", v)
+                  RestPlace()
+              end },
             { type="toggle", label="Animated",
               tooltip="Shows the animated rest icon from Blizzard's player frame instead of the ZZZ text.",
               get=function() return EllesmereUIDB and EllesmereUIDB.restedIndicatorAnimated == true or false end,

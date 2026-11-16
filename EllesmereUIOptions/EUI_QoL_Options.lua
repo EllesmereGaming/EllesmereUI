@@ -1727,7 +1727,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Inline cog on Rested Indicator (left region): Animated, Size, X/Y offsets
+        -- Inline cog on Rested Indicator (left region): Anchor, Animated, Size, X/Y offsets
         EllesmereUI.BuildRestedIndicatorCog(restedRow._leftRegion)
 
         -- Target Distance settings cog (right slot of the Rested row)
