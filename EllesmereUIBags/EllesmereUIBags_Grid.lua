@@ -481,6 +481,8 @@ end
 -------------------------------------------------------------------------------
 function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, gridW, gridPadX, showPinned, pinnedSet)
     local selectedCategoryIndex, selectedGroupName = ns.GetSelection()
+    -- a virtual view's selection (nil for every other view): its own branch below
+    local view = EUI_CategoryManager:GetViewByIndex(selectedCategoryIndex)
     junkOn = EUI_CategoryManager:IsJunkMarkerEnabled()
     compactOn = EUI_Bags.IsCompactMode() == true
 
@@ -1361,6 +1363,130 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                     RenderSection(cat.name, catItems, isUserCreated, cat.isPinned, cat.isRecent, ci, true)
                 end
             end
+        end
+    elseif view then
+        -- Virtual view (EUI_CategoryManager:RegisterVirtualView): EUI's Pinned Items and
+        -- Recent Items sections first when the view keeps them, then the view's groups in
+        -- its order, "Other" after them, and our own Junk section last (junk is never
+        -- offered to the provider). As in All Items, Pinned and Recent repeat their items:
+        -- an item in them is in its section too (a pinned item hidden in its category is
+        -- not). A section with no items is not drawn. Nothing here is saved.
+        local groups = view.groups
+        local nGroups = #groups
+        local byGroup = { [-3] = {}, [-2] = {}, [-1] = {} }  -- -1 Pinned, -2 Recent, -3 Junk, 0 Other, 1.. groups
+        for g = 0, nGroups do byGroup[g] = {} end
+        for _, data in ipairs(displayItems) do
+            -- _vg / _vgJunk / _vgPin / _vgRec / _vgOnly: set by Refresh. An item it left
+            -- unstamped (its link has not loaded) is not drawn, as in All Items.
+            local vg = data._vg
+            if vg then
+                if data._vgPin then byGroup[-1][#byGroup[-1] + 1] = data end
+                if data._vgRec then byGroup[-2][#byGroup[-2] + 1] = data end
+                if not data._vgOnly then
+                    local list = data._vgJunk and byGroup[-3] or byGroup[vg] or byGroup[0]
+                    list[#list + 1] = data
+                end
+            end
+        end
+        local headerIdx = 0
+        -- One section. kind: "pinned" / "recent" (EUI's own: its hint, Hide link, the pin
+        -- "+" cell and the Clear link, as in All Items) or nil (a group).
+        local function RenderViewSection(label, sItems, kind, hint)
+            if #sItems > 0 then
+                if kind == "recent" then
+                    sItems = MergeDuplicates(sItems)
+                    table.sort(sItems, RecentCompare)
+                else
+                    PreCacheSortFields(sItems)
+                    table.sort(sItems, VisualSortCompare)
+                    sItems = MergeDuplicates(sItems)
+                end
+            elseif not kind then
+                return
+            end
+            local n = #sItems
+            if compactOn then
+                ns.CompactBagsSection(label, sItems, kind or "flat", nil, nil, hint)
+                return
+            end
+            headerIdx = headerIdx + 1
+            local hdr = GetOrCreateCatHeader(headerIdx)
+            hdr:SetParent(child)
+            hdr:ClearAllPoints()
+            hdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
+            hdr:SetWidth(gridW)
+            hdr._label:SetText(label .. " (" .. n .. ")")
+            if kind then
+                ns.SetHeaderHint(hdr, hint)
+                GetHeaderHideButton(hdr)
+                hdr._hideBtn._dbKey = kind == "pinned" and "bagShowPinnedItems" or "bagShowRecentItems"
+                hdr._hideBtn._tooltip = kind == "pinned" and "Hides Pinned Items. Re-show in settings."
+                    or "Hides Recent Items. Re-show in settings."
+                hdr._hideBtn:ClearAllPoints()
+                hdr._hideBtn:SetPoint("RIGHT", hdr, "RIGHT", 0, 0)
+                hdr._hideBtn:Show()
+                local lineAnchor = hdr._hideBtn
+                if kind == "recent" and BP().bagShowRecentClear == true
+                   and EUI_Bags._recentItems and next(EUI_Bags._recentItems) then
+                    lineAnchor = ShowRecentClearButton(hdr, hdr._hideBtn)
+                end
+                hdr._line:ClearAllPoints()
+                hdr._line:SetPoint("LEFT", hdr._hint, "RIGHT", 6, 0)
+                hdr._line:SetPoint("RIGHT", lineAnchor, "LEFT", -6, 0)
+            end
+            hdr:Show()
+            curY = curY - 22
+            for j, data in ipairs(sItems) do
+                slotIdx = slotIdx + 1
+                local btn = GetOrCreateSlot(slotIdx)
+                if btn then  -- nil during combat (avoids minting tainted secure buttons)
+                    btn:GetParent():SetParent(child)
+                    local col = (j - 1) % columns
+                    local row = math.floor((j - 1) / columns)
+                    RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
+                end
+            end
+            local cells = n
+            if kind == "pinned" then
+                -- The pin "+" cell, a regular empty slot with the "+" overlay on top
+                slotIdx = slotIdx + 1
+                local pinSlot = GetOrCreateSlot(slotIdx)
+                if pinSlot then
+                    pinSlot:GetParent():SetParent(child)
+                    RenderButton(pinSlot, { bag = 0, slot = 0 }, slotIdx, n % columns, math.floor(n / columns),
+                        startX, curY, columns)
+                    local ov = GetOrCreatePinOverlay()
+                    ov:SetParent(child)
+                    ov:ClearAllPoints()
+                    ov:SetAllPoints(pinSlot)
+                    ov:Show()
+                    cells = n + 1
+                end
+            end
+            local remainder = cells % columns
+            local padCount = cells == 0 and columns or (remainder == 0 and 0 or columns - remainder)
+            -- Cosmetic filler pads (see the group view)
+            if padCount > 0 then RenderEmptyPad(cells, padCount) end
+            curY = curY - (math.ceil((cells + padCount) / columns) * (SLOT_SIZE + SPACING)) - 6
+        end
+        -- Same switches as All Items: Show Pinned Items / Show Recent Items
+        if #byGroup[-1] > 0 or (view.keepPinned and showPinned and pinnedSet) then
+            RenderViewSection(EllesmereUI.L("Pinned Items"), byGroup[-1], "pinned",
+                EllesmereUI.L("Middle Click to Add or Remove"))
+        end
+        if #byGroup[-2] > 0 or (view.keepRecent and BP().bagShowRecentItems ~= false and EUI_Bags._recentItems) then
+            RenderViewSection(EllesmereUI.L("Recent Items"), byGroup[-2], "recent",
+                EllesmereUI.L("Extra quickview display, your items are also in their category"))
+        end
+        for g = 1, nGroups + 1 do
+            RenderViewSection(g <= nGroups and groups[g].name or view.otherName, byGroup[g <= nGroups and g or 0])
+        end
+        -- What Sell Junk sells stays ours: the Junk section, under the Junk category's name
+        -- (junk exists only while the Junk Marker is on, when this refresh's classify pass
+        -- has found that category)
+        if #byGroup[-3] > 0 then
+            local junkCat = EUI_CategoryManager:GetCategories()[EUI_CategoryManager._junkCatIdx]
+            RenderViewSection(junkCat and junkCat.name or EUI_CategoryManager.JUNK_KEY, byGroup[-3])
         end
     else
         if selectedGroupName then

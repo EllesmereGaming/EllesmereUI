@@ -119,7 +119,7 @@ GetRaidTargetIndex = function(u) return W.marker[u] end
 SetRaidTargetIconTexture = function(tex, index) tex._markerIndex = index end
 C_Timer = { After = function() end }
 Enum = { StatusBarInterpolation = { Immediate = 0 } }
-EllesmereUI = { AttachSecureUnitMenu = function() end }
+EllesmereUI = { AttachSecureUnitMenu = function() end, SetLeftClickTarget = function() end }
 
 -------------------------------------------------------------------------------
 --  Load the real engine, then the cut portrait and reload pieces

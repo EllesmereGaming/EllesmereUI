@@ -2,7 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EllesmereUIBags.lua -- Enhanced Bags System for EllesmereUI (Midnight): sidebar category filter + flat item grid layout.
 -------------------------------------------------------------------------------
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.CreateQuantityDialog and EllesmereUI.ReleaseStaleHold and EllesmereUI.ForeverLookMajority and EllesmereUI.ForeverHeavyOK and EllesmereUI.ForeverHeavy and EllesmereUI.ForeverHeavySeat and EllesmereUI.ForeverHeavyTitle and EllesmereUI.ForeverBorder and EllesmereUI.ForeverBorderSeat and EllesmereUI.ForeverBorderPaint) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the stack splitter is the parent's quantity window; ReleaseStaleHold / DropHold, the sort's sound effects mute; the WoW Forever style draws the parent's Forever frames and follows its look majority)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.CreateQuantityDialog and EllesmereUI.ReleaseStaleHold and EllesmereUI.ForeverLookMajority and EllesmereUI.ForeverHeavyOK and EllesmereUI.ForeverHeavy and EllesmereUI.ForeverHeavySeat and EllesmereUI.ForeverHeavyTitle and EllesmereUI.ForeverBorder and EllesmereUI.ForeverBorderSeat and EllesmereUI.ForeverBorderPaint and EllesmereUI.CharData and EllesmereUI.CharGUID) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the stack splitter is the parent's quantity window; ReleaseStaleHold / DropHold, the sort's sound effects mute; the WoW Forever style draws the parent's Forever frames and follows its look majority; its per-character data is in the parent's roster: CharData, CharGUID)
 local ns = select(2, ...)
 EllesmereUI._ModuleNS["EllesmereUIBags"] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
@@ -34,7 +34,7 @@ local IsEquippableItem = C_Item.IsEquippableItem
 
 -- Red-tint usability test (shared with the bank module via EUI). Tooltip must come from
 -- the real item, never GetItemByID: scaling gear's bonus IDs lower its required level, but
--- GetItemByID shows the unscaled base item's level (reads red). Prefer bag slot > link > ID; cache by link, wipe on level-up.
+-- GetItemByID shows the unscaled base item's level (reads red). Prefer bag slot > link > ID; cache by link, cleared on a level-up or a skill change.
 local _canUseCache = {}
 local ITEM_CLASS_RECIPE = Enum.ItemClass.Recipe
 local function BagsItemUnusable(bagID, slot, itemLink, itemID)
@@ -100,7 +100,19 @@ do
     local f = CreateFrame("Frame")
     f:RegisterEvent("PLAYER_LEVEL_UP")
     f:RegisterEvent("PLAYER_LEVEL_CHANGED")
-    f:SetScript("OnEvent", function() wipe(_canUseCache) end)
+    -- A skill rank gates recipes and some items without a level change.
+    f:RegisterEvent("SKILL_LINES_CHANGED")
+    f:SetScript("OnEvent", function(_, event)
+        if event == "SKILL_LINES_CHANGED" and InCombatLockdown() then
+            -- A rank gained in a fight (weapon and defense skill, by the dozen while
+            -- leveling) can only make an item usable: the unusable answers alone go.
+            for item, unusable in pairs(_canUseCache) do
+                if unusable then _canUseCache[item] = nil end
+            end
+            return
+        end
+        wipe(_canUseCache)
+    end)
 end
 -- WoW Forever: the player's bags (1-4) that hold one kind of item only --
 -- quivers, ammo pouches, soul, herb and enchanting bags, by their non-zero bag
@@ -227,52 +239,38 @@ layerUpdateFrame:SetScript("OnEvent", function() EUI_Bags:ApplyWindowLayering() 
 
 -- Tracked currencies are PER CHARACTER: their input feed (Blizzard's currency
 -- tab via the TokenFrame.OnTokenWatchChanged sync below) is per-character, so
--- a shared store can only bleed across characters. Stored at the EllesmereUIDB
--- ROOT beside the module's other per-character data (goldLedger,
--- bagPinnedByChar, bagItemAssignments), NEVER in the bag profile:
+-- a shared store can only bleed across characters. Stored in the character
+-- roster (EllesmereUI.CharData "bagCurrency"), NEVER in the bag profile:
 -- ApplyProfileData wipes db.profile wholesale on import (would erase every
 -- character's currencies), and profile exports must not ship a character
 -- roster (the PRIVATE_ADDON_KEYS leak class).
-local _bagsCharKey  -- session-constant; UpdateCurrencyDisplays is a render path
-local function BagsCharKey()
-    if not _bagsCharKey then
-        -- nil too early; do not cache a stub
-        _bagsCharKey = EllesmereUI.CharKey(" - ", EllesmereUIDB and EllesmereUIDB.bagCurrencyByChar)
-    end
-    return _bagsCharKey
-end
 
 -- The per-character order table, seeded on this character's first use.
 -- Returns nil only when the DB or the player identity is not up yet (callers
 -- already handle that).
 local function CurrencyOrder()
     if not EllesmereUIDB then return nil end
-    local key = BagsCharKey()
-    if not key then return nil end
-    local byChar = EllesmereUIDB.bagCurrencyByChar
-    if type(byChar) ~= "table" then byChar = {}; EllesmereUIDB.bagCurrencyByChar = byChar end
-    local t = byChar[key]
-    if type(t) ~= "table" then
-        t = {}
-        -- Seed once per character from the legacy shared profile table. The
-        -- legacy table is deliberately never deleted: a per-character
-        -- migration is never a one-shot (a character that has not logged in
-        -- yet still seeds from it later), and nothing writes it any more.
-        local legacy = BP().currencyOrder
-        if type(legacy) == "table" then
-            for cID, order in pairs(legacy) do
-                if type(order) == "number" then t[cID] = order end
-            end
+    local t = EllesmereUI.CharData("bagCurrency")
+    if t then return t end
+    t = EllesmereUI.CharData("bagCurrency", true)
+    if not t then return nil end
+    -- Seed once per character from the legacy shared profile table. The
+    -- legacy table is deliberately never deleted: a per-character
+    -- migration is never a one-shot (a character that has not logged in
+    -- yet still seeds from it later), and nothing writes it any more.
+    local legacy = BP().currencyOrder
+    if type(legacy) == "table" then
+        for cID, order in pairs(legacy) do
+            if type(order) == "number" then t[cID] = order end
         end
-        byChar[key] = t
     end
     return t
 end
 EUI._BagsCurrencyOrder = CurrencyOrder
 
 -- The pin table in use. Each character has its own (Pins per Character, on
--- unless EllesmereUIDB.bagPinsPerCharacter is false): its table in
--- EllesmereUIDB.bagPinnedByChar, by BagsCharKey. A character reads the shared
+-- unless EllesmereUIDB.bagPinsPerCharacter is false): EllesmereUI.CharData
+-- "bagPinned". A character reads the shared
 -- pins (bagPinnedItems) until its first pin or unpin, which copies them into
 -- its own table; after that the shared pins are neither read nor written for
 -- it. With the option off every character reads and writes the shared pins,
@@ -286,19 +284,15 @@ local function PinnedItems(create)
         if create and not db.bagPinnedItems then db.bagPinnedItems = {} end
         return db.bagPinnedItems
     end
-    local key = BagsCharKey()
-    local byChar = db.bagPinnedByChar
-    local own = key and type(byChar) == "table" and byChar[key]
-    if type(own) == "table" then return own end
+    local own = EllesmereUI.CharData("bagPinned")
+    if own then return own end
     if not create then return db.bagPinnedItems end
-    if not key then return nil end
-    own = {}
+    own = EllesmereUI.CharData("bagPinned", true)
+    if not own then return nil end
     local shared = db.bagPinnedItems
     if type(shared) == "table" then
         for k, v in pairs(shared) do own[k] = v end
     end
-    if type(byChar) ~= "table" then byChar = {}; db.bagPinnedByChar = byChar end
-    byChar[key] = own
     return own
 end
 ns.PinnedItems = PinnedItems

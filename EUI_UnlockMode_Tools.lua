@@ -1247,6 +1247,12 @@ local BLIZZ_OWNED_OVERLAY_DEFS = {
     -- On WoW Forever only while the bar itself shows: no stand-in box over an
     -- empty spot.
     { label = "Encounter Bar", frame = function() return _G.PlayerPowerBarAlt end, showAlways = EllesmereUI.IS_FOREVER ~= true, fallbackW = 240, fallbackH = 36, yOffset = 44 },
+    -- Breath, fatigue and feign death bars: only with the Timer Bars reskin on.
+    -- Mostly hidden, so the fallback box is one timer frame at the container's anchor.
+    { label = "Timer Bars",    frame = function()
+          if not (EllesmereUIDB and EllesmereUIDB.reskinTimerBars == true) then return nil end
+          return _G.MirrorTimerContainer
+      end, showAlways = true, fallbackW = 206, fallbackH = 32 },
     { label = "Buffs",         frame = function() return _G.BuffFrame end },
     { label = "Debuffs",       frame = function() return _G.DebuffFrame end },
     -- Blizzard Edit Mode's default tooltip anchor. EUI permanently owns the default
@@ -1354,6 +1360,12 @@ local function CreateBlizzOwnedOverlay(def, parent)
         animFrame:Hide()
         ApplyHover(0)
         ov._brd:SetColor(ar, ag, ab, 0.6)
+    end
+    -- Accent change (callback in EUI_UnlockMode_Movers.lua): a hovered overlay takes it on leave.
+    ov._applyAccent = function()
+        ar, ag, ab = GetAccent()
+        if hoverTarget == 0 then ov._brd:SetColor(ar, ag, ab, 0.6) end
+        if not (actionBtn:IsShown() and actionBtn:IsMouseOver()) then actionFs:SetTextColor(ar, ag, ab, 0.9) end
     end
     -- Shift+Right Click temporarily hides this overlay for the current unlock
     -- session (matches the regular mover behavior). The _tempHidden flag is

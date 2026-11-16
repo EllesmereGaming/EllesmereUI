@@ -29,7 +29,6 @@ local VSlotW           = K.VSlotW
 local MaybeRelayout    = K.MaybeRelayout
 local AttachTextOffset = K.AttachTextOffset
 local BlockColorOf     = K.BlockColorOf
-local IsSecret         = EllesmereUI.IsSecret
 local FmtDur           = EllesmereUI.FormatDuration
 
 -------------------------------------------------------------------------------
@@ -41,8 +40,9 @@ local FmtDur           = EllesmereUI.FormatDuration
 --  asks nothing: the time saved at PLAYER_LOGOUT (which fires on /reload too)
 --  is taken back at the next load's first PLAYER_ENTERING_WORLD, plus the
 --  seconds the reload took (/played counts on through a reload).
---  Totals live in EllesmereUIDB.timePlayedChars, outside the profile:
---      [guid] = { name, realm, class, level, total }  -- total in seconds
+--  Totals live in the character roster, outside the profile:
+--      EllesmereUI.CharData("timePlayed") = { level, total }  -- total in seconds
+--  (the name, realm and class are the roster entry's own)
 --  plus, from PLAYER_LOGOUT until the next load's first PLAYER_ENTERING_WORLD,
 --  lvlTime (the seconds at this level) and at (the GetTime() both are as of).
 --  By GUID: WoW Forever first names are not the whole name, and a rename keeps it.
@@ -61,32 +61,16 @@ local reloadPending -- a saved time waits for the first PLAYER_ENTERING_WORLD
 local function PlayedTotal() return baseTotal + (GetTime() - baseAt) end
 local function PlayedLevel() return baseLevel + (GetTime() - baseAt) end
 
-local function Store()
-    local db = EllesmereUIDB
-    if type(db) ~= "table" then return nil end
-    if type(db.timePlayedChars) ~= "table" then db.timePlayedChars = {} end
-    return db.timePlayedChars
-end
-
--- This character's store key; nil while the GUID cannot be read.
-local function CharGUID()
-    local guid = UnitGUID("player")
-    if not guid or IsSecret(guid) then return nil end
-    return guid
-end
+-- Every character's entry, by roster key (a new table each call).
+local function Store() return EllesmereUI.CharFieldMap("timePlayed") end
+local CharGUID = EllesmereUI.CharGUID
 
 -- Writes the live total to this character's entry.
 local function SaveCharacter()
     if not baseTotal then return end
-    local store = Store()
-    local key = CharGUID()
-    if not store or not key then return end
-    local e = store[key]
-    if not e then e = {}; store[key] = e end
-    local _, class = UnitClass("player")
-    -- The full name whatever the show-surname preference.
-    local name, surname = (UnitNameUnmodified or UnitName)("player")
-    e.name, e.realm, e.class, e.level, e.total = EllesmereUI.WithSurname(name, surname, true), EllesmereUI.RealmGroupName(), class, baseCharLevel, PlayedTotal()
+    local e = EllesmereUI.CharData("timePlayed", true)
+    if not e then return end
+    e.level, e.total = baseCharLevel, PlayedTotal()
 end
 
 local function RefreshAll()
@@ -96,8 +80,7 @@ end
 -- Every character gone; this one is recorded again at once, the others when
 -- they next log in with a block enabled.
 local function ResetAll()
-    local db = EllesmereUIDB
-    if type(db) == "table" then db.timePlayedChars = nil end
+    EllesmereUI.ClearCharField("timePlayed")
     SaveCharacter()
 end
 
@@ -129,8 +112,7 @@ end
 local function SaveReload()
     if not baseTotal then return end
     SaveCharacter()
-    local store, key = Store(), CharGUID()
-    local e = store and key and store[key]
+    local e = EllesmereUI.CharData("timePlayed")
     if e then e.lvlTime, e.at = PlayedLevel(), GetTime() end
 end
 
@@ -138,9 +120,8 @@ end
 -- saved time back; every saved time is dropped, so none outlives this load.
 local function TakeReload(isReloadingUi)
     reloadPending = nil
-    local db = EllesmereUIDB
-    local store = type(db) == "table" and db.timePlayedChars
-    if type(store) == "table" then
+    local store = Store()
+    do
         local me, now = CharGUID(), GetTime()
         for key, e in pairs(store) do
             if type(e) == "table" and e.at ~= nil then
@@ -197,9 +178,8 @@ end
 -- A load after one that saved its time waits for its first
 -- PLAYER_ENTERING_WORLD, which tells a /reload from a login, before it asks.
 do
-    local db = EllesmereUIDB
-    local store = type(db) == "table" and db.timePlayedChars
-    if type(store) == "table" and not IsLoggedIn() then
+    local store = Store()
+    if not IsLoggedIn() then
         for _, e in pairs(store) do
             if type(e) == "table" and e.at ~= nil then
                 reloadPending = true
@@ -281,12 +261,13 @@ ns.BlockFactories.timeplayed = function(blockCfg, slot, content, barCtx)
         local ar, ag, ab = ns.GetAccent()
         SaveCharacter()
         -- Every stored character by key, grouped by realm: realms A-Z, most played first.
-        local store = Store() or {}
+        local store = Store()
+        local chars = EllesmereUI.Chars() or {}
         local selfKey = CharGUID()
         local byRealm, realms, total, charCount = {}, {}, 0, 0
         for key, e in pairs(store) do
             if type(e) == "table" and type(e.total) == "number" then
-                local realm = e.realm or "?"
+                local realm = chars[key].realm or "?"
                 if not byRealm[realm] then
                     byRealm[realm] = {}
                     tinsert(realms, realm)
@@ -305,18 +286,18 @@ ns.BlockFactories.timeplayed = function(blockCfg, slot, content, barCtx)
             ns.Tip_AddLine(" ")
             ns.Tip_AddLine(realm, 0.5, 0.78, 1)
             for _, key in ipairs(keys) do
-                local e = store[key]
+                local e, c = store[key], chars[key]
                 local cr, cg, cb = 1, 1, 1
-                local cc = e.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[e.class]
+                local cc = c.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[c.class]
                 if cc then cr, cg, cb = cc.r, cc.g, cc.b end
                 -- The live character's click is inert: it saves again every minute.
-                local label = e.name or "?"
+                local label = c.name or "?"
                 if e.level then label = format("%s (%d)", label, e.level) end
                 ns.Tip_AddClickable(label, FmtDur(e.total), function(mouseButton)
                     if key == selfKey then return end
                     if mouseButton ~= "LeftButton" then return end
                     if not (IsControlKeyDown() and IsAltKeyDown()) then return end
-                    store[key] = nil
+                    EllesmereUI.ForgetCharField(key, "timePlayed")
                     ns.Tip_Hide(button)
                 end, cr, cg, cb, 1, 1, 1)
             end

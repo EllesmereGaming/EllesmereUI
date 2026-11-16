@@ -3,12 +3,15 @@
 -- need the whole game around them):
 --   EUI_GroupFinder_Search.lua  the skin state (XF.SkinOn: read once per session
 --     through the window engine, never latched before login), the border colour
---     it picks, a square's rest and picked edge in either look, the button every
---     filter bar button and square is made from, and the tab the Your Class
---     filter is read for;
+--     it picks, a square's rest and picked look in either look (a white edge,
+--     or a green tint on Blizzard's button), Blizzard's tooltip box and check
+--     box on our menus with the skin off (and no border of ours made for them),
+--     the button every filter bar button and square is made from, and the tab
+--     the Your Class filter is read for;
 --   EUI_GroupFinder_Extras.lua  the has / missing class rows: Your Class keeps a
---     key and a pick of its own on the raids tab, Bloodlust and Battle Res share
---     theirs.
+--     key and a pick of its own on the raids tab; Bloodlust and Battle Res read
+--     one key each here (the raids tab's own copy of those comes from the
+--     settings proxy: test_gf_char_filters.lua).
 -- A moved first or last line fails here by name.
 --   lua .tools/tests/test_gf_skin_look.lua        (from the repository root)
 local ROOT = arg and arg[1] or "."
@@ -48,7 +51,10 @@ local function Fresh(o)
     local CM = { _ModuleNS = {}, PanelPP = {
         SetBorderColor = function(f, r, g, b, a) W.colors[#W.colors + 1] = { f, r, g, b, a } end,
         CreateBorder = function(f) W.borders[#W.borders + 1] = f end,
-    }, MakeBorder = function(f) W.borders[#W.borders + 1] = f end }
+    }, MakeBorder = function(f)
+        W.borders[#W.borders + 1] = f
+        return { _frame = f, SetColor = function(self, ...) self.color = { ... } end }
+    end }
     if o.skins ~= false then
         CM._ModuleNS.EllesmereUIBlizzardSkin = { WSkin = (not o.noWSkin) and { Theme = o.theme,
             Button = function(b, keep) W.skinned[#W.skinned + 1] = { b, keep } end } or nil }
@@ -71,7 +77,7 @@ local function Fresh(o)
         W.made[#W.made + 1] = f
         return f
     end
-    local XF, ns = {}, {}
+    local XF, ns = { EMPTY = {} }, {}  -- XF.EMPTY: set by the file above the cut
     local ThemeBorder, SkinnedButton = assert(loadstring(CHUNK, "=search-cut"))(CM, XF, ns)
     return W, XF, ns, ThemeBorder, SkinnedButton
 end
@@ -135,7 +141,13 @@ do
     check(r == 0.38, "a skin that is off still gave the theme's colour")
 end
 
--- 4. a square's rest and picked edge
+-- a texture that keeps its last vertex colour
+local function Art()
+    return { SetVertexColor = function(self, r, g, b) self.tint = { r, g, b } end }
+end
+
+-- 4. a square's rest and picked look: a white edge with the skin on; with it
+--    off no edge of ours, the button's own art and its icon tinted green
 do
     local theme = { brdR = 0.1, brdG = 0.2, brdB = 0.3, brdA = 0.4 }
     local W, XF = Fresh({ theme = theme })
@@ -156,13 +168,117 @@ do
     XF.RestBorder(edge)
     f, r, g, b, a = Last(W)
     check(f == edge and r == 0 and g == 0 and b == 0 and a == 0, "stock: the rest edge is not clear")
+    local art, ic = Art(), Art()
+    rawset(sq, "stockArt", { art }); rawset(sq, "icon", ic)
     XF.PickBorder(sq, edge, true)
     f, r, g, b, a = Last(W)
     check(f == edge and a == 0, "stock: a picked square got an edge of ours")
-    check(Called(sq, "LockHighlight") and not Called(sq, "UnlockHighlight"), "stock: a picked square does not hold the highlight")
-    sq = CreateFrame("Button")
+    check(not Called(sq, "LockHighlight"), "stock: a picked square holds the highlight")
+    XF.PickBorder({}, edge, true)  -- a square with no art listed and no icon: nothing to tint
+    check(art.tint[1] == 0.45 and art.tint[2] == 1 and art.tint[3] == 0.45, "stock: a picked square's box is not tinted green")
+    check(ic.tint[1] == 0.7 and ic.tint[2] == 1 and ic.tint[3] == 0.7, "stock: a picked square's icon is not tinted green")
     XF.PickBorder(sq, edge, false)
-    check(Called(sq, "UnlockHighlight") and not Called(sq, "LockHighlight"), "stock: an unpicked square holds the highlight")
+    check(art.tint[1] == 1 and art.tint[2] == 1 and art.tint[3] == 1 and ic.tint[1] == 1, "stock: an unpicked square stays tinted")
+    -- a boss square: green while picked alive, red while picked dead
+    XF.TintSquare(sq, "alive")
+    check(art.tint[1] == 0.45 and art.tint[2] == 1, "stock: a boss picked alive is not green")
+    XF.TintSquare(sq, "dead")
+    check(art.tint[1] == 1 and art.tint[2] == 0.4 and ic.tint[2] == 0.6, "stock: a boss picked dead is not red")
+    XF.TintSquare(sq, nil)
+    check(art.tint[2] == 1 and ic.tint[2] == 1, "stock: an unpicked boss stays tinted")
+end
+
+-- 4b. a button's "filtering" look: our green edge with the skin on, the tint
+--     with it off (where no edge is made at all)
+do
+    local W, XF = Fresh({ style = "eui" })
+    local shown
+    local btn = { activeEdge = { SetShown = function(_, v) shown = v end, Hide = function() shown = "hidden" end } }
+    XF.ActiveLook(btn, true)
+    check(shown == true, "skinned: the green edge did not show")
+    XF.ActiveLook(btn, false)
+    check(shown == false, "skinned: the green edge stayed")
+    XF.ActiveLook({}, true)  -- no edge yet: nothing to do
+
+    W, XF = Fresh({ style = "off" })
+    local art = Art()
+    btn = { stockArt = { art } }
+    XF.ActiveLook(btn, true)
+    check(art.tint[1] == 0.45 and art.tint[2] == 1, "stock: a filtering button is not tinted green")
+    XF.ActiveLook(btn, false)
+    check(art.tint[1] == 1, "stock: a button that stopped filtering stays tinted")
+end
+
+-- 4c. Blizzard's tooltip box, check box and plain button on our own frames
+--     with the skin off; with it on our own look stays and the ring is ours
+do
+    local mixed = 0
+    Mixin = function(t, m) mixed = mixed + 1; for k, v in pairs(m) do t[k] = v end return t end
+    BackdropTemplateMixin = {
+        SetBackdrop = function(self, b) self.backdrop = b end,
+        SetBackdropColor = function(self, ...) self.fillColor = { ... } end,
+        SetBackdropBorderColor = function(self, ...) self.edgeColor = { ... } end,
+        OnBackdropSizeChanged = function() end,
+    }
+    TOOLTIP_DEFAULT_BACKGROUND_COLOR, TOOLTIP_DEFAULT_COLOR = nil, nil
+    local function Box() return { HookScript = function(self, ev, fn) self.hook = { ev, fn } end } end
+    local function Tex() return { Hide = function(self) self.hidden = true end } end
+
+    local W, XF, ns = Fresh({ style = "eui" })
+    local box, bg = Box(), Tex()
+    check(XF.StockBox(box, bg) == false and box.backdrop == nil and not bg.hidden and mixed == 0, "skinned: a menu took Blizzard's box")
+
+    W, XF, ns = Fresh({ style = "off" })
+    check(ns.StockBox == XF.StockBox and ns.NewButton == XF.NewButton and ns.ActiveLook == XF.ActiveLook, "the helpers are not shared with the other files")
+    check(XF.StockBox(box, bg) == true and bg.hidden == true, "stock: our flat fill stayed")
+    check(box.backdrop == XF.STOCK_BOTH and box.hook[1] == "OnSizeChanged" and box.hook[2] == BackdropTemplateMixin.OnBackdropSizeChanged,
+        "stock: not Blizzard's tooltip box, or it does not follow its frame's size")
+    check(box.fillColor[4] == 0.95 and box.edgeColor[1] == 1, "stock: the box has no fill or edge colour")
+    XF.StockBox(box, nil, "fill")
+    check(mixed == 1, "the backdrop mixin was added twice to one frame")
+    check(box.backdrop == XF.STOCK_FILL, "stock: a fill-only box")
+    box.fillColor, box.edgeColor = nil, nil
+    XF.StockBox(box, nil, "edge")
+    check(box.backdrop == XF.STOCK_EDGE and box.fillColor == nil and box.edgeColor ~= nil, "stock: an edge-only box was filled")
+    XF.StockBox(box, nil, "fillL")
+    check(box.backdrop == XF.STOCK_FILL_L and XF.STOCK_FILL_L.insets.right == 0, "stock: the left column keeps an inset where the columns meet")
+    XF.StockBox(box, nil, "fillR")
+    check(box.backdrop == XF.STOCK_FILL_R and XF.STOCK_FILL_R.insets.left == 0, "stock: the right column keeps an inset where the columns meet")
+
+    -- the check box: Blizzard's art and no ring of ours with the skin off
+    local function Check() return { tex = nil, SetTexture = function(self, t) self.tex = t end,
+        ClearAllPoints = function() end, SetPoint = function() end } end
+    local cb, cbg, fill = {}, Check(), Check()
+    check(XF.CheckRing(cb) == nil and #W.borders == 0, "stock: a ring of ours was made for a check box")
+    check(XF.StockCheck(cb, cbg, fill) == true, "stock: the check box kept our look")
+    check(cbg.tex == "Interface\\Buttons\\UI-CheckBox-Up" and fill.tex == "Interface\\Buttons\\UI-CheckBox-Check", "stock: not Blizzard's check box art")
+    local shown
+    fill.SetShown = function(_, v) shown = v end
+    XF.PaintCheck({ stock = true }, fill, nil, true)  -- no ring: none may be touched
+    check(shown == true, "stock: a ticked box shows no tick")
+    XF.PaintCheck({ stock = true }, fill, nil, false)
+    check(shown == false, "stock: an unticked box keeps its tick")
+    local b = XF.NewButton(cb)
+    check(b._template == "UIMenuButtonStretchTemplate" and b._parent == cb, "stock: a plain button is not Blizzard's menu button")
+
+    W, XF = Fresh({ style = "modern" })
+    cbg, fill = Check(), Check()
+    local ring = XF.CheckRing(cb)
+    check(ring ~= nil and #W.borders == 1 and W.borders[1] == cb, "skinned: a check box has no ring")
+    check(XF.StockCheck(cb, cbg, fill) == false and cbg.tex == nil, "skinned: a check box took Blizzard's art")
+    Accent = function() return 0.1, 0.2, 0.3 end
+    fill.SetShown = function(_, v) shown = v end
+    fill.SetColorTexture = function(self, ...) self.color = { ... } end
+    XF.PaintCheck({}, fill, ring, true)
+    check(shown == true and fill.color[1] == 0.1 and ring.color[1] == 0.1 and ring.color[4] == 0.8, "skinned: a ticked box is not in the accent")
+    XF.PaintCheck({}, fill, ring, false)
+    check(shown == false and ring.color[1] == 0.25, "skinned: an unticked box keeps the accent ring")
+    Accent = nil
+    check(XF.NewButton(cb)._template == nil, "skinned: a plain button took Blizzard's template")
+    -- the boxes that are built pass no ring to the stock art, and ask for theirs through the one maker
+    local _, rings = SEARCH:gsub("%.ring = XF%.CheckRing%(", "")
+    check(rings == 3 and not SEARCH:find(".ring = CM.MakeBorder(", 1, true), "a check box makes its ring outside XF.CheckRing")
+    check(SEARCH:find("if XF.SkinOn() and not diffBtn.activeEdge then", 1, true) ~= nil, "the Filters button makes its green edge with the skin off")
 end
 
 -- 5. the button every filter bar button and square is made from
@@ -280,7 +396,8 @@ do
     check(Keep(1, withMage, cfg, false) == false, "dungeons read the raids pick")
     cfg = { extraMyClass = true, raidMyClass = true, raidMyClassMissing = false }
     check(Keep(1, withMage, cfg, false) == false and Keep(1, withMage, cfg, true) == true, "both ticked")
-    -- Bloodlust and Battle Res are shared by both tabs
+    -- Bloodlust and Battle Res read one key each, whatever the tab (each tab's
+    -- own value comes from the settings proxy, which this cut does not hold)
     cfg = { hasLust = true }
     check(Keep(1, withMage, cfg, false) == true and Keep(1, withMage, cfg, true) == true, "Bloodlust: a mage's group was dropped")
     check(Keep(2, noMage, cfg, false) == false and Keep(2, noMage, cfg, true) == false, "Bloodlust: a group with none stayed")

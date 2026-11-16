@@ -96,7 +96,7 @@ function Attendance.Apply(store, pull)
         end
     end
 
-    return true
+    return true, night
 end
 
 
@@ -313,8 +313,17 @@ end
 
 
 
+
+local FUTURE_SLACK = 10 * 60
+
 function Attendance:ApplyReceived(payload, sender)
     if type(payload) ~= "table" or type(payload.id) ~= "string" then return end
+
+    local stamp = tonumber(payload.id:match("^(%d+)%-%d+$"))
+    if not stamp or stamp > GetServerTime() + FUTURE_SLACK then
+        addon.Log:WLogOnly("Attendance", ("refused a pull id %s from %s"):format((payload.id:sub(1, 32):gsub("|", "||")), tostring(sender)))
+        return
+    end
 
     addon.db.attendance = addon.db.attendance or { nights = {} }
     local store = addon.db.attendance
@@ -333,10 +342,17 @@ function Attendance:ApplyReceived(payload, sender)
         end
     end
 
-    local applied = Attendance.Apply(store, {
+    local applied, night = Attendance.Apply(store, {
         id = payload.id, e = payload.e, n = payload.n,
         d = payload.d, k = payload.k, p = names,
     })
+
+    local shared, History = addon.SharedSaved, addon.History
+    local key = applied and shared and History and History.Revive and shared.NightKey(night)
+    if key then
+        for _, name in ipairs(names) do History.Revive("members", shared.MemberKey(key, name), true) end
+        History.ReviveDone()
+    end
 
     Attendance.Prune(store, GetServerTime())
 

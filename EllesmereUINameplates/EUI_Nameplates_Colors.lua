@@ -124,12 +124,18 @@ end
 -- the tank role assigned (fvRoleTank; with one, the role alone decides). FV_TANK_CLASS (nil
 -- off Forever and for every other class) names what a warrior, druid or paladin is watched
 -- for. The watcher is armed only while the threat colors are on: the form event for the
--- shapes, the player's aura event for Righteous Fury, its payload probed for that one aura
--- (a restricted read keeps the last answer). A changed verdict repaints the plates.
+-- shapes, the player's aura event for Righteous Fury (re-read only when the update may
+-- have brought or taken it). A read an aura restriction refuses keeps the last answer and
+-- is retried as combat ends and as the restriction lifts. A changed verdict repaints the
+-- plates.
 local FV_TANK_CLASS = EllesmereUI.IS_FOREVER
     and ({ WARRIOR = "form", DRUID = "form", PALADIN = "fury" })[select(2, UnitClass("player"))] or nil
-local FV_FURY = 25780
-local fvFury, fvFuryInst = false, nil
+-- Every spell ID the Forever client names Righteous Fury: the list to read, and each ID as
+-- a key for the aura event's probe.
+local FV_FURY_IDS = { 25780, 407627, 407628, [25780] = true, [407627] = true, [407628] = true }
+-- Whether it is up, the instance held (nil when that cannot be read), and whether the last
+-- read was refused (the answer may be old).
+local fvFury, fvFuryInst, fvFuryStale = false, nil, false
 local fvTankFrame, fvTankOn
 local fvRoleTank = false
 
@@ -141,51 +147,65 @@ local function FvReadRoleTank()
     if has or not unsure then fvRoleTank = has end
 end
 
--- Righteous Fury's state, read only while the aura is readable (outside an aura
--- restriction nothing is secret).
+-- Righteous Fury's state. Each ID is read on its own, and only while its aura is readable
+-- (outside an aura restriction nothing is secret): one that is found is certain, "not up"
+-- needs every ID read, and an ID the client refuses to answer for is passed over. False
+-- when it cannot say: the last answer stays.
 local function FvReadFury()
-    local S = C_Secrets
-    if S and S.ShouldSpellAuraBeSecret then
-        local ok, secret = pcall(S.ShouldSpellAuraBeSecret, FV_FURY)
-        if not ok or issecretvalue(secret) or secret ~= false then return end
-    end
-    local aura = C_UnitAuras.GetPlayerAuraBySpellID(FV_FURY)
-    if issecretvalue(aura) then return end
-    fvFury = aura ~= nil
-    local iid = aura and aura.auraInstanceID
-    fvFuryInst = (not issecretvalue(iid)) and iid or nil
-end
-
--- The player aura event: true when Righteous Fury may have come or gone (re-read on a full
--- update; an added instance of it, or the removal of the one held, otherwise).
-local function FvFuryProbe(info)
-    if issecretvalue(info) then return false end
-    if not info then FvReadFury(); return true end
-    local full = info.isFullUpdate
-    if issecretvalue(full) then return false end
-    if full then FvReadFury(); return true end
-    local added = info.addedAuras
-    if not issecretvalue(added) and added then
-        for i = 1, #added do
-            local a = added[i]
-            if not issecretvalue(a) then
-                local sid = a.spellId
-                if not issecretvalue(sid) and sid == FV_FURY then
-                    local iid = a.auraInstanceID
-                    fvFury = true
-                    fvFuryInst = (not issecretvalue(iid)) and iid or nil
-                    return true
-                end
+    local check = C_Secrets and C_Secrets.ShouldSpellAuraBeSecret
+    local read, blind = false, false
+    for i = 1, #FV_FURY_IDS do
+        local id = FV_FURY_IDS[i]
+        local ok, secret = true, false
+        if check then ok, secret = pcall(check, id) end
+        if not ok then
+            -- no answer for this ID: it tells nothing either way
+        elseif issecretvalue(secret) or secret ~= false then
+            blind = true
+        else
+            local aura = C_UnitAuras.GetPlayerAuraBySpellID(id)
+            if issecretvalue(aura) then
+                blind = true
+            elseif aura then
+                local inst = aura.auraInstanceID
+                fvFury, fvFuryInst = true, (not issecretvalue(inst)) and inst or nil
+                return true
+            else
+                read = true
             end
         end
     end
-    local removed = info.removedAuraInstanceIDs
-    if fvFuryInst and not issecretvalue(removed) and removed then
-        for i = 1, #removed do
-            local iid = removed[i]
-            if not issecretvalue(iid) and iid == fvFuryInst then
-                fvFury, fvFuryInst = false, nil
-                return true
+    if blind or not read then return false end
+    fvFury, fvFuryInst = false, nil
+    return true
+end
+
+-- The player aura event: whether Righteous Fury may have come or gone. A gain of one of
+-- its IDs, the loss of the instance held, a full update, or anything in the update that
+-- cannot be read (in restricted content the payload and each of its lists can be secret,
+-- and indexing one is an error, so every layer is tested). A refresh, or another aura
+-- coming or going, changes nothing.
+local function FvFuryMatters(info)
+    if info == nil or issecretvalue(info) then return true end
+    local full = info.isFullUpdate
+    if issecretvalue(full) or full then return true end
+    local added = info.addedAuras
+    if added ~= nil then
+        if issecretvalue(added) then return true end
+        for i = 1, #added do
+            local aura = added[i]
+            if aura == nil or issecretvalue(aura) then return true end
+            local id = aura.spellId
+            if issecretvalue(id) or (id and FV_FURY_IDS[id]) then return true end
+        end
+    end
+    if fvFury then
+        local removed = info.removedAuraInstanceIDs
+        if removed ~= nil then
+            if issecretvalue(removed) then return true end
+            for i = 1, #removed do
+                local inst = removed[i]
+                if not fvFuryInst or issecretvalue(inst) or inst == fvFuryInst then return true end
             end
         end
     end
@@ -200,8 +220,48 @@ local function PlayerTankVerdict()
     return EllesmereUI.ForeverTankForm() or fvFury
 end
 
-local function FvTankOnEvent(_, event, _, info)
-    if event == "UNIT_AURA" and not FvFuryProbe(info) then return end
+local FvTankOnEvent
+local FvFuryRetry
+-- Reads Righteous Fury. True when the answer is certain. A refused read marks the answer
+-- stale: the restriction's own event is listened to until a read succeeds, and in combat
+-- the read is queued for its end (the restriction can lift a moment after that event).
+local function FvFuryRead()
+    if FvReadFury() then
+        if fvFuryStale then
+            fvFuryStale = false
+            fvTankFrame:UnregisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
+        end
+        return true
+    end
+    if not fvFuryStale then
+        fvFuryStale = true
+        fvTankFrame:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
+    end
+    if InCombatLockdown() then ns.CombatQueue.Defer("np-fv-fury", FvFuryRetry) end
+    return false
+end
+FvFuryRetry = function()
+    if fvTankOn and fvFuryStale and FvFuryRead() then FvTankOnEvent(nil, "FURY_READ") end
+end
+FvTankOnEvent = function(_, event, a1, info)
+    if event == "UNIT_AURA" then
+        if fvFuryStale then
+            -- The answer is already known to be old. In a fight nothing can be read until
+            -- it ends or the restriction lifts (FvFuryRead retries then); out of one, any
+            -- aura change is a chance to read again.
+            if InCombatLockdown() then return end
+        elseif not FvFuryMatters(info) then
+            return
+        end
+        if not FvFuryRead() then return end
+    elseif event == "ADDON_RESTRICTION_STATE_CHANGED" then
+        -- A restriction starting or lifting (registered only while the answer is stale).
+        -- Read on the next frame, after the dispatch, so the settled state is read; addon
+        -- chat restrictions never touch auras.
+        local T = Enum.AddOnRestrictionType
+        if not (T and a1 == T.Chat) then C_Timer.After(0, FvFuryRetry) end
+        return
+    end
     local was = _isTankRole
     _isTankRole = PlayerTankVerdict()
     if _isTankRole ~= was then
@@ -223,7 +283,7 @@ local function FvTankSync(on)
     if on then
         if FV_TANK_CLASS == "fury" then
             fvTankFrame:RegisterUnitEvent("UNIT_AURA", "player")
-            FvReadFury()
+            FvFuryRead()
         else
             fvTankFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
         end
@@ -231,6 +291,7 @@ local function FvTankSync(on)
         _isTankRole = PlayerTankVerdict()
     else
         fvTankFrame:UnregisterAllEvents()
+        fvFuryStale = false
     end
 end
 
@@ -278,8 +339,10 @@ local function RefreshThreatCache()
     -- solo "NONE" case the old spec fallback existed for; WoW Forever adds the
     -- tank shapes and Righteous Fury while the group has no assigned tank
     -- (PlayerTankVerdict).
-    if FV_TANK_CLASS == "fury" then FvReadFury() end
-    if fvTankOn then FvReadRoleTank() end
+    if fvTankOn then
+        if FV_TANK_CLASS == "fury" then FvFuryRead() end
+        FvReadRoleTank()
+    end
     _isTankRole = PlayerTankVerdict()
     ns.NP_RefreshThreatColorFlag()
 end

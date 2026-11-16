@@ -120,6 +120,37 @@ EllesmereUI.LocaleModuleLoads = function(folder)
     return C_AddOns.IsAddOnLoadable(folder, UnitName("player")) == true
 end
 
+-- World object names in the CLIENT's language whatever the options language,
+-- filled by EllesmereUILocales/<code>_GameNames.lua, to match the game's text.
+-- The module that reads them lists its client language's file in its own TOC
+-- (Forever Essentials), so the names come in with it and the locale addon is
+-- not loaded for them.
+local gameNames, gameNamesIn = {}, false
+local GAME_NAME_FILES = {
+    deDE = true, esES = true, esMX = true, frFR = true, koKR = true,
+    ptBR = true, ruRU = true, zhCN = true, zhTW = true,
+}
+EllesmereUI.RegisterGameNames = function(code)
+    if code ~= GetLocale() then return nil end
+    gameNamesIn = true
+    return gameNames
+end
+
+-- For a caller about to read GameName. Where the client's names did not come
+-- in with the caller's own TOC, the locale addon, which lists the files too,
+-- is loaded for them: it compiles the client's whole catalog, so only then.
+-- A client language with no names file (English among them) loads nothing.
+EllesmereUI.LoadGameNames = function()
+    if gameNamesIn or not GAME_NAME_FILES[GetLocale()] then return end
+    if C_AddOns and C_AddOns.LoadAddOn and not C_AddOns.IsAddOnLoaded("EllesmereUILocales") then
+        C_AddOns.LoadAddOn("EllesmereUILocales")
+    end
+end
+
+EllesmereUI.GameName = function(s)
+    return gameNames[s] or s
+end
+
 --------------------------------------------------------------------------------
 --  Resolve + activate the effective locale
 --------------------------------------------------------------------------------

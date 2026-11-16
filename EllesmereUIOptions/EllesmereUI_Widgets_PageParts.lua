@@ -480,8 +480,11 @@ end
 -- Note row: a dim aside (inside a card when its module is disabled, under a
 -- row). opts.banner: the section banner look (row background, brighter text,
 -- up to two lines), for a note the player must read before the rows below.
+-- opts.warn: a warning, one centred line in the warning red (BuildLinkRow's),
+-- a size larger than the aside, for a note at the top of a page.
 function EllesmereUI.BuildNoteRow(parent, y, text, opts)
     local banner = opts and opts.banner
+    local warn = opts and opts.warn
     local ROW_H = banner and 40 or 34
     -- The search prebuild only indexes rows: same y advance, no frames.
     if EllesmereUI._prebuilding then return y - ROW_H end
@@ -491,7 +494,13 @@ function EllesmereUI.BuildNoteRow(parent, y, text, opts)
     PP.Point(row, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
     row._skipRowDivider = true
     if banner then EllesmereUI.RowBg(row, parent) end
-    local lbl = EllesmereUI.MakeFont(row, 12, nil, 1, 1, 1)
+    local lbl = EllesmereUI.MakeFont(row, warn and 13 or 12, nil, 1, 1, 1)
+    if warn then
+        lbl:SetTextColor(0.9, 0.3, 0.3)
+        lbl:SetPoint("CENTER", row, "CENTER", 0, 0)
+        lbl:SetText(EllesmereUI.L(text))
+        return y - ROW_H
+    end
     lbl:SetAlpha(banner and 0.6 or 0.45)
     lbl:SetPoint("LEFT", row, "LEFT", 20, 0)
     if banner then

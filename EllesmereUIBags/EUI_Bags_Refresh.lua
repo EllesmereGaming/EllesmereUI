@@ -536,8 +536,10 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
         local format = BP().bagSlotCountFormat
         local separate = not EllesmereUI.IS_FOREVER and BP().bagSeparateReagentSlots == true
         local countText
+        -- A virtual view shows the whole bag, so it counts slots as All Items does.
         if not separate and format ~= "free" and format ~= "free_total"
-            and selectedCategoryIndex ~= 0 and selectedCategoryIndex ~= -1 and selectedCategoryIndex ~= -2 then
+            and selectedCategoryIndex ~= 0 and selectedCategoryIndex ~= -1 and selectedCategoryIndex ~= -2
+            and not EUI_CategoryManager:GetViewByIndex(selectedCategoryIndex) then
             countText = EllesmereUI.Lf("%d Items", totalCount)
         elseif separate then
             countText = FormatSlots(regularUsed, regularTotal, false, format)
@@ -827,6 +829,39 @@ function EUI_Bags:RefreshInventory()
         if show then displayItems[#displayItems + 1] = data end
     end
 
+    -- 4a. A virtual view (another addon's entry in the top list) is selected: each
+    -- shown item gets its group. Nothing runs while no view is registered.
+    local view = EUI_CategoryManager:GetViewByIndex(selectedCategoryIndex)
+    if view then
+        -- _vg = the item's group (0 = Other). A view that keeps Pinned / Recent (the same
+        -- switches as All Items) also marks the items those sections repeat: _vgPin, _vgRec.
+        -- As in All Items, such an item stays in its group too. Only a pinned item that is
+        -- hidden in its category (_pinnedOnly, Hide Items in Their Categories) leaves it: _vgOnly.
+        -- Junk (what Sell Junk sells, while the Junk Marker is on) is not offered to the
+        -- provider: _vgJunk files it in a Junk section of ours, drawn last. An item whose
+        -- link has not loaded is not offered either and stays unstamped (_vg nil): it is
+        -- not drawn, as in All Items.
+        local keepPin = view.keepPinned and showPinned and pinnedSet or nil
+        local keepRec = view.keepRecent and showRecent and EUI_Bags._recentItems or nil
+        for _, data in ipairs(displayItems) do
+            local info = data.info
+            local itemID = info and info.itemID
+            local link = data.itemLink
+            if link then
+                local quality = info and info.quality
+                local junk = EUI_CategoryManager:IsJunk(itemID, quality) or nil
+                data._vgJunk = junk
+                data._vg = junk and 0
+                    or EUI_CategoryManager:ClassifyView(view, link, itemID, data.bag, data.slot, quality)
+                data._vgPin = keepPin and itemID and IsItemPinned(keepPin, link, itemID) or nil
+                data._vgOnly = data._vgPin and data._pinnedOnly or nil
+                data._vgRec = keepRec and itemID and not data._pinnedOnly and keepRec[itemID] and true or nil
+            else
+                data._vg, data._vgJunk, data._vgPin, data._vgOnly, data._vgRec = nil, nil, nil, nil, nil
+            end
+        end
+    end
+
     -- 4b. Pending resort: sort + save order for categories invalidated by group changes (reuses already-scanned tempItems, no bag re-scan).
     if next(_pendingResortCats) or next(_pendingResortGroups) then
         local cats = EUI_CategoryManager:GetCategories()
@@ -908,6 +943,13 @@ function EUI_Bags:RefreshInventory()
                 if hasSetChild then S = S + 1 end
             end
             if S < 1 then S = 1 end
+        elseif view then
+            -- Virtual view: one section per group (+ "Other", + Pinned / Recent when
+            -- it keeps them, + our Junk section while the Junk Marker is on); no
+            -- empty slots drawn
+            n = #displayItems
+            S = #view.groups + 1 + (view.keepPinned and 1 or 0) + (view.keepRecent and 1 or 0)
+                + (EUI_CategoryManager:IsJunkMarkerEnabled() and 1 or 0)
         elseif selectedCategoryIndex == -2 then
             -- MultiBag: one section per bag that has slots (+ reagent)
             n = #tempItems + #emptySlots
@@ -987,15 +1029,20 @@ function EUI_Bags:RefreshInventory()
             leftX = sidebarW, topY = -(headerH + 1),
             allItems = isAllItems,
             slotView = (selectedCategoryIndex == -1 and "one") or (selectedCategoryIndex == -2 and "multi") or nil,
+            -- A virtual view: sections by its groups; Pinned / Recent sections only
+            -- when it keeps them (view.keepPinned / keepRecent)
+            view = view,
             -- Same rule as the grid's Recent Items section
-            recent = (showRecent and (isAllItems or (selectedCategoryIndex < 0 and BP().bagRecentInOneBag == true)))
+            recent = (showRecent and (view and view.keepRecent
+                or not view and (isAllItems or (selectedCategoryIndex < 0 and BP().bagRecentInOneBag == true))))
                 and EUI_Bags._recentItems or nil,
             -- The Recent Items tab: its items in one newest-first section
             recentOnly = isRecentView or nil,
             -- Empty rows only when nothing is search-filtered out
             emptySlots = (#displayItems == #liveItems) and liveEmpty or nil,
             -- Same rule as the grid's Pinned Items section
-            pinned = (showPinned and (isAllItems or (selectedCategoryIndex < 0 and BP().bagPinnedInOneBag ~= false)))
+            pinned = (showPinned and (view and view.keepPinned
+                or not view and (isAllItems or (selectedCategoryIndex < 0 and BP().bagPinnedInOneBag ~= false))))
                 and pinnedSet or nil,
         })
         sf:SetPoint("TOPLEFT", EUI_Bags, "TOPLEFT", sidebarW, -(headerH + 1 + colHdrH))

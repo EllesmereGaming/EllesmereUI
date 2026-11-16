@@ -80,16 +80,13 @@ local TITLE_MIN_W = 40         -- the narrowest a quest title gets, whatever the
 local charDB
 local function CharDB()
     if charDB then return charDB end
-    local all = EllesmereUIDB.questTrackerChars
-    if type(all) ~= "table" then all = {}; EllesmereUIDB.questTrackerChars = all end
-    local guid = UnitGUID("player")
-    local sv = all[guid]
-    if type(sv) ~= "table" then sv = {}; all[guid] = sv end
+    local kept = EllesmereUI.CharData("questTracker", true)
+    local sv = kept or {} -- GUID unread: a throwaway with the same sets, not cached
     if type(sv.ctUntracked) ~= "table" then sv.ctUntracked = {} end
     if type(sv.ctCollapsed) ~= "table" then sv.ctCollapsed = {} end
     if type(sv.ctDoneOpen) ~= "table" then sv.ctDoneOpen = {} end
     if type(sv.ctPinned) ~= "table" then sv.ctPinned = {} end
-    charDB = sv
+    charDB = kept
     return sv
 end
 
@@ -1068,8 +1065,11 @@ local function ShowMenu(owner, questID)
         text = CharDB().ctPinned[questID] and EllesmereUI.L("Unpin") or EllesmereUI.L("Pin to Top"),
         onClick = function() TogglePin(questID) end }
     items[#items + 1] = { text = OBJECTIVES_STOP_TRACKING, noLoc = true, onClick = function() Untrack(questID) end }
+    -- Sharing a quest is refused in combat (a blocked action from addon code): the entry
+    -- is greyed there, and a click after combat began with the menu open does nothing.
     if IsInGroup() and C_QuestLog.IsPushableQuest(questID) then
-        items[#items + 1] = { text = SHARE_QUEST, noLoc = true, onClick = function()
+        items[#items + 1] = { text = SHARE_QUEST, noLoc = true, isDisabled = InCombatLockdown, onClick = function()
+            if InCombatLockdown() then return end
             QuestLogPushQuest(C_QuestLog.GetLogIndexForQuestID(questID))
         end }
     end

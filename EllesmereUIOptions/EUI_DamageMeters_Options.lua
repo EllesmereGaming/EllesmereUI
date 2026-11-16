@@ -49,14 +49,14 @@ initFrame:SetScript("OnEvent", function(self)
     -- windows). Returns the button so the caller can anchor its cog to it.
     local function MakeKeybindButton(rgn, dbKey, tooltip)
         local kbBtn, refresh = EllesmereUI.BuildKeybindButton(rgn, {
-            w = 120, h = 26, pp = EllesmereUI.PP, tooltip = tooltip,
+            w = 120, h = 26, tooltip = tooltip,
             get = function() return Cfg(dbKey) end,
             set = function(v)
                 Set(dbKey, v)
                 if ns.ApplyDMKeybinds then ns.ApplyDMKeybinds() end
             end,
         })
-        EllesmereUI.PP.Point(kbBtn, "RIGHT", rgn, "RIGHT", -10, 0)
+        EllesmereUI.PanelPP.Point(kbBtn, "RIGHT", rgn, "RIGHT", -10, 0)
         EllesmereUI.RegisterWidgetRefresh(refresh)
         return kbBtn
     end
@@ -99,7 +99,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     local function BuildPage(_, parent, yOffset)
         local W  = EllesmereUI.Widgets
-        local PP = EllesmereUI.PP
+        local PP = EllesmereUI.PanelPP
         local y  = yOffset
         local h, hdr
 
@@ -1669,7 +1669,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     local function BuildSpellHistoryPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
-        local PP = EllesmereUI.PP
+        local PP = EllesmereUI.PanelPP
         local y = yOffset
         local _, h, hdr
 

@@ -912,6 +912,9 @@ function ns.RenderListView(items, opts)
     -- Bucket: section key (category index, "pinned" or "junk") -> sub label -> items.
     -- Slot views key sections by bag ID (0-5), or "main" for OneBag's bags 0-4.
     local slotView = opts.slotView
+    -- A virtual view (EUI_CategoryManager:RegisterVirtualView): sections by its
+    -- groups. Its collapse flags last the session ("Virtual:" keys).
+    local view = opts.view
     -- One Junk section: the Junk category (under its own name) while the Junk
     -- Marker is on, else every grey item
     local junkOn = EUI_CategoryManager:IsJunkMarkerEnabled()
@@ -961,16 +964,31 @@ function ns.RenderListView(items, opts)
         local cat = ci and cats[ci]
         if d.info and d.itemLink then
             StampItem(d)
-            if pinnedSet and ns.IsItemPinned(pinnedSet, d.itemLink, d.info.itemID) then
+            -- In a view, Refresh has marked (_vgPin, _vgRec) the items the Pinned and
+            -- Recent sections repeat
+            if pinnedSet and (not view or d._vgPin) and ns.IsItemPinned(pinnedSet, d.itemLink, d.info.itemID) then
                 Add("pinned", "", d)
             end
-            if recentSet and recentSet[d.info.itemID] and not d._pinnedOnly then
+            if recentSet and (not view or d._vgRec) and recentSet[d.info.itemID] and not d._pinnedOnly then
                 Add("recent", "", d)
             end
             if opts.recentOnly then
                 Add("recent", "", d)
             elseif slotView then
                 Add(BagKey(d.bag), "", d)
+            elseif view then
+                -- a virtual view: the group's position, "Other" (0) after the groups, and
+                -- our own Junk section for what the provider is never offered. As in All
+                -- Items the item is in its section too, except a pinned one hidden in its
+                -- category
+                if not d._vgOnly then
+                    if d._vgJunk then
+                        Add("junk", "", d)
+                    else
+                        local vg = d._vg
+                        Add((vg and vg > 0) and vg or (#view.groups + 1), "", d)
+                    end
+                end
             elseif cat and not (opts.allItems and d._pinnedOnly)
                 and not hidden[cat._defaultName] and not (cat.groupName and hidden[cat.groupName]) then
                 local key = (junkOn and cat.isJunk or (not junkOn and d._lvQuality == 0)) and "junk" or ci
@@ -998,8 +1016,10 @@ function ns.RenderListView(items, opts)
         end
     end
     -- Pinned first, category (or bag) order, Junk after the last saved category
-    -- (virtual categories follow it, as in the grid and the sidebar)
-    local RANK = { pinned = -2, recent = -1, main = 0, junk = EUI_CategoryManager:GetSavedCount() + 0.5 }
+    -- (virtual categories follow it, as in the grid and the sidebar); in a virtual
+    -- view Junk follows the view's last section
+    local RANK = { pinned = -2, recent = -1, main = 0,
+        junk = view and (#view.groups + 2) or (EUI_CategoryManager:GetSavedCount() + 0.5) }
     table.sort(order, function(a, b)
         return (RANK[a.key] or a.key) < (RANK[b.key] or b.key)
     end)
@@ -1026,6 +1046,10 @@ function ns.RenderListView(items, opts)
         if b.key == "junk" then label, secKey = junkLabel, "junk"
         elseif b.key == "pinned" then label, secKey = pinnedLabel, "pinned"
         elseif b.key == "recent" then label, secKey = recentLabel, "recent"
+        elseif view then
+            -- a group's section, or "Other" (the position after the last group)
+            local g = view.groups[b.key]
+            label, secKey = g and g.name or view.otherName, g and g.key or view.otherKey
         elseif b.key == "main" then
             local total = 0
             for bag = 0, 4 do

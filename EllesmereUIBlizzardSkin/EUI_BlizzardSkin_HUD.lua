@@ -76,6 +76,7 @@ local GetFFD = I.GetFFD
         -- Recorded as OURS: StripBarArt clears every texture on the bar, and
         -- these live on the bar.
         d.owned = d.owned or {}
+        d.thinEdges = {}
         local i = inset or 0
         local edges = {
             { "TOPLEFT", -i, i, "TOPRIGHT", i, i, true },
@@ -91,6 +92,7 @@ local GetFFD = I.GetFFD
             t:SetPoint(e[4], frame, e[4], e[5], e[6])
             if e[7] then t:SetHeight(1) else t:SetWidth(1) end
             d.owned[t] = true
+            d.thinEdges[n] = t
         end
     end
 
@@ -1315,6 +1317,196 @@ local GetFFD = I.GetFFD
             C_Timer.After(0, StripZoneAbility)
             C_Timer.After(0.3, StripZoneAbility)
         end
+    end)
+
+    ---------------------------------------------------------------------------
+    --  Timer bars (MirrorTimerContainer): breath, fatigue, feign death.
+    --
+    --  DEFAULT OFF: with the setting off the event frame drops its only event
+    --  at login and nothing is hooked until the options toggle turns it on
+    --  (turning it off takes a reload). Writes stay on the
+    --  StatusBar and the timer frames' own regions. The timer frames' size and
+    --  points belong to the Edit Mode layout and are never touched, so the bar
+    --  size is capped at the timer frame. Blizzard's Setup re-applies its atlas
+    --  on every timer start, so the skin is re-applied after SetupTimer.
+    ---------------------------------------------------------------------------
+    EllesmereUI.TIMER_BARS = {
+        WIDTH = 195, HEIGHT = 13,
+        -- MirrorTimerTemplate is 206x32 with the bar 2px below its top.
+        MIN_W = 50, MAX_W = 206, MIN_H = 4, MAX_H = 30,
+        TEXT_SIZE = 10, FILL_OPACITY = 95,
+        BG = { r = 0.22, g = 0.22, b = 0.22 },
+        TYPE = {
+            Breath  = { r = 0.00, g = 0.50, b = 1.00 },
+            Fatigue = { r = 1.00, g = 0.90, b = 0.00 },
+            Feign   = { r = 1.00, g = 0.70, b = 0.00 },
+        },
+    }
+    local TB_TYPE_KEY = { BREATH = "Breath", EXHAUSTION = "Fatigue", FEIGNDEATH = "Feign", DEATH = "Feign" }
+    -- The Accent fill: Window Skins' bar fill (the accent at 80%, or the Bar Fill color
+    -- picked there). The options' Accent swatch shows the same color.
+    function EllesmereUI.TIMER_BARS.AccentFill()
+        local W = WS()
+        if W and W.BarFillColor then
+            local r, g, b = W.BarFillColor()
+            return r, g, b
+        end
+        local EG = EllesmereUI.ELLESMERE_GREEN
+        return EG.r * 0.8, EG.g * 0.8, EG.b * 0.8
+    end
+
+    local tbContainer, tbTextures
+
+    local function TBGet(key, default)
+        local v = EllesmereUIDB and EllesmereUIDB[key]
+        if v == nil then return default end
+        return v
+    end
+
+    local function TBFillColor(timer)
+        local TB = EllesmereUI.TIMER_BARS
+        local tk = TB_TYPE_KEY[timer]
+        if tk and TBGet("timerBarsTypeColors", false) then
+            local c = TBGet("timerBars" .. tk .. "Color", TB.TYPE[tk])
+            return c.r, c.g, c.b
+        end
+        local mode = TBGet("timerBarsFillMode", "accent")
+        if mode == "class" then
+            local _, classFile = UnitClass("player")
+            local cc = classFile and EllesmereUI.GetClassColor(classFile)
+            if cc then return cc.r, cc.g, cc.b end
+        elseif mode == "custom" then
+            local c = TBGet("timerBarsFillColor", nil)
+            if c then return c.r, c.g, c.b end
+        end
+        return TB.AccentFill()
+    end
+
+    local function SkinMirrorTimer(f)
+        if not f or f:IsForbidden() then return end
+        local bar = f.StatusBar
+        if not bar then return end
+        local TB = EllesmereUI.TIMER_BARS
+        local bd = GetFFD(bar)
+
+        bar:SetStatusBarTexture(EllesmereUI.ResolveTexturePath(tbTextures, TBGet("timerBarsTexture", "none"), FLAT))
+        local r, g, b = TBFillColor(f.timer)
+        bar:SetStatusBarColor(r, g, b, TBGet("timerBarsFillOpacity", TB.FILL_OPACITY) / 100)
+
+        if not bd.tbTrough then
+            local trough = bar:CreateTexture(nil, "BACKGROUND", nil, -1)
+            trough:SetAllPoints(bar)
+            bd.tbTrough = trough
+            bd.owned = bd.owned or {}
+            bd.owned[trough] = true
+            ThinBorder(bar)
+        end
+        local bg = TBGet("timerBarsBgColor", TB.BG)
+        bd.tbTrough:SetColorTexture(bg.r, bg.g, bg.b, TBGet("timerBarsBgOpacity", 100) / 100)
+
+        bar:SetSize(
+            math.max(TB.MIN_W, math.min(TB.MAX_W, TBGet("timerBarsWidth", TB.WIDTH))),
+            math.max(TB.MIN_H, math.min(TB.MAX_H, TBGet("timerBarsHeight", TB.HEIGHT))))
+
+        -- Unset style = the 1px black edge; a picked style = the Tooltips
+        -- page's configured border under the "timerBars" prefix.
+        local style = TBGet("timerBarsBorderTexture", nil)
+        local styled = style ~= nil
+        local edges = bd.thinEdges
+        if edges then
+            for i = 1, #edges do edges[i]:SetShown(not styled) end
+        end
+        if styled and EllesmereUI._applyBlizzardConfiguredBorder then
+            local cb = bd.configBorder
+            if cb then cb:Show() end
+            EllesmereUI._applyBlizzardConfiguredBorder(bar, "timerBars", 1)
+        elseif bd.configBorder and EllesmereUI._hideBlizzardConfiguredBorder then
+            EllesmereUI._hideBlizzardConfiguredBorder(bar)
+        end
+
+        -- Rounded corners (EllesmereUI_RoundedCorners.lua): only on a picked
+        -- style that rounds; nothing is added at radius 0.
+        local radius = (styled and EllesmereUI.RoundedStyleOK(style) and TBGet("timerBarsCornerRadius", 0)) or 0
+        if radius > 0 then
+            EllesmereUI.RoundCorners(bar, radius, {
+                border = bd.configBorder, style = style,
+                corners = TBGet("timerBarsCornerMask", nil),
+            })
+            bd.tbRounded = true
+        elseif bd.tbRounded then
+            EllesmereUI.RoundCorners(bar, 0)
+            bd.tbRounded = nil
+        end
+
+        -- Text box, background and castbar frame live on the timer frame.
+        StripBarArt(f)
+        local text = f.Text
+        if text then
+            -- The name is drawn on our own host above the configured border,
+            -- which sits over the timer frame's regions; Blizzard's text stays
+            -- in place, hidden.
+            local d = GetFFD(f)
+            local label = d.tbLabel
+            if not label then
+                local host = CreateFrame("Frame", nil, bar)
+                host:SetAllPoints(bar)
+                d.tbLabelHost = host
+                label = host:CreateFontString(nil, "OVERLAY")
+                label:SetFont(STANDARD_TEXT_FONT, TB.TEXT_SIZE, "")
+                d.tbLabel = label
+            end
+            d.tbLabelHost:SetFrameLevel(bar:GetFrameLevel() + 10)
+            text:SetAlpha(0)
+            label:SetText(text:GetText())
+            local tc = TBGet("timerBarsTextColor", nil)
+            local tr, tg, tb = 1, 1, 1
+            if tc then tr, tg, tb = tc.r, tc.g, tc.b end
+            local W = WS()
+            if W and W.Font then
+                W.Font(label, tr, tg, tb, TBGet("timerBarsTextSize", TB.TEXT_SIZE))
+            else
+                label:SetTextColor(tr, tg, tb)
+            end
+            label:ClearAllPoints()
+            label:SetPoint("CENTER", bar, "CENTER", TBGet("timerBarsTextX", 0), TBGet("timerBarsTextY", 0))
+            label:SetShown(TBGet("timerBarsShowText", true) ~= false)
+        end
+    end
+
+    local function RefreshTimerBars()
+        local timers = tbContainer and tbContainer.mirrorTimers
+        if not timers then return end
+        for i = 1, #timers do SkinMirrorTimer(timers[i]) end
+    end
+
+    local tbInstalled
+    local function InstallTimerBars()
+        if tbInstalled then return end
+        local c = _G.MirrorTimerContainer
+        if not (c and c.mirrorTimers and type(c.SetupTimer) == "function"
+                and type(c.GetActiveTimer) == "function") then return end
+        tbInstalled = true
+        tbContainer = c
+        tbTextures = EllesmereUI.BuildBarTextureTables()
+        -- All three up front: Edit Mode shows them without a running timer.
+        RefreshTimerBars()
+        hooksecurefunc(c, "SetupTimer", function(container, timer)
+            SkinMirrorTimer(container:GetActiveTimer(timer))
+        end)
+        local W = WS()
+        if W and W.OnLooksChanged then W.OnLooksChanged(RefreshTimerBars) end
+        -- Options write-through; nil while the reskin is off.
+        EllesmereUI._TimerBarsRefresh = RefreshTimerBars
+    end
+    -- The options toggle turns the reskin on live; off needs a reload.
+    EllesmereUI._TimerBarsInstall = InstallTimerBars
+
+    local mtEv = CreateFrame("Frame")
+    mtEv:RegisterEvent("PLAYER_LOGIN")
+    mtEv:SetScript("OnEvent", function(self)
+        self:UnregisterAllEvents()
+        self:SetScript("OnEvent", nil)
+        if EllesmereUIDB and EllesmereUIDB.reskinTimerBars == true then InstallTimerBars() end
     end)
 end)()
 

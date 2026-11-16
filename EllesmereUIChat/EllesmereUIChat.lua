@@ -134,6 +134,7 @@ local CHAT_DEFAULTS = {
             idleFadeDelay = 15,
             idleFadeStrength = 40,
             idleFadeEnabled = true,
+            idleFadeWake = {},  -- extra wake groups by key (IDLE_WAKE_GROUPS); empty = player chat only
             inputOnTop = false,
             -- Style page (reload-gated): Blizzard Style / Classic WoW UI
             useBlizzardStyle = false,

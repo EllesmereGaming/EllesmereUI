@@ -751,7 +751,7 @@ end
 -- term of the size formulas (width on horizontal bars, height on vertical), so one rule covers both
 -- orientations. Returns the stride the CONTAINER reserves; the LAYOUT stride is never replaced --
 -- grid wrapping (col = idx % stride) and per-row centering keep using the real icon count, and the
--- reserved surplus becomes a single centering offset. nil/0 (the default) is a straight passthrough.
+-- reserved surplus becomes a single offset that follows the grow direction. nil/0 (the default) is a straight passthrough.
 local function ReserveStride(barData, stride)
     local minN = barData.minSizeIcons
     if minN and minN > stride then return minN end
@@ -1163,7 +1163,7 @@ LayoutCDMBar = function(barKey)
     -- Minimum Bar Size: reserve growth-axis room for at least minSizeIcons icon slots so a bar that
     -- loses icons (spec/talent swap, shift-hidden cooldowns) keeps its footprint -- everything
     -- matching its width or anchored to its edges then stays put, and the icons still present are
-    -- centered in the surplus. SKIPPED while the GROWTH axis is match-owned: that axis measures
+    -- placed in the surplus by grow direction. SKIPPED while the GROWTH axis is match-owned: that axis measures
     -- exactly what the match target dictates and padding it would overshoot. A match on the
     -- PERPENDICULAR axis is fine -- the growth axis still varies with icon count there.
     local growMatched
@@ -1175,8 +1175,14 @@ LayoutCDMBar = function(barKey)
         local basePx = isHoriz and iconWPx or iconHPx
         reservedPx = resStride * basePx + (resStride - 1) * spacingPx
     end
-    -- Offset that centers the real icon block inside the surplus (uniform layout only; the per-row branch centers each row inside the total already).
-    local padOffsetPx = 0
+    -- Where the real icon block sits inside the surplus: the surplus trails the pinned edge
+    -- (RIGHT/DOWN grow pins the start, LEFT/UP the end); CENTER splits it evenly. padLead is
+    -- the share of the surplus in front of the block, in halves: 0, 2 or 1. Each lead below is
+    -- rounded once, so a centred block sits where it did before the surplus followed the grow.
+    local padLead = (grow == "RIGHT" or grow == "DOWN") and 0 or ((grow == "LEFT" or grow == "UP") and 2 or 1)
+    local surplusPx, padOffsetPx = 0, 0
+    -- Per-row branch: growth-axis extent of the wider row (rows center against each other within it).
+    local rowContentPx
 
     local totalWPx, totalHPx
     if perRowActive then
@@ -1188,28 +1194,35 @@ LayoutCDMBar = function(barKey)
             local topRowW = topN * rowWPx[1] + math.max(0, topN - 1) * spacingPx
             local botRowW = botN * rowWPx[2] + math.max(0, botN - 1) * spacingPx
             totalWPx = math.max(topRowW, botRowW)
-            -- No pad offset needed: both rows are centered against totalWPx below, so growing it IS the centering.
-            if reservedPx > totalWPx then totalWPx = reservedPx end
+            rowContentPx = totalWPx
+            if reservedPx > totalWPx then
+                surplusPx = reservedPx - totalWPx
+                totalWPx = reservedPx
+            end
             totalHPx = rowHPx[1] + rowHPx[2] + spacingPx
         else
             local topColH = topN * rowHPx[1] + math.max(0, topN - 1) * spacingPx
             local botColH = botN * rowHPx[2] + math.max(0, botN - 1) * spacingPx
             totalHPx = math.max(topColH, botColH)
-            if reservedPx > totalHPx then totalHPx = reservedPx end
+            rowContentPx = totalHPx
+            if reservedPx > totalHPx then
+                surplusPx = reservedPx - totalHPx
+                totalHPx = reservedPx
+            end
             totalWPx = rowWPx[1] + rowWPx[2] + spacingPx
         end
     elseif isHoriz then
         totalWPx = stride  * iconWPx + (stride  - 1) * spacingPx + extraPixels
         totalHPx = effRows * iconHPx + (effRows - 1) * spacingPx + extraPixelsH
         if reservedPx > totalWPx then
-            padOffsetPx = math.floor((reservedPx - totalWPx) / 2 + 0.5)
+            padOffsetPx = math.floor(padLead * (reservedPx - totalWPx) / 2 + 0.5)
             totalWPx = reservedPx
         end
     else
         totalWPx = effRows * iconWPx + (effRows - 1) * spacingPx + extraPixels
         totalHPx = stride  * iconHPx + (stride  - 1) * spacingPx + extraPixelsH
         if reservedPx > totalHPx then
-            padOffsetPx = math.floor((reservedPx - totalHPx) / 2 + 0.5)
+            padOffsetPx = math.floor(padLead * (reservedPx - totalHPx) / 2 + 0.5)
             totalHPx = reservedPx
         end
     end
@@ -1287,7 +1300,7 @@ LayoutCDMBar = function(barKey)
                 -- Growth axis = width (center the row within the bar width);
                 -- perpendicular = height (top band, then bottom band).
                 local rowMainPx = rowN * wPx + math.max(0, rowN - 1) * spacingPx
-                local offMainPx = math.floor((totalWPx - rowMainPx) / 2 + 0.5)
+                local offMainPx = math.floor((padLead * surplusPx + rowContentPx - rowMainPx) / 2 + 0.5)
                 local xPx = offMainPx + idxInRow * (wPx + spacingPx)
                 -- Reversed when rows grow upward: rowIdx 2 on top, 1 below.
                 local yPx
@@ -1302,7 +1315,7 @@ LayoutCDMBar = function(barKey)
                 -- Growth axis = height (center the row within the bar height);
                 -- perpendicular = width (left band, then right band).
                 local rowMainPx = rowN * hPx + math.max(0, rowN - 1) * spacingPx
-                local offMainPx = math.floor((totalHPx - rowMainPx) / 2 + 0.5)
+                local offMainPx = math.floor((padLead * surplusPx + rowContentPx - rowMainPx) / 2 + 0.5)
                 local yPx = offMainPx + idxInRow * (hPx + spacingPx)
                 -- Reversed when columns grow leftward: rowIdx 2 at the left.
                 local xPx
@@ -1326,7 +1339,7 @@ LayoutCDMBar = function(barKey)
     -- Uniform icon size: every bar except the 2-row per-row-size case above.
     local stepW = iconW + spacing
     local stepH = iconH + spacing
-    -- Minimum Bar Size surplus in coord space: shifts the whole icon block along the GROWTH axis so it sits centered in the reserved footprint. 0 whenever the reservation is off or already filled.
+    -- Minimum Bar Size surplus in coord space: shifts the icon block along the GROWTH axis (padLead). 0 whenever the reservation is off or already filled.
     local padOffset = padOffsetPx * onePx
 
     local topRowCount = customTopCount

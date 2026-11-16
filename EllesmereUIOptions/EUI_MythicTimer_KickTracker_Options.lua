@@ -241,7 +241,7 @@ ns._KT_BuildPage = function(pageName, parent, yOffset)
         warn:SetSpacing(4)
         warn:SetWidth(parent:GetWidth() - pad * 2)
         warn:SetText(EllesmereUI.L("Like all current kick trackers, this feature is experimental and may stop working if\nBlizzard decides to hotfix the workaround that makes this possible."))
-        EllesmereUI.PP.Point(warn, "TOPLEFT", parent, "TOPLEFT", pad, y - 10)
+        EllesmereUI.PanelPP.Point(warn, "TOPLEFT", parent, "TOPLEFT", pad, y - 10)
         y = y - 10 - math.ceil(warn:GetStringHeight()) - 2
     end
 

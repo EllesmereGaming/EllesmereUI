@@ -74,6 +74,8 @@ function ns.RefreshCastOverlay(plate)
             -- The strata change just reset the custom spell icon border's (a cast bar
             -- child, when it exists): re-seat it above the icon.
             if plate._castIconBorder or cast._iconSeam then ns.ApplyCastIconBorder(plate) end
+            -- ...and a showing cast glow art's, which sits on the bar's new strata
+            ns.NP_PlaceCastGlowArt(plate)
         end
         local s = plate:GetEffectiveScale()
         if plate._castLiftScale ~= s then
@@ -87,5 +89,6 @@ function ns.RefreshCastOverlay(plate)
         plate._castOverlayLifted = nil
         plate._castLiftScale = nil
         if plate._castIconBorder or cast._iconSeam then ns.ApplyCastIconBorder(plate) end
+        ns.NP_PlaceCastGlowArt(plate)
     end
 end

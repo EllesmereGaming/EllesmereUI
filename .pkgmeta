@@ -55,6 +55,7 @@ ignore:
   - .gitattributes
   - .kiro
   - .tools
+  - _tools
   - CONTRIBUTING_TRANSLATIONS.md
   - EllesmereUILocales/_keys.txt
   - README.md

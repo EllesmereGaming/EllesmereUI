@@ -253,7 +253,7 @@ initFrame:SetScript("OnEvent", function(self)
         _installPreviewAutoOff()
 
         local W = EllesmereUI.Widgets
-        local PP = EllesmereUI.PP
+        local PP = EllesmereUI.PanelPP
         local y = yOffset
         local _, row, h, hdr
 
@@ -573,7 +573,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- chaining off rgn._lastInline so it coexists with an inline cog). Blocked
         -- + dimmed via overlay when isDisabled() is true, mirroring the cog pattern.
         local function _AttachInlineSwatch(rgn, colorKey, defR, defG, defB, afterSet, isDisabled, disabledTip)
-            local PP = EllesmereUI.PP
+            local PP = EllesmereUI.PanelPP
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, rgn:GetFrameLevel() + 5,
                 function()
@@ -619,7 +619,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- followTip/followColor optionally replace the accent swatch's label and
         -- color source when the "follow" color is not the theme accent.
         local function _AttachInlineAccentSwatches(rgn, useAccentKey, colorKey, defR, defG, defB, isDisabled, disabledTip, followTip, followColor)
-            local PP = EllesmereUI.PP
+            local PP = EllesmereUI.PanelPP
 
             -- Accent swatch (nearest the control, or the cog): live theme accent.
             local accentSwatch, updateAccent = EllesmereUI.BuildColorSwatch(

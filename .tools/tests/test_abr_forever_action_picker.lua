@@ -182,8 +182,8 @@ EllesmereUI = {
         beneficiaries = { MAGE = true, PRIEST = true } } },
     AuraKit = { AurasRestricted = function() return false end },
     L = function(s) return s end,
-    CharKey = function(sep) return "Tester" .. sep .. "Realm" end,
 }
+dofile(".tools/tests/char_roster_stub.lua")(EllesmereUI, { guid = "Player-1" })
 
 -------------------------------------------------------------------------------
 --  The internals the files read (the main file and the earlier parts build it

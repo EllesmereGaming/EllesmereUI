@@ -236,10 +236,14 @@ local function SetButtonEnabled(b, on)
     b:SetAlpha(on and 1 or 0.35)
 end
 
-local function UpdateButtons()
+-- Sharing a quest is refused in combat (a blocked action from addon code), so Share is
+-- off there. inCombat: the combat events pass their own edge; every other caller asks
+-- the game.
+local function UpdateButtons(inCombat)
+    if inCombat == nil then inCombat = InCombatLockdown() end
     local focused = C_SuperTrack.GetSuperTrackedQuestID() == questID
     win.focus.label:SetText(focused and STOP_SUPER_TRACK_QUEST or SUPER_TRACK_QUEST)
-    SetButtonEnabled(win.share, IsInGroup() and C_QuestLog.IsPushableQuest(questID))
+    SetButtonEnabled(win.share, not inCombat and IsInGroup() and C_QuestLog.IsPushableQuest(questID))
     SetButtonEnabled(win.abandon, C_QuestLog.CanAbandonQuest(questID))
 end
 
@@ -414,6 +418,7 @@ local function Build()
     win.untrack = Button(UNTRACK_QUEST_ABBREV, function() a.Untrack(questID) end)
     win.untrack:SetPoint("LEFT", win.focus, "RIGHT", GAP, 0)
     win.share = Button(SHARE_QUEST_ABBREV, function()
+        if InCombatLockdown() then return end
         QuestLogPushQuest(C_QuestLog.GetLogIndexForQuestID(questID))
     end)
     win.share:SetPoint("LEFT", win.untrack, "RIGHT", GAP, 0)
@@ -423,6 +428,10 @@ local function Build()
     win:SetScript("OnEvent", function(_, event, id)
         if event == "QUEST_REMOVED" then
             if id == questID then win:Hide() end
+        elseif event == "PLAYER_REGEN_DISABLED" then
+            UpdateButtons(true)
+        elseif event == "PLAYER_REGEN_ENABLED" then
+            UpdateButtons(false)
         elseif event == "SUPER_TRACKING_CHANGED" or event == "GROUP_ROSTER_UPDATE" then
             UpdateButtons()
         else
@@ -434,6 +443,9 @@ local function Build()
         self:RegisterEvent("QUEST_REMOVED")
         self:RegisterEvent("SUPER_TRACKING_CHANGED")
         self:RegisterEvent("GROUP_ROSTER_UPDATE")
+        -- Share follows combat
+        self:RegisterEvent("PLAYER_REGEN_DISABLED")
+        self:RegisterEvent("PLAYER_REGEN_ENABLED")
     end)
     win:SetScript("OnHide", function(self)
         self:UnregisterAllEvents()

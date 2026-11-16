@@ -1264,7 +1264,7 @@ print('      and drawing reuse, parking, border).')
 # Execute the actual Colors-page builder against mocked widgets.
 options = (ROOT / 'EllesmereUIOptions/Nameplates_Options/ColorsPage_Options.lua').read_text()
 helper = options.split('-- EUI_DEBUFF_COLORS: the per-class debuff lists', 1)[1].split(
-    '-- Mini preview bar builder', 1)[0]
+    'local function BuildColorsPage(', 1)[0]
 lua.execute(r'''
 -- A small UI object model for the widget mocks (the engine mock above is done).
 local uiMethods = {}
@@ -1510,9 +1510,10 @@ assert(#uiRows == 1 and uiApply == nil)
 assert(uiHeaders[1] == "DEBUFF BASED NAMEPLATE COLORING", "the section kept its old name")
 local mode = uiRows[1][1]
 assert(mode.type == "dropdown" and mode.text == "Debuff Coloring" and uiRows[1][2].text == "Only My Debuffs")
-assert(mode.order[1] == "none" and mode.order[2] == "nameplate" and mode.order[3] == "border"
+assert(table.concat(mode.order, ",") == "none,nameplate,texture,border,name"
     and mode.values.none == "None" and mode.values.nameplate == "Color Nameplate"
-    and mode.values.border == "Color Border")
+    and mode.values.texture == "Texture Nameplate" and mode.values.border == "Color Border"
+    and mode.values.name == "Color Name")
 assert(mode.getValue() == "none" and #uiCogs == 0)
 assert(uiRows[1][2].disabled())
 

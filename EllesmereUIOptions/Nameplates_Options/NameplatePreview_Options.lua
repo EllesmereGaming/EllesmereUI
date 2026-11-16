@@ -2,8 +2,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  Nameplates_Options\NameplatePreview_Options.lua
 --  Nameplates options: the enemy nameplate preview in the content header of
---  the Display page (BuildNameplatePreview). Definitions only; the shared
---  helpers come from ns._NPO_OptEnv (filled by EUI_Nameplates_Options.lua).
+--  the Display page (BuildNameplatePreview) and, drawn as the target, the
+--  focus or the hovered plate, of the Target, Focus & Hover page
+--  (ns.NPO_BuildTFHHeader). Definitions only; the shared helpers come from
+--  ns._NPO_OptEnv (filled by EUI_Nameplates_Options.lua).
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUINameplates"]
 if not ns then return end  -- module disabled: no options page
@@ -234,8 +236,14 @@ end
 --- borders; no glow, no added effects).
 --- @param parent  Frame   contentHeaderFrame
 --- @param parentW number  available width
+--- @param mode    string? "target" | "focus" | "hover": the plate in that state, drawn
+---                        bare: its health bar, its texts and the state's own effects
+---                        (no cast bar, no Core Positions element, no class resource)
+---                        (the Target, Focus & Hover page's preview, kept in
+---                        optState.tfhPreview); nil: an untargeted plate (the
+---                        Display page's, kept in optState.activePreview)
 --- @return number height consumed
-local function BuildNameplatePreview(parent, parentW)
+local function BuildNameplatePreview(parent, parentW, mode)
     local env = ns._NPO_OptEnv
     local ADDON_NAME, BAR_W, DB, DBVal = env.ADDON_NAME, env.BAR_W, env.DB, env.DBVal
     local defaults, displayCastIcons, GetNPOptOutline, NAME_RAID_MARKER_GAP = env.defaults, env.displayCastIcons, env.GetNPOptOutline, env.NAME_RAID_MARKER_GAP
@@ -474,7 +482,7 @@ local function BuildNameplatePreview(parent, parentW)
     local solidR = MkSolidEdge(); solidR:SetWidth(1); PP.Point(solidR, "TOPRIGHT", healthWrapper, "TOPRIGHT", 0, 0); PP.Point(solidR, "BOTTOMRIGHT", healthWrapper, "BOTTOMRIGHT", 0, 0)
     local _solidEdges = { solidT, solidB, solidL, solidR }
 
-    -- 9-slice soft glow frame for the target-glow preview; matches the real nameplate glow (background.png, ADD blend, blue tint), packed into one table to stay under Lua's 60-upvalue limit.
+    -- 9-slice soft glow frame for the Target Effect / Hover Effect glow; matches the real nameplate glow (background.png, ADD blend, blue tint), packed into one table to stay under Lua's 60-upvalue limit.
     local previewGlow = {}
     do
         local GLOW_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\background.png"
@@ -484,7 +492,7 @@ local function BuildNameplatePreview(parent, parentW)
         local gf = CreateFrame("Frame", nil, pf)
         gf:SetFrameLevel(pf:GetFrameLevel() + 1)
         previewGlow.frame = gf
-        -- Collected so Update() can re-tint the preview glow with target Glow Color/Opacity, matching live nameplates.
+        -- Collected so previewGlow.state can re-tint the preview glow with the effect's Glow Color/Opacity, matching live nameplates.
         previewGlow.texs = {}
         local gc0 = ns.GetTargetGlowColor()
         local ga0 = ns.GetTargetGlowAlpha()
@@ -508,19 +516,10 @@ local function BuildNameplatePreview(parent, parentW)
         gf:Hide()
     end
 
-    -- Target "Highlight" preview: translucent wash over the health bar (color/opacity via the Target Highlight cog); getter refs stashed on previewGlow (already an Update() upvalue) to avoid new upvalues in the near-cap closure.
+    -- "Highlight" wash across the health bar: the Target Effect's, or the Hover Effect's while no Hover Texture is picked. previewGlow.state colours, layers and shows it.
     previewGlow.highlight = health:CreateTexture(nil, "OVERLAY", nil, 5)
     previewGlow.highlight:SetAllPoints(health)
-    do local hc = ns.GetTargetHighlightColor(); previewGlow.highlight:SetColorTexture(hc.r, hc.g, hc.b, ns.GetTargetHighlightAlpha()) end
     previewGlow.highlight:Hide()
-    previewGlow.getEUI            = ns.GetTargetGlowEllesmereUI
-    previewGlow.getBorderOn       = ns.GetTargetGlowBorderColor
-    previewGlow.getHighlight      = ns.GetTargetGlowHighlight
-    previewGlow.getBorderCol      = ns.GetTargetBorderColor
-    previewGlow.getGlowCol        = ns.GetTargetGlowColor
-    previewGlow.getGlowAlpha      = ns.GetTargetGlowAlpha
-    previewGlow.getHighlightCol   = ns.GetTargetHighlightColor
-    previewGlow.getHighlightAlpha = ns.GetTargetHighlightAlpha
     -- Classic WoW UI (Global Settings > Style), latched for the session
     -- like the live plates: the mock wears the plain 1px black edge on the
     -- health and cast bars. Stashed here so Update gains no upvalue.
@@ -773,8 +772,9 @@ local function BuildNameplatePreview(parent, parentW)
             end
         end
         if ns.NP_BlizzBarShadow then ns.NP_BlizzBarShadow(health, health:GetHeight(), mask) end
-        -- Selection ring while the target glow preview is on, else the
-        -- deselected overlay every other plate carries.
+        -- Selection ring on the target and focus previews, else the
+        -- deselected overlay every other plate carries (as live,
+        -- ns.NP_ApplyBlizzSelection).
         local sel, desel = previewGlow.blizzSel, previewGlow.blizzDesel
         local fv = previewGlow.forever and ok(B.selYellow)
         if not sel and (fv or ok(B.selected)) and ok(B.deselected) then
@@ -797,16 +797,22 @@ local function BuildNameplatePreview(parent, parentW)
             previewGlow.blizzDesel = desel
         end
         if sel then
-            if optState.showTargetGlowPreview then
-                local c = NAMEPLATE_BORDER_TARGET_COLOR
-                if c and c.r then sel:SetVertexColor(c.r, c.g, c.b) else sel:SetVertexColor(1, 1, 1) end
+            local state = pf._mode
+            if state == "target" or state == "focus" then
+                local c
+                if state == "target" then c = NAMEPLATE_BORDER_TARGET_COLOR else c = NAMEPLATE_BORDER_FOCUS_TARGET_COLOR end
+                if c and c.r then
+                    sel:SetVertexColor(c.r, c.g, c.b)
+                elseif state == "target" then
+                    sel:SetVertexColor(1, 1, 1)
+                else
+                    sel:SetVertexColor(1, 0.8, 0)
+                end
                 sel:Show(); desel:Hide()
             else
                 sel:Hide(); desel:Show()
             end
         end
-        -- The highlight wash sits under the ring, as on the live plates.
-        previewGlow.highlight:SetDrawLayer("OVERLAY", 0)
         -- Cast bar: stock background (the retail art under WoW
         -- Forever too, as live), fill art and pip; no EUI border.
         if ok(B.castBg) then
@@ -840,7 +846,6 @@ local function BuildNameplatePreview(parent, parentW)
                 fs:SetText("60")
                 local c = FAIR_DIFFICULTY_COLOR
                 if c and c.r then fs:SetTextColor(c.r, c.g, c.b, 1) else fs:SetTextColor(1, 0.82, 0, 1) end
-                if box._sel then box._sel:SetVertexColor(L.target[1], L.target[2], L.target[3]) end
                 previewGlow.fvBox = box
                 -- Exposed for the click-navigation hit overlays (built
                 -- after the first pf:Update()); the overlay hides with it.
@@ -849,8 +854,13 @@ local function BuildNameplatePreview(parent, parentW)
             local bh = health:GetHeight() + L.pad
             box:SetSize(L.w, bh)
             SetPVFont(box._fs, FONT_PATH, ns.NP_ForeverLevelFont(bh), GetNPOptOutline())
-            -- Its target border rides the ring's preview toggle.
-            if box._sel then box._sel:SetShown(optState.showTargetGlowPreview and true or false) end
+            -- Its border on the target and focus previews, in that state's
+            -- colour (as live, ns.NP_ForeverLevelSel).
+            if box._sel then
+                local sc = (pf._mode == "target" and L.target) or (pf._mode == "focus" and L.focus) or nil
+                if sc then box._sel:SetVertexColor(sc[1], sc[2], sc[3]) end
+                box._sel:SetShown(sc ~= nil)
+            end
             -- Show Level Box, as live.
             box:SetShown(ns.NP_ForeverBoxOn())
         end
@@ -1235,9 +1245,187 @@ local function BuildNameplatePreview(parent, parentW)
     local _cachedRawBarW, _cachedXOff
 
     -------------------------------------------------------------------
+    --  The plate as the target, the focus or the hovered one (mode: the
+    --  Target, Focus & Hover page's preview), each part as the live plate
+    --  draws it. Stashed on previewGlow so Update gains no upvalue.
+    -------------------------------------------------------------------
+    -- Target Effect / Hover Effect on the border (NameplateFrame:ApplyTarget,
+    -- ns.ApplyHoverExtras): the Border Size channel's size and the Border Color
+    -- channel's colour, each nil while its channel is off or the plate is in no
+    -- such state. Update's border passes draw the border with them.
+    previewGlow.fxBorder = function(m)
+        local P = (m == "target" and "Target") or (m == "hover" and "Hover") or nil
+        if not P then return end
+        return ns["Get" .. P .. "GlowBorderSize"]() and ns["Get" .. P .. "BorderSizeValue"]() or nil,
+            ns["Get" .. P .. "GlowBorderColor"]() and ns["Get" .. P .. "BorderColor"]() or nil
+    end
+    if mode then
+        -- Scale Target Nameplate (NameplateFrame:ApplyScale): the target's whole plate
+        -- at that scale. k: the plate's own scale, 1 for the focus and the hovered
+        -- plate. The header's top pad (pf._topPad, in the header's units) follows,
+        -- and the bar is centred again in the new width (a slider drag included).
+        previewGlow.baseScale = previewScale
+        previewGlow.plateScale = function(k)
+            local s = previewGlow.baseScale * k
+            if s == previewScale then return end
+            previewScale, localParentW = s, parentW / s
+            _cachedRawBarW = nil
+            pf:SetScale(s)
+            pf:SetPoint("TOP", parent, "TOP", 0, -(pf._topPad or 0) / s)
+        end
+        -- Target / Focus / Hover Texture (ns.EnsureTargetOverlay): one texture clipped
+        -- to the fill and one to the empty part of the bar, both spanning the whole
+        -- bar so a pattern runs unbroken across the split.
+        local function Clip(sublayer)
+            local clip = CreateFrame("Frame", nil, health)
+            clip:SetClipsChildren(true)
+            clip:SetFrameLevel(health:GetFrameLevel() + 1)
+            clip:Hide()
+            local tex = clip:CreateTexture(nil, "ARTWORK", nil, sublayer)
+            tex:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+            tex:SetPoint("BOTTOMLEFT", health, "BOTTOMLEFT", 0, 0)
+            tex:SetPoint("RIGHT", health, "RIGHT", 0, 0)
+            return clip, tex
+        end
+        previewGlow.ovFill, previewGlow.ovFillTex = Clip(2)
+        previewGlow.ovBg, previewGlow.ovBgTex = Clip(1)
+        -- The Focus Letter (ns.ApplyFocusLetter) and the Distance to Target Text (the
+        -- range text of EUI_Nameplates_Init.lua), hidden until state shows them; made
+        -- with the plate so the page's click navigation can sit on them.
+        previewGlow.focusLetter = healthTextFrame:CreateFontString(nil, "OVERLAY")
+        previewGlow.focusLetter:SetJustifyH("CENTER")
+        previewGlow.focusLetter:SetJustifyV("MIDDLE")
+        previewGlow.focusLetter:Hide()
+        do
+            local host = CreateFrame("Frame", nil, health)
+            host:SetAllPoints(health)
+            host:SetFrameLevel(health:GetFrameLevel() + 8)
+            previewGlow.rangeText = host:CreateFontString(nil, "OVERLAY")
+            previewGlow.rangeText:Hide()
+        end
+        -- The glow's reach round the bar, outlined whether the glow shows or not: the
+        -- page's click navigation takes that band for the effect.
+        PP.Point(previewGlow.frame, "TOPLEFT", healthWrapper, "TOPLEFT", -previewGlow.extend, previewGlow.extend)
+        PP.Point(previewGlow.frame, "BOTTOMRIGHT", healthWrapper, "BOTTOMRIGHT", previewGlow.extend, -previewGlow.extend)
+        -- Paints the state m ("target" | "focus" | "hover") over the plate Update
+        -- laid out: the texts are placed and the bar wears its colour.
+        previewGlow.state = function(m, fontPath, npOutline)
+            local P = (m == "target" and "Target") or (m == "hover" and "Hover") or nil
+            -- EUI Glow (ApplyTarget, ns.ApplyHoverExtras): the background glow, tinted
+            -- and faded with the effect's Glow Color and Opacity.
+            local pgf = previewGlow.frame
+            if P and ns["Get" .. P .. "GlowEllesmereUI"]() then
+                local ge = previewGlow.extend
+                pgf:ClearAllPoints()
+                PP.Point(pgf, "TOPLEFT", healthWrapper, "TOPLEFT", -ge, ge)
+                PP.Point(pgf, "BOTTOMRIGHT", healthWrapper, "BOTTOMRIGHT", ge, -ge)
+                local gc, ga = ns["Get" .. P .. "GlowColor"](), ns["Get" .. P .. "GlowAlpha"]()
+                for _, t in ipairs(previewGlow.texs) do t:SetVertexColor(gc.r, gc.g, gc.b, ga) end
+                pgf:Show()
+            else
+                pgf:Hide()
+            end
+            -- Target / Focus / Hover Texture (UpdateHealthColor's overlay passes,
+            -- ns.ShowHoverEffect): the hover one rides the Hover Effect's Highlight
+            -- channel and takes that channel's colour and opacity.
+            local pre = m .. "Overlay"
+            local tex = DBVal(pre .. "Texture")
+            if m == "hover" and not ns.GetHoverGlowHighlight() then tex = "none" end
+            local ovOn = tex ~= nil and tex ~= "none"
+            if ovOn then
+                local a = DBVal(m == "hover" and "hoverAlpha" or (pre .. "Alpha"))
+                local c = DBVal(m == "hover" and "hoverColor" or (pre .. "Color"))
+                local r, g, b = c.r, c.g, c.b
+                -- No Tint: the bar's own colour.
+                if m ~= "hover" and DBVal(pre .. "NoTint") then r, g, b = health:GetStatusBarColor() end
+                local path = ns.ResolveOverlayTexPath(tex)
+                -- A stripe pattern is cropped to the bar's share of its 200px span.
+                local u = ns.OVERLAY_STRIPE_KEYS[tex] and math.min(ns.GetHealthBarWidth() / 200, 1) or 1
+                local fill = health:GetStatusBarTexture()
+                local fc, bc = previewGlow.ovFill, previewGlow.ovBg
+                fc:ClearAllPoints()
+                fc:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+                fc:SetPoint("BOTTOMLEFT", health, "BOTTOMLEFT", 0, 0)
+                fc:SetPoint("RIGHT", fill, "RIGHT", 0, 0)
+                bc:ClearAllPoints()
+                bc:SetPoint("TOPRIGHT", health, "TOPRIGHT", 0, 0)
+                bc:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+                bc:SetPoint("LEFT", fill, "RIGHT", 0, 0)
+                local ft, bt = previewGlow.ovFillTex, previewGlow.ovBgTex
+                ft:SetTexture(path); ft:SetTexCoord(0, u, 0, 1); ft:SetVertexColor(r, g, b)
+                bt:SetTexture(path); bt:SetTexCoord(0, u, 0, 1); bt:SetVertexColor(r, g, b)
+                ft:SetAlpha(a)
+                -- The empty part at 30%, or as the fill with Full alpha on empty part of bar.
+                bt:SetAlpha(DBVal(pre .. "FullBgAlpha") and a or a * 0.3)
+            end
+            previewGlow.ovFill:SetShown(ovOn)
+            previewGlow.ovBg:SetShown(ovOn)
+            -- Highlight: the Target Effect's wash (ApplyTarget), or the Hover Effect's
+            -- flat one while no Hover Texture is picked (ns.ShowHoverEffect). The hover
+            -- wash sits a sublayer over the target's; Blizzard Style keeps both under
+            -- its ring.
+            local hl, hc, ha = previewGlow.highlight
+            if m == "target" and ns.GetTargetGlowHighlight() then
+                hc, ha = ns.GetTargetHighlightColor(), ns.GetTargetHighlightAlpha()
+            elseif m == "hover" and not ovOn and ns.GetHoverGlowHighlight() then
+                hc, ha = DBVal("hoverColor"), DBVal("hoverAlpha")
+            end
+            if hc then
+                hl:SetColorTexture(hc.r, hc.g, hc.b, ha)
+                hl:SetDrawLayer("OVERLAY", (m == "hover" and 1 or 0)
+                    + ((not previewGlow.classic and EllesmereUI.BlizzStyle.Get("nameplates")) and 0 or 5))
+            end
+            hl:SetShown(hc ~= nil)
+            -- Focus Letter (ns.ApplyFocusLetter)
+            local fl = previewGlow.focusLetter
+            if m == "focus" and DBVal("focusLetterEnabled") == true then
+                -- Font BEFORE any SetText: a FontString with no font raises.
+                SetPVFont(fl, fontPath, DBVal("focusLetterSize"), npOutline)
+                fl:SetText("F")
+                local anchor = ns.GetFocusLetterAnchor(DB())
+                fl:ClearAllPoints()
+                fl:SetPoint(anchor, health, anchor, DBVal("focusLetterX"), DBVal("focusLetterY"))
+                fl:SetTextColor(1, 1, 1, 1)
+                fl:Show()
+            else
+                fl:Hide()
+            end
+            -- Distance to Target Text (the range text of EUI_Nameplates_Init.lua): a
+            -- sample range bucket 5 left of the Right text while one shows, else just
+            -- past the bar's right end (and WoW Forever's level box). Over the bar and
+            -- its border, under the text and aura tiers.
+            local rt = previewGlow.rangeText
+            if m == "target" and DBVal("rangeTextEnabled") then
+                SetPVFont(rt, fontPath, DBVal("rangeTextSize"), npOutline)
+                rt:SetText("30+")
+                local c = DBVal("rangeTextColor")
+                rt:SetTextColor(c.r, c.g, c.b, 1)
+                local x, y = DBVal("rangeTextOffsetX") or 0, DBVal("rangeTextOffsetY") or 0
+                local el = DBVal("textSlotRight")
+                local to = (ns.IsNameElement(el) and nameFS) or (el == "level" and lvlText)
+                    or (el == "targetOfTarget" and pf._totFS) or (el == "custom" and pf._customFS.textSlotRight)
+                    or (el == "healthNumber" and hpNumber) or (el ~= "none" and hpText) or nil
+                rt:ClearAllPoints()
+                if to and to:IsShown() then
+                    rt:SetPoint("RIGHT", to, "LEFT", -5 + x, y)
+                else
+                    rt:SetPoint("LEFT", health, "RIGHT", 5 + x + ns.NP_ForeverSide(), y)
+                end
+                rt:Show()
+            else
+                rt:Hide()
+            end
+        end
+    end
+
+    -------------------------------------------------------------------
     --  Update re-reads DB, applies to existing frames. No rebuilds.
     -------------------------------------------------------------------
     pf.Update = function(self)
+        -- The target's plate at its scale, before anything snaps to the pixel grid.
+        if self._mode then
+            previewGlow.plateScale(self._mode == "target" and ns.GetTargetScale() / 100 or 1)
+        end
         local fontPath   = (EllesmereUI.GetFontPath("nameplates")) or DBVal("font")
         -- Body-text outline, already slug-gated at the source (GetFontOutlineFlag).
         local npOutline  = (EllesmereUI.GetFontOutlineFlag("nameplates")) or "OUTLINE, SLUG"
@@ -1245,13 +1433,14 @@ local function BuildNameplatePreview(parent, parentW)
         local rawBarW    = BAR_W + DBVal("healthBarWidth")
         local barW       = IsDragging() and rawBarW or Snap(rawBarW)
         local castH      = Snap(DBVal("castBarHeight") or defaults.castBarHeight)
-        local showArrows = DBVal("showTargetArrows") == true
+        -- Target Arrows: on the target's plate only.
+        local showArrows = self._mode == "target" and DBVal("showTargetArrows") == true
         local arrowStyleKey = DBVal("targetArrowStyle") or (DBVal("targetArrowDouble") and "double") or "simple"
         local arrowSt = ns.TARGET_ARROW_STYLES[arrowStyleKey] or ns.TARGET_ARROW_STYLES.simple
         local arrowScale = DBVal("targetArrowScale") or defaults.targetArrowScale or 1.0
         local arrowW = math.floor(arrowSt.w * arrowScale + 0.5)
         local arrowH = math.floor(16 * arrowScale + 0.5)
-        if pf._arrows then
+        if showArrows then
             local _acr, _acg, _acb = ns.GetTargetArrowColor(DB())
             pf._arrows.left:SetTexture(ns.TARGET_ARROW_DIR .. arrowSt.l .. ".png")
             pf._arrows.right:SetTexture(ns.TARGET_ARROW_DIR .. arrowSt.r .. ".png")
@@ -1263,9 +1452,12 @@ local function BuildNameplatePreview(parent, parentW)
         local cbColor    = (DB() and DB().castBar) or defaults.castBar
         local debuffY    = DBVal("debuffYOffset") or defaults.debuffYOffset
 
+        -- The class resource: on the Display page's plate only (the Target, Focus & Hover
+        -- preview is bare). Read by UpdateCP too.
+        previewGlow.cpOn = DBVal("showClassPower") == true and not self._mode
         -- Class power top push: extra offset for name/auras when pips sit above the bar
         local cpPush = 0
-        if DBVal("showClassPower") == true then
+        if previewGlow.cpOn then
             local cpPos = DBVal("classPowerPos") or defaults.classPowerPos
             if cpPos == "top" then
                 local cpScale = DBVal("classPowerScale") or defaults.classPowerScale
@@ -1327,26 +1519,30 @@ local function BuildNameplatePreview(parent, parentW)
         -- Classic WoW UI: the plain 1px black edge, as live (no custom border).
         if previewGlow.classic then customOn = false end
         local pcb = healthWrapper._customBorder
+        -- The Target Effect's or Hover Effect's Border Size and Border Color, as live:
+        -- the border is drawn at that size (never the exact pixel size, which is the
+        -- plate's own) and in that colour, opaque.
+        local fxSz, fxCol = previewGlow.fxBorder(self._mode)
         if customOn then
             -- Custom border (shared engine) replaces the simple preview border.
             borderFrame:Hide(); simpleBorderFrame:Hide()
             for _, e in ipairs(_solidEdges) do e:Hide() end
             if pcb and EllesmereUI.ApplyBorderStyle then
                 local ctex   = DBVal("customBorderTexture") or defaults.customBorderTexture
-                local csz    = DBVal("customBorderSize") or defaults.customBorderSize
-                local ccol   = (DB() and DB().customBorderColor) or defaults.customBorderColor
-                local ca     = DBVal("customBorderAlpha") or defaults.customBorderAlpha or 1
+                local csz    = fxSz or DBVal("customBorderSize") or defaults.customBorderSize
+                local ccol   = fxCol or (DB() and DB().customBorderColor) or defaults.customBorderColor
+                local ca     = fxCol and 1 or DBVal("customBorderAlpha") or defaults.customBorderAlpha or 1
                 local cbehind = DBVal("customBorderBehind")
                 if cbehind == nil then cbehind = defaults.customBorderBehind end
                 pcb:SetFrameLevel(cbehind and math.max(0, healthWrapper:GetFrameLevel() - 1) or (healthWrapper:GetFrameLevel() + 2))
-                local cpx = EllesmereUI.BorderPx(DB() and DB().customBorderSizePx, csz, ctex)
+                local cpx = not fxSz and EllesmereUI.BorderPx(DB() and DB().customBorderSizePx, csz, ctex) or nil
                 EllesmereUI.ApplyBorderStyle(pcb, csz, ccol.r, ccol.g, ccol.b, ca, ctex,
                     DBVal("customBorderOffset"), DBVal("customBorderOffsetY"),
                     DBVal("customBorderShiftX"), DBVal("customBorderShiftY"),
                     "nameplates", csz, nil, cpx)
                 -- Show Seam Line, as the live wrap draws it (with or without Casts In
                 -- Front of Nameplates: both draw the same single outline).
-                ns.NP_SetWrapSeam(pcb, cast, DBVal("wrapBorderCastbar") == true
+                ns.NP_SetWrapSeam(pcb, cast, not self._mode and DBVal("wrapBorderCastbar") == true
                     and DBVal("wrapBorderSeam") == true,
                     ctex, csz, cpx, ccol.r, ccol.g, ccol.b, ca, health)
                 -- The mock cast bar sits above this border's frame: lift the seam over its
@@ -1366,7 +1562,7 @@ local function BuildNameplatePreview(parent, parentW)
             if bOn then
                 borderFrame:Hide(); simpleBorderFrame:Show()
                 for _, e in ipairs(_solidEdges) do e:Show() end
-                simpleBorderFrame:ApplySize(previewGlow.classic and 1 or (DBVal("borderSize") or defaults.borderSize))
+                simpleBorderFrame:ApplySize(previewGlow.classic and 1 or fxSz or (DBVal("borderSize") or defaults.borderSize))
             else
                 borderFrame:Hide(); simpleBorderFrame:Hide()
                 for _, e in ipairs(_solidEdges) do e:Hide() end
@@ -1383,24 +1579,29 @@ local function BuildNameplatePreview(parent, parentW)
             -- A custom style that cannot round keeps the cast bar square too.
             if not EllesmereUI.RoundedStyleOK(style) then radius = 0 end
             if radius > 0 and not customOn and pcb and simpleBorderFrame:IsShown() then
-                local bc = (DB() and DB().borderColor) or defaults.borderColor
+                local bc = fxCol or (DB() and DB().borderColor) or defaults.borderColor
                 simpleBorderFrame:Hide()
                 for _, e in ipairs(_solidEdges) do e:Hide() end
                 pcb:Show()
-                EllesmereUI.ApplyBorderStyle(pcb, DBVal("borderSize") or defaults.borderSize,
+                EllesmereUI.ApplyBorderStyle(pcb, fxSz or DBVal("borderSize") or defaults.borderSize,
                     bc.r, bc.g, bc.b, 1, "solid")
             end
             if radius > 0 then
-                -- Join Cast Bar: the preview always shows its cast bar.
+                -- Join Cast Bar: the Display page's preview always shows its cast bar;
+                -- the bare preview shows none, so its health bar keeps its own corners,
+                -- as a live plate that is not casting.
                 local corners, castCorners = DBVal("cornerMask"), DBVal("cornerMask")
-                if DBVal("cornerJoinCast") then
+                if DBVal("cornerJoinCast") and not self._mode then
                     corners, castCorners = EllesmereUI.RoundedJoinCorners(corners)
                 end
+                -- The Target / Focus / Hover Texture clips (nil on the Display page's
+                -- preview), the hash line and the highlight wash join the body, as live.
                 EllesmereUI.RoundCorners(pf, radius, {
-                    roots = {}, rect = health, border = pcb, style = style,
+                    roots = { previewGlow.ovFill, previewGlow.ovBg }, rect = health, border = pcb, style = style,
                     corners = corners,
                     textures = { health:GetStatusBarTexture(), healthBG,
-                        pvAbs.absorb:GetStatusBarTexture(), pvAbs.absorbForward:GetStatusBarTexture() },
+                        pvAbs.absorb:GetStatusBarTexture(), pvAbs.absorbForward:GetStatusBarTexture(),
+                        previewHashLine, previewGlow.highlight },
                 })
                 EllesmereUI.RoundCorners(cast, radius, {
                     roots = {}, border = cast, corners = castCorners,
@@ -1439,7 +1640,7 @@ local function BuildNameplatePreview(parent, parentW)
             entry.tex:SetPoint("BOTTOMRIGHT", entry.parent, "BOTTOMRIGHT", -inset, inset)
         end
 
-        local bc = (DB() and DB().borderColor) or defaults.borderColor
+        local bc = fxCol or (DB() and DB().borderColor) or defaults.borderColor
         if previewGlow.classic then bc = previewGlow.black end
         for _, tex in ipairs(borderFrame._texs) do tex:SetVertexColor(bc.r, bc.g, bc.b) end
         for _, tex in ipairs(simpleBorderFrame._texs) do tex:SetVertexColor(bc.r, bc.g, bc.b) end
@@ -1457,7 +1658,9 @@ local function BuildNameplatePreview(parent, parentW)
             borderVisible = b
         end
         if previewGlow.classic then borderVisible = true end
-        local wrapActive = wrapOn and borderVisible
+        previewGlow.borderOn = borderVisible
+        -- (never on the bare preview: it draws no cast bar to wrap)
+        local wrapActive = wrapOn and borderVisible and not self._mode
         if wrapActive or self._wrapPrev then
             local bottomF = healthWrapper
             if wrapActive then bottomF = cast end
@@ -1485,10 +1688,12 @@ local function BuildNameplatePreview(parent, parentW)
             self._wrapPrev = wrapActive
         end
 
-        -- Slots and each element's own icon size (its slot's size while unset), as live
-        local debuffSlotVal = DBVal("debuffSlot") or defaults.debuffSlot
-        local buffSlotVal   = DBVal("buffSlot")   or defaults.buffSlot
-        local ccSlotVal     = DBVal("ccSlot")     or defaults.ccSlot
+        -- Slots and each element's own icon size (its slot's size while unset), as live.
+        -- The bare preview reads every Core Positions element as in no slot, so the
+        -- passes below hide it and leave it out of the chains, arrows and height.
+        local debuffSlotVal = self._mode and "none" or DBVal("debuffSlot") or defaults.debuffSlot
+        local buffSlotVal   = self._mode and "none" or DBVal("buffSlot")   or defaults.buffSlot
+        local ccSlotVal     = self._mode and "none" or DBVal("ccSlot")     or defaults.ccSlot
         local debuffSz = ns.NP_ElementSize("debuffs", DB())
         local buffSz   = ns.NP_ElementSize("buffs", DB())
         local ccSz     = ns.NP_ElementSize("ccs", DB())
@@ -1531,7 +1736,7 @@ local function BuildNameplatePreview(parent, parentW)
         -- Arrow visibility deferred until after auras are placed (arrows go OUTSIDE the outermost side aura).
 
         -- Raid marker position and size (slot-based)
-        local rmPos = DBVal("raidMarkerPos") or defaults.raidMarkerPos
+        local rmPos = self._mode and "none" or DBVal("raidMarkerPos") or defaults.raidMarkerPos
         local rmSize = ns.NP_ElementSize("raidmarker", DB())
         local rmXOff, rmYOff = 0, 0
         if rmPos ~= "none" then
@@ -1540,7 +1745,7 @@ local function BuildNameplatePreview(parent, parentW)
         end
 
         -- Classification slot
-        local clPos = DBVal("classificationSlot") or defaults.classificationSlot
+        local clPos = self._mode and "none" or DBVal("classificationSlot") or defaults.classificationSlot
 
         -- Clear drag-show flags when not dragging
         if not IsDragging() then
@@ -1574,10 +1779,12 @@ local function BuildNameplatePreview(parent, parentW)
         -- (it never counts for centring).
         if previewGlow.forever then castIconRightPush = castIconRightPush + ns.NP_ForeverSide() end
         -- The full-size icon pushes an element beside it only where their spans
-        -- meet, as live during a cast (ns.NP_FullIconPush; the preview always
-        -- shows its cast bar): the element centres on the bar plus y, sz tall.
+        -- meet, as live during a cast (ns.NP_FullIconPush; the Display page's
+        -- preview always shows its cast bar, the bare preview never, so there it
+        -- pushes nothing, as on a live plate that is not casting): the element
+        -- centres on the bar plus y, sz tall.
         local function FullPush(side, y, sz)
-            if previewGlow.classic or not (showIcon and fullSize) or (side == "right") ~= onRight then return 0 end
+            if self._mode or previewGlow.classic or not (showIcon and fullSize) or (side == "right") ~= onRight then return 0 end
             local mid = barH / 2 + y
             local castBottom = (DBVal("castBarOffsetY") or defaults.castBarOffsetY) - castH
             return ns.NP_MeetsFullIcon(mid - sz / 2, mid + sz / 2, barH, castBottom) and (barH + castH) or 0
@@ -1658,7 +1865,7 @@ local function BuildNameplatePreview(parent, parentW)
         -- Faction badge, slot-based like the classification icon above. Shows the
         -- other faction's badge (what Opposite Faction Only would show).
         local fcCombined = DBVal("classificationIncludeFaction") == true
-        local fcPos = fcCombined and clPos or (DBVal("factionSlot") or defaults.factionSlot or "none")
+        local fcPos = self._mode and "none" or (fcCombined and clPos or (DBVal("factionSlot") or defaults.factionSlot or "none"))
         local factionTopExtent = 0 -- height above the health bar, read by the height calculation
         factionIcon:ClearAllPoints()
         if fcPos == "none" then
@@ -1710,7 +1917,7 @@ local function BuildNameplatePreview(parent, parentW)
         do
             local qt = pf._qt
             local f = qt.frame
-            local pos = ns.NP_GetQuestTextSlot(DB())
+            local pos = self._mode and "none" or ns.NP_GetQuestTextSlot(DB())
             qt.pos = pos
             f:ClearAllPoints()
             if pos == "none" or not optState.showQuestTextPreview then
@@ -1791,7 +1998,7 @@ local function BuildNameplatePreview(parent, parentW)
         end
         cast:ClearAllPoints()
         cast:SetSize(math.max(1, pCastW - pIconW), castH)
-        cast:SetPoint("TOPLEFT", health, "BOTTOMLEFT", pShiftX, pCastY)
+        cast:SetPoint("TOPLEFT", health, "BOTTOMLEFT", pShiftX + ns.GetCastBarOffsetX(), pCastY)
         do
             local cTexKey = DBVal("castBarTexture") or "none"
             local cTexPath = EllesmereUI.ResolveTexturePath(ns.healthBarTextures, cTexKey, "Interface\\Buttons\\WHITE8x8")
@@ -1840,6 +2047,9 @@ local function BuildNameplatePreview(parent, parentW)
         if not previewGlow.classic then castParts.spark:SetHeight(castH) end
         -- Show Spark (Cast Color cog): default on; explicit false hides it.
         castParts.spark:SetShown(DBVal("castBarSparkEnabled") ~= false)
+        -- No cast bar on the bare preview (its icon, texts, spark and stock art are its
+        -- children); it stays laid out, so nothing anchored to it loses its place.
+        cast:SetShown(not self._mode)
 
         -- Name font + color + position (font size set per-slot below)
         local nameYOff = DBVal("nameYOffset") or defaults.nameYOffset
@@ -2088,14 +2298,19 @@ local function BuildNameplatePreview(parent, parentW)
             -- Centred between the Top Left / Top Right texts, as live.
             local nameW = barW - pvNameMarkerReserve - 2 * math.max(ns.NP_TopCornerTextWidth("textSlotTopLeft", DB()),
                 ns.NP_TopCornerTextWidth("textSlotTopRight", DB()))
-            if rmPos ~= "none" and showRM then
+            -- Room is taken only by what shows on the name's row (Top or a top corner), as
+            -- live (ns.NP_OnNameRow): the raid marker, the Rare/Quest icon, the Quest
+            -- Objective Text, and the faction badge where it stands alone.
+            if showRM and ns.NP_OnNameRow(rmPos) then
                 nameW = nameW - 2 * (rmSize - 2) - 7
             end
-            if showCL and clPos ~= "none" then
+            if classIcon:IsShown() and ns.NP_OnNameRow(clPos) then
                 nameW = nameW - (reIconSz + 4)
             end
-            -- The Quest Objective Text takes its own width, like the Rare/Quest icon.
-            if pf._qt.shown then nameW = nameW - (pf._qt.w + 4) end
+            if pf._qt.shown and ns.NP_OnNameRow(pf._qt.pos) then nameW = nameW - (pf._qt.w + 4) end
+            if factionIcon:IsShown() and not (fcCombined and classIcon:IsShown()) and ns.NP_OnNameRow(fcPos) then
+                nameW = nameW - (ns.NP_ElementSize("faction", DB()) + 4)
+            end
             nameFS:SetWidth(math.max(nameW * pvNameWPct / 100, 20))
             nameFS:SetTextColor(topC.r, topC.g, topC.b, 1)
             nameFS:Show()
@@ -2137,10 +2352,11 @@ local function BuildNameplatePreview(parent, parentW)
         end
 
         -- Process the bottom slots: under the health bar's corners, below the
-        -- cast bar (the preview always shows one), as live while casting.
+        -- cast bar (the Display page's preview always shows one), as live while
+        -- casting; right under the health bar on the bare preview, as live otherwise.
         do
             -- Clamped at 0 like live: a raised cast bar never lifts them.
-            local by = math.min(0, pCastY - castH) - 2
+            local by = (self._mode and 0 or math.min(0, pCastY - castH)) - 2
             local ext = 0
             for i = 1, 2 do
                 local key = (i == 1) and "textSlotBottomLeft" or "textSlotBottomRight"
@@ -2196,8 +2412,12 @@ local function BuildNameplatePreview(parent, parentW)
         PreviewNameStrata(pf, health, nameFS, nameRaidFrame,
             pvNameSlotKey and DBVal(pvNameSlotKey .. "Strata") or "MEDIUM")
 
-        -- Health bar color: always uses "enemies in combat" color
+        -- Health bar color: the "enemies in combat" color, or the Target / Focus Color
+        -- on that preview while it is enabled (as live, GetReactionColor).
         local eic = (DB() and DB().enemyInCombat) or defaults.enemyInCombat
+        if (self._mode == "target" or self._mode == "focus") and DBVal(self._mode .. "ColorEnabled") then
+            eic = DBVal(self._mode) or eic
+        end
         health:SetStatusBarColor(eic.r, eic.g, eic.b, 1)
 
         -- Cast text sizes, colors, and offsets
@@ -2630,10 +2850,8 @@ local function BuildNameplatePreview(parent, parentW)
                 arrows.right:SetPoint("LEFT", health, "RIGHT", rightExtent + 8, 0)
             end
             arrows.left:Show(); arrows.right:Show()
-            if pf._arrowOverlay then pf._arrowOverlay:Show() end
         else
             arrows.left:Hide(); arrows.right:Hide()
-            if pf._arrowOverlay then pf._arrowOverlay:Hide() end
         end
 
         -- Height calculation: "top" slot auras stack above the top text; corner items (and a "top" raid marker or classification icon) anchor to the health bar beside it, so the two count as max, not sum.
@@ -2708,15 +2926,18 @@ local function BuildNameplatePreview(parent, parentW)
             health:SetPoint("TOPLEFT", pf, "TOPLEFT", xOff, -healthFromTop)
             healthWrapper:SetPoint("TOPLEFT", pf, "TOPLEFT", xOff, -healthFromTop)
         else
-            xOff = Snap((pfW - barW) / 2)
+            -- The state plate under the WoW Forever style: the level box right of
+            -- the bar is centred with it (the bar and the box as one body). The
+            -- Display page's plate keeps its bar on the middle.
+            xOff = Snap((pfW - barW - ((self._mode and previewGlow.forever) and ns.NP_ForeverSide() or 0)) / 2)
             _cachedRawBarW = rawBarW
             _cachedXOff    = xOff
             health:SetPoint("TOPLEFT", pf, "TOPLEFT", xOff, -healthFromTop)
             healthWrapper:SetPoint("TOPLEFT", pf, "TOPLEFT", xOff, -healthFromTop)
         end
 
-        -- Preview hash line
-        local hlEnabled = DBVal("hashLineEnabled")
+        -- Preview hash line: on the target's plate only, as live
+        local hlEnabled = self._mode == "target" and DBVal("hashLineEnabled")
         local hlPct = DBVal("hashLinePercent") or defaults.hashLinePercent
         if hlEnabled and hlPct and hlPct > 0 then
             local hlX = barW * (hlPct / 100)
@@ -2740,7 +2961,7 @@ local function BuildNameplatePreview(parent, parentW)
 
         -- Class power pips (preview): the renderer is a nested function, defined and called once right here so its ~38 locals live in their own scope -- pf.Update was over Lua 5.1's 200-local-per-function cap.
         pf.UpdateCP = function()
-        local showCP = DBVal("showClassPower") == true
+        local showCP = previewGlow.cpOn
         local cpExtraH = 0
         local cpIsBarType = false
         local cpResourceName = nil
@@ -2992,7 +3213,7 @@ local function BuildNameplatePreview(parent, parentW)
         end
         local cpExtraH = pf.UpdateCP()
 
-        local totalH = Snap(healthFromTop + barH + castH + cpExtraH + 15)
+        local totalH = Snap(healthFromTop + barH + (self._mode and 0 or castH) + cpExtraH + 15)
         -- Add extra height for auras in the "bottom" slot (below cast bar)
         local bottomExtent = 0
         local function isBottomSlot(s) return s == "bottom" end
@@ -3009,40 +3230,9 @@ local function BuildNameplatePreview(parent, parentW)
         totalH = totalH + bottomExtent
         self:SetSize(localParentW, totalH)
 
-        -- Target glow preview (9-slice soft glow matching real nameplates)
-        local pgf = previewGlow.frame
-        pgf:ClearAllPoints()
-        local ge = previewGlow.extend
-        PP.Point(pgf, "TOPLEFT", healthWrapper, "TOPLEFT", -ge, ge)
-        PP.Point(pgf, "BOTTOMRIGHT", healthWrapper, "BOTTOMRIGHT", ge, -ge)
-        local glowEUI       = previewGlow.getEUI()
-        local glowBorder    = previewGlow.getBorderOn()
-        local glowHighlight = previewGlow.getHighlight()
-        -- EllesmereUI: background glow, tinted + faded with the Glow Color/Opacity
-        if optState.showTargetGlowPreview and glowEUI then
-            local gc = previewGlow.getGlowCol()
-            local ga = previewGlow.getGlowAlpha()
-            for _, t in ipairs(previewGlow.texs) do t:SetVertexColor(gc.r, gc.g, gc.b, ga) end
-            pgf:Show()
-        else
-            pgf:Hide()
-        end
-        -- Border Color: override the preview border with the custom target color
-        if optState.showTargetGlowPreview and glowBorder then
-            local bc = previewGlow.getBorderCol()
-            for _, tex in ipairs(borderFrame._texs) do tex:SetVertexColor(bc.r, bc.g, bc.b) end
-            for _, tex in ipairs(simpleBorderFrame._texs) do tex:SetVertexColor(bc.r, bc.g, bc.b) end
-            for _, e in ipairs(_solidEdges) do e:SetColorTexture(bc.r, bc.g, bc.b, 1); UnsnapTex(e) end
-        end
-        -- Highlight: translucent wash across the preview health bar (color/opacity via the Target Highlight cog).
-        if previewGlow.highlight then
-            local showHL = optState.showTargetGlowPreview and glowHighlight
-            if showHL then
-                local hc = previewGlow.getHighlightCol()
-                previewGlow.highlight:SetColorTexture(hc.r, hc.g, hc.b, previewGlow.getHighlightAlpha())
-            end
-            previewGlow.highlight:SetShown(showHL)
-        end
+        -- The target, focus or hover state over the plate (the glow, texture, highlight,
+        -- Focus Letter and Distance to Target Text); the Display page's plate has none.
+        if self._mode then previewGlow.state(self._mode, fontPath, npOutline) end
 
         -- Stock styles: the stock look over everything laid out above.
         if previewGlow.classic then
@@ -3076,7 +3266,10 @@ local function BuildNameplatePreview(parent, parentW)
         -- resize that page's header.
         if self:IsVisible() then
             local headerExtra = pf._headerExtra or 0
-            local hintH = (optState._previewHintFS and optState._previewHintFS:IsShown()) and 29 or 0
+            -- The page's click hint while it shows. The Target, Focus & Hover header
+            -- follows the plate, so its height without the hint is handed in too.
+            local hintH = ns._NPO_OptEnv.Nav.HintH(self._mode and ns._NPO_OptEnv.PAGE_TFH or ns._NPO_OptEnv.PAGE_DISPLAY,
+                self._mode and (totalH * previewScale + headerExtra) or nil)
             EllesmereUI:UpdateContentHeaderHeight(totalH * previewScale + headerExtra + hintH)
         end
 
@@ -3087,6 +3280,8 @@ local function BuildNameplatePreview(parent, parentW)
                 if ov._resizeToText then ov._resizeToText() end
             end
         end
+        -- The Target, Focus & Hover page's click overlays follow the state and what shows.
+        if self._navSync then self._navSync() end
     end
 
     -- Expose preview elements for click-navigation hit overlays
@@ -3111,9 +3306,29 @@ local function BuildNameplatePreview(parent, parentW)
     pf._cpPips       = CP.pips
     pf._cpBar        = CP.bar
     pf._cpMax        = CP.MAX_POSSIBLE
-    pf._arrows       = arrows
+    -- The parts of a state the Target, Focus & Hover page's click overlays sit on
+    if mode then
+        pf._hashLine    = previewHashLine
+        pf._wash        = previewGlow.highlight
+        pf._texture     = previewGlow.ovFill
+        pf._glowFrame   = previewGlow.frame
+        pf._focusLetter = previewGlow.focusLetter
+        pf._rangeText   = previewGlow.rangeText
+        -- Whether the state's effect draws at the bar's edge: its glow, or its Border
+        -- Size / Border Color on the plate's own border (a stock style draws its own).
+        pf._fxEdge = function()
+            if previewGlow.frame:IsShown() then return true end
+            if not previewGlow.borderOn or EllesmereUI.BlizzStyle.Get("nameplates") then
+                return false
+            end
+            local sz, col = previewGlow.fxBorder(pf._mode)
+            return sz ~= nil or col ~= nil
+        end
+    end
 
-    optState.activePreview = pf
+    -- Each page's header keeps its own preview: the one on screen is the one repainted.
+    pf._mode = mode
+    optState[mode and "tfhPreview" or "activePreview"] = pf
     pf:Update()
     -- Return visual height in parent-scale pixels (pf:GetHeight() is local, scale it)
     return pf:GetHeight() * previewScale
@@ -3121,3 +3336,40 @@ end
 
 -- Used by EUI_Nameplates_Options.lua
 ns.NPO_BuildNameplatePreview = BuildNameplatePreview
+
+-- The content header of the Target, Focus & Hover page: the same preview drawn as the
+-- target, the focus or the hovered plate, and under it the picker of that state.
+-- The pick is the session's (optState.tfhMode, Target until one is made) and repaints
+-- the preview at once. Under the picker, the click hint (env.Nav).
+function ns.NPO_BuildTFHHeader(headerParent, headerW)
+    local env = ns._NPO_OptEnv
+    local optState = env.optState
+    -- Header px: above the preview, between it and the picker, the picker's own
+    -- height (a dropdown control's) and under the picker.
+    local TOP_PAD, PICK_GAP, PICK_H, BOTTOM_PAD = 5, 2, 30, 18
+    local EXTRA = TOP_PAD + PICK_GAP + PICK_H + BOTTOM_PAD
+    local previewH = BuildNameplatePreview(headerParent, headerW, optState.tfhMode or "target")
+    local pf = optState.tfhPreview
+    -- The pads are in the header's units; a later scale change keeps the top one.
+    -- The preview adds the rest to its own height when it sizes the header.
+    pf._topPad, pf._headerExtra = TOP_PAD, EXTRA
+    pf:SetPoint("TOP", headerParent, "TOP", 0, -TOP_PAD / pf:GetScale())
+    -- Over the plate and the page's click overlays (health + 15 to + 22, with their borders).
+    local dd = EllesmereUI.BuildDropdownControl(headerParent, 170, pf:GetFrameLevel() + 40,
+        { target = "Target", focus = "Focus", hover = "Hover" }, { "target", "focus", "hover" },
+        function() return pf._mode end,
+        function(v)
+            optState.tfhMode = v
+            pf._mode = v
+            pf:Update()
+        end)
+    -- Centred under the preview, whose bottom it follows as the plate's height
+    -- changes with the state and the settings.
+    dd:SetPoint("TOP", pf, "BOTTOM", 0, -PICK_GAP)
+    -- The hint at the Display page preview's scale, whatever Scale Target Nameplate
+    -- does to the plate.
+    local hintHost = CreateFrame("Frame", nil, headerParent)
+    hintHost:SetAllPoints(headerParent)
+    hintHost:SetScale(UIParent:GetEffectiveScale() / headerParent:GetEffectiveScale())
+    return (env.Nav.Hint(env.PAGE_TFH, hintHost, headerParent, 17, previewH + EXTRA))
+end

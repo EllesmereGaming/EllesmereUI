@@ -982,8 +982,7 @@ local function EnsureEater(d, slot, host, container, active, pinHost, point, cor
         e:SetAttribute("eui_tipeater", true)
         -- Native clicks mirror the unit button: left = target, right = the
         -- secure unit menu. Click-cast re-writes these when it is enabled.
-        e:SetAttribute("type1", "target")
-        e:SetAttribute("*type1", "target")
+        EllesmereUI.SetLeftClickTarget(e)
         EllesmereUI.AttachSecureUnitMenu(e)
         -- HookScript, not SetScript: the click-cast header wraps these same
         -- script slots securely, and a hook never displaces a wrap. The Lua

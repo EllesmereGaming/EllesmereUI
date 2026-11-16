@@ -1841,28 +1841,17 @@ _firstRunEvt:SetScript("OnEvent", function(self)
         })
         _euicProfileRef = profileDB.profile
         -- Per-character queue, scan cache and crest offsets are ACCOUNT data
-        -- keyed by character name: profiles get shared, so holding this in the
+        -- in the character roster: profiles get shared, so holding this in the
         -- profile put the player's character names and realms into every
         -- export string. Options stay in the profile (they are settings); the
-        -- per-character state moves top-level. The old profile copy is dropped
+        -- per-character state moves to the roster. The old profile copy is dropped
         -- rather than migrated -- on anyone who imported a profile it holds the
         -- exporter's characters, and this state rebuilds from the next scan.
         local store = _euicProfileRef
         store.chars = nil
-        -- Throwaway fallback if the parent DB is somehow absent: the session
-        -- still works, nothing persists, and the global is never assigned
-        -- here (a pre-SavedVariables call could shadow the real table).
-        local acct = type(EllesmereUIDB) == "table" and EllesmereUIDB or {}
-        local chars = acct.qolUpgradeCalcChars
-        if type(chars) ~= "table" then
-            chars = {}
-            acct.qolUpgradeCalcChars = chars
-        end
-        local charKey = EllesmereUI.CharKey(" - ", chars)
-        chars[charKey]          = chars[charKey]        or {}
-        local charStore         = chars[charKey]
-        charStore.upgradeCalc   = charStore.upgradeCalc or {}
-        local db                = charStore.upgradeCalc
+        -- Throwaway fallback while the DB or GUID is absent: the session
+        -- still works and nothing persists.
+        local db = EllesmereUI.CharData("upgradeCalc", true) or {}
         db.cache                = db.cache              or { slots = {}, ts = 0 }
         db.calibrated           = db.calibrated         or false
         db.queue                = db.queue              or {}

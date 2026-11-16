@@ -446,6 +446,25 @@ do
 end
 
 -------------------------------------------------------------------------------
+--  The seat of the stock (Blizzard Style) cast bar art on our own cast bars,
+--  shared by Unit Frames and Resource Bars, live bars and options previews.
+--  Returns: the frame art's reach past the bar on the left, on the right and
+--  on top; the spell name's Y nudge in the text box; the timer's on the bar;
+--  the spark's extra height, Y nudge and width.
+--  forever: the bar wears the WoW Forever art. Its thicker rim, drawn 2px
+--  out, would cover the bar's top edge and the border of an icon set flush
+--  against the bar, so it sits flush on top and on that side (iconSide:
+--  "left" | "right" | nil for no flush icon); the name sits 2px lower to
+--  centre in the text box under that rim, the timer 1px lower to centre on
+--  the fill the rim leaves; the pip art is tall and thin, so the spark stands
+--  4px taller than the bar, 1px lower and 5px wide.
+-------------------------------------------------------------------------------
+function EllesmereUI.CastChromeGeom(forever, iconSide)
+    if not forever then return 2, 2, 2, 0, 0, 0, 0, 8 end
+    return iconSide == "left" and 0 or 2, iconSide == "right" and 0 or 2, 0, -2, -1, 4, -1, 5
+end
+
+-------------------------------------------------------------------------------
 --  Blizzard Cast Bar Event Ownership -- standalone cast bar addons claim Blizzard's
 --  player/pet cast bars by unregistering their events. oUF's Castbar element writes the same
 --  state -- it silences those frames when it enables on the player frame and re-arms them when
@@ -1056,7 +1075,7 @@ do
             else
                 btn:SetAttribute("unit", owner:GetAttribute("unit"))
             end
-            btn:SetAttribute("*type1", "target")
+            EllesmereUI.SetLeftClickTarget(btn)
             btn:SetAttribute("toggleForVehicle", true)
             btn:RegisterForClicks("AnyUp")
             EllesmereUI.AttachSecureUnitMenu(btn)

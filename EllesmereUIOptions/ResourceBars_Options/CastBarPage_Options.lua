@@ -26,6 +26,11 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
     env.SetCastBarPreviewFill(math.random(30, 85) / 100)
     ShuffleCastBarIcons()
     EllesmereUI:SetContentHeader(_castBarPreviewBuilder)
+    -- The builder draws the plain mock; the style (Blizzard Style, WoW
+    -- Forever, Classic WoW UI) lands with the update, which a first visit
+    -- otherwise never runs (only a cached page's restore does). Not from the
+    -- search's hidden pre-build: its header calls are stubbed.
+    if not EllesmereUI._prebuilding then UpdateCastBarPreview() end
 
     -- Clear this page's own click mappings (the table is shared with the display page, whose
     -- cached preview keeps its own; never from a hidden pre-build -- see the matching guard in
@@ -1120,6 +1125,9 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
         latOff,
         "Latency Overlay"
     )
+
+    -- OTHER BARS: Breath, Fatigue... drawn like this bar (MirrorTimerPage_Options.lua).
+    if ns.ERB_BuildTimerBarRows then y = ns.ERB_BuildTimerBarRows(parent, y) end
 
     -- Wire up click mappings for cast bar preview hit overlays (never from a hidden pre-build: the shared live table would end up pointing at off-screen rows)
     if not EllesmereUI._prebuilding then

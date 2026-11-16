@@ -40,7 +40,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     local function BuildPage(pageName, parent, yOffset)
         local W  = EllesmereUI.Widgets
-        local PP = EllesmereUI.PP
+        local PP = EllesmereUI.PanelPP
         local y  = yOffset
         local _, h
 
@@ -457,8 +457,12 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
               end });  y = y - h
 
-        -- Row 2 (odd last slot): Fade Strength | (empty)
-        _, h = W:DualRow(parent, y,
+        -- Row 2: Fade Strength | Also Wake On (checkbox dropdown over the
+        -- placeholder, which keeps the label, tooltip and disabled state; its
+        -- getter reads every key the checklist writes, so the Spec Overrides
+        -- gold walk marks the slot while one of them is overridden)
+        local wakeRow
+        wakeRow, h = W:DualRow(parent, y,
             { type="slider", text="Fade Strength",
               min = 0, max = 100, step = 1,
               disabled=function() return Cfg("idleFadeEnabled") == false end,
@@ -468,7 +472,50 @@ initFrame:SetScript("OnEvent", function(self)
                   Set("idleFadeStrength", v)
                   if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
               end },
-            { type="label", text="" });  y = y - h
+            { type="dropdown", text="Also Wake On",
+              tooltip="Other chat lines that wake a faded chat.",
+              values={ __placeholder = "..." }, order={ "__placeholder" },
+              getValue=function()
+                  local t = Cfg("idleFadeWake")
+                  if t then
+                      local groups = ECHAT.IDLE_WAKE_GROUPS
+                      for i = 1, groups and #groups or 0 do local _ = t[groups[i].key] end
+                  end
+                  return "__placeholder"
+              end,
+              setValue=function() end,
+              disabled=function() return Cfg("idleFadeEnabled") == false end,
+              disabledTooltip="Enable Idle Fade" });  y = y - h
+        if not EllesmereUI._prebuilding then
+            local rgn = wakeRow._rightRegion
+            if rgn._control then rgn._control:Hide() end
+            local wakeItems = {}
+            for _, g in ipairs(ECHAT.IDLE_WAKE_GROUPS or {}) do
+                wakeItems[#wakeItems + 1] = { key = g.key, label = g.label }
+            end
+            local wakeDD, wakeRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                rgn, 210, rgn:GetFrameLevel() + 2, wakeItems,
+                function(key)
+                    local t = Cfg("idleFadeWake")
+                    return t and t[key] == true or false
+                end,
+                function(key, v)
+                    local t = Cfg("idleFadeWake")
+                    if not t then t = {}; Set("idleFadeWake", t) end
+                    t[key] = v and true or nil
+                    if ECHAT.ApplyIdleFadeWake then ECHAT.ApplyIdleFadeWake() end
+                end,
+                nil, nil, nil, nil, nil,
+                -- notifyWrites: a tick inside a Spec or Conditional Override
+                -- session is captured as it happens, under this row's name
+                { noAllLabel = true, notifyWrites = true,
+                  disabled = function() return Cfg("idleFadeEnabled") == false end,
+                  disabledTooltip = "Enable Idle Fade" })
+            EllesmereUI.PanelPP.Point(wakeDD, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = wakeDD
+            rgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(wakeRefresh)
+        end
 
         end -- isChat
 

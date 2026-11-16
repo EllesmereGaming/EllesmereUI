@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Clean and beautiful visual refreshes for Blizzard UI elements.
 ## Author: Ellesmere
-## Version: 9.8.4
+## Version: 9.8.5
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIBlizzardSkinDB, EllesmereUIDragonRidingDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -31,7 +31,7 @@ EllesmereUIBlizzardSkin_WindowEngine.lua
 EllesmereUIBlizzardSkin_GroupFinder.lua
 EllesmereUIBlizzardSkin_WindowPacks.lua
 EllesmereUIBlizzardSkin_MerchantBulkBuy.lua
-# Retail only: the Mail card's Alt List beside Send Mail
+# The Mail card's Alt List beside Send Mail (WoW Forever: with Guild and Friends tabs)
 EllesmereUIBlizzardSkin_MailAlts.lua
 # WoW Forever only: plain window treatment + stats sidebar for the character sheet
 EllesmereUIBlizzardSkin_CharacterSheetForever.lua

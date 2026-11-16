@@ -4,7 +4,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- applications bar. Nothing hooks in until it's enabled.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.Lite and EllesmereUI.HELD_BACK_ADDONS and EllesmereUI.SetFontFamily and EllesmereUI.PREVIEW_ROSTER) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (group titles, applicant names and notes take font families through SetFontFamily, and the settings preview names its samples from PREVIEW_ROSTER)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.Lite and EllesmereUI.HELD_BACK_ADDONS and EllesmereUI.SetFontFamily and EllesmereUI.PREVIEW_ROSTER and EllesmereUI.CharData) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (group titles, applicant names and notes take font families through SetFontFamily, and the settings preview names its samples from PREVIEW_ROSTER; its per-character data is in the parent's roster: CharData)
 -- Held back from this release (EllesmereUI.HELD_BACK_ADDONS): nothing runs,
 -- and with no namespace published the options page never registers.
 if EllesmereUI.HELD_BACK_ADDONS[ADDON_NAME] then return end
@@ -86,11 +86,29 @@ for _, k in ipairs({ "ratingOn", "ratingValue", "regions", "delves", "delveTiers
     "raidPlaystyles", "raidRoles", "partyFit", "notDeclined", "hasLust", "hasBrez", "extraMyClass", "raidMyClass",
     "extraExpr", "extraRolesAny", "roleCounts", "dimPicks" }) do FILTER_KEYS[k] = true end
 
+-- filters both tabs have: the raids tab keeps its own, under raid_<key> (each
+-- raid key built once here: the filter pass reads these for every result)
+local TAB_KEYS = {}
+for _, k in ipairs({ "regions", "partyFit", "notDeclined", "hasLust", "hasBrez", "extraLustMissing",
+    "extraBrezMissing", "extraExpr", "extraRolesAny", "roleCounts", "extraSortBy" }) do TAB_KEYS[k] = "raid_" .. k end
+local function RaidTab()
+    local sp = LFGListFrame and LFGListFrame.SearchPanel
+    return sp and sp.categoryID == (GROUP_FINDER_CATEGORY_ID_RAIDS or 3) or false
+end
+
 local charDB
 local function CharFilters() return charDB and charDB.filters end
 
 local cfg = setmetatable({}, {
     __index = function(_, k)
+        local rk = TAB_KEYS[k]
+        if rk and RaidTab() then
+            if FILTER_KEYS[k] then
+                local f = CharFilters()
+                return f and f[rk]
+            end
+            return Search()[rk]
+        end
         if FILTER_KEYS[k] then
             local f = CharFilters()
             return f and f[k]
@@ -98,6 +116,16 @@ local cfg = setmetatable({}, {
         return Search()[k]
     end,
     __newindex = function(_, k, v)
+        local rk = TAB_KEYS[k]
+        if rk and RaidTab() then
+            if FILTER_KEYS[k] then
+                local f = CharFilters()
+                if f then f[rk] = v end
+                return
+            end
+            Search()[rk] = v
+            return
+        end
         if FILTER_KEYS[k] then
             local f = CharFilters()
             if f then f[k] = v end

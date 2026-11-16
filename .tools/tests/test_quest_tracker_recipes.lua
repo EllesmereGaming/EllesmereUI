@@ -161,6 +161,7 @@ EllesmereUI = {
     ShowContextMenu = function() menus = menus + 1 end,
     L = function(s) return s end,
 }
+dofile(".tools/tests/char_roster_stub.lua")(EllesmereUI, { guid = "Player-1" })
 function EllesmereUI:RegisterUnlockElements() end
 function EllesmereUI:RegisterUnlockModeListener() end
 
@@ -446,7 +447,7 @@ if check(rec, "no recipe line to hover") then
         o._scripts.PostClick(o, "LeftButton")
         modPrefix = ""
         o._scripts.PostClick(o, "RightButton")
-        local db = EllesmereUIDB.questTrackerChars and EllesmereUIDB.questTrackerChars["Player-1"]
+        local db = EllesmereUI.CharData("questTracker")
         check(not (db and db.ctUntracked[3915]), "a recipe click untracked a quest of its id")
         check(menus == before, "a recipe click opened our quest menu")
     end

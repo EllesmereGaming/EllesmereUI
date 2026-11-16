@@ -1249,3 +1249,24 @@ L["promote loot"] = "분배 담당자 승급"
 L["promoted for this raid"] = "이 공격대 동안 승급됨"
 L["show a group question, answers do nothing"] = "그룹 질문 표시, 응답은 효과 없음"
 L["the council window did not open for this boss kill: %s"] = "이번 우두머리 처치에서 위원회 창이 열리지 않았습니다: %s"
+L["%s  |cffffd100x%d|r"] = "%s  |cffffd100%d개|r"
+L["(%s stored)"] = "(%s 보관됨)"
+L["(Promoted)"] = "(승급됨)"
+L["prompt <lootmaster / raider / guard>"] = "prompt <lootmaster / raider / guard> (창 확인)"
+L["usage: /slc prompt lootmaster / raider / guard"] = "사용법: /slc prompt lootmaster / raider / guard"
+L["v%s"] = "버전 %s"
+
+-- == Simple Loot Council 1.0.6 strings, from the Simple Loot Council standalone translations ==
+L["Clear \"Awarded to you\""] = "'나에게 지급됨' 지우기"
+L["Delete %s awarded to %s?\n\nIt has not been traded yet, so this also undoes the award: it leaves Loot to Trade and every raider's history, as Undo award does."] = "%s (%s 님에게 지급됨) 기록을 삭제하시겠습니까?\n\n아직 거래되지 않았으므로 지급도 함께 취소됩니다. '지급 취소'와 마찬가지로 '거래할 전리품'과 모든 공격대원의 기록에서 사라집니다."
+
+-- == Simple Loot Council 1.0.7 strings, from the Simple Loot Council standalone translations ==
+L["Seen in your group and stored by player id, so a rename will not lose them."] = "파티에서 확인되어 플레이어 ID로 저장되었으므로, 이름 변경 후에도 유지됩니다."
+L["Stored by name, so it is matched as typed. The next time this player is in your group it becomes a permanent id and survives a rename."] = "이름으로 저장되어 입력한 그대로 비교합니다. 다음에 이 플레이어가 파티에 들어오면 고유 ID로 바뀌어 이름 변경 후에도 유지됩니다."
+
+-- == Simple Loot Council 1.0.8-1.2.2 strings, from the Simple Loot Council standalone translations ==
+L["  %d. %s  |cff808080BoE, %dm left|r"] = "  %d. %s  |cff808080착용 시 귀속, %d분 남음|r"
+L["  -  %s  |cff73716CBoE, not added automatically|r"] = "  -  %s  |cff73716C착용 시 귀속, 자동으로 추가되지 않음|r"
+L["Answer the question on screen first."] = "먼저 화면의 질문에 답하세요."
+L["Requires the council to be allowed to vote for themselves."] = "위원이 자신에게 투표할 수 있어야 합니다."
+L["skipped %d BoE items outside their six-hour window - click one in the bags panel to queue it anyway."] = "6시간 제한 밖의 착용 시 귀속 아이템 %d개를 건너뛰었습니다 - 그래도 추가하려면 가방 목록에서 클릭하십시오."

@@ -817,6 +817,7 @@ local function StampDisplay(msg, when)
     if not _stampAllOn or _protActive then return msg end
     if type(msg) ~= "string" then return msg end
     if issecretvalue and issecretvalue(msg) then return msg end
+    if msg == "" then return msg end
     if HasTimestampPrefix(msg) then return msg end
     local ok, ts = pcall(date, _stampFmt, when and math.floor(when) or nil)
     if ok and type(ts) == "string" and ts ~= "" then
@@ -885,7 +886,7 @@ local function EngineTail(cf, msg, r, g, b, chatTypeID, accessID, typeID, event,
         EngineTabObserver(cf, event)
     end
     if EngineIdleObserver then
-        EngineIdleObserver(cf, event)
+        EngineIdleObserver(cf, event, chatTypeID)
     end
 end
 

@@ -3177,12 +3177,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end,
             { disabled = function() return Cfg("enabled") ~= true end, disabledTooltip = "the module" })
-        local tip = EllesmereUI.L("Choose the specs this action menu works in.")
-        cbDD:HookScript("OnEnter", function()
-            local open = EllesmereUI._openDropdownMenu
-            if not (open and open:IsShown()) then EllesmereUI.ShowWidgetTooltip(cbDD, tip) end
-        end)
-        cbDD:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        cbDD._ttText = EllesmereUI.L("Choose the specs this action menu works in.")
         EllesmereUI.RegisterWidgetRefresh(cbRefresh)
 
         local label = EllesmereUI.MakeFont(row, 14, nil, 1, 1, 1)

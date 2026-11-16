@@ -755,6 +755,40 @@ function Trade:ForgetOwedByOthers(key)
     return true
 end
 
+
+
+function Trade:OwedAwardOf(row)
+    if type(row) ~= "table" or not row.runId or not row.session or not row.winner then
+        return false
+    end
+    if not addon.PlayerIsMasterLooter() or addon.Player:IsSelf(row.winner) then return false end
+    for _, entry in ipairs(addon.Storage:GetAll(addon.Storage.TO_TRADE)) do
+        if SameObligation(entry, row.runId, row.session)
+            and addon.Player:IsSame(entry.args.recipient, row.winner) then
+            return true
+        end
+    end
+    local record = Trade:GetOwedByOthers(OthersKey(row.runId, row.session))
+    return record ~= nil and addon.Player:IsSame(record.winner, row.winner)
+end
+
+
+function Trade:UndoDeletedAwards(rows)
+    local undone = 0
+    for _, row in ipairs(rows or {}) do
+        if Trade:OwedAwardOf(row) then
+            if addon.Session:RetractAward(row.runId, row.session, row.winner) then
+                undone = undone + 1
+                addon.Log:I("Trade", "award undone with its history row", row.link)
+            else
+                addon.Chat.Print(addon.Locale.Format(
+                    T["could not undo the award of %s - see /slc log."], row.link or "?"))
+            end
+        end
+    end
+    return undone
+end
+
 local function TrackOthers()
     addon.Callbacks:Register("ItemAwarded", function(session, winner, item)
         if not item or item.simulated or not item.owner or not winner then return end

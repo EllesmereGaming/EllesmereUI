@@ -4439,7 +4439,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             local antiClip = ns.CDM_ANTI_CLIP
             local tbbPanRow
             tbbPanRow, h = W:DualRow(parent, y, GO.DropdownSpec(tbbDesc, antiClip and "Anti-Clip Glow" or "Pandemic Glow",
-                antiClip and "Show a glow on the bar when casting the spell next, after your current cast or global cooldown, won't clip it"
+                antiClip and "Show a glow on the bar when casting the spell next, after your current cast or global cooldown, won't clip it, or it has 1.5 seconds or less left"
                     or "Show a glow on the bar when the remaining duration is in the pandemic window (last 30%)"), rightSlot);  y = y - h
             GO.AttachInline(tbbPanRow._leftRegion, tbbDesc)
 
@@ -4447,7 +4447,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             if EllesmereUI.BuildSyncIcon and EllesmereUI.ApplyPandemicGlowToAll then
                 EllesmereUI.BuildSyncIcon({
                     region = tbbPanRow._leftRegion,
-                    tooltip = antiClip and "Apply this glow's look to the Nameplates Pandemic Glow, all CDM bars, and other tracking bars. A surface that can't show a style uses its closest match."
+                    tooltip = antiClip and "Apply this glow's look to all CDM bars and other tracking bars. A surface that can't show a style uses its closest match."
                         or "Apply this pandemic glow to Nameplates, all CDM bars, and other tracking bars. A surface that can't show a style uses its closest match.",
                     isSynced = function()
                         local src = SelectedTBB(); if not src then return true end

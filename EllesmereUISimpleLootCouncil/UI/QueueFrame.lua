@@ -104,6 +104,7 @@ local function GetBagRow(index)
 
     row = CreateFrame("Button", nil, bagContent)
     P.Size(row, nil, BAG_ROW_HEIGHT)
+    row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
 
 
@@ -345,7 +346,21 @@ function QueueFrame:RefreshBags()
             row.ilvl:SetText(ilvl or "")
 
             local link, owner = entry.link, section.owner
-            row:SetScript("OnClick", function()
+
+            local clearable = section.mine and (entry.kept or (entry.won and not entry.owed))
+            local kept = entry.kept
+            row:SetScript("OnClick", function(self, mouse)
+                if mouse == "RightButton" then
+                    if not clearable then return end
+                    local _, canonical = C_Item.GetItemInfo(link)
+                    S.ContextMenu(self, {
+                        { title = canonical or link },
+                        { text = T["Clear \"Awarded to you\""], onClick = function()
+                            addon.Storage:ClearOwnLabel(link, kept)
+                        end },
+                    })
+                    return
+                end
                 local index, why = addon.BagShare:AddToQueue(link, owner)
                 if index and addon.Session:IsRunning() then
 
@@ -551,7 +566,8 @@ function QueueFrame:AddAllFromBags()
     end
 
 
-    local picks, skipped, won = addon.BagShare.FreeToStage(
+
+    local picks, skipped, won, untimed = addon.BagShare.FreeToStage(
         addon.Storage:GetTradeableItems(), me)
     local links, bosses, encounterIDs = {}, {}, {}
     for i, entry in ipairs(picks) do
@@ -577,6 +593,12 @@ function QueueFrame:AddAllFromBags()
             one = "skipped %d item awarded to you - click it in the bags panel to queue it anyway.",
             other = "skipped %d items awarded to you - click one in the bags panel to queue it anyway.",
         }, won, won))
+    end
+    if untimed > 0 then
+        addon.Chat.Print(addon.Locale.Format(addon.Locale.Plural{
+            one = "skipped %d BoE item outside its six-hour window - click it in the bags panel to queue it anyway.",
+            other = "skipped %d BoE items outside their six-hour window - click one in the bags panel to queue it anyway.",
+        }, untimed, untimed))
     end
     QueueFrame:Refresh()
     return added

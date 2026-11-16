@@ -40,8 +40,14 @@ local _sidebarBtns = {}  -- array of sidebar button frames
 -- 0 while collapsed under Hide Sidebar Icons When Collapsed (default off): the
 -- sidebar hides and its expand arrow sits left of the window title.
 -- fixed views up top: all items, onebag, multibag, plus bank when offline bank is on
+local function OfflineBankOn()
+    return (ns.Offline and ns.Offline.Enabled()) and true or false
+end
+-- ...and one entry per virtual view another addon registered (none: no cost)
 local function FixedViewCount()
-    return (ns.Offline and ns.Offline.Enabled()) and 4 or 3
+    local n = OfflineBankOn() and 4 or 3
+    local views = EUI_CategoryManager:GetViews()
+    return views and (n + #views) or n
 end
 
 local function GetSidebarWidth()
@@ -1136,8 +1142,15 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
     for _, _k in ipairs({ "all", "onebag", "multibag" }) do
         if _k ~= _dbt then displayList[#displayList + 1] = _fixedViews[_k] end
     end
+    -- virtual views (EUI_CategoryManager:RegisterVirtualView), after the three
+    local views = EUI_CategoryManager:GetViews()
+    if views then
+        for _, v in ipairs(views) do
+            displayList[#displayList + 1] = { catIdx = v.idx, name = v.name, icon = v.icon, isAtlas = v.isAtlas, count = totalCount }
+        end
+    end
     -- bank: the offline bank view
-    if FixedViewCount() == 4 then
+    if OfflineBankOn() then
         displayList[#displayList + 1] = { catIdx = -3, name = EllesmereUI.L("Bank"), icon = 133784 }
     end
 

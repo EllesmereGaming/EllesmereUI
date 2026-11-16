@@ -243,14 +243,20 @@ end
 
 
 
+local issued = setmetatable({}, { __mode = "k" })
+
+
+
 local function NilPlayer(hint)
-    return {
+    local record = {
         guid = nil,
         name = hint or "?",
         fullName = hint or "?",
         unresolved = true,
         nobody = hint == nil or nil,
     }
+    issued[record] = true
+    return record
 end
 
 local function BuildRecord(guid)
@@ -269,7 +275,7 @@ local function BuildRecord(guid)
         return nil
     end
 
-    return {
+    local record = {
         guid = guid,
         name = name,
         realm = (realm ~= "" and realm) or ownRealm,
@@ -279,6 +285,8 @@ local function BuildRecord(guid)
         cachedAt = time(),
         shape = RECORD_SHAPE,
     }
+    issued[record] = true
+    return record
 end
 
 
@@ -298,8 +306,11 @@ function Player:Get(input)
     end
 
 
+
     if type(input) == "table" then
-        if input.guid or input.unresolved then return input end
+        if issued[input] or (type(input.guid) == "string" and cache[input.guid] == input) then
+            return input
+        end
         return NilPlayer()
     end
 
@@ -409,6 +420,7 @@ function Player:Remember(guid, fullName, classFile, className)
         shape = RECORD_SHAPE,
         seeded = time(),
     }
+    issued[record] = true
     cache[record.guid] = record
     IndexRecord(record)
     return record
@@ -425,6 +437,12 @@ end
 function Player:WhisperTarget(name)
     if not Player.IS_FOREVER or type(name) ~= "string" or IsSecret(name) then return name end
     return name:match("^%s*([^%-]-)%s*%-") or name
+end
+
+
+function Player:DisplayName(name)
+    if not Player.IS_FOREVER or self:IsGUID(name) then return name end
+    return self:WhisperTarget(name)
 end
 
 
@@ -576,6 +594,69 @@ end
 
 function Player:IsSelf(input)
     return self:IsSame(input, UnitGUID("player"))
+end
+
+
+local function SelfStamp() return UnitGUID and UnitGUID("player") or nil end
+Player.SelfStamp = SelfStamp
+
+
+
+function Player:OwnsStamp(stamp, legacy)
+    local me = SelfStamp()
+    if not me then return true end
+    if stamp == nil then return legacy and true or false end
+    return stamp == me
+end
+
+
+
+local function SlotStore(db, key, me)
+    local store = db[key]
+    if type(store) ~= "table" then return nil end
+    for k in pairs(store) do
+        if type(k) ~= "string" or not k:find("^Player%-") then
+            store = { [me] = store }
+            db[key] = store
+            break
+        end
+    end
+    return store
+end
+
+function Player:OwnSlot(db, key)
+    if type(db) ~= "table" then return nil end
+    local me = SelfStamp()
+    if not me then return db[key] end
+    local store = SlotStore(db, key, me)
+    return store and store[me]
+end
+
+
+function Player:SetOwnSlot(db, key, value)
+    if type(db) ~= "table" then return end
+    local me = SelfStamp()
+    if not me then
+        db[key] = value
+        return
+    end
+    local store = SlotStore(db, key, me)
+    if not store then
+        store = {}
+        db[key] = store
+    end
+    store[me] = (type(value) ~= "table" or next(value) ~= nil) and value or nil
+end
+
+
+function Player:PruneSlots(db, key, stale)
+    local me = SelfStamp()
+    if type(db) ~= "table" or not me then return end
+    local store = SlotStore(db, key, me)
+    if not store then return end
+    for guid, value in pairs(store) do
+        if guid ~= me and stale(value) then store[guid] = nil end
+    end
 end
 
 

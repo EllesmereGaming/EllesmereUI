@@ -1,7 +1,8 @@
 -- Stub harness: loads the Quest Tracker loader and its WoW Forever custom
 -- tracker outside the game and checks which tracker a profile gets, where the
 -- custom one starts, how its width and height are set and which edge it keeps
--- for each grow direction, and its right-click menu's Wowhead Link.
+-- for each grow direction, its right-click menu's Wowhead Link, and what the menu
+-- and the Quest Details window allow in combat.
 --   lua .tools/tests/test_quest_tracker_custom.lua        (from the repository root)
 local ROOT = arg and arg[1] or "."
 
@@ -71,7 +72,8 @@ UIParent._w, UIParent._h = 1000, 800
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end
 function Clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
 function hooksecurefunc() end
-function InCombatLockdown() return false end
+local inCombat = false
+function InCombatLockdown() return inCombat end
 function IsInInstance() return false, "none" end
 function UnitGUID() return "Player-1" end
 function GetTime() return 0 end
@@ -114,6 +116,7 @@ EllesmereUI = {
     EvalVisibility = function() return false end,
     MakeUnlockElement = function(t) return t end,
 }
+dofile(".tools/tests/char_roster_stub.lua")(EllesmereUI, { guid = "Player-1" })
 function EllesmereUI:RegisterUnlockElements(list) unlockElement = list[1] end
 function EllesmereUI:RegisterUnlockModeListener(_, fn) unlockListener = fn end
 
@@ -633,6 +636,128 @@ popup = nil
 cfg.wowheadQuestLinks = false
 entry.onClick()
 assert(popup == nil, "a click after the option was turned off opened the popup")
+
+-------------------------------------------------------------------------------
+--  10. The right-click menu in combat: Share Quest is greyed and its click does
+--      nothing (sharing is refused there), also when combat began with the menu
+--      open; Pin to Top / Unpin keep working
+-------------------------------------------------------------------------------
+do
+    local pushed = {}
+    QuestLogPushQuest = function(index) pushed[#pushed + 1] = index end
+    C_QuestLog.IsPushableQuest = function() return true end
+    C_QuestLog.GetLogIndexForQuestID = function(id) return id - 100 end
+    local grouped = true
+    IsInGroup = function() return grouped end
+    local function Entry(items, text)
+        for _, it in ipairs(items) do
+            if type(it) == "table" and it.text == text then return it end
+        end
+    end
+    local function Off(it) return it.isDisabled ~= nil and it.isDisabled() == true end
+    SHARE_QUEST = "Share Quest"
+    local pins = EllesmereUIDB.chars["Player-1"].questTracker.ctPinned
+    assert(not pins[101], "the quest starts pinned")
+
+    -- out of combat: Share is live and shares the quest; Pin pins
+    local items = RightClickMenu()
+    local share, pin = Entry(items, "Share Quest"), Entry(items, "Pin to Top")
+    assert(share and pin, "the menu has no Share Quest or Pin to Top entry")
+    assert(not Off(share) and not Off(pin), "out of combat an entry is greyed")
+    share.onClick()
+    assert(#pushed == 1 and pushed[1] == 1, "Share Quest out of combat did not share the quest")
+    -- combat begins with that menu still open: its Share click does nothing, its Pin click pins
+    inCombat = true
+    assert(Off(share), "Share Quest of an open menu is not greyed once combat began")
+    share.onClick()
+    assert(#pushed == 1, "Share Quest shared a quest in combat from a menu opened before it")
+    assert(not Off(pin), "Pin to Top is greyed in combat")
+    pin.onClick()
+    assert(pins[101] == true, "Pin to Top did nothing in combat")
+    -- a menu opened in combat: Share greyed, Unpin live
+    items = RightClickMenu()
+    share = Entry(items, "Share Quest")
+    local unpin = Entry(items, "Unpin")
+    assert(share and Off(share), "a menu opened in combat offers Share Quest live")
+    share.onClick()
+    assert(#pushed == 1, "Share Quest shared a quest in combat")
+    assert(unpin and not Off(unpin), "Unpin is missing or greyed in combat")
+    unpin.onClick()
+    assert(not pins[101], "Unpin did nothing in combat")
+    inCombat = false
+    -- nobody to share with: no entry at all
+    grouped = false
+    assert(Entry(RightClickMenu(), "Share Quest") == nil, "Share Quest is offered outside a group")
+    grouped = true
+    RunTimers()
+
+    ---------------------------------------------------------------------------
+    --  11. The Quest Details window's Share button: off in combat, following
+    --      the combat events while the window shows; its click does nothing in
+    --      combat
+    ---------------------------------------------------------------------------
+    local DETAILS = ReadSource("EllesmereUIQuestTracker/EllesmereUIQuestTracker_Details.lua"):gsub("\r\n", "\n")
+    assert(loadstring(DETAILS, "=EllesmereUIQuestTracker_Details.lua"), "the details file does not compile")
+    local function Cut(first, last, what)
+        local a = assert(DETAILS:find(first, 1, true), what .. ": first line not found")
+        local b = assert(DETAILS:find(last, a + #first, true), what .. ": last line not found")
+        return DETAILS:sub(a, b - 1)
+    end
+    local function NewButton()
+        return { label = { SetText = function() end },
+                 SetEnabled = function(self, on) self.on = on end, SetAlpha = function(self, a) self.alpha = a end,
+                 SetPoint = function() end }
+    end
+    local win = { scripts = {}, events = {}, focus = NewButton(), untrack = NewButton(), abandon = NewButton() }
+    function win:SetScript(name, fn) self.scripts[name] = fn end
+    function win:RegisterEvent(e) self.events[e] = true end
+    function win:UnregisterAllEvents() self.events = {} end
+    function win:Hide() self.hidden = true end
+    local clicks, refreshed = {}, 0
+    local function Button(text, fn)
+        local b = NewButton()
+        clicks[text] = fn
+        return b
+    end
+    SHARE_QUEST_ABBREV, ABANDON_QUEST_ABBREV = "Share", "Abandon"
+    SUPER_TRACK_QUEST, STOP_SUPER_TRACK_QUEST = "Focus", "Stop Focus"
+    C_QuestLog.CanAbandonQuest = function() return true end
+    local Update = assert(loadstring(
+        "local win, questID, Button, Refresh, a, GAP = ...\n"
+        .. Cut("local function SetButtonEnabled(b, on)\n", "function Refresh()\n", "the button states")
+        .. Cut("    win.share = Button(SHARE_QUEST_ABBREV, function()\n", "    EllesmereUI.RegisterEscapeClose(win)\n", "the share button and the events")
+        .. "\nreturn UpdateButtons", "=EllesmereUIQuestTracker_Details.lua (buttons)"))(
+        win, 101, Button, function() refreshed = refreshed + 1 end, { Abandon = function() end }, 4)
+    -- listens only while shown, to the two combat events among the others
+    assert(next(win.events) == nil, "the details window listens before it shows")
+    win.scripts.OnShow(win)
+    assert(win.events.PLAYER_REGEN_DISABLED and win.events.PLAYER_REGEN_ENABLED and win.events.GROUP_ROSTER_UPDATE,
+        "the shown details window does not listen for combat")
+    -- out of combat, in a group, a shareable quest: Share is on
+    Update()
+    assert(win.share.on == true and win.share.alpha == 1, "Share is off out of combat")
+    -- combat begins (the game's own answer may still lag behind the event): off at once
+    win.scripts.OnEvent(win, "PLAYER_REGEN_DISABLED")
+    assert(win.share.on == false and win.share.alpha == 0.35, "Share stayed on as combat began")
+    assert(win.abandon.on == true, "Abandon went off with combat")
+    -- any other refresh during the fight keeps it off
+    inCombat = true
+    win.scripts.OnEvent(win, "GROUP_ROSTER_UPDATE")
+    assert(win.share.on == false, "a roster event in combat turned Share back on")
+    clicks.Share()
+    assert(#pushed == 1, "the Share button shared a quest in combat")
+    -- combat ends (again the event decides, before the game's answer flips)
+    win.scripts.OnEvent(win, "PLAYER_REGEN_ENABLED")
+    assert(win.share.on == true, "Share did not come back as combat ended")
+    inCombat = false
+    clicks.Share()
+    assert(#pushed == 2 and pushed[2] == 1, "the Share button out of combat did not share the quest")
+    grouped = false
+    win.scripts.OnEvent(win, "GROUP_ROSTER_UPDATE")
+    assert(win.share.on == false, "Share is on outside a group")
+    win.scripts.OnHide(win)
+    assert(next(win.events) == nil, "the hidden details window still listens")
+end
 
 RunTimers()
 print("quest tracker custom harness: ok")

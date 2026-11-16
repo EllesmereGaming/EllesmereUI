@@ -104,10 +104,12 @@ local function Slots(message)
             local flags = message:sub(cursor):match("^[%-%+ #0]*") or ""
             cursor = cursor + #flags
             local width = message:sub(cursor):match("^%d*") or ""
+
+            if #flags > 5 or #width > 2 then return nil, "invalid format slot" end
             cursor = cursor + #width
             if message:sub(cursor, cursor) == "." then
                 local precision = message:sub(cursor + 1):match("^%d+")
-                if not precision then return nil, "invalid format slot" end
+                if not precision or #precision > 2 then return nil, "invalid format slot" end
                 cursor = cursor + #precision + 1
             end
             local conversion = message:sub(cursor, cursor)
@@ -475,6 +477,22 @@ function Locale.Truncate(text, maxLetters)
     local finish = UTF8End(text, maxLetters)
     if finish > #text then return text end
     return text:sub(1, finish - 1)
+end
+
+
+
+function Locale.TruncateBytes(text, maxBytes)
+    if type(text) ~= "string" or type(maxBytes) ~= "number" then return text end
+    maxBytes = math.max(0, math.floor(maxBytes))
+    if #text <= maxBytes then return text end
+
+    local letters = maxBytes
+    local cut = Locale.Truncate(text, letters)
+    while #cut > maxBytes and letters > 0 do
+        letters = letters - math.max(1, math.ceil((#cut - maxBytes) / 4))
+        cut = Locale.Truncate(text, math.max(0, letters))
+    end
+    return cut
 end
 
 

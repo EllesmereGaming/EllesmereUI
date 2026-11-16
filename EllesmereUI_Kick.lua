@@ -254,8 +254,12 @@ end
 -- Interaction binding -- only plain unmodified left-click has one, so every other
 -- target binding (other buttons, modifiers, keybinds) resolves to None and is
 -- dropped. Routing those through this ungated SecureActionButton proxy restores
--- them. Used only for non-left-click target bindings (see ClickCast).
+-- them: every unit button's modified left click (SetLeftClickTarget) and click
+-- casting's other target bindings. The proxy resolves the unit as its frame does:
+-- the frame's unit, its unit suffix (a party member's target) and its vehicle
+-- toggle (the vehicle while you ride one).
 local targetProxies = setmetatable({}, { __mode = "k" })
+local targetMacros = setmetatable({}, { __mode = "k" })  -- proxy -> its macrotext
 function EllesmereUI.GetSecureTargetProxy(frame)
     if not frame then return end
     local proxy = targetProxies[frame]
@@ -272,12 +276,30 @@ function EllesmereUI.GetSecureTargetProxy(frame)
         -- type looked up by button SUFFIX (RightButton -> type2); set every button.
         for i = 1, 5 do proxy:SetAttribute("type" .. i, "target") end
         proxy:SetAttribute("useparent-unit", true)
+        proxy:SetAttribute("useparent-unitsuffix", true)
+        proxy:SetAttribute("useparent-toggleForVehicle", true)
         -- Act on the up-click regardless of the "cast on key down" CVar (same
         -- clickAction gate that bit the menu proxy).
         proxy:SetAttribute("useOnKeyDown", false)
+        targetMacros[proxy] = "/click " .. proxyName
         targetProxies[frame] = proxy
     end
     return proxy
+end
+
+-- The macrotext that targets a unit button's unit through its proxy (every binding
+-- that routes a target there uses this, never a hand-built "/click <proxy>").
+function EllesmereUI.GetSecureTargetMacro(frame)
+    local proxy = EllesmereUI.GetSecureTargetProxy(frame)
+    return proxy and targetMacros[proxy]
+end
+
+-- Left-click targets: raw "target" for a plain click, the proxy with a modifier held
+-- (12.1 blocks a raw modified target on unit buttons). OOC only, like every attribute write.
+function EllesmereUI.SetLeftClickTarget(frame)
+    frame:SetAttribute("type1", "target")
+    frame:SetAttribute("*type1", "macro")
+    frame:SetAttribute("*macrotext1", EllesmereUI.GetSecureTargetMacro(frame))
 end
 
 -- The macrotext that opens a unit button's secure menu (every binding that

@@ -1118,7 +1118,8 @@ local function CreateCastBar(frame, unit, settings)
             cb.Time:ClearAllPoints()
             cb.Time:SetWidth(math.max(timerW * 2.5, barW * 0.5))
             cb.Time:SetJustifyH(jh)
-            cb.Time:SetPoint(pt, cb, pt, xb + (cb._durOX or 0), (cb._durOY or 0))
+            local _, _, _, _, timerY = ns.UF_CastChromeGeom()
+            cb.Time:SetPoint(pt, cb, pt, xb + (cb._durOX or 0), (cb._durOY or 0) + timerY)
         end
         -- Re-flow so a live JustifyH change takes effect on already-rendered text.
         ns.ReflowFontString(cb.Text)

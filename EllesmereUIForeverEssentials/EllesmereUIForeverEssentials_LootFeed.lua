@@ -30,6 +30,7 @@ local RATE_TICK = 60 -- seconds between repaints of the hourly rate
 local DEFAULTS = {
     enabled = false,
     items = true, money = true, reputation = true, currency = true, skills = true, rolls = false,
+    history = false, historyMax = 200,
     minQuality = 0, showIlvl = true, showPrice = true,
     tracker = false, auctionPrices = false,
     -- BOX: bordered rows, BAR: accent bar on a fading background, TRAY: icon
@@ -441,7 +442,7 @@ local function Release(r)
     r.show:Stop()
     r.fade:Stop()
     r:Hide()
-    r.key, r.data = nil, nil
+    r.key, r.data, r.entry, r.history = nil, nil, nil, nil
     pool[#pool + 1] = r
     Layout()
 end
@@ -450,7 +451,7 @@ end
 -- end starts it) or hovered (leaving starts it).
 -- Preview rows never fade.
 local function ArmFade(r)
-    if r.preview or r.show:IsPlaying() then return end
+    if r.preview or r.history or r.show:IsPlaying() then return end
     r.fade:Stop()
     r:SetAlpha(1)
     if not r:IsMouseOver() then r.fade:Play() end
@@ -592,21 +593,165 @@ local function Total(key, amount)
     return amount + (r and r.data.amount or 0)
 end
 
+-------------------------------------------------------------------------------
+--  Loot History: every live row is kept per character, newest first. Shift and
+--  the mouse wheel over the feed step back through it; letting go of Shift
+--  returns to the live feed.
+-------------------------------------------------------------------------------
+local ENTRY_KEYS = { "icon", "text", "sub", "questSub", "value", "link", "amount", "badge", "flat" }
+local sampling  -- Show Samples is drawing: its rows are not kept
+local scroll, missed = 0, 0 -- the newest history row shown (0: live), rows kept while looking back
+local historyList
+
+-- Kept in the character roster (lootFeedHistory), outside the settings and never exported.
+local function History()
+    if not historyList then
+        historyList = EllesmereUI.CharData("lootFeedHistory", true)
+        if not historyList then return {} end -- GUID unread: a throwaway, not cached
+    end
+    return historyList
+end
+
+local function Trim(list)
+    for i = #list, Get("historyMax") + 1, -1 do list[i] = nil end
+end
+
+local function NewEntry()
+    local list = History()
+    local e = {}
+    table.insert(list, 1, e)
+    Trim(list)
+    return e
+end
+
+-- Saved variables keep plain values only: the quality color becomes its rgb.
+local function Store(e, key, data)
+    for _, k in ipairs(ENTRY_KEYS) do e[k] = data[k] end
+    local b = data.border
+    e.border = b and { r = b.r, g = b.g, b = b.b } or nil
+    e.key = key
+end
+
+local function ShowCounter()
+    if not anchor then return end
+    local c = anchor.counter
+    if not c then
+        c = anchor:CreateFontString(nil, "OVERLAY")
+        anchor.counter = c
+    end
+    c:SetShown(scroll > 0)
+    if scroll == 0 then return end
+    StyleFont(c, Get("textSize"))
+    c:ClearAllPoints()
+    if Get("grow") == "UP" then
+        c:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, 2)
+    else
+        c:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -2)
+    end
+    c:SetText(scroll .. " / " .. #History())
+end
+
+local Push, OnWheel
+
+-- The furthest back a view starts and still fills every row.
+local function LastStart()
+    return math.max(1, #History() - Get("maxRows") + 1)
+end
+
+local function ShowHistory()
+    while active[1] do Release(active[1]) end
+    local list = History()
+    for i = scroll, math.min(#list, scroll + Get("maxRows") - 1) do
+        local r = table.remove(pool) or NewRow()
+        StyleRow(r)
+        r.history, r.key, r.data = true, "history:" .. i, list[i]
+        r:EnableMouseWheel(true)
+        r:SetScript("OnMouseWheel", OnWheel)
+        Fill(r)
+        r.show:Stop()
+        r.fade:Stop()
+        r:SetAlpha(1)
+        r:Show()
+        active[#active + 1] = r
+    end
+    Layout()
+    ShowCounter()
+end
+
+-- Back to the live feed, with what was looted meanwhile as fresh rows.
+local function LeaveHistory()
+    if scroll == 0 then return end
+    local n = math.min(missed, Get("maxRows"))
+    scroll, missed = 0, 0
+    while active[1] do Release(active[1]) end
+    ShowCounter()
+    local list = History()
+    for i = n, 1, -1 do
+        if list[i] then Push(list[i].key, list[i], list[i]) end
+    end
+end
+
+OnWheel = function(_, delta)
+    if not IsShiftKeyDown() then return end
+    if #History() == 0 then return end
+    local to = math.max(0, math.min(LastStart(), scroll + (delta > 0 and 1 or -1)))
+    if to == scroll then return end
+    if to == 0 then return LeaveHistory() end
+    scroll = to
+    ShowHistory()
+end
+
+-- The wheel is caught only while Shift is down, so it never takes the camera zoom.
+-- Only a change of that state touches the frames: Ctrl and Alt fire the same event.
+local wheelOn
+local function ArmWheel(f, on)
+    f:EnableMouseWheel(on)
+    f:SetScript("OnMouseWheel", OnWheel)
+end
+
+local function CatchWheel(on)
+    if not anchor or on == wheelOn then return end
+    wheelOn = on
+    ArmWheel(anchor, on)
+    for _, r in ipairs(active) do ArmWheel(r, on) end
+    for _, r in ipairs(pool) do ArmWheel(r, on) end
+end
+
 -- Shows data under key: the row already showing key is refilled, moved to the
 -- front and its fade restarted; otherwise a row is taken (the oldest one when
--- all maxRows are in use) and fades in.
-local function Push(key, data)
+-- all maxRows are in use) and fades in. entry: the history row it shows again.
+Push = function(key, data, entry)
+    local keep = Get("history") and not sampling
+    if keep and scroll > 0 then
+        Store(NewEntry(), key, data)
+        scroll, missed = math.min(scroll + 1, LastStart()), missed + 1
+        ShowCounter()
+        return
+    end
     local r = FindRow(key)
     local fresh = not r
     if r then
         Unlist(r)
     else
         while #active >= Get("maxRows") do Release(active[#active]) end
-        r = table.remove(pool) or NewRow()
+        r = table.remove(pool)
+        if not r then
+            -- A row made while Shift is held takes the wheel like the rows before it.
+            r = NewRow()
+            if wheelOn then ArmWheel(r, true) end
+        end
         StyleRow(r)
     end
     table.insert(active, 1, r)
     r.key, r.data = key, data
+    if keep then
+        if entry then
+            r.entry = entry
+        else
+            r.entry = r.entry or NewEntry()
+            Store(r.entry, key, data)
+        end
+    end
     Fill(r)
     Layout()
     if fresh then
@@ -806,6 +951,19 @@ local function UpdateSummary()
     SyncClock()
 end
 
+-- fn to run later as the kind of row its caller is drawing now: a Show Samples
+-- row stays a sample (not kept) when the client loads its item afterwards.
+local function AsDrawn(fn)
+    local sample = sampling
+    return function()
+        local was = sampling
+        sampling = sample
+        local ok, err = pcall(fn)
+        sampling = was
+        if not ok then error(err, 0) end
+    end
+end
+
 -- Group loot by item name: links from the loot history, and the roll behind each of your wins.
 local rollLinks, wins = {}, {}
 
@@ -818,7 +976,7 @@ local function ShowItem(link, count, retried, looted, earned)
         -- Not cached yet: try again once the client has it. Only once: the
         -- client also calls back when the item fails to load.
         if not retried then
-            Item:CreateFromItemLink(link):ContinueOnItemLoad(function() ShowItem(link, count, true, looted, earned) end)
+            Item:CreateFromItemLink(link):ContinueOnItemLoad(AsDrawn(function() ShowItem(link, count, true, looted, earned) end))
         end
         return
     end
@@ -977,9 +1135,9 @@ local function ShowRoll(key, link, itemName, winner, class, roll, retried)
     if link then
         name, _, quality, _, _, _, _, _, _, icon = C_Item.GetItemInfo(link)
         if not name and not retried then
-            Item:CreateFromItemLink(link):ContinueOnItemLoad(function()
+            Item:CreateFromItemLink(link):ContinueOnItemLoad(AsDrawn(function()
                 ShowRoll(key, link, itemName, winner, class, roll, true)
-            end)
+            end))
             return
         end
     end
@@ -1066,6 +1224,10 @@ local function OnEvent(_, event, ...)
         local encounterID, lootListID = ...
         encounterID, lootListID = Plain(encounterID, "number"), Plain(lootListID, "number")
         if encounterID and lootListID then OnDrop(encounterID, lootListID) end
+    elseif event == "MODIFIER_STATE_CHANGED" then
+        local shift = IsShiftKeyDown()
+        CatchWheel(shift)
+        if not shift then LeaveHistory() end
     end
 end
 
@@ -1103,6 +1265,9 @@ end
 
 local function Apply()
     if events then events:UnregisterAllEvents() end
+    historyList = nil
+    LeaveHistory()
+    CatchWheel(false)
     if not Enabled() then
         ClearRows()
         if summary then summary:Hide() end
@@ -1119,6 +1284,10 @@ local function Apply()
     end
     if Get("currency") then events:RegisterEvent("CURRENCY_DISPLAY_UPDATE") end
     if Get("rolls") and C_LootHistory then events:RegisterEvent("LOOT_HISTORY_UPDATE_DROP") end
+    if Get("history") then
+        Trim(History())
+        events:RegisterEvent("MODIFIER_STATE_CHANGED")
+    end
 end
 
 -- A sample of every enabled source: the player's capital for reputation and
@@ -1133,7 +1302,9 @@ end
 local function Preview()
     if not Enabled() then return end
     CreateAnchor()
+    LeaveHistory()
     ClearRows()
+    sampling = true
     if Get("skills") then ShowSkill(EllesmereUI.L("Swords"), 42) end
     if Get("reputation") then
         local capital = C_Reputation.GetFactionDataByID(UnitFactionGroup("player") == "Horde" and 76 or 72)
@@ -1144,6 +1315,7 @@ local function Preview()
         for i = 1, #PREVIEW_ITEMS, 2 do ShowItem("item:" .. PREVIEW_ITEMS[i], PREVIEW_ITEMS[i + 1]) end
     end
     if Get("rolls") then PreviewRoll() end
+    sampling = nil
 end
 
 -------------------------------------------------------------------------------

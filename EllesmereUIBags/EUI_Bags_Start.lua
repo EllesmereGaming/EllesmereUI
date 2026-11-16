@@ -786,6 +786,8 @@ local function StartAddon()
     -- unrelated NPC gossip close, but ScheduleRefresh below is cheap and gated
     -- on bags being visible, so that's a harmless no-op rather than a real cost.
     EUI_Bags:RegisterEvent("GOSSIP_CLOSED")
+    -- A skill rank change can flip an item's unusable tint (BagsItemUnusable)
+    EUI_Bags:RegisterEvent("SKILL_LINES_CHANGED")
     -- Set created/renamed/deleted: rebuild split categories / refresh name labels.
     -- Registered only while a set feature is on: zero event cost when disabled
     -- (merged-mode routing stays correct without it -- the lookup rebuilds per
@@ -991,6 +993,12 @@ local function StartAddon()
             -- A keystone downgrade here doesn't need a hidden-side invalidation:
             -- the next manual open already forces a full RefreshInventory
             -- (ToggleEUI). This only matters while bags are already visible.
+            if EUI_Bags:IsVisible() then ScheduleRefresh() end
+            return
+        end
+        if event == "SKILL_LINES_CHANGED" then
+            -- Weapon skill ups land mid-fight: repaint once when combat ends
+            if InCombatLockdown() then EUI_Bags._refreshPendingCombat = true; return end
             if EUI_Bags:IsVisible() then ScheduleRefresh() end
             return
         end

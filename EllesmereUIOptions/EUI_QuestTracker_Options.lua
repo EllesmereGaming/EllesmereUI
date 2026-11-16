@@ -44,7 +44,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     local function BuildPage(_, parent, yOffset)
         local W  = EllesmereUI.Widgets
-        local PP = EllesmereUI.PP
+        local PP = EllesmereUI.PanelPP
         local y  = yOffset
         local row, h
 

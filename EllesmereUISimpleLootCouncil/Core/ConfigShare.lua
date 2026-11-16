@@ -253,8 +253,11 @@ local function ApplyCouncil(part)
     end
     local list, seen = {}, {}
     for _, member in ipairs(part.members) do
-        local record = addon.Player:Get(member.guid or member.name)
-        if not record.guid then record = addon.Player:Get(member.name) end
+
+        local record = member.guid and addon.Player:Get(member.guid)
+        if not (record and record.guid and addon.Player:IsSame(record.fullName, member.name)) then
+            record = addon.Player:Get(member.name)
+        end
         local identity = record.guid or member.name
         local key = addon.Player:NameKey(record.fullName or member.name) or identity
         if not seen[key] then

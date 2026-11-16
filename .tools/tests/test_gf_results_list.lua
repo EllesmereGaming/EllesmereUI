@@ -111,6 +111,8 @@ local function MakeObj(kind, parent)
         if k == "CreateTexture" or k == "CreateFontString" or k == "CreateMaskTexture" then
             return function(self) return MakeObj(k, self) end
         end
+        if k == "SetTexture" then return function(self, t) self._texture = t end end
+        if k == "SetDesaturated" then return function(self, v) self._desat = v and true or false end end
         if METHODS[k] then return function() end end
         return nil
     end })
@@ -743,6 +745,118 @@ do
     T.status[5] = nil
     Event("LFG_LIST_APPLICATION_STATUS_UPDATED", 5, "none", "applied")
     Flush()
+end
+
+-------------------------------------------------------------------------------
+-- 20. a delisted group is greyed (its texts in the delisted colour, its flag
+--     without colour) and faded by Delisted Opacity; relisted, it is as before
+-------------------------------------------------------------------------------
+do
+    local GREY = 0x5B / 255
+    local function near(a, b) return a ~= nil and math.abs(a - b) < 1e-6 end
+    local function Col(fs) local c = fs._color or {}; return c[1], c[2], c[3] end
+    T.info[4].isDelisted = true
+    ns.OwnListRefresh()
+    local r = RowFor(4)
+    assert(r, "a delisted group left the list")
+    local nr, ng, nb = Col(r.name)
+    assert(near(nr, GREY) and near(ng, GREY) and near(nb, GREY), "a delisted group's title is not grey: " .. tostring(nr))
+    assert(near(Col(r.act), GREY), "a delisted group's activity is not grey")
+    assert(near(Col(r.status), GREY), "the Delisted text is not in the delisted colour")
+    assert(r.flag._desat == true, "a delisted group's flag kept its colour")
+    assert(r._alpha == 0.5, "Delisted Opacity's default is not 50%: " .. tostring(r._alpha))
+    ns.SetOwnListValue("delistedOpacity", 80)
+    ns.OwnListRefresh()
+    assert(RowFor(4)._alpha == 0.8, "Delisted Opacity did not reach the row")
+    ns.SetOwnListValue("delistedOpacity", nil)
+    -- the delisted colour is the row highlight's own, a picked one included
+    ns.SetOwnListValue("color_lineDelisted", { r = 0.1, g = 0.2, b = 0.3 })
+    ns.OwnListRefresh()
+    nr, ng, nb = Col(RowFor(4).name)
+    assert(near(nr, 0.1) and near(ng, 0.2) and near(nb, 0.3), "the picked delisted colour is not the title's")
+    ns.SetOwnListValue("color_lineDelisted", nil)
+    -- listed again: its own colours, in full
+    T.info[4].isDelisted = false
+    ns.OwnListRefresh()
+    r = RowFor(4)
+    nr, ng = Col(r.name)
+    assert(nr == 1 and ng == 0.82, "a relisted group's title stayed grey")
+    assert(Col(r.act) == 1 and r.flag._desat == false and r._alpha == 1, "a relisted group stayed greyed or faded")
+    -- a delisted flag the game keeps secret raises nothing
+    T.info[4].isDelisted = { [SECRET] = true }
+    local ok, err = pcall(ns.OwnListRefresh)
+    assert(ok, "a secret delisted flag raised: " .. tostring(err))
+    T.info[4].isDelisted = false
+    ns.OwnListRefresh()
+end
+
+-------------------------------------------------------------------------------
+-- 21. Row Highlight: Signed Up (applied, waiting) follows Accepted's switch and
+--     colour until it is set itself; the None style highlights nothing and
+--     Full Row tints the row
+-------------------------------------------------------------------------------
+do
+    local function near(a, b) return a ~= nil and math.abs(a - b) < 1e-6 end
+    T.apps = { 5 }
+    T.status[5] = "applied"
+    Event("LFG_LIST_APPLICATION_STATUS_UPDATED", 5, "applied", "none")
+    Flush()
+    assert(not RowFor(5).under._shown, "signed up: underlined with Accepted off")
+    ns.SetOwnListValue("lineAccepted", true)
+    ns.OwnListRefresh()
+    assert(RowFor(5).under._shown, "signed up: does not follow Accepted's switch")
+    ns.SetOwnListValue("color_lineAccepted", { r = 0.9, g = 0.1, b = 0.9 })
+    ns.OwnListRefresh()
+    local tint = RowFor(5).under._tint
+    assert(tint and near(tint[1], 0.9) and near(tint[2], 0.1), "signed up: does not follow Accepted's colour")
+    -- its own switch and colour win once set
+    ns.SetOwnListValue("color_lineSigned", { r = 0.2, g = 0.4, b = 0.6 })
+    ns.OwnListRefresh()
+    tint = RowFor(5).under._tint
+    assert(near(tint[1], 0.2) and near(tint[3], 0.6), "signed up: its own colour is not used")
+    ns.SetOwnListValue("lineSigned", false)
+    ns.OwnListRefresh()
+    assert(not RowFor(5).under._shown, "signed up: switched off, it still underlines")
+    ns.SetOwnListValue("lineSigned", nil)
+    ns.SetOwnListValue("color_lineSigned", nil)
+    -- the styles
+    ns.SetOwnListValue("statusStyle", "none")
+    ns.OwnListRefresh()
+    local r = RowFor(5)
+    assert(not r.under._shown and not r.stat._shown, "the None style still highlights")
+    ns.SetOwnListValue("statusStyle", "row")
+    ns.OwnListRefresh()
+    r = RowFor(5)
+    assert(r.stat._shown and not r.under._shown, "the Full Row style does not tint the row")
+    ns.SetOwnListValue("statusStyle", nil)
+    ns.SetOwnListValue("lineAccepted", nil)
+    ns.SetOwnListValue("color_lineAccepted", nil)
+    T.apps = {}
+    T.status[5] = nil
+    Event("LFG_LIST_APPLICATION_STATUS_UPDATED", 5, "none", "applied")
+    Flush()
+end
+
+-------------------------------------------------------------------------------
+-- 22. Raid Role Icons (group 2 is the raid): our circles with Blizzard's small
+--     role glyph, whatever Missing Role Icons says, or Blizzard's own circles
+-------------------------------------------------------------------------------
+do
+    ns.OwnListRefresh()
+    local p = RowFor(2).rr[1]
+    assert(p.icon._atlas == "groupfinder-icon-role-micro-tank" and p.bg._tint, "our raid circle: " .. tostring(p.icon._atlas))
+    ns.SetOwnListValue("missingIcons", "ellesmere")
+    ns.OwnListRefresh()
+    assert(RowFor(2).rr[1].icon._atlas == "groupfinder-icon-role-micro-tank", "our raid circle changed with Missing Role Icons")
+    ns.SetOwnListValue("missingIcons", nil)
+    ns.SetOwnListValue("raidRoleIcons", "blizzard")
+    ns.OwnListRefresh()
+    p = RowFor(2).rr[1]
+    assert(p.bg._atlas == "groupfinder-icon-role-large-tank" and p.bg._shown, "Blizzard's raid circle: " .. tostring(p.bg._atlas))
+    ns.SetOwnListValue("raidRoleIcons", nil)
+    ns.OwnListRefresh()
+    p = RowFor(2).rr[1]
+    assert(p.icon._atlas == "groupfinder-icon-role-micro-tank" and p.icon._shown, "back on our raid circles")
 end
 
 print("group finder results list harness: ok" .. (STOCK and " (Blizzard's look)" or ""))

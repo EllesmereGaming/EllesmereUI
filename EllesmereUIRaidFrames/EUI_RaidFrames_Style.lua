@@ -1220,9 +1220,8 @@ ns._StyleButtonSecure = function(button)
 
     -- Secure click: left=target, right=menu
     button:RegisterForClicks("AnyUp")
-    button:SetAttribute("type1", "target")
-    -- Wildcard fallback so left-click target survives if the click-cast engine later clears type1.
-    button:SetAttribute("*type1", "target")
+    -- Left-click target, a held modifier included (the wildcard survives a click-cast type1 clear).
+    EllesmereUI.SetLeftClickTarget(button)
     -- The engine gates SecureUnitButton's togglemenu; route right-click through a SecureActionButton
     -- proxy so the menu (and protected items like Set Focus) works without taint (*type2 = "click").
     if EllesmereUI.AttachSecureUnitMenu then

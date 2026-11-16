@@ -174,7 +174,7 @@ end
 
 
 
-local function Normalise(source, winner, d)
+local function Normalise(source, winner, d, idWinner)
     if type(d) ~= "table" then return nil end
 
     local link = UnescapeLink(d.lootWon)
@@ -198,7 +198,8 @@ local function Normalise(source, winner, d)
     end
 
     return {
-        id = ImportedID(source, winner, d.id),
+
+        id = ImportedID(source, idWinner or winner, d.id),
         source = source,
         link = link,
 
@@ -504,12 +505,68 @@ local function NormaliseForeign(source, get)
         groupSize = tonumber(get("groupSize")),
         note = get("note"),
         owner = get("owner"),
-    })
+    }, winner)
+end
+
+
+local function FoldedIDs(source)
+    local map, prefix = {}, source .. ":"
+    addon.History.EachEntry(function(entry)
+        local id = type(entry) == "table" and entry.id
+        if type(id) == "string" and id:sub(1, #prefix) == prefix then map[addon.Locale.Fold(id)] = true end
+    end, "imported")
+    return map
 end
 
 
 
 
+
+
+local function EndsQuoted(line, delim, open)
+    if not line:find('"', 1, true) then return open end
+    local start = not open
+    local i, n = 1, #line
+    while i <= n do
+        local c = line:sub(i, i)
+        if open then
+            if c == '"' then
+                if line:sub(i + 1, i + 1) == '"' then i = i + 1 else open = false end
+            end
+            start = false
+        elseif c == delim then
+            start = true
+        else
+            if start and c == '"' then open = true end
+            start = false
+        end
+        i = i + 1
+    end
+    return open
+end
+
+
+local MAX_JOIN = 32
+local function JoinQuoted(lines, delim)
+    local out, i = { lines[1] }, 2
+    while i <= #lines do
+        local line, j = lines[i], i
+        local open = EndsQuoted(line, delim, false)
+        while open and j < #lines and j - i < MAX_JOIN do
+            j = j + 1
+            line = line .. "\n" .. lines[j]
+            open = EndsQuoted(lines[j], delim, true)
+        end
+        if open then
+            out[#out + 1] = lines[i]
+            i = i + 1
+        else
+            out[#out + 1] = line
+            i = j + 1
+        end
+    end
+    return out
+end
 
 
 
@@ -560,6 +617,7 @@ function Import:PrepareCSV(text)
             err or T["unrecognised header"])
     end
 
+    if format == "slc" then lines = JoinQuoted(lines, delim) end
     addon.db.imported = addon.db.imported or {}
 
     local stats = NewStats()
@@ -610,14 +668,23 @@ function Import:StepCSV(job, budget)
                 if job.format == "slc" then
                     entry = NormaliseSLC(get)
 
-                    if entry and entry.nativeID
-                        and ((addon.db.history or {})[entry.nativeID]
-                            or addon.History:IsArchived("history", entry.nativeID)) then
+
+                    local native = entry and entry.nativeID
+                    if native and native:find(":", 1, true) then native = native:match("^slc%-csv:.*:([^:]+)$") end
+                    if native and ((addon.db.history or {})[native]
+                            or addon.History:IsArchived("history", native)) then
                         entry, counted = nil, true
                         job.stats.duplicate = job.stats.duplicate + 1
                     end
                 else
                     entry = NormaliseForeign(job.format, get)
+                    if entry then
+                        job.folded = job.folded or FoldedIDs(job.format)
+                        if job.folded[addon.Locale.Fold(entry.id)] then
+                            entry, counted = nil, true
+                            job.stats.duplicate = job.stats.duplicate + 1
+                        end
+                    end
                 end
 
                 if entry then
@@ -676,14 +743,24 @@ function Import:BeginCSV(text, onProgress, onDone)
 
         if done then
             ticker:Cancel()
+            cancelled = true
             if onDone then onDone(Import:FinishCSV(job)) end
         end
     end)
 
+
     return function()
+        if cancelled then return end
         cancelled = true
         if ticker then ticker:Cancel() end
         addon.History.ReviveDone()
+        if job.stats.imported > 0 then
+            addon.History:Reindex()
+            addon.History:ScheduleSweep()
+        end
+        addon.Log:I("Import", "CSV cancelled after", math.max(job.next - 2, 0), "of", total, "rows:",
+            job.stats.imported, "imported")
+        return job.stats
     end
 end
 

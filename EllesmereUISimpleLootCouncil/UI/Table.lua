@@ -387,6 +387,10 @@ local function Less(t, a, b)
     local result = CompareChain(t, t.sortColumn, a, b, 1) or 0
     if result == 0 then
 
+        local column = t.sortColumn and t.columns[t.sortColumn]
+        local tie = column and column.tiebreak and column.tiebreak(a, b) or 0
+        if tie ~= 0 then return tie < 0 end
+
         local ka = tostring(a.sortKey or a.name or "")
         local kb = tostring(b.sortKey or b.name or "")
         return ka < kb
@@ -536,6 +540,8 @@ local function DrawRows(t, offset, force)
         if data then
             local version = versions[data] or 0
             if force or row.rowData ~= data or row.slcVersion ~= version then
+
+                if row.rowData ~= nil and row.rowData ~= data then row.slcBoundAt = GetTime() end
                 row.rowData, row.slcVersion = data, version
                 PaintPick(t, row)
 
@@ -599,6 +605,13 @@ function Table.SetHidden(t, hidden)
     Table.Draw(t)
 end
 
+
+Table.REBIND_GUARD = 0.3
+
+
+function Table.JustRebound(row)
+    return row ~= nil and row.slcBoundAt ~= nil and GetTime() - row.slcBoundAt < Table.REBIND_GUARD
+end
 
 
 function Table.Draw(t)

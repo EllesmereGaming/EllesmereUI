@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Secret-value-safe absorb shields matching UnitFrames visuals.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.NewFrameData and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.OwnSurnameHidden and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.UIScaledAlpha and EllesmereUI.OnUIAlphaChanged and EllesmereUI.PREVIEW_ROSTER) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard raid and party frame suppression hides and scales through the parent's HideFrame and SetFrameScale, and the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, and the Name Format asks its UnitNameFormat, and the [name:last] and [target:last] tags its OwnSurnameHidden, and the texts that show names take their font family through its ApplyModuleFontFamily and SetFontFamily, and the 3D portraits follow a faded UI through its UIScaledAlpha and OnUIAlphaChanged, and the preview names its members from its PREVIEW_ROSTER)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.NewFrameData and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.OwnSurnameHidden and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.UIScaledAlpha and EllesmereUI.OnUIAlphaChanged and EllesmereUI.PREVIEW_ROSTER and EllesmereUI.SetLeftClickTarget and EllesmereUI.GetSecureTargetMacro) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard raid and party frame suppression hides and scales through the parent's HideFrame and SetFrameScale, and the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, and the Name Format asks its UnitNameFormat, and the [name:last] and [target:last] tags its OwnSurnameHidden, and the texts that show names take their font family through its ApplyModuleFontFamily and SetFontFamily, and the 3D portraits follow a faded UI through its UIScaledAlpha and OnUIAlphaChanged, and the preview names its members from its PREVIEW_ROSTER, and the unit buttons' left-click target comes from its SetLeftClickTarget, and click casting's target bindings take their macro from its GetSecureTargetMacro)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 
 local ERF = EllesmereUI.Lite.NewAddon(ADDON_NAME)
@@ -395,7 +395,14 @@ local defaults = {
             raid  = false,
             position = "right",   -- "left" | "right" | "free" | "owner" (Beside Owner, Party tab)
             freePos  = { x = 100, y = -200 },
-            healthColor = { r = 23/255, g = 172/255, b = 49/255 },
+            -- Fill Color: healthColorMode ("class" | "dark" | "classic" | "custom" | "customDynamic")
+            -- has no default: unset, the pets follow the Dark Mode of the frames beside them
+            -- and are otherwise their own colour (healthColor); a pick is saved only where it
+            -- differs from that.
+            healthColor     = { r = 23/255, g = 172/255, b = 49/255 },
+            dynamicColor100 = { r = 0, g = 1, b = 0 },
+            dynamicColor50  = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 },
+            dynamicColor0   = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 },
             extraWidth  = 0,      -- size offset on top of the party or raid frame size
             extraHeight = 0,
         },
@@ -437,6 +444,8 @@ local defaults = {
         dynamicColor100  = { r = 0, g = 1, b = 0 },   -- full health
         dynamicColor50   = { r = 1, g = 1, b = 0 },   -- half health
         dynamicColor0    = { r = 1, g = 0, b = 0 },   -- empty health
+        dynamicLow       = 0,     -- health % at or below which the 0% color holds (0-20)
+        dynamicHigh      = 100,   -- health % at or above which the 100% color holds (80-100)
         customBgColor    = { r = 17/255, g = 17/255, b = 17/255 },
         bgClassColored   = false,
         bgDarkness       = 50,
@@ -797,11 +806,16 @@ local defaults = {
         -- Party target frames (Party tab PARTY TARGETS section): party only, one value under
         -- every style. partyTargetPosition nil = beside stacked frames, below horizontal ones.
         partyTargetIncludeSelf     = false,     -- your own target beside your frame too
-        partyTargetHealthColorMode = "class",   -- "class" | "dark" | "classic" | "custom"
+        partyTargetHealthColorMode = "class",   -- "class" | "dark" | "classic" | "custom" | "customDynamic"
         partyTargetCustomFillColor = { r = 37/255, g = 193/255, b = 29/255 },
+        partyTargetDynamicColor100 = { r = 0, g = 1, b = 0 },
+        partyTargetDynamicColor50  = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 },
+        partyTargetDynamicColor0   = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 },
         partyTargetBgClassColored  = false,
         partyTargetCustomBgColor   = { r = 17/255, g = 17/255, b = 17/255 },
         partyTargetBgDarkness      = 50,
+        partyTargetTextClassColored = false,
+        partyTargetCustomTextColor = { r = 1, g = 1, b = 1 },
         partyTargetOffsetX         = 0,         -- -100..100
         partyTargetOffsetY         = 0,
         partyTargetWidth           = 70,

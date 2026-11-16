@@ -127,6 +127,7 @@ local ENV = setmetatable({
     InCombatLockdown = function() return combat end,
     EllesmereUI = {
         AttachSecureUnitMenu = function() end,
+        SetLeftClickTarget = function() end,
         IsSecret = function(v) return v == SECRET end,
     },
 }, { __index = _G })

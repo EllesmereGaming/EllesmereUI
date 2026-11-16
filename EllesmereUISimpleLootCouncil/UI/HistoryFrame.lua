@@ -252,7 +252,7 @@ local function ShowRowTooltip(row, entry)
         local main = addon.Player:Main(entry.winner)
         if qualified and addon.Player:NameKey(main) ~= addon.Player:NameKey(qualified) then
             S.TooltipSection(GameTooltip, T["Alt / Main"])
-            GameTooltip:AddDoubleLine(T["Main"], main, 0.64, 0.63, 0.60, 1, 1, 1)
+            GameTooltip:AddDoubleLine(T["Main"], addon.Player:DisplayName(main), 0.64, 0.63, 0.60, 1, 1, 1)
         end
     end
 
@@ -320,13 +320,17 @@ local function ShowRowMenu(row, entry)
     end
     items[#items + 1] = "-"
     items[#items + 1] = { text = T["Delete entry"], onClick = function()
+
+        local owed = addon.Trade and addon.Trade.OwedAwardOf and addon.Trade:OwedAwardOf(entry)
         S.Confirm({
             title = T["Delete history entry"],
-            body = addon.Locale.Format(T["Delete %s awarded to %s?\n\nThis only changes your local history and cannot be undone."],
+            body = addon.Locale.Format(owed
+                    and T["Delete %s awarded to %s?\n\nIt has not been traded yet, so this also undoes the award: it leaves Loot to Trade and every raider's history, as Undo award does."]
+                    or T["Delete %s awarded to %s?\n\nThis only changes your local history and cannot be undone."],
 
 
                     entry.link or entry.name or T["this item"],
-                    entry.winner or "?"),
+                    entry.winner and addon.Player:DisplayName(entry.winner) or "?"),
             accept = T["Delete entry"],
             onAccept = function()
                 addon.History:DeleteEntry(entry.id)
@@ -854,8 +858,7 @@ local function ShowPasteWindow()
         edit:SetScript("OnChar", function(_, char)
             if not pasteActive then
                 pasteActive = true
-                pasteBuffer, pasteN = {}, 0
-                pasteQuiet, pasteSeen = 0, 0
+                pasteQuiet, pasteSeen = 0, pasteN
                 pasteTicker:Show()
             end
             pasteN = pasteN + 1
@@ -974,11 +977,12 @@ local function ShowPasteWindow()
     end
 
 
-    if pasteCancel then pasteCancel() pasteCancel = nil end
-    PasteReset()
 
-    pasteFrame.status:SetText("")
-    pasteFrame.edit:SetText("")
+    if not pasteCancel then
+        PasteReset()
+        pasteFrame.status:SetText("")
+        pasteFrame.edit:SetText("")
+    end
     pasteFrame:RestorePosition()
     pasteFrame:Show()
     pasteFrame.edit:SetFocus()

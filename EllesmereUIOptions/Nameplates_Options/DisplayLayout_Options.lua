@@ -3,8 +3,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Nameplates_Options\DisplayLayout_Options.lua
 --  Nameplates options: the Style, Core Positions and Core Text Positions
 --  sections of the Display page. Called by BuildDisplayPage; returns y, the
---  rows and text cells its click navigation maps to, and the cog popup and
---  texture helpers DisplayBars_Options.lua uses. The Core Text Coloring
+--  rows and text cells its click navigation maps to, and the cog popup
+--  helpers DisplayBars_Options.lua uses. The Core Text Coloring
 --  section under Core Text Positions lives in CoreTextColoring_Options.lua
 --  (called from here; it reads the text slot table defined below). Shared
 --  helpers come from ns._NPO_OptEnv, the per-build slot helpers from ctx.
@@ -129,6 +129,7 @@ local function BuildDisplayLayout(parent, y, ctx)
     local DB, DBVal, defaults, GetNPOptOutline = env.DB, env.DBVal, env.defaults, env.GetNPOptOutline
     local hbtOrder, hbtValues, optState, pairs = env.hbtOrder, env.hbtValues, env.optState, env.pairs
     local plates, PP, UpdatePreview, RefreshAllPlates = env.plates, env.PP, env.UpdatePreview, env.RefreshAllPlates
+    local RefreshAllTextures = env.RefreshAllTextures
     local GetElementAtPosition, RefreshAllSlots, SetElementAtPosition, SetTextElementAtSlot = ctx.GetElementAtPosition, ctx.RefreshAllSlots, ctx.SetElementAtPosition, ctx.SetTextElementAtSlot
     local W = ctx.W
     local _, h
@@ -142,14 +143,6 @@ local function BuildDisplayLayout(parent, y, ctx)
     local styleHeader
     styleHeader, h = W:SectionHeader(parent, "STYLE", y);  y = y - h
     y = EllesmereUI.BlizzStyle.Note(parent, y, "nameplates")
-
-    local function RefreshAllTextures()
-        ns.RefreshAllSettings()
-        for _, plate in pairs(ns.friendlyPlates or {}) do
-            if ns.ApplyHealthBarTexture then ns.ApplyHealthBarTexture(plate) end
-            if ns.ApplyCastBarTexture then ns.ApplyCastBarTexture(plate) end
-        end
-    end
 
     -- Row 1: Border (None/Basic/Custom) | Border Size. Pure VIEW over showBorder + customBorderEnabled: None=off, Basic=standard border, Custom=custom border engine (reveals the Custom Border row below via page rebuild; None/Basic collapse it).
     -- Both stock styles gate both slots: they draw their own art (the stock background, the vanilla border sheets) and stand every EUI border down.
@@ -176,6 +169,9 @@ local function BuildDisplayLayout(parent, y, ctx)
             end
             ns.RefreshBorder()
             ns.RefreshBorderColor()
+            -- With Wrap Around Castbar saved on, the border decides whether a wrap can draw,
+            -- and with that whether Cast Bar X Offset applies: re-place the cast bars.
+            if DBVal("wrapBorderCastbar") == true and (DBVal("castBarOffsetX") or 0) ~= 0 then ns.NP_RelayoutCastBars() end
             UpdatePreview()
             -- Force rebuild so the Custom Border row shows/hides and rows below reflow.
             EllesmereUI:RefreshPage(true)
@@ -256,6 +252,8 @@ local function BuildDisplayLayout(parent, y, ctx)
                 ns.ApplyBorderWrapToAll()
                 -- Corner Radius stands down while the wrap is on: square or re-round the plates.
                 if (DBVal("cornerRadius") or 0) > 0 then ns.RefreshBorder(); ns.RefreshCastBorder() end
+                -- Cast Bar X Offset stands down too: re-place the cast bars.
+                if (DBVal("castBarOffsetX") or 0) ~= 0 then ns.NP_RelayoutCastBars() end
                 UpdatePreview()
                 -- Show Seam Line's and Corner Radius's disabled states follow this toggle.
                 EllesmereUI:RefreshPage()
@@ -2510,7 +2508,7 @@ local function BuildDisplayLayout(parent, y, ctx)
     if not EllesmereUI._prebuilding then optState._npTextFP = ns.NPO_TextStructureFP() end
 
     return y, styleHeader, coreHeader, coreRow1, coreRow2, coreRow3, coreTextHeader, textSlotCells,
-        textFirstRow, ShowCogPopup, CogPopupOpen, RefreshAllTextures
+        textFirstRow, ShowCogPopup, CogPopupOpen
 end
 
 -- Used by EUI_Nameplates_Options.lua

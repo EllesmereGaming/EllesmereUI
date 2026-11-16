@@ -391,6 +391,17 @@ EllesmereUI = {
     ELLESMERE_GREEN = { r = 0.05, g = 0.82, b = 0.62 },
     _accentElements = {},
 }
+-- The parent's own reader of a WoW Forever realm name (the kit names a friend's
+-- ruleset through it), cut out of EllesmereUI.lua
+EllesmereUI.PlainString = function(v) if type(v) == "string" then return v end end
+do
+    local f = assert(io.open("EllesmereUI.lua", "rb"))
+    local src = f:read("*a"):gsub("\r\n", "\n")
+    f:close()
+    local a = assert(src:find("function EllesmereUI.RealmRulesetSuffix(realm)\n", 1, true), "the parent's realm name helper not found")
+    local b = assert(src:find("\nend\n", a, true))
+    assert(loadstring(src:sub(a, b + 4), "=EllesmereUI.lua"))()
+end
 -- The shared combat queue: its functions run as combat ends
 EllesmereUI.CombatQueue = { Defer = function(key, fn) TEST.deferred[key] = fn end }
 function TEST.EndCombat()
