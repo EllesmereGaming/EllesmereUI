@@ -2963,6 +2963,13 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                       BD().showCooldownText = v
                       ns.RefreshCDMIconAppearance(BD().key); Refresh(); EllesmereUI:RefreshPage()
                   end },
+                { type="toggle", label="Duration Above Glows",
+                  tooltip="Draw the duration text above glows so they never cover it. The cooldown swipe stays below the glow.",
+                  get=function() return BD().cooldownTextAboveGlow == true end,
+                  set=function(v)
+                      BD().cooldownTextAboveGlow = v or nil
+                      ns.RefreshCDMIconAppearance(BD().key); Refresh()
+                  end },
                 { type="dropdown", label="Position",
                   values=durationPositionValues, order=durationPositionOrder,
                   get=function() return BD().cooldownTextPosition or "center" end,
