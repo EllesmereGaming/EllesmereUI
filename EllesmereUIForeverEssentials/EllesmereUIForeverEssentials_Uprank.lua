@@ -21,6 +21,8 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 local _, module = ...
 
 local MAX_ACTION_SLOT = 180
+-- The most slots read from the Gamepad interface style's own action storage, well past its range
+local MAX_GAMEPAD_SLOTS = 1000
 local PLAYER, PET = Enum.SpellBookSpellBank.Player, Enum.SpellBookSpellBank.Pet
 
 -- Settings live in EllesmereUIDB.spellUprank; unset keys read these.
@@ -138,9 +140,6 @@ end
 -- A pet keeps only its highest rank, so any other rank of its spell is an old
 -- one. A bar spell the player knows is the player's (a lower rank still reads
 -- known); a pet spell reads unknown.
--- Upper bound for the walk below, well past the gamepad storage range.
-local MAX_GAMEPAD_SLOTS = 1000
-
 local function SwapSlot(action, hasPlayer, hasPet)
     local kind, id = GetActionInfo(action)
     id = kind == "spell" and Plain(id)

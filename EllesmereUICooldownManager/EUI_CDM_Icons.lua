@@ -555,10 +555,12 @@ end
 -- Duration Above Glows (opt-in, per bar). The swipe and the countdown number share one
 -- Cooldown widget, so raising the widget would lift the swipe over the glow as well. Instead
 -- only the countdown FontString moves, onto our own carrier: a child of cd (so it shows, hides
--- and fades with the widget) levelled above glowOverlay (+16) and below textOverlay (+23). The
+-- and fades with the widget) levelled above every glow overlay (the buff and proc overlays at
+-- +16, the pandemic overlay at +17) and below textOverlay (+23). The
 -- number stays anchored to cd. Keyed weakly by cd, never a field on a Blizzard frame; built on
 -- first enable only, and turning it off moves the number back onto cd. Returns the frame that
 -- holds the number now.
+local CD_TEXT_CARRIER_LEVEL = 18
 local _cdTextCarrier = setmetatable({}, { __mode = "k" })
 local function CdmCountdownHost(icon, cd, on)
     local car = _cdTextCarrier[cd]
@@ -571,7 +573,7 @@ local function CdmCountdownHost(icon, cd, on)
     if not car then return cd end
     local fs = cd.GetCountdownFontString and cd:GetCountdownFontString()
     if not fs then return cd end
-    if on then car:SetFrameLevel(icon:GetFrameLevel() + 17) end
+    if on then car:SetFrameLevel(icon:GetFrameLevel() + CD_TEXT_CARRIER_LEVEL) end
     local host = on and car or cd
     if fs:GetParent() ~= host then fs:SetParent(host) end
     return host
@@ -858,9 +860,10 @@ local function RefreshCDMIconAppearance(barKey)
                     or barData.cooldownTextPosition or "center"
                 local cdX = (ssb and ssb.cooldownTextX) or barData.cooldownTextX or 0
                 local cdY = (ssb and ssb.cooldownTextY) or barData.cooldownTextY or 0
-                -- Find Blizzard's countdown FontString on the Cooldown widget. Keep it ON the
-                -- widget (anchored to cd) so the user's position and X/Y offset work -- REPARENTING
-                -- it makes Blizzard's engine re-center and ignore both. Setting our own anchor also
+                -- Find Blizzard's countdown FontString on its host: the Cooldown widget, or the
+                -- Duration Above Glows carrier (a child of the widget). Keep it anchored to cd so
+                -- the user's position and X/Y offset work -- hung from a frame outside the widget
+                -- Blizzard's engine re-centers it and ignores both. Setting our own anchor also
                 -- overrides the engine's stale baseline (raw SetFont vs SetCountdownFont); off-center anchors are where a missed or stomped anchor first becomes visible.
                 for _, rgn in pairs({ cdTextHost:GetRegions() }) do
                     if rgn and rgn.GetObjectType and rgn:GetObjectType() == "FontString" then

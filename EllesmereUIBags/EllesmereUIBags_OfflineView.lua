@@ -915,6 +915,8 @@ bagsView.goldRef = function() return EUI_Bags.Money end
 
 -- an alt or bank is up in the bags: no live items under it, so select modes stay off
 function ns.OfflineUp() return bagsView.mode ~= nil end
+-- an alt's bank is up over the live bank: the live slots under it are not the ones shown
+function ns.BankOfflineUp() return bankView.mode ~= nil end
 
 -- runs after every bags refresh: covers the item area while bank is picked or
 -- an alt is showing, hidden otherwise. sidebarW is the sidebar's width.
@@ -1135,12 +1137,12 @@ else
     SyncBank = function() end
 end
 
--- option toggled: off leaves the bank view for all items and goes back to
--- this character; either way the bank sidebar switches layout
+-- option toggled: off leaves the bank view for the view the bags open on and
+-- goes back to this character; either way the bank sidebar switches layout
 function Offline.SyncButton()
     if not Offline.Enabled() then
         bagsView.key, bankView.key = nil, nil
-        if ns.GetSelection() == BANK_VIEW then I.SetSelectedCategoryIndex(0) end
+        if ns.GetSelection() == BANK_VIEW then I.SetSelectedCategoryIndex(ns.OpenBagViewIndex()) end
     end
     if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
     if EUI_Bank and EUI_Bank:IsShown() then EUI_Bank:RefreshBank() else SyncBank() end

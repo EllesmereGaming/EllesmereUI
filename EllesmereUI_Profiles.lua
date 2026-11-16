@@ -2186,7 +2186,8 @@ do
         "flyoutItemLevels", "flyoutItemStats", "charSheetItemStats",
         "flyoutItemStatsTertiary", "charSheetItemStatsTertiary", "charSheetSocketPanelStats",
         "showCharSheetDurability", "charSheetDurabilityLocation",
-        "charSheetDurabilityShowLabel", "charSheetItemLevelPos", "showSecondaryRaw", "showSecondaryBoth",
+        "charSheetDurabilityShowLabel", "charSheetItemLevelPos", "charSheetShowItemStats",
+        "showSecondaryRaw", "showSecondaryBoth",
         "showTertiaryRaw", "showTertiaryBoth", "showAdjustedStats",
         "showManaStat", "highlightSecondaryItems", "highlightTertiaryItems",
         -- Character Sheet stock styles' "Blizzard UI Color" (the style itself
@@ -2194,7 +2195,7 @@ do
         "charSheetBlizzColors",
         -- Inspect card
         "inspectShowEnchants", "inspectEnchantNames", "inspectEnchantSize",
-        "inspectShowItemLevel", "inspectShowUpgradeTrack",
+        "inspectShowItemLevel", "inspectShowUpgradeTrack", "inspectItemLevelPos", "inspectShowItemStats",
         -- LFG / Merchant / Mail cards
         "lfgRememberRoles",
         "merchantShowAsList", "merchantListRowHeight", "merchantShowItemLevel", "merchantBulkBuy",

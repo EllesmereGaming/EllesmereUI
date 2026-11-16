@@ -266,7 +266,6 @@ Arcane Res
 Arcane Soul
 Are you sure you want to %1$s %2$s?
 Are you sure you want to delete \
-Are you sure you want to delete this category? All item assignments will be removed.
 Are you sure you want to reset all %1$s settings to their defaults? This will reload your UI.
 Are you sure you want to reset the data bar selected on the Data Bars page (%1$s) to its default look? Its blocks are kept. This will reload your UI.
 Are you sure you're gay?
@@ -374,6 +373,7 @@ Categories
 Categories can be dragged\nto reorder them.
 Celebrating the donors and team behind EllesmereUI.
 Center
+Change Icon
 Change buff
 Changes the crosshair color when your current target is out of range.
 Character
@@ -390,6 +390,7 @@ Choose Icon
 Choose Zones
 Choose a buff from the bar menu
 Choose an alt
+Choose an icon for \
 Choose the specs this action menu works in.
 Choose which addons to import. Any addons not included will use your active profile's settings in the new profile.
 Choose which addons to include in your exported profile. Check everything for a full profile export.
@@ -652,7 +653,6 @@ Enter a name for the new profile:
 Enter a new name for \
 Enter a new name for this group:
 Enter a new name for this indicator:
-Enter a new name:
 Enter a number from %1$d to %2$d.
 Enter a valid debuff spell ID.
 Enter a valid spell ID
@@ -913,7 +913,6 @@ Key
 Keybind
 Keybind: %1$s
 Keyboard and mouse play is unaffected, even with a controller connected.
-Keyring
 Kezan
 Know the route, have fun
 LAST
@@ -1029,6 +1028,7 @@ Min. Rating
 Mini Patch
 Minutes since the group was listed.
 Misc
+Miscellaneous
 Missing
 Missing Battle Res
 Missing Bloodlust

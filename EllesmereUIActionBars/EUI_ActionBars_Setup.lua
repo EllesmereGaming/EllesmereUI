@@ -213,23 +213,23 @@ function EAB:FinishSetup()
                         point = point, relPoint = relPoint, x = px, y = py,
                         hidden = (s and (EAB.VisibilityCompat.IsNever(s) or s.enabled == false)) and true or false })
 
+                    -- A paged bar (bar 1, or bars 2-10 with paging conditions) starts
+                    -- on the page its driver stands on (stance, form, modifier), the
+                    -- slots BuildBarButtons gives its buttons out of combat: the
+                    -- driver resolved as the frame was made, before they existed.
+                    local barFrame = barFrames[key]
+                    local curPage = barFrame and barFrame._eabPagingConds
+                        and tonumber(barFrame:GetAttribute("state-page"))
+
                     for i, btnData in pairs(btnLayout) do
                         local btn = buttons[i]
                         if btn and btn._secureSlotIdx then
                             local actionSlot = 0
-                            if key == "MainBar" then
-                                -- For MainBar, actionSlot encodes the button index (1-12)
-                                actionSlot = i
-                                -- Start on the page the driver already resolved
-                                -- (stance, form, modifier), as the normal load does.
-                                local mbFrame = barFrames["MainBar"]
-                                local curPage = mbFrame and tonumber(mbFrame:GetAttribute("state-page"))
-                                if curPage then actionSlot = i + (curPage - 1) * 12 end
-                            elseif info.isPetBar then
+                            if info.isPetBar then
                                 -- PetActionButtons use their index (1-10) as their slot ID
                                 actionSlot = i
                             elseif not info.isStance then
-                                actionSlot = slotOffset + i
+                                actionSlot = curPage and (i + (curPage - 1) * 12) or (slotOffset + i)
                             end
                             layoutData[btn._secureSlotIdx] = {
                                 barKey = key,
@@ -373,7 +373,7 @@ function EAB:FinishSetup()
                     -- (or you're just hovering it), so keep it shown and let the
                     -- normal OnLeave fade it on real exit. Otherwise hide as before.
                     local state = hoverStates[key]
-                    if _gridState._sbMoForced and _gridState._sbMoForced[key] then
+                    if EAB_VTABLE.Hover.SpellbookHolds(key) then
                         -- Held up by the open spellbook/macro panel: leave it shown.
                     elseif frame:IsMouseOver() then
                         if state then state.isHovered = true; state.fadeDir = "in" end
@@ -661,14 +661,9 @@ function EAB:FinishSetup()
     end
 
     -- Register events
-    self:RegisterEvent("UPDATE_BINDINGS", function()
-        if InCombatLockdown() then
-            ns.CombatQueue.Defer("UpdateKeybinds", UpdateKeybinds)
-        else
-            UpdateKeybinds()
-        end
-        self:ApplyFonts()
-    end)
+    -- One pass per frame, the font pass only for a changed key
+    -- (EUI_ActionBars_Keybinds.lua).
+    self:RegisterEvent("UPDATE_BINDINGS", function() ns._eabOnBindings() end)
 
     _gridState.showFns[#_gridState.showFns + 1] = OnGridChange
     self:RegisterEvent("ACTIONBAR_SHOWGRID", function() ns.EABQueueGrid(true) end)
@@ -749,8 +744,8 @@ function EAB:FinishSetup()
                     -- position-only Blizzard-owned bars (the QueueStatus eye): EUI
                     -- controls only their position, never fades them out.
                     -- Bars the open spellbook/macro panel holds up stay visible.
-                    local sbHeld = _gridState._sbMoForced and _gridState._sbMoForced[key]
-                    if s.mouseoverEnabled and not info.noManagedVisibility and not sbHeld then
+                    if s.mouseoverEnabled and not info.noManagedVisibility
+                       and not EAB_VTABLE.Hover.SpellbookHolds(key) then
                         if not (state and state.isHovered) then
                             StopFade(frame)
                             FadeTo(frame, 0, s.mouseoverSpeed or 0.15)

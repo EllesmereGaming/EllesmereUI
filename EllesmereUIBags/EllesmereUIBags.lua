@@ -2,7 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EllesmereUIBags.lua -- Enhanced Bags System for EllesmereUI (Midnight): sidebar category filter + flat item grid layout.
 -------------------------------------------------------------------------------
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.CreateQuantityDialog and EllesmereUI.ReleaseStaleHold and EllesmereUI.ForeverLookMajority and EllesmereUI.ForeverHeavyOK and EllesmereUI.ForeverHeavy and EllesmereUI.ForeverHeavySeat and EllesmereUI.ForeverHeavyTitle and EllesmereUI.ForeverBorder and EllesmereUI.ForeverBorderSeat and EllesmereUI.ForeverBorderPaint and EllesmereUI.CharData and EllesmereUI.CharGUID) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the stack splitter is the parent's quantity window; ReleaseStaleHold / DropHold, the sort's sound effects mute; the WoW Forever style draws the parent's Forever frames and follows its look majority; its per-character data is in the parent's roster: CharData, CharGUID)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.CreateQuantityDialog and EllesmereUI.ReleaseStaleHold and EllesmereUI.ForeverLookMajority and EllesmereUI.ForeverHeavyOK and EllesmereUI.ForeverHeavy and EllesmereUI.ForeverHeavySeat and EllesmereUI.ForeverHeavyTitle and EllesmereUI.ForeverBorder and EllesmereUI.ForeverBorderSeat and EllesmereUI.ForeverBorderPaint and EllesmereUI.CharData and EllesmereUI.CharGUID and EllesmereUI.ShowIconPicker) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the stack splitter is the parent's quantity window; ReleaseStaleHold / DropHold, the sort's sound effects mute; the WoW Forever style draws the parent's Forever frames and follows its look majority; its per-character data is in the parent's roster: CharData, CharGUID; Change Icon opens the parent's icon picker: ShowIconPicker)
 local ns = select(2, ...)
 EllesmereUI._ModuleNS["EllesmereUIBags"] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
@@ -300,14 +300,49 @@ local function PinnedItems(create)
 end
 ns.PinnedItems = PinnedItems
 
--- Default bag-type view ("all"|"onebag"|"multibag"), falling back to legacy
--- bagDefaultOneBag bool (imports converted in ApplyProfileData before DeepMergeDefaults masks it); exposed on EUI so bank file matches.
+-- The three bag views at the top of the sidebar, in their order, and the
+-- selection index of each (selectedCategoryIndex while no group is open).
+local BAG_VIEWS = { "all", "onebag", "multibag" }
+local BAG_VIEW_INDEX = { all = 0, onebag = -1, multibag = -2 }
+
+-- A view's sidebar row shows unless the sidebar's views menu hid it
+-- (bagHiddenViews: { all = true, onebag = true, multibag = true }, sparse, a
+-- shown view absent; in no defaults table). One of the three always shows: a
+-- profile that marks all three shows All Items.
+local function BagViewShown(key)
+    local hidden = BP().bagHiddenViews
+    if type(hidden) ~= "table" or hidden[key] ~= true then return true end
+    return key == "all" and hidden.onebag == true and hidden.multibag == true
+end
+-- The same by selection index: false only for a view whose row is hidden
+local function BagViewIndexShown(idx)
+    for i = 1, #BAG_VIEWS do
+        local key = BAG_VIEWS[i]
+        if BAG_VIEW_INDEX[key] == idx then return BagViewShown(key) end
+    end
+    return true
+end
+
+-- The view the bags open on ("all"|"onebag"|"multibag"): the Default Selected
+-- Bag (bagDefaultBagType, else the legacy bagDefaultOneBag bool, which imports
+-- convert in ApplyProfileData before DeepMergeDefaults masks it) while its
+-- sidebar row shows, else the first view that shows, in the order above. The
+-- setting itself is never written here. Exposed on EUI so the bank file matches.
 local function GetDefaultBagType()
-    local v = BP().bagDefaultBagType
-    if v == "all" or v == "onebag" or v == "multibag" then return v end
-    return BP().bagDefaultOneBag and "onebag" or "all"
+    local p = BP()
+    local v = p.bagDefaultBagType
+    if v ~= "all" and v ~= "onebag" and v ~= "multibag" then
+        v = p.bagDefaultOneBag and "onebag" or "all"
+    end
+    if p.bagHiddenViews == nil or BagViewShown(v) then return v end
+    for i = 1, #BAG_VIEWS do
+        if BagViewShown(BAG_VIEWS[i]) then return BAG_VIEWS[i] end
+    end
+    return "all"
 end
 EUI._GetBagDefaultType = GetDefaultBagType
+-- Its selection index: where the bags go when the open view or category goes
+function ns.OpenBagViewIndex() return BAG_VIEW_INDEX[GetDefaultBagType()] end
 
 -- Bag display mode ("grid" | "list" | "compact"), latched on the first read
 -- after the profile loads: switching needs a reload, so only one mode ever
@@ -356,6 +391,9 @@ local function ApplyBagScale()
     if EUI_Bags then EUI_Bags:SetScale(s) end
     if EUI_BagsReagent then EUI_BagsReagent:SetScale(s) end
     if EUI_BagsWindow then EUI_BagsWindow:SetScale(s) end
+    -- WoW Forever's keyring popup, once it has been opened (EUI_Bags_Keyring.lua)
+    local keyring = EUI_Bags and EUI_Bags._keyringWin
+    if keyring then keyring:SetScale(s) end
 end
 
 -- Locale-safe gear detection: GetItemInfo type strings are localized ("Armor" only on enUS), so use GetItemInfoInstant's numeric classID.
@@ -479,6 +517,8 @@ end
 -- it set, and the files behind it return at their first lines.
 EllesmereUI.NewInternals(ns, "_bagsInternals", {
     _bankRouted = _bankRouted, AbbrevDungeon = AbbrevDungeon, ApplyBagScale = ApplyBagScale,
+    BAG_VIEW_INDEX = BAG_VIEW_INDEX, BAG_VIEWS = BAG_VIEWS, BagViewShown = BagViewShown,
+    BagViewIndexShown = BagViewIndexShown,
     BagsItemUnusable = BagsItemUnusable, BP = BP, CurrencyOrder = CurrencyOrder,
     GetAccentRGB = GetAccentRGB, GetCatTitleSize = GetCatTitleSize, GetColumns = GetColumns,
     GetDefaultBagType = GetDefaultBagType, GetFont = GetFont,

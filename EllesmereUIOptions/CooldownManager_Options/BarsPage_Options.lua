@@ -2964,7 +2964,7 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                       ns.RefreshCDMIconAppearance(BD().key); Refresh(); EllesmereUI:RefreshPage()
                   end },
                 { type="toggle", label="Duration Above Glows",
-                  tooltip="Draw the duration text above glows so they never cover it. The cooldown swipe stays below the glow.",
+                  tooltip="Draws the duration text above glows. The swipe stays below them.",
                   get=function() return BD().cooldownTextAboveGlow == true end,
                   set=function(v)
                       BD().cooldownTextAboveGlow = v or nil

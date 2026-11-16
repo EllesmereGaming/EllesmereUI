@@ -249,17 +249,27 @@ local function MismatchOf(id, note)
     end
     return firstPass[id] and not pass
 end
--- cancelling needs a click, so it waits for your next one on the list
-local function SendMismatchCancels()
+-- cancelling needs a click, so it waits for your next one on the list.
+-- except: the row whose own cancel that click is. true when it sent one.
+local function SendMismatchCancels(except)
     local gc = GFNS.Cfg and GFNS.Cfg()
-    if not (gc and gc.autoCancelMismatch) then return end
+    if not (gc and gc.autoCancelMismatch) then return false end
+    -- a party member who is not the leader cannot cancel the party's applications
+    if LFGListUtil_IsAppEmpowered and not LFGListUtil_IsAppEmpowered() then return false end
+    local sent = false
     for id in pairs(mismatch) do
-        if not autoCancelled[id] then
-            autoCancelled[id] = true
-            cancelSent[id] = true
-            C_LFGList.CancelApplication(id)
+        if id ~= except and not autoCancelled[id] then
+            -- the set is from the last collect: still pending now?
+            local status, pending = AppStatus(id)
+            if status == "applied" and not pending then
+                autoCancelled[id] = true
+                cancelSent[id] = true
+                C_LFGList.CancelApplication(id)
+                sent = true
+            end
         end
     end
+    return sent
 end
 local noteOf, tops = {}, {}  -- shown groups with a note, each shown row's top
 
@@ -625,9 +635,11 @@ local function MakeRow(i, parent)
     end)
     r.cancel:SetScript("OnClick", function(self)
         if self:GetParent().preview then return end
-        SendMismatchCancels()
         local id = self:GetParent().resultID
-        if id and not Secret(id) then C_LFGList.CancelApplication(id) end
+        if id and Secret(id) then id = nil end
+        -- this row's cancel is the click itself; the other mismatched ones go with it
+        SendMismatchCancels(id)
+        if id then C_LFGList.CancelApplication(id) end
     end)
     r.status = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     r.status:SetJustifyH("RIGHT")
@@ -708,15 +720,16 @@ local function MakeRow(i, parent)
         if self.preview then return end
         local id = self.resultID
         if not id or not active then return end
-        SendMismatchCancels()
+        local cancelled = SendMismatchCancels()
         if button == "RightButton" then return ns.OwnListMenu(self, id) end
         local now = GetTime()
         if lastClickID == id and (now - lastClickTime) < 0.4 then clickCount = clickCount + 1 else clickCount = 1 end
         lastClickID, lastClickTime = id, now
         local need = CLICKS_NEEDED[ns.OwnListGet("signupClicks")] or 2
         local signup = EllesmereUIDB and EllesmereUIDB.quickSignup and clickCount >= need
-        -- at the app limit, cancel the oldest
-        if ns.GFCancelOldest then ns.GFCancelOldest(id) end
+        -- at the app limit, cancel the oldest (not in a click that just cancelled
+        -- a mismatched one: that slot is freeing up)
+        if not cancelled and ns.GFCancelOldest then ns.GFCancelOldest(id) end
         -- same check blizzard's row click does
         if not Selectable(id) then return end
         if selected ~= id then
@@ -1945,7 +1958,8 @@ local function Build()
         elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
             -- an auto cancel went through
             if cancelSent[id] and newStatus == "cancelled" then
-                EUI.Print(EllesmereUI.L("Cancelled an application that no longer matches your filters."))
+                EUI.Print(EUI.COLOR_CODES.BRAND .. "EllesmereUI|r "
+                    .. EllesmereUI.L("Cancelled an application that no longer matches your filters."))
             end
             if type(id) == "number" then cancelSent[id] = nil end
             -- applications reorder the list (applied groups on top)

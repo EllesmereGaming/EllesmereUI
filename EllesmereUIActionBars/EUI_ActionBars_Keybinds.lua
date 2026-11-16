@@ -28,7 +28,13 @@ local BAR_SLOT_OFFSETS, barFrames, BINDING_MAP = I.BAR_SLOT_OFFSETS, I.barFrames
 --  field-tested against it and failed -- the up is consumed as a second
 --  UseAction, not as a release attribute read). Click routing remains ONLY
 --  where native commands cannot express the slot: custom-paged bars and
---  Bar9/Bar10.
+--  Bar9/Bar10. A custom-paged Action Bar 1 is the one bar whose route moves
+--  at run time ("dyn"): its keys ride the native command while the page it
+--  shows is the page that command fires, and the click route while the two
+--  differ, flipped by the bar's secure page handler (ns._eabDynBindSnippet
+--  in EUI_ActionBars_Paging.lua). A bar with a modifier or target paging
+--  state stays on the click route for good: those flip on every modifier
+--  press and target change, and each flip is a rebind.
 -------------------------------------------------------------------------------
 local _bindState = { housingCleared = false }
 
@@ -369,6 +375,70 @@ local function ApplyKeyDownCVar()
     end
     ApplyClickRegistration()
     UpdateKeybinds()
+end
+
+-------------------------------------------------------------------------------
+--  UPDATE_BINDINGS
+--  A real key change raises it, and so does every override binding write:
+--  our own (UpdateKeybinds, the Action Bar 1 route its secure page handler
+--  flips, in combat too) and other addons'. So the event is handled once per
+--  frame, with one more pass on the next frame for a burst's later events
+--  (nothing they brought is missed), and the font pass, which redraws every
+--  button's texts, runs only when a key that a button shows has changed.
+-------------------------------------------------------------------------------
+-- [binding command] = the key its button shows (false: none), as last seen.
+local _hotkeyOf = {}
+local function HotkeysMoved()
+    local moved = false
+    for _, info in ipairs(BAR_CONFIG) do
+        local prefix = BINDING_MAP[info.key]
+        local btns = barButtons[info.key]
+        if prefix and btns then
+            for i = 1, #btns do
+                local cmd = prefix .. i
+                local key = GetBindingKey(cmd) or false
+                if _hotkeyOf[cmd] ~= key then
+                    _hotkeyOf[cmd] = key
+                    moved = true
+                end
+            end
+        end
+    end
+    return moved
+end
+
+local function BindingsPass()
+    if InCombatLockdown() then
+        ns.CombatQueue.Defer("UpdateKeybinds", UpdateKeybinds)
+    else
+        UpdateKeybinds()
+    end
+    if HotkeysMoved() then EAB:ApplyFonts() end
+end
+
+local _bindSeenAt, _bindLate = -1, false
+-- Hidden while idle: shown only by a second event inside one frame.
+local _bindFlush = CreateFrame("Frame")
+_bindFlush:Hide()
+_bindFlush:SetScript("OnUpdate", function(self)
+    self:Hide()
+    if not _bindLate then return end
+    _bindLate = false
+    _bindSeenAt = GetTime()
+    BindingsPass()
+end)
+
+function ns._eabOnBindings()
+    local now = GetTime()
+    if now == _bindSeenAt then
+        if not _bindLate then
+            _bindLate = true
+            _bindFlush:Show()
+        end
+        return
+    end
+    _bindSeenAt = now
+    BindingsPass()
 end
 
 -- Entry points the files after this one re-import by name.

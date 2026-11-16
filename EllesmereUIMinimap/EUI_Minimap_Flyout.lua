@@ -158,14 +158,13 @@ local function ShowFlyoutName(btn)
     local fs = d.flyoutName
     if not fs then
         fs = btn:CreateFontString(nil, "OVERLAY")
-        EllesmereUI.PrimeFontShadow(fs, true)
         fs:SetTextColor(0.9, 0.9, 0.9)
         fs:SetWordWrap(false)
         fs:SetPoint("LEFT", btn, "RIGHT", FLYOUT_NAME_GAP, 0)
         d.flyoutName = fs
     end
-    fs:SetFont((EllesmereUI.GetFontPath("minimap")) or "Fonts\\FRIZQT__.TTF", 11, "")
-    fs:SetText(GetMinimapButtonLabel(btn))
+    EllesmereUI.ApplyModuleFont(fs, nil, 11, "minimap")
+    fs:SetText((GetMinimapButtonLabel(btn)))
     fs:Show()
     if not d.flyoutHitRect then
         d.flyoutHitRect = { btn:GetHitRectInsets() }

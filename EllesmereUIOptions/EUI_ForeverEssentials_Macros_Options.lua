@@ -310,117 +310,21 @@ local function AttachSuggest(box, onPick, list)
 end
 
 -------------------------------------------------------------------------------
---  Icon picker (popup shell): "?" first, then this open's spellbook icons,
---  then every macro icon the game offers, read once per session (repeats
---  allowed, as in Blizzard's own list). Never Blizzard's
---  IconDataProviderMixin: driven from here it would write the file state
---  Blizzard's macro window shares and force a full collect.
+--  Icon picker: the suite's (EllesmereUI.ShowIconPicker) with "?" first, then
+--  this open's spellbook icons (each once), then every icon the game offers.
 -------------------------------------------------------------------------------
-local picker, baseIcons
-
-local function PickerIcon(i)
-    if i == 1 then return MM.QUESTION end
-    local spells = picker.spells
-    if i - 1 <= #spells then return spells[i - 1] end
-    return baseIcons[i - 1 - #spells]
-end
-
-local function PickerClick(self)
-    local onPick = picker.onPick
-    picker.Close()
-    if onPick then onPick(self.value) end
-end
+local pickerHandle   -- this page's open of the shared picker
 
 local function OpenPicker(onPick)
-    local COLS, ROWS, SIZE = 10, 6, 40
-    if not picker then
-        local p = {}
-        function p.Close()
-            p.dimmer:Hide()
-            p.spells, p.onPick = nil, nil   -- the spell list lives only while it is open
-        end
-        p.dimmer, p.popup = EllesmereUI.BuildPopupShell("EUIMacroIconPicker", {
-            w = COLS * SIZE + 40, h = ROWS * SIZE + 132, bump = 1, onEscape = p.Close, onDimmerDown = p.Close,
-        })
-        local popup = p.popup
-        local title = MakeFont(popup, 16, "", 1, 1, 1)
-        title:SetPoint("TOP", popup, "TOP", 0, -20)
-        title:SetText(EllesmereUI.L("Choose Icon"))
-        local sub = MakeFont(popup, 12, nil, 1, 1, 1, EllesmereUI.TEXT_DIM_A)
-        sub:SetPoint("TOP", title, "BOTTOM", 0, -8)
-        sub:SetText(EllesmereUI.L("The question mark shows the spell's icon (with #showtooltip)."))
-        p.buttons = {}
-        for i = 1, COLS * ROWS do
-            local b = NewCell(popup)
-            b:SetSize(SIZE - 4, SIZE - 4)
-            b:SetFrameLevel(popup:GetFrameLevel() + 2)   -- above the scroll frame below
-            b:SetPoint("TOPLEFT", 20 + ((i - 1) % COLS) * SIZE, -70 - floor((i - 1) / COLS) * SIZE)
-            -- Left clicks only, and no drag: a drag would swallow the click.
-            b:RegisterForClicks("LeftButtonUp")
-            b:RegisterForDrag()
-            b.plus:Hide()
-            b:SetScript("OnClick", PickerClick)
-            p.buttons[i] = b
-        end
-        -- The shared scroll bar on an empty scroll frame under the grid: its
-        -- child is as tall as every icon row, and the scroll value picks the
-        -- first row the grid shows (the grid itself stays put).
-        local sf = CreateFrame("ScrollFrame", nil, popup)
-        sf:SetFrameLevel(popup:GetFrameLevel() + 1)
-        sf:SetPoint("TOPLEFT", popup, "TOPLEFT", 20, -70)
-        sf:SetSize(COLS * SIZE + 12, ROWS * SIZE)
-        p.child = CreateFrame("Frame", nil, sf)
-        p.child:SetSize(COLS * SIZE, ROWS * SIZE)
-        sf:SetScrollChild(p.child)
-        p.updateThumb, p.scrollTo = EllesmereUI.AttachSmoothScrollbar(sf, {
-            step = SIZE, child = p.child,
-            onScroll = function(v)
-                local off = floor(v / SIZE + 0.5) * COLS
-                if off ~= p.offset then
-                    p.offset = off
-                    p.Update()
-                end
-            end,
-        })
-        function p.Update()
-            for i, b in ipairs(p.buttons) do
-                local icon = PickerIcon(p.offset + i)
-                b.value = icon
-                if icon then
-                    b.icon:SetTexture(IconPath(icon))
-                    b.selected = icon == p.current
-                    b.Paint(false)
-                    b:Show()
-                else
-                    b:Hide()
-                end
-            end
-        end
-        p.cancel = EllesmereUI.MakePopupButton(popup, "BOTTOM", popup, "BOTTOM", 0, 18,
-            1, 1, 1, 0.75, 1, 1, 1, 1, 1, 1, 1, 0.25, 1, 1, 1, 0.5)
-        p.cancel._lbl:SetText(EllesmereUI.L("Cancel"))
-        p.cancel:SetScript("OnClick", p.Close)
-        picker = p
-    end
-    if not baseIcons then
-        baseIcons = {}
-        GetLooseMacroIcons(baseIcons)
-        GetLooseMacroItemIcons(baseIcons)
-        GetMacroIcons(baseIcons)
-        GetMacroItemIcons(baseIcons)
-    end
-    local spells, seen = {}, {}
+    local lead, seen = { MM.QUESTION }, {}
     for _, s in ipairs(S.List()) do
-        if s.icon and not seen[s.icon] then seen[s.icon] = true; spells[#spells + 1] = s.icon end
+        if s.icon and not seen[s.icon] then seen[s.icon] = true; lead[#lead + 1] = s.icon end
     end
-    picker.spells, picker.offset, picker.onPick, picker.current = spells, 0, onPick, cur.icon
-    picker.cancel._resetAnim()
-    picker.Update()
-    picker.dimmer:Show()
-    -- The bar's range: one row per COLS icons, back at the top on every open.
-    picker.child:SetHeight(math.ceil((1 + #spells + #baseIcons) / COLS) * SIZE)
-    picker.scrollTo(0)
-    picker.updateThumb()
+    pickerHandle = EllesmereUI.ShowIconPicker({
+        title = EllesmereUI.L("Choose Icon"),
+        subtitle = EllesmereUI.L("The question mark shows the spell's icon (with #showtooltip)."),
+        current = cur.icon, lead = lead, onPick = onPick,
+    })
 end
 
 -------------------------------------------------------------------------------
@@ -1253,7 +1157,7 @@ end
 -- click under way opened stays.
 local function ClosePopupsIfHidden()
     if shown then return end
-    if picker then picker.Close() end
+    EllesmereUI.CloseIconPicker(pickerHandle)
     if menuOwner and EllesmereUI.ContextMenuOwner() == menuOwner then EllesmereUI.CloseContextMenu() end
 end
 
@@ -1287,7 +1191,7 @@ local function WatchEvents(parent)
             ReadText()
             self:UnregisterAllEvents()
             HideSuggest()
-            if (picker and picker.dimmer:IsShown())
+            if EllesmereUI.IconPickerShown(pickerHandle)
                 or (menuOwner and EllesmereUI.ContextMenuOwner() == menuOwner) then
                 C_Timer.After(0, ClosePopupsIfHidden)
             end

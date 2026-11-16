@@ -133,6 +133,7 @@ local function Build()
     end)
     win:SetScript("OnShow", function(self)
         EUI_BagsWindow:Hide()  -- one header popup at a time
+        self:SetScale(EUI_Bags:GetScale())  -- Window Scale, as the bag window's other popups
         self:SetFrameStrata(EUI_Bags:GetFrameStrata())
         self:Raise()
         events:RegisterEvent("BAG_UPDATE")

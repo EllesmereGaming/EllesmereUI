@@ -7,9 +7,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  own card and key ("keyring", enable key reskinKeyring): the frame art faded
 --  under the shell and border, the portrait removed, the title and close
 --  button in the house style, and the key slots as house item slots. The
---  frames are shared, so one that showed the keyring keeps the look when it
---  later shows another bag (only seen while EllesmereUI Bags is off). Forever
---  only. Built at the keyring's first open, so a login builds nothing.
+--  frames are shared and a skin stays for the session, so a frame that showed
+--  the keyring would show the next ordinary bag in that look. The keyring is
+--  therefore skinned only while EllesmereUI Bags keeps every other Blizzard
+--  bag frame parked (BagsParked): with that module off, or stood down, the
+--  keyring stays Blizzard's like the bags beside it. Forever only. Built at
+--  the keyring's first open, so a login builds nothing.
 --------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 local EllesmereUI = _G.EllesmereUI
@@ -23,6 +26,16 @@ if not KEYRING then return end
 
 local function KeyringFrame()
     return ContainerFrameUtil_GetShownFrameForID and ContainerFrameUtil_GetShownFrameForID(KEYRING)
+end
+
+-- EllesmereUI Bags' namespace (nil while that module is off), and whether its
+-- takeover holds Blizzard's other bag frames this session.
+local function BagsModule()
+    return EllesmereUI._ModuleNS and EllesmereUI._ModuleNS.EllesmereUIBags
+end
+local function BagsParked()
+    local bags = BagsModule()
+    return bags ~= nil and bags.BlizzardBagsParked == true
 end
 
 local function SkinItems(f)
@@ -70,15 +83,17 @@ end)
 WSkin.RegisterWindow({
     key = "keyring",
     apply = function()
+        -- Without the Bags module the keyring is never skinned: nothing is hooked.
+        if not BagsModule() then return end
         -- Skinned as it opens and once more a frame later, after Blizzard's
         -- own slot update.
         local repaint = WSkin.Debounce(Skin_Keyring)
         hooksecurefunc("ToggleBag", function(id)
-            if id ~= KEYRING or not KeyringFrame() then return end
+            if id ~= KEYRING or not BagsParked() or not KeyringFrame() then return end
             Skin_Keyring()
             repaint()
         end)
-        if KeyringFrame() then Skin_Keyring() end
+        if BagsParked() and KeyringFrame() then Skin_Keyring() end
     end,
 })
 end  -- Keyring pack do-block

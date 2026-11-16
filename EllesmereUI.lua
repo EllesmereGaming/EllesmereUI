@@ -3534,7 +3534,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.8.6"
+EllesmereUI.VERSION = "9.8.7"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -3705,6 +3705,7 @@ EllesmereUI._RunConflictCheck = function()
             { addon = "SkironCooldownManager",    label = "Skiron Cooldown Manager",    targets = { "EllesmereUICooldownManager" } },
             { addon = "ArcUI",                    label = "ArcUI",                      targets = { "EllesmereUICooldownManager", } },
             { addon = "Ayije_CDM",                label = "Ayije CDM",                  targets = { "EllesmereUICooldownManager", "EllesmereUIResourceBars" } },
+            { addon = "ForeverAuras",             label = "ForeverAuras",               targets = { "EllesmereUICooldownManager" } },
             { addon = "MythicPlusTimer",          label = "Mythic Plus Timer",          targets = { "EllesmereUIMythicTimer" },
               moduleCheck = MPlusTimerOn, message = MPlusTimerMsg("Mythic Plus Timer") },
             { addon = "WarpDeplete",              label = "WarpDeplete",                targets = { "EllesmereUIMythicTimer" },
@@ -4649,11 +4650,12 @@ initFrame:SetScript("OnEvent", function(self, event)
                 end
                 unlockBtn:ClearAllPoints()
                 unlockBtn:SetPoint("TOP", lastBtn, "BOTTOM", 0, showEUI and -4 or -12)
-                extraH = extraH + (showEUI and 40 or 40)
+                extraH = extraH + 40
             end
 
-            -- Push all Blizzard buttons below the anchor down. Order by layoutIndex, not screen
-            -- position: freshly pooled buttons have no valid rect until first rendered.
+            -- Move every Blizzard button laid out after the anchor down. Their order is
+            -- layoutIndex, the key Blizzard's layout sorts by, never a screen position:
+            -- a button has no rect until it has been drawn once.
             local anchorIndex = anchorBtn.layoutIndex
             if anchorIndex then
                 for menuBtn in GameMenuFrame.buttonPool:EnumerateActive() do

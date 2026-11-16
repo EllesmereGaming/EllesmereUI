@@ -15,6 +15,7 @@ local BAGS_DEFAULTS = {
         bagSlotSpacing        = 4,       -- gap between slots
         bagColumns            = 12,
         bagAutoSize           = false,
+        bagAnchorCorner       = true,    -- Anchor to Nearest Corner (the Window Scale cog), bags and bank
         bagCatTitleSize       = 11,
         bagCountFontSize      = 11,
         bagSlotCountFormat    = "used_total",

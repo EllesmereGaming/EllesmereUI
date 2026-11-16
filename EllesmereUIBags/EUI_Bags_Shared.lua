@@ -167,15 +167,15 @@ end
 
 -------------------------------------------------------------------------------
 --  Window spot (bags and bank)
---  Anchor to Nearest Corner (the Auto-Size cog; bagAnchorCorner, off unless
---  set): a window holds the screen corner nearest its center, so when it
---  grows or shrinks with its contents it keeps its margin to that corner's
+--  Anchor to Nearest Corner (the Window Scale cog; bagAnchorCorner, on unless
+--  turned off): a window holds the screen corner nearest its center, so when
+--  it grows or shrinks with its contents it keeps its margin to that corner's
 --  two edges (a window parked bottom-right grows up and left). Such a spot is
 --  saved as { point, relativePoint, x, y, corner = true }. Off: a drag or the
 --  grip pins the window by its top-left corner.
 -------------------------------------------------------------------------------
 function ns.WindowCornerOn()
-    return BP().bagAnchorCorner == true
+    return BP().bagAnchorCorner ~= false
 end
 
 function ns.AnchorWindowToCorner(frame)

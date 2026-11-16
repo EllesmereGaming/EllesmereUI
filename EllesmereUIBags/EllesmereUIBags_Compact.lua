@@ -36,7 +36,7 @@ ns.OnSlotMetrics(function(m)
 end)
 -- The fewest cells a block takes when another block follows it in its band;
 -- a band's last block takes what it needs
-local MID_MIN_CELLS = 3
+local MID_MIN_CELLS = 2
 -- Band height above the label font size; space a label leaves before the next block
 local BAND_PAD, LABEL_PAD = 4, 6
 -- Space between a label band and the icons under it (the labels keep their spot)

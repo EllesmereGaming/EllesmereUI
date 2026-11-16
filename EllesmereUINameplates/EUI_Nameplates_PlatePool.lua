@@ -749,16 +749,17 @@ function ns.RefreshCastBorderColor()
     if ns.GetWrapBorderCastbar() then ns.ApplyBorderWrapToAll() end
 end
 
+-- Height of the rectangle an enemy plate is stacked by: the name, the health bar and the cast
+-- bar, times Stacked Nameplate Spacing.
+function ns.NP_StackHeight()
+    return (4 + GetEnemyNameTextSize() + GetHealthBarHeight() + GetCastBarHeight()) * GetStackSpacingScale() / 100
+end
+
 function ns.RefreshStackingBounds()
-    local scale = GetStackSpacingScale() / 100
-    local barH = GetHealthBarHeight()
-    local castH2 = GetCastBarHeight()
-    local nameGap = 4 + GetEnemyNameTextSize()
-    local totalH = nameGap + barH + castH2
-    local w = GetHealthBarWidth()
+    local w, h = GetHealthBarWidth(), ns.NP_StackHeight()
     for _, plate in pairs(ns.plates) do
         if plate._stackBounds then
-            plate._stackBounds:SetSize(w, totalH * scale)
+            plate._stackBounds:SetSize(w, h)
         end
     end
 end
