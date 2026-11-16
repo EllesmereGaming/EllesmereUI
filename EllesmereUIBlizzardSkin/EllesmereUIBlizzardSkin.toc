@@ -45,6 +45,8 @@ EllesmereUIBlizzardSkin_BagBarForever.lua
 EllesmereUIBlizzardSkin_LegacySystemForever.lua
 # WoW Forever only: the hunter Pet Stable window (PetStableFrame)
 EllesmereUIBlizzardSkin_StableForever.lua
+# WoW Forever only: the keyring window (the container frame showing bag -1)
+EllesmereUIBlizzardSkin_KeyringForever.lua
 EllesmereUIBlizzardSkin_SkinAPI.lua
 
 # Options
