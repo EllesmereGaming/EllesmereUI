@@ -4359,6 +4359,8 @@ initFrame:SetScript("OnEvent", function(self)
             pf.timerText:SetPoint(pt, pf.bar, pt, xb + (cb.timerX or 0), (cb.timerY or 0) + timerNudge)
             -- Preview total cast time is 3.0s; mirror the live "elapsed / total" mode.
             if cb.showTotalDuration then
+                -- The wider "x / y" string pushes the spell name, as live.
+                cbTimerW = math.max(cbTimerW, EllesmereUI.MeasureCastText(pf.timerText, "3.0 / 3.0") + 6)
                 pf.timerText:SetText(string.format("%.1f / %.1f", 3.0 * _castBarPreviewFill, 3.0))
             else
                 pf.timerText:SetText(string.format("%.1f", 3.0 * (1 - _castBarPreviewFill)))

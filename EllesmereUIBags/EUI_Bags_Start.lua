@@ -25,6 +25,18 @@ local GetArmorySlotBucket, IsArmoryGearCategory = I.GetArmorySlotBucket, I.IsArm
 local IsGearOnlyGroup, itemSlots = I.IsGearOnlyGroup, I.itemSlots
 local MergeDuplicates, PreCacheSortFields = I.MergeDuplicates, I.PreCacheSortFields
 local RegisterPawnIntegration, SetItemPanelOpen = I.RegisterPawnIntegration, I.SetItemPanelOpen
+local _openItemPanels = I._openItemPanels
+
+-- New Items Only: a trade's items can land just after its window closes, and
+-- the game ties no event to that delivery. So a rise within this many seconds
+-- of a trade window's close still counts as a trade arrival. The stamp is set
+-- at TRADE_CLOSED while the option is on and runs out by itself (a cancelled
+-- trade's too).
+local TRADE_GRACE = 2
+local tradeClosedAt
+local function TradeJustClosed()
+    return tradeClosedAt ~= nil and GetTime() - tradeClosedAt <= TRADE_GRACE
+end
 local UpdatePawnArrow, VisualSortCompare = I.UpdatePawnArrow, I.VisualSortCompare
 local CreateHeader, CreateFooter = I.CreateHeader, I.CreateFooter
 local CreateReagentBagUI, GoldLedger = I.CreateReagentBagUI, I.GoldLedger
@@ -76,7 +88,7 @@ local function StartAddon()
 
     GoldLedger.Register("bags", OnGoldChanged)
 
-    -- Position: default 50px from bottom-left, saved position overrides
+    -- Position: default 50px from the bottom-right corner; a saved spot overrides it
     if BP().bagsPosition then
         local pos = BP().bagsPosition
         EUI_Bags:SetPoint(pos.point, UIParent, pos.relativePoint, pos.x, pos.y)
@@ -100,14 +112,7 @@ local function StartAddon()
         if not IsMouseButtonDown("LeftButton") then
             _bagDragging = false
             self:Hide()
-            local left, top = EUI_Bags:GetLeft(), EUI_Bags:GetTop()
-            if left and top then
-                local PP = EUI and EUI.PP
-                if PP and PP.Snap then left = PP.Snap(left); top = PP.Snap(top) end
-                BP().bagsPosition = { point = "TOPLEFT", relativePoint = "BOTTOMLEFT", x = left, y = top }
-                EUI_Bags:ClearAllPoints()
-                EUI_Bags:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-            end
+            ns.SaveWindowPos(EUI_Bags, "bagsPosition")
             return
         end
         local cx, cy = GetCursorPosition()
@@ -138,14 +143,7 @@ local function StartAddon()
         if button == "LeftButton" and _bagDragging then
             _bagDragging = false
             _bagDragFrame:Hide()
-            local left, top = EUI_Bags:GetLeft(), EUI_Bags:GetTop()
-            if left and top then
-                local PP = EUI and EUI.PP
-                if PP and PP.Snap then left = PP.Snap(left); top = PP.Snap(top) end
-                BP().bagsPosition = { point = "TOPLEFT", relativePoint = "BOTTOMLEFT", x = left, y = top }
-                EUI_Bags:ClearAllPoints()
-                EUI_Bags:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-            end
+            ns.SaveWindowPos(EUI_Bags, "bagsPosition")
         end
     end)
 
@@ -171,6 +169,7 @@ local function StartAddon()
     EUI_Bags:HookScript("OnShow", function(self)
         self:Raise()
         self:RepinIconLevels()
+        ns.SettleWindowPos(self, "bagsPosition")
         PlaySound(SOUNDKIT.IG_BACKPACK_OPEN)
         -- Repaint if the unmerge state changed while hidden: the flag-flip refresh is gated on
         -- IsVisible, and closing a mailbox hides bags in the same breath so that repaint is thrown away (costs one boolean compare when already matching).
@@ -690,7 +689,11 @@ local function StartAddon()
         for _, itemID in ipairs(order) do
             local count = counts[itemID]
             local known = _knownItemCounts[itemID] or 0
-            if count > known then
+            -- New Items Only: more of a stackable item already carried does not
+            -- flag. Gear (max stack 1) and mail or trade arrivals still do.
+            if count > known and (not BP().bagRecentNewOnly or known == 0 or atMail
+                or _openItemPanels.trade or TradeJustClosed()
+                or (C_Item.GetItemMaxStackSizeByID(itemID) or 0) == 1) then
                 -- New, or more of a listed item: either way it is the newest now
                 local recent, ro = EUI_Bags._recentItems, EUI_Bags._recentOrder
                 if recent[itemID] then
@@ -765,6 +768,38 @@ local function StartAddon()
         C_Timer.After(0.1, FireRefresh)
     end
 
+    -- Cooldown-only repaint of the shown item buttons, once per frame at most.
+    -- Each button keeps the cooldown it was last painted with (_cdS / _cdD, set
+    -- by the full refresh too): an item shown twice, in Pinned or Recent Items
+    -- and in its category, is two buttons over one slot data table.
+    local cooldownQueued = false
+    local function PaintCooldownPool(pool)
+        for _, btn in pairs(pool) do
+            if btn._cdItem and btn.Cooldown and btn:IsVisible() then
+                local start, duration, enable = C_Container.GetContainerItemCooldown(btn:GetParent():GetID(), btn:GetID())
+                if not (enable and enable ~= 0 and start > 0 and duration > 0) then
+                    start, duration = nil, nil
+                end
+                if start ~= btn._cdS or duration ~= btn._cdD then
+                    btn._cdS, btn._cdD = start, duration
+                    -- A list row shows a cooldown only on its icon column.
+                    if start and (not btn._lvIcon or btn._lvIcon:IsShown()) then
+                        if not btn._lvIcon then btn.Cooldown:SetDrawEdge(true) end
+                        btn.Cooldown:SetCooldown(start, duration)
+                    else
+                        btn.Cooldown:Clear()
+                    end
+                end
+            end
+        end
+    end
+    local function PaintCooldowns()
+        cooldownQueued = false
+        if not EUI_Bags:IsVisible() then return end
+        PaintCooldownPool(itemSlots)
+        if ns.ListRows then PaintCooldownPool(ns.ListRows) end
+    end
+
     EUI_Bags:RegisterEvent("BAG_UPDATE")
     -- Equipping / unequipping a bag: its BAG_UPDATE can land before the slot
     -- counts change; BAG_UPDATE_DELAYED fires once the whole batch settles
@@ -788,6 +823,9 @@ local function StartAddon()
     EUI_Bags:RegisterEvent("GOSSIP_CLOSED")
     -- A skill rank change can flip an item's unusable tint (BagsItemUnusable)
     EUI_Bags:RegisterEvent("SKILL_LINES_CHANGED")
+    -- Using an item that is not consumed changes no slot, so only this event
+    -- reports its cooldown. Listened to while the bags show.
+    EUI_Bags:HookScript("OnShow", function(self) self:RegisterEvent("BAG_UPDATE_COOLDOWN") end)
     -- Set created/renamed/deleted: rebuild split categories / refresh name labels.
     -- Registered only while a set feature is on: zero event cost when disabled
     -- (merged-mode routing stays correct without it -- the lookup rebuilds per
@@ -973,6 +1011,9 @@ local function StartAddon()
         end
         local panel = ITEM_PANEL_EVENTS[event]
         if panel then
+            if event == "TRADE_CLOSED" and BP().bagRecentNewOnly == true then
+                tradeClosedAt = GetTime()
+            end
             -- Tracked even while bags are hidden: the panel that opens them (OpenAllBags) can fire in either order with this event.
             if SetItemPanelOpen(panel[1], panel[2]) and EUI_Bags:IsVisible() then
                 EUI_Bags:RefreshInventory()
@@ -1022,12 +1063,18 @@ local function StartAddon()
             if not EUI_Bags.refreshEnabled then return end
             if EUI_Bags._unlockSort then EUI_Bags._unlockSort() end
             ScheduleRefresh()
+        elseif event == "BAG_UPDATE_COOLDOWN" then
+            if not cooldownQueued then
+                cooldownQueued = true
+                C_Timer.After(0, PaintCooldowns)
+            end
         elseif event == "CURRENCY_DISPLAY_UPDATE" then
             SyncBagFrameToFooter()
         end
     end)
 
     EUI_Bags:HookScript("OnHide", function()
+        EUI_Bags:UnregisterEvent("BAG_UPDATE_COOLDOWN")
         EUI_BagsWindow:Hide()
         -- Controller cursor: the carried-item watch lives only while the bags are open.
         local watch = EUI_Bags._padCursorWatch

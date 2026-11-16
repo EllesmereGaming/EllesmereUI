@@ -97,56 +97,58 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
     local refreshTargetBorderSwatch  -- fwd decl; assigned when the swatch builds
     local refreshTargetGlowSwatch    -- fwd decl; assigned when the glow swatch builds
     local refreshTargetHighlightCog  -- fwd decl; assigned when the cog builds
-    if not EllesmereUI._prebuilding then
+    do
         local leftRgn = targetGlowRow._leftRegion
-        if leftRgn._control then leftRgn._control:Hide() end
         -- The WoW Forever style offers Highlight alone: the other three are
         -- locked there (their getters read off, so they draw nothing).
         local function fvLocked() return EllesmereUI.BlizzStyle.Forever("nameplates") end
         local function fvTip() return EllesmereUI.L("Not available in the WoW Forever style.") end
-        local glowItems = {
-            { key = "ellesmereui", label = "EUI Glow", lockedFn = fvLocked, lockedTooltip = fvTip },
-            { key = "borderColor", label = "Border Color", lockedFn = fvLocked, lockedTooltip = fvTip },
-            { key = "highlight",   label = "Highlight" },
-            { key = "borderSize",  label = "Border Size",
-              tooltip = "Change Size in the Cogwheel", lockedFn = fvLocked, lockedTooltip = fvTip },
-        }
-        local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-            leftRgn, 170, leftRgn:GetFrameLevel() + 2,
-            glowItems,
-            function(k)
-                if k == "ellesmereui" then return ns.GetTargetGlowEllesmereUI() end
-                if k == "borderColor" then return ns.GetTargetGlowBorderColor() end
-                if k == "highlight"   then return ns.GetTargetGlowHighlight() end
-                if k == "borderSize"  then return ns.GetTargetGlowBorderSize() end
-                return false
-            end,
-            function(k, v)
-                if k == "ellesmereui" then DB().targetGlowEllesmereUI = v
-                elseif k == "borderColor" then DB().targetGlowBorderColor = v
-                elseif k == "highlight" then DB().targetGlowHighlight = v
-                elseif k == "borderSize" then
-                    DB().targetGlowBorderSize = v
-                    -- First-enable snapshot: seed the cog slider with the user's CURRENT border size, so enabling changes nothing until they move it (one-time, never re-snapshots later).
-                    if v and DB().targetBorderSizeValue == nil then
-                        if ns.IsCustomBorderEnabled() then
-                            DB().targetBorderSizeValue = DBVal("customBorderSize") or defaults.customBorderSize
-                        else
-                            DB().targetBorderSizeValue = DBVal("borderSize") or defaults.borderSize
+        if not EllesmereUI._prebuilding then
+            if leftRgn._control then leftRgn._control:Hide() end
+            local glowItems = {
+                { key = "ellesmereui", label = "EUI Glow", lockedFn = fvLocked, lockedTooltip = fvTip },
+                { key = "borderColor", label = "Border Color", lockedFn = fvLocked, lockedTooltip = fvTip },
+                { key = "highlight",   label = "Highlight" },
+                { key = "borderSize",  label = "Border Size",
+                  tooltip = "Change Size in the Cogwheel", lockedFn = fvLocked, lockedTooltip = fvTip },
+            }
+            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                leftRgn, 170, leftRgn:GetFrameLevel() + 2,
+                glowItems,
+                function(k)
+                    if k == "ellesmereui" then return ns.GetTargetGlowEllesmereUI() end
+                    if k == "borderColor" then return ns.GetTargetGlowBorderColor() end
+                    if k == "highlight"   then return ns.GetTargetGlowHighlight() end
+                    if k == "borderSize"  then return ns.GetTargetGlowBorderSize() end
+                    return false
+                end,
+                function(k, v)
+                    if k == "ellesmereui" then DB().targetGlowEllesmereUI = v
+                    elseif k == "borderColor" then DB().targetGlowBorderColor = v
+                    elseif k == "highlight" then DB().targetGlowHighlight = v
+                    elseif k == "borderSize" then
+                        DB().targetGlowBorderSize = v
+                        -- First-enable snapshot: seed the cog slider with the user's CURRENT border size, so enabling changes nothing until they move it (one-time, never re-snapshots later).
+                        if v and DB().targetBorderSizeValue == nil then
+                            if ns.IsCustomBorderEnabled() then
+                                DB().targetBorderSizeValue = DBVal("customBorderSize") or defaults.customBorderSize
+                            else
+                                DB().targetBorderSizeValue = DBVal("borderSize") or defaults.borderSize
+                            end
                         end
                     end
-                end
-                for _, plate in pairs(plates) do plate:ApplyTarget() end
-                for _, fp in pairs(ns.friendlyPlates) do fp:ApplyTarget() end
-                UpdatePreview()
-                if refreshTargetBorderSwatch then refreshTargetBorderSwatch() end
-                if refreshTargetGlowSwatch then refreshTargetGlowSwatch() end
-                if refreshTargetHighlightCog then refreshTargetHighlightCog() end
-            end)
-        PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
-        leftRgn._control = cbDD
-        leftRgn._lastInline = nil
-        EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+                    for _, plate in pairs(plates) do plate:ApplyTarget() end
+                    for _, fp in pairs(ns.friendlyPlates) do fp:ApplyTarget() end
+                    UpdatePreview()
+                    if refreshTargetBorderSwatch then refreshTargetBorderSwatch() end
+                    if refreshTargetGlowSwatch then refreshTargetGlowSwatch() end
+                    if refreshTargetHighlightCog then refreshTargetHighlightCog() end
+                end)
+            PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
+            leftRgn._control = cbDD
+            leftRgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+        end
 
         -- Inline cog "More Effects": Highlight color/opacity + Glow opacity; enabled when Highlight OR EUI Glow is on (Glow Opacity reachable whenever the glow is active).
         do
@@ -208,49 +210,51 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
             refreshTargetHighlightCog = highlightCogBtn and highlightCogBtn._euiCogState
         end
 
-        -- Inline Border Color swatch: edits targetBorderColor (default white), tints the custom border; dimmed+non-interactive unless Border Color is checked.
-        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
-            function() local c = ns.GetTargetBorderColor(); return c.r, c.g, c.b end,
-            function(r, g, b)
-                DB().targetBorderColor = { r = r, g = g, b = b }
-                for _, plate in pairs(plates) do plate:ApplyTarget() end
-                for _, fp in pairs(ns.friendlyPlates) do fp:ApplyTarget() end
-                UpdatePreview()
-            end, nil, 20)
-        PP.Point(swatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
-        leftRgn._lastInline = swatch
-        -- Tooltip so the swatch's purpose is clear (shown while interactive, i.e. Border Color on).
-        swatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, "Border Color") end)
-        swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        refreshTargetBorderSwatch = function()
-            local off = not ns.GetTargetGlowBorderColor()
-            swatch:SetAlpha(off and 0.15 or 1)
-            swatch:EnableMouse(not off)
-            updateSwatch()
-        end
-        EllesmereUI.RegisterWidgetRefresh(refreshTargetBorderSwatch)
-        refreshTargetBorderSwatch()
+        if not EllesmereUI._prebuilding then
+            -- Inline Border Color swatch: edits targetBorderColor (default white), tints the custom border; dimmed+non-interactive unless Border Color is checked.
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
+                function() local c = ns.GetTargetBorderColor(); return c.r, c.g, c.b end,
+                function(r, g, b)
+                    DB().targetBorderColor = { r = r, g = g, b = b }
+                    for _, plate in pairs(plates) do plate:ApplyTarget() end
+                    for _, fp in pairs(ns.friendlyPlates) do fp:ApplyTarget() end
+                    UpdatePreview()
+                end, nil, 20)
+            PP.Point(swatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+            leftRgn._lastInline = swatch
+            -- Tooltip so the swatch's purpose is clear (shown while interactive, i.e. Border Color on).
+            swatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, "Border Color") end)
+            swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            refreshTargetBorderSwatch = function()
+                local off = not ns.GetTargetGlowBorderColor()
+                swatch:SetAlpha(off and 0.15 or 1)
+                swatch:EnableMouse(not off)
+                updateSwatch()
+            end
+            EllesmereUI.RegisterWidgetRefresh(refreshTargetBorderSwatch)
+            refreshTargetBorderSwatch()
 
-        -- Inline Glow Color swatch: edits targetGlowColor (default the signature blue), tints the EUI background glow; dimmed+non-interactive unless EUI Glow is checked.
-        local glowSwatch, updateGlowSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
-            function() local c = ns.GetTargetGlowColor(); return c.r, c.g, c.b end,
-            function(r, g, b)
-                DB().targetGlowColor = { r = r, g = g, b = b }
-                for _, plate in pairs(plates) do plate:ApplyTarget() end
-                UpdatePreview()
-            end, nil, 20)
-        PP.Point(glowSwatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
-        leftRgn._lastInline = glowSwatch
-        glowSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(glowSwatch, "Glow Color") end)
-        glowSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        refreshTargetGlowSwatch = function()
-            local off = not ns.GetTargetGlowEllesmereUI()
-            glowSwatch:SetAlpha(off and 0.15 or 1)
-            glowSwatch:EnableMouse(not off)
-            updateGlowSwatch()
+            -- Inline Glow Color swatch: edits targetGlowColor (default the signature blue), tints the EUI background glow; dimmed+non-interactive unless EUI Glow is checked.
+            local glowSwatch, updateGlowSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
+                function() local c = ns.GetTargetGlowColor(); return c.r, c.g, c.b end,
+                function(r, g, b)
+                    DB().targetGlowColor = { r = r, g = g, b = b }
+                    for _, plate in pairs(plates) do plate:ApplyTarget() end
+                    UpdatePreview()
+                end, nil, 20)
+            PP.Point(glowSwatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+            leftRgn._lastInline = glowSwatch
+            glowSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(glowSwatch, "Glow Color") end)
+            glowSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            refreshTargetGlowSwatch = function()
+                local off = not ns.GetTargetGlowEllesmereUI()
+                glowSwatch:SetAlpha(off and 0.15 or 1)
+                glowSwatch:EnableMouse(not off)
+                updateGlowSwatch()
+            end
+            EllesmereUI.RegisterWidgetRefresh(refreshTargetGlowSwatch)
+            refreshTargetGlowSwatch()
         end
-        EllesmereUI.RegisterWidgetRefresh(refreshTargetGlowSwatch)
-        refreshTargetGlowSwatch()
     end
 
     -- Inline cog (arrow scale), beside the control; the swatches sit left of it
@@ -427,7 +431,7 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
     end
 
     -- Inline Target Texture cog (Opacity + No Tint), beside the control; the swatch sits left of it
-    if not EllesmereUI._prebuilding then
+    do
         local rightRgn = targetColorRow._rightRegion
         EllesmereUI.BuildInlineCog(rightRgn, {
             disabled = isTargetTextureNone,
@@ -533,7 +537,7 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
     end
     -- Inline cog on Non-Target Opacity: the focus exemption, which Out of Combat
     -- Opacity (Extras) reads too, and the casting one.
-    if not EllesmereUI._prebuilding then
+    do
         local function ntOff()
             return (DBVal("nonTargetAlpha") or 100) >= 100 and (DBVal("outOfCombatAlpha") or 100) >= 100
         end
@@ -638,7 +642,7 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
         swatch:EnableMouse(not hashLineOff())
     end
     -- RESIZE cog: text size + X/Y offsets (mirrors the raid-marker cog), beside the toggle
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = tfRangeRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = tfRangeOff,
@@ -798,7 +802,7 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
     end
 
     -- Inline Focus Texture cog (Opacity + No Tint), beside the control; the swatch sits left of it
-    if not EllesmereUI._prebuilding then
+    do
         local rightRgn = focusColorRow._rightRegion
         EllesmereUI.BuildInlineCog(rightRgn, {
             disabled = isFocusTextureNone,
@@ -922,7 +926,7 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
         end
     end
 
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = tfFocusRow._rightRegion
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = focusLetterOff,
@@ -1010,15 +1014,15 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
               values={ __placeholder = "..." }, order={ "__placeholder" },
               getValue=ChecklistReads("hoverGlowEllesmereUI", "hoverGlowBorderColor", "hoverGlowHighlight", "hoverGlowBorderSize"),
               setValue=function() end });  y = y - h
-        if not EllesmereUI._prebuilding then
         -- Hover Effect: the Target Effect channels on mouseover. Highlight is
         -- the only default-on channel and rides the hoverColor/hoverAlpha
         -- keys; the other channels are opt-in.
         local rightRgn = hoverRow._rightRegion
-        if rightRgn._control then rightRgn._control:Hide() end
         local refreshHoverBorderSwatch
         local refreshHoverGlowSwatch
         local refreshHoverCog
+        if not EllesmereUI._prebuilding then
+        if rightRgn._control then rightRgn._control:Hide() end
         local hoverItems = {
             { key = "ellesmereui", label = "EUI Glow" },
             { key = "borderColor", label = "Border Color" },
@@ -1063,6 +1067,7 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
         rightRgn._control = hvDD
         rightRgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(hvDDRefresh)
+        end
 
         -- Inline cog "More Effects": Highlight color/opacity (the legacy
         -- hoverColor/hoverAlpha keys) + Glow Opacity + Border Size.
@@ -1123,6 +1128,7 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
             refreshHoverCog = hoverCogBtn and hoverCogBtn._euiCogState
         end
 
+        if not EllesmereUI._prebuilding then
         -- Inline Border Color swatch: dimmed unless Border Color is checked.
         local hvBSwatch, hvUpdateBSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
             function() local c = ns.GetHoverBorderColor(); return c.r, c.g, c.b end,
@@ -1164,6 +1170,7 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
         end
         EllesmereUI.RegisterWidgetRefresh(refreshHoverGlowSwatch)
         refreshHoverGlowSwatch()
+        end
 
         -- Inline Hover Texture cog (Full alpha on empty part of bar), left of the dropdown; disabled while set to None.
         local leftRgn = hoverRow._leftRegion
@@ -1188,7 +1195,6 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
                   end },
             },
         })
-        end -- not EllesmereUI._prebuilding
     end
 
     -- The search pre-build indexes rows only: the click navigation below sits on

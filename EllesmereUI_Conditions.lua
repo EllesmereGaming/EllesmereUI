@@ -18,6 +18,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --                   Location-independent, so it applies inside AND outside
 --                   instances; below keybind and gamepad (explicit actions
 --                   still win).
+--    3b. specgroup -- WoW Forever only: primary / secondary spec group
+--                   (C_SpecializationInfo.GetActiveSpecGroup 1 / 2).
+--                   Location-independent, so below Dark Mode and above
+--                   instance. Never on retail.
 --    4. instance -- dungeon / raid / arena / battleground. Naturally mutually
 --                   exclusive (the client reports one instance type). First
 --                   group in creation order that checks the current type.
@@ -48,6 +52,18 @@ local function DarkModeMasterOn()
     return (EllesmereUI.IsDarkModeAllOn(_dmMainFilter)) or false
 end
 
+-- WoW Forever spec group: 1 primary, 2 secondary; nil elsewhere.
+local function ActiveSpecGroup()
+    if EllesmereUI.IS_FOREVER ~= true then return nil end
+    local f = C_SpecializationInfo and C_SpecializationInfo.GetActiveSpecGroup
+    return f and f() or nil
+end
+
+-- Dual spec learned (GetNumSpecGroups returns 2).
+local function HasDualSpec()
+    return (GetNumSpecGroups and GetNumSpecGroups() == 2) or false
+end
+
 EllesmereUI.CONDITIONS = {
     { id = "keybind",      label = "Keybind (out of combat)" },
     { id = "party",        label = "Party (in a group, not a raid)" },
@@ -73,7 +89,14 @@ EllesmereUI.CONDITIONS = {
 if EllesmereUI.IS_FOREVER == true then
     EllesmereUI.CONDITIONS[#EllesmereUI.CONDITIONS + 1] = { id = "gamepad", label = "Gamepad Mode",
         tooltip = "Active while WoW's gamepad interface is on." }
+    EllesmereUI.CONDITIONS[#EllesmereUI.CONDITIONS + 1] = { id = "primaryspec", label = "Primary Spec",
+        tooltip = "Active while your primary spec is active." }
+    EllesmereUI.CONDITIONS[#EllesmereUI.CONDITIONS + 1] = { id = "secondaryspec", label = "Secondary Spec",
+        requires = HasDualSpec,
+        tooltip = "Active while your secondary spec is active.",
+        requiresHint = "Learn Dual Specialization to use this condition." }
 end
+local SPEC_GROUP_COND = { [1] = "primaryspec", [2] = "secondaryspec" }
 
 local INSTANCE_COND = {
     party = "dungeon",
@@ -170,6 +193,13 @@ function EllesmereUI.Conditions_ActiveGroup()
     if DarkModeMasterOn() then
         for _, g in ipairs(groups) do
             if g.conds and g.conds.darkmode then return g end
+        end
+    end
+    -- Tier 3b: WoW Forever spec group (nil on retail).
+    local sg = SPEC_GROUP_COND[ActiveSpecGroup() or 0]
+    if sg then
+        for _, g in ipairs(groups) do
+            if g.conds and g.conds[sg] then return g end
         end
     end
     -- Tier 4: instance type (client reports exactly one).
@@ -375,7 +405,8 @@ end
 
 -------------------------------------------------------------------------------
 --  Events. GROUP_ROSTER_UPDATE drives party and solo; PEW/zone drive instance flips;
---  the interface-style transition (WoW Forever) drives Gamepad Mode flips; regen
+--  the interface-style transition (WoW Forever) drives Gamepad Mode flips;
+--  ACTIVE_TALENT_GROUP_CHANGED (WoW Forever) drives spec group flips; regen
 --  drains combat-deferred rechecks. Registration order matters for the
 --  regen drain: this file loads after EllesmereUI_Profiles.lua, so the spec
 --  pipeline's regen branch runs first and our recompute sees settled state.
@@ -392,6 +423,12 @@ if EllesmereUI.IS_FOREVER == true
    and not (C_EventUtils and C_EventUtils.IsEventValid
             and not C_EventUtils.IsEventValid("INPUT_DEVICE_INTERFACE_TRANSITION")) then
     evFrame:RegisterEvent("INPUT_DEVICE_INTERFACE_TRANSITION")
+end
+-- Spec group swap (WoW Forever) drives Primary / Secondary Spec flips.
+if EllesmereUI.IS_FOREVER == true
+   and not (C_EventUtils and C_EventUtils.IsEventValid
+            and not C_EventUtils.IsEventValid("ACTIVE_TALENT_GROUP_CHANGED")) then
+    evFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 end
 evFrame:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_REGEN_ENABLED" then

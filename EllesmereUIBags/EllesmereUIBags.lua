@@ -11,7 +11,7 @@ EUI_Bags = CreateFrame("Frame", "EUI_MainBagFrame", UIParent)
 EUI_Bags:SetToplevel(true)
 EUI_Bags:Hide()
 -- Auto-size state: reset on close (next open sizes from its first/active tab);
--- while open it only grows, never shrinks.
+-- while open it only grows, and shrinks too with Auto-Size's Shrink on.
 EUI_Bags:HookScript("OnHide", function(self)
     -- WoW Forever and the Compact display size every open to its content: a hidden UI (Alt-Z) is not a close, keep the size.
     if (EllesmereUI.IS_FOREVER or EUI_Bags.IsCompactMode()) and self:IsShown() then return end
@@ -119,7 +119,10 @@ end
 -- family. Like the reagent bag they get their own category and sections and
 -- stay out of Main Bags, the header count, OneBag's sort, Auto Split and drop
 -- placement. nil on retail or with none equipped; the next call reuses the
--- set, so read it right away.
+-- set, so read it right away. Such a bag in the fifth slot (bag 5) is not in
+-- the set: it keeps the reagent bag's section, sort and split paths, and only
+-- the header count leaves it out, by the tally's own family read
+-- (EUI_Bags:RefreshInventory).
 do
     local special = {}
     function ns.SpecialBags()
@@ -329,6 +332,23 @@ end
 -- grip-set width), so a value saved under another display stays off there
 function EUI_Bags.AutoSizeOn()
     return BP().bagAutoSize == true and not EUI_Bags.IsListMode()
+end
+-- Auto-Size's height cap in the bag window's own scale: the Max Height share of
+-- the screen (Auto-Size cog, bagAutoSizeMaxPct), 95% when unset or screenOnly.
+-- The second return is true when the player's Max Height applies, so it also
+-- wins over the normal-size floor.
+function EUI_Bags.AutoSizeMaxH(screenOnly)
+    local sc = EUI_Bags:GetScale(); if not sc or sc <= 0 then sc = 1 end
+    local pct = not screenOnly and BP().bagAutoSizeMaxPct or nil
+    return (UIParent:GetHeight() / sc) * (pct or 95) / 100, pct ~= nil
+end
+-- Auto-Size's Shrink (its cog): the window follows the active tab down as well
+-- as up while open. Off: columns and height keep their running max until close.
+-- Takes the new size and the running max (nil before the first refresh). WoW
+-- Forever's content fit without Auto-Size stays grow-only.
+function EUI_Bags.AutoSizeNext(size, runningMax)
+    if not runningMax or (BP().bagAutoSizeShrink == true and EUI_Bags.AutoSizeOn()) then return size end
+    return math.max(runningMax, size)
 end
 
 local function ApplyBagScale()

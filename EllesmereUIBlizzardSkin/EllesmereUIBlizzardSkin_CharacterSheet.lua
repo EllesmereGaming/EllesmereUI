@@ -92,6 +92,10 @@ local function FormatDurabilityText(pct, showLabel)
     end
     return pct .. "%"
 end
+-- Shared with the Forever sheet.
+ns.GetDurabilityPercent = GetDurabilityPercent
+ns.GetDurabilityTextColor = GetDurabilityTextColor
+ns.FormatDurabilityText = FormatDurabilityText
 
 -- "gear" = the 16 slots with ilvl/enchants/sockets.
 -- "all"  = gear + shirt + tabard (cosmetic), for full-character loops.

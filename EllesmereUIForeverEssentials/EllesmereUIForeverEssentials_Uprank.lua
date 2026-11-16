@@ -15,7 +15,8 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  check after login and when the option is turned on, otherwise just the
 --  spells LEARNED_SPELL_IN_SKILL_LINE names; the pet's spellbook (a few slots)
 --  on SPELLS_CHANGED (the only event a pet learning a rank fires), UNIT_PET and
---  PET_BAR_UPDATE. The 180 action slots are walked only when a rank went up.
+--  PET_BAR_UPDATE. The 180 action slots and the Gamepad interface style's own
+--  are walked only when a rank went up.
 -------------------------------------------------------------------------------
 local _, module = ...
 
@@ -137,31 +138,44 @@ end
 -- A pet keeps only its highest rank, so any other rank of its spell is an old
 -- one. A bar spell the player knows is the player's (a lower rank still reads
 -- known); a pet spell reads unknown.
+-- Upper bound for the walk below, well past the gamepad storage range.
+local MAX_GAMEPAD_SLOTS = 1000
+
+local function SwapSlot(action, hasPlayer, hasPet)
+    local kind, id = GetActionInfo(action)
+    id = kind == "spell" and Plain(id)
+    local name = id and C_Spell.GetSpellName(id)
+    if name then
+        local petNew = hasPet and pending.pet[name] and petTop[name]
+        local playerNew = hasPlayer and pending.player[name] and playerTop[name]
+        if petNew and petNew ~= id and not C_SpellBook.IsSpellKnown(id) then
+            C_SpellBook.PickupSpellBookItem(petSlots[petNew], PET)
+            PlaceAction(action)
+            ClearCursor()
+            counts[petNew] = (counts[petNew] or 0) + 1
+        elseif playerNew and playerNew ~= id and C_SpellBook.IsSpellKnown(id) then
+            C_Spell.PickupSpell(playerNew)
+            PlaceAction(action)
+            ClearCursor()
+            counts[playerNew] = (counts[playerNew] or 0) + 1
+        end
+    end
+end
+
 local function UprankPending()
     local hasPlayer = next(pending.player) ~= nil
     local hasPet = next(pending.pet) ~= nil and ReadPetTop()
     if hasPlayer then ReadPlayerTop() end
     wipe(counts)
 
-    for action = 1, MAX_ACTION_SLOT do
-        local kind, id = GetActionInfo(action)
-        id = kind == "spell" and Plain(id)
-        local name = id and C_Spell.GetSpellName(id)
-        if name then
-            local petNew = hasPet and pending.pet[name] and petTop[name]
-            local playerNew = hasPlayer and pending.player[name] and playerTop[name]
-            if petNew and petNew ~= id and not C_SpellBook.IsSpellKnown(id) then
-                C_SpellBook.PickupSpellBookItem(petSlots[petNew], PET)
-                PlaceAction(action)
-                ClearCursor()
-                counts[petNew] = (counts[petNew] or 0) + 1
-            elseif playerNew and playerNew ~= id and C_SpellBook.IsSpellKnown(id) then
-                C_Spell.PickupSpell(playerNew)
-                PlaceAction(action)
-                ClearCursor()
-                counts[playerNew] = (counts[playerNew] or 0) + 1
-            end
-        end
+    for action = 1, MAX_ACTION_SLOT do SwapSlot(action, hasPlayer, hasPet) end
+    -- The Gamepad interface style's bars keep their actions in slots of their own.
+    local gamepad = C_GamepadUI
+    local action = gamepad and gamepad.GetFirstGamepadActionStorageSlotIndex()
+    local last = action and action + MAX_GAMEPAD_SLOTS - 1
+    while action and action <= last and gamepad.IsValidGamepadActionStorageSlotIndex(action) do
+        SwapSlot(action, hasPlayer, hasPet)
+        action = action + 1
     end
 
     wipe(pending.player)

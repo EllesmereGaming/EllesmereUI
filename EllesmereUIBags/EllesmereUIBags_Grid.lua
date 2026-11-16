@@ -175,6 +175,10 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
 
     btn:SetID(data.slot or 0)
     parent:SetID(data.bag or 0)
+    -- For the cooldown-only pass: whether the button holds an item, and the
+    -- cooldown the block below paints it with.
+    btn._cdItem = data.info and true or nil
+    btn._cdS, btn._cdD = data._cdStart, data._cdDuration
 
     -- Always clear overlays upfront (pooled buttons carry stale state from prior items)
     if btn.ProfessionQualityOverlay then

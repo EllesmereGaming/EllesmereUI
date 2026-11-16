@@ -116,7 +116,7 @@ local function BuildDisplayBars(parent, y, ctx)
     local showCastIconRow = castBarHeightRow
 
     -- Inline cog on Spell Icon (right region) for Scale
-    if not EllesmereUI._prebuilding then
+    do
         local rightRgn = castBarHeightRow._rightRegion
         EllesmereUI.BuildInlineCog(rightRgn, {
             anchorTo = rightRgn._control,
@@ -328,7 +328,7 @@ local function BuildDisplayBars(parent, y, ctx)
             ns.NP_RelayoutCastBars()
             UpdatePreview()
           end });  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         local leftRgn = castTimerRow._leftRegion
         local ctColorGet = function()
             local c = (DB() and DB().castTimerColor) or defaults.castTimerColor
@@ -359,10 +359,12 @@ local function BuildDisplayBars(parent, y, ctx)
                 })
             end,
         })
-        local ctSwatch, ctUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, ctColorGet, ctColorSet, nil, 20)
-        PP.Point(ctSwatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
-        leftRgn._lastInline = ctSwatch
-        EllesmereUI.RegisterWidgetRefresh(function() ctUpdateSwatch() end)
+        if not EllesmereUI._prebuilding then
+            local ctSwatch, ctUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, ctColorGet, ctColorSet, nil, 20)
+            PP.Point(ctSwatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+            leftRgn._lastInline = ctSwatch
+            EllesmereUI.RegisterWidgetRefresh(function() ctUpdateSwatch() end)
+        end
 
         -- Inline cog on Cast Bar Y Offset (right region) for X Offset. The offset stands
         -- down only while the wrap can draw: with no border to wrap (a stock style, Border
@@ -500,7 +502,7 @@ local function BuildDisplayBars(parent, y, ctx)
     end
 
     -- Inline cog beside the Cast Color swatches: Show Shield Icon
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = castColorRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             tip = "Cast Color Settings",
@@ -578,24 +580,22 @@ local function BuildDisplayBars(parent, y, ctx)
             GO.DropdownSpec(npCastTargetGlowDesc, "Cast Targets You Glow",
                 "Show a glow on the cast bar when the enemy's cast is targeting you."));  y = y - h
 
-        if not EllesmereUI._prebuilding then
-            -- Icon-sized preview in each inline chain; -12: the widest FlipBook
-            -- styles overhang ~8px per side.
-            local function AttachGlow(rgn, desc)
-                GO.AttachInline(rgn, desc)
-                local pv = GO.BuildPreview(rgn, desc, {
-                    bar = false, width = 26, height = 26,
-                    icon = function() return displayCastIcons[optState._previewCastIconIdx or 1] end,
-                    anchor = rgn._lastInline, x = -12,
-                })
-                if pv then
-                    pv:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                    rgn._lastInline = pv
-                end
+        -- Icon-sized preview in each inline chain; -12: the widest FlipBook
+        -- styles overhang ~8px per side.
+        local function AttachGlow(rgn, desc)
+            GO.AttachInline(rgn, desc)
+            local pv = GO.BuildPreview(rgn, desc, {
+                bar = false, width = 26, height = 26,
+                icon = function() return displayCastIcons[optState._previewCastIconIdx or 1] end,
+                anchor = rgn._lastInline, x = -12,
+            })
+            if pv then
+                pv:SetFrameLevel(rgn:GetFrameLevel() + 5)
+                rgn._lastInline = pv
             end
-            AttachGlow(impGlowRow._leftRegion, impDesc)
-            AttachGlow(impGlowRow._rightRegion, npCastTargetGlowDesc)
         end
+        AttachGlow(impGlowRow._leftRegion, impDesc)
+        AttachGlow(impGlowRow._rightRegion, npCastTargetGlowDesc)
     end
 
     -- Row 3: Focus Text Reminders (CDM only, left) | Show Interrupted Flash Effect (always present, a core cast bar setting): when CDM is loaded, Focus Text Reminders fills the left slot and flash takes the right; otherwise flash takes the left slot itself.
@@ -795,6 +795,8 @@ local function BuildDisplayBars(parent, y, ctx)
           setValue=function(v)
             DB().classPowerPos = v
             ns.RefreshClassPower(); UpdatePreview()
+            -- the Energy Bar Position entries name the side the bar ends up on
+            if ns.NP_ENERGY_BAR and DBVal("classPowerEnergyBar") == true then EllesmereUI:RefreshPage(true) end
           end, order={ "top", "bottom" } },
         { type="slider", text="Size", min=0.5, max=4.0, step=0.1,
           getValue=function() return DBVal("classPowerScale") or defaults.classPowerScale end,
@@ -804,7 +806,7 @@ local function BuildDisplayBars(parent, y, ctx)
           end });  y = y - h
 
     -- Inline cog on Position dropdown (X/Y offset settings)
-    if not EllesmereUI._prebuilding then
+    do
         local leftRgn = classResourceRow2._leftRegion
         EllesmereUI.BuildInlineCog(leftRgn, {
             anchorTo = leftRgn._control,
@@ -867,7 +869,7 @@ local function BuildDisplayBars(parent, y, ctx)
           end });  y = y - h
 
     -- Inline thickness cog + border color swatch on the Border toggle
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = classResourceRow4._rightRegion
         local function borderOff()
             return classPowerDisabled() or DBVal("classPowerBorder") ~= true
@@ -892,18 +894,94 @@ local function BuildDisplayBars(parent, y, ctx)
             },
         })
 
-        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, colorGet, colorSet, nil, 20)
-        PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-        EllesmereUI.RegisterWidgetRefresh(function()
+        if not EllesmereUI._prebuilding then
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, colorGet, colorSet, nil, 20)
+            PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = borderOff()
+                swatch:SetAlpha(off and 0.15 or 1)
+                swatch:EnableMouse(not off)
+                updateSwatch()
+            end)
             local off = borderOff()
             swatch:SetAlpha(off and 0.15 or 1)
             swatch:EnableMouse(not off)
-            updateSwatch()
-        end)
-        local off = borderOff()
-        swatch:SetAlpha(off and 0.15 or 1)
-        swatch:EnableMouse(not off)
+        end
+    end
+
+    -- Energy bar beside the combo pips (WoW Forever rogues and druids). Its own
+    -- rows are built only while Show Energy Bar is on: the toggle builds the
+    -- page again, and while it is off the toggle answers to their names in search.
+    if ns.NP_ENERGY_BAR then
+        local energyOn = DBVal("classPowerEnergyBar") == true
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Energy Bar",
+              getValue=function() return DBVal("classPowerEnergyBar") == true end,
+              setValue=function(v)
+                DB().classPowerEnergyBar = v
+                ns.ApplyClassPowerSetting(); UpdatePreview()
+                EllesmereUI:RefreshPage(true)
+              end },
+            energyOn and { type="slider", pixel=true, text="Energy Bar Height", min=1, max=12, step=1,
+              getValue=function() return DBVal("classPowerEnergyHeight") or defaults.classPowerEnergyHeight end,
+              setValue=function(v)
+                DB().classPowerEnergyHeight = v
+                ns.RefreshClassPower(); UpdatePreview()
+              end } or EllesmereUI.BlankRowCfg());  y = y - h
+
+        if energyOn then
+            -- Energy Bar Position (with inline cog for X/Y) | Width
+            local energyPosRow
+            energyPosRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Energy Bar Position",
+                  -- "outer" sits past the pips, so it is above them when the class
+                  -- resource is on top of the health bar and below when on the bottom.
+                  values=((DBVal("classPowerPos") or defaults.classPowerPos) == "top")
+                      and { outer = "Above Class Resource", inner = "Below Class Resource" }
+                      or  { outer = "Below Class Resource", inner = "Above Class Resource" },
+                  order={ "outer", "inner" },
+                  getValue=function() return DBVal("classPowerEnergyAnchor") or defaults.classPowerEnergyAnchor end,
+                  setValue=function(v)
+                    DB().classPowerEnergyAnchor = v
+                    ns.RefreshClassPower(); UpdatePreview()
+                  end },
+                { type="slider", text="Energy Bar Width", min=0.5, max=3.0, step=0.1,
+                  getValue=function() return DBVal("classPowerEnergyWidth") or defaults.classPowerEnergyWidth end,
+                  setValue=function(v)
+                    DB().classPowerEnergyWidth = v
+                    ns.RefreshClassPower(); UpdatePreview()
+                  end });  y = y - h
+
+            do
+                local leftRgn = energyPosRow._leftRegion
+                EllesmereUI.BuildInlineCog(leftRgn, {
+                    anchorTo = leftRgn._control,
+                    isOpen = CogPopupOpen,
+                    show = function(self)
+                        ShowCogPopup(self, {
+                            title = "Energy Bar Position",
+                            xGet = function() return DBVal("classPowerEnergyXOffset") or defaults.classPowerEnergyXOffset end,
+                            xSet = function(v) DB().classPowerEnergyXOffset = v; ns.RefreshClassPower(); UpdatePreview() end,
+                            yGet = function() return DBVal("classPowerEnergyYOffset") or defaults.classPowerEnergyYOffset end,
+                            ySet = function(v) DB().classPowerEnergyYOffset = v; ns.RefreshClassPower(); UpdatePreview() end,
+                        })
+                    end,
+                })
+            end
+
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Hide When Full Out of Combat",
+                  getValue=function() return DBVal("classPowerEnergyHideFull") == true end,
+                  setValue=function(v)
+                    DB().classPowerEnergyHideFull = v
+                    ns.ApplyClassPowerSetting(); UpdatePreview()
+                  end },
+                EllesmereUI.BlankRowCfg());  y = y - h
+        else
+            env.SearchWords("Show Energy Bar", "CLASS RESOURCE", "Energy Bar Height", "Energy Bar Position",
+                "Energy Bar Width", "Hide When Full Out of Combat")
+        end
     end
     end   -- close Class Resource hidden-while-disabled gate
 
@@ -975,19 +1053,19 @@ local function BuildDisplayBars(parent, y, ctx)
                       set=function(v) DB()[kind .. "DurationTextY"] = v; RefreshDuration() end },
                 },
             })
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(region, region:GetFrameLevel() + 5, colorGet, colorSet, nil, 20)
-            PP.Point(swatch, "RIGHT", region._lastInline or region._control, "LEFT", -8, 0)
-            region._lastInline = swatch
-            EllesmereUI.RegisterWidgetRefresh(function() updateSwatch() end)
+            if not EllesmereUI._prebuilding then
+                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(region, region:GetFrameLevel() + 5, colorGet, colorSet, nil, 20)
+                PP.Point(swatch, "RIGHT", region._lastInline or region._control, "LEFT", -8, 0)
+                region._lastInline = swatch
+                EllesmereUI.RegisterWidgetRefresh(function() updateSwatch() end)
+            end
         end
 
         local durationRow1
         durationRow1, h = W:DualRow(parent, y, DurationDropdown("debuff"), DurationDropdown("buff")); y = y - h
         auraDurPosRow = durationRow1
-        if not EllesmereUI._prebuilding then
         AttachDurationTools(durationRow1._leftRegion, "debuff")
         AttachDurationTools(durationRow1._rightRegion, "buff")
-        end
 
         local durationRow2
         durationRow2, h = W:DualRow(parent, y,
@@ -1000,11 +1078,9 @@ local function BuildDisplayBars(parent, y, ctx)
                 UpdatePreview()
               end, order=timerPosOrder }); y = y - h
         auraTimerStackRow = durationRow2
-        if not EllesmereUI._prebuilding then
         AttachDurationTools(durationRow2._leftRegion, "cc")
-        end
 
-        if not EllesmereUI._prebuilding then
+        do
         -- RIGHT: Aura Stacks inline color swatch
         local rightRgn = durationRow2._rightRegion
         local asColorGet = function()
@@ -1044,10 +1120,12 @@ local function BuildDisplayBars(parent, y, ctx)
                   end },
             },
         })
-        local asSwatch, asUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, asColorGet, asColorSet, nil, 20)
-        PP.Point(asSwatch, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
-        rightRgn._lastInline = asSwatch
-        EllesmereUI.RegisterWidgetRefresh(function() asUpdateSwatch() end)
+        if not EllesmereUI._prebuilding then
+            local asSwatch, asUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, asColorGet, asColorSet, nil, 20)
+            PP.Point(asSwatch, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+            rightRgn._lastInline = asSwatch
+            EllesmereUI.RegisterWidgetRefresh(function() asUpdateSwatch() end)
+        end
         end
     end
 
@@ -1082,7 +1160,7 @@ local function BuildDisplayBars(parent, y, ctx)
             UpdatePreview()
             EllesmereUI:RefreshPage()
           end })
-    if not EllesmereUI._prebuilding then
+    do
         -- LEFT: Spell Name inline color swatch
         local leftRgn = spellNameRow._leftRegion
         local snColorGet = function() return DBColor("castNameColor") end
@@ -1136,10 +1214,12 @@ local function BuildDisplayBars(parent, y, ctx)
                 })
             end,
         })
-        local snSwatch, snUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, snColorGet, snColorSet, nil, 20)
-        PP.Point(snSwatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
-        leftRgn._lastInline = snSwatch
-        EllesmereUI.RegisterWidgetRefresh(function() snUpdateSwatch() end)
+        if not EllesmereUI._prebuilding then
+            local snSwatch, snUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, snColorGet, snColorSet, nil, 20)
+            PP.Point(snSwatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+            leftRgn._lastInline = snSwatch
+            EllesmereUI.RegisterWidgetRefresh(function() snUpdateSwatch() end)
+        end
 
         -- RIGHT: Spell Target inline double swatch (custom + class colored)
         local rightRgn = spellNameRow._rightRegion
@@ -1167,66 +1247,68 @@ local function BuildDisplayBars(parent, y, ctx)
             end,
         })
 
-        -- Class colored swatch (beside the cog)
-        local ccGet = function()
-            local _, ct = UnitClass("player")
-            if ct and RAID_CLASS_COLORS[ct] then
-                local cc = RAID_CLASS_COLORS[ct]
-                return cc.r, cc.g, cc.b
+        if not EllesmereUI._prebuilding then
+            -- Class colored swatch (beside the cog)
+            local ccGet = function()
+                local _, ct = UnitClass("player")
+                if ct and RAID_CLASS_COLORS[ct] then
+                    local cc = RAID_CLASS_COLORS[ct]
+                    return cc.r, cc.g, cc.b
+                end
+                return 1, 1, 1
             end
-            return 1, 1, 1
-        end
-        local ccSwatch, ccUpdate = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, ccGet, function() end, nil, 20)
-        PP.Point(ccSwatch, "RIGHT", rightRgn._lastInline or ctrl, "LEFT", -8, 0)
-        ccSwatch:SetScript("OnClick", function()
-            DB().castTargetClassColor = true
-            for _, plate in pairs(plates) do plate:UpdateHealth() end
-            UpdatePreview()
-            EllesmereUI:RefreshPage()
-        end)
-        ccSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ccSwatch, "Class Color") end)
-        ccSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-        -- Custom color swatch (to the left of class swatch)
-        local stColorGet = function() return DBColor("castTargetColor") end
-        local stColorSet = function(r, g, b)
-            DB().castTargetColor = { r = r, g = g, b = b }
-            for _, plate in pairs(plates) do plate:UpdateHealth() end
-            UpdatePreview()
-        end
-        local stSwatch, stUpdate = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, stColorGet, stColorSet, nil, 20)
-        PP.Point(stSwatch, "RIGHT", ccSwatch, "LEFT", -9, 0)
-        rightRgn._lastInline = stSwatch
-        stSwatch._eabOrigClick = stSwatch:GetScript("OnClick")
-        stSwatch:SetScript("OnClick", function(self)
-            local db = DB()
-            local cc = db and db.castTargetClassColor
-            if cc == nil then cc = defaults.castTargetClassColor end
-            if cc then
-                DB().castTargetClassColor = false
+            local ccSwatch, ccUpdate = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, ccGet, function() end, nil, 20)
+            PP.Point(ccSwatch, "RIGHT", rightRgn._lastInline or ctrl, "LEFT", -8, 0)
+            ccSwatch:SetScript("OnClick", function()
+                DB().castTargetClassColor = true
                 for _, plate in pairs(plates) do plate:UpdateHealth() end
                 UpdatePreview()
                 EllesmereUI:RefreshPage()
-                return
-            end
-            if self._eabOrigClick then self._eabOrigClick(self) end
-        end)
-        stSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(stSwatch, "Custom Color") end)
-        stSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            end)
+            ccSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ccSwatch, "Class Color") end)
+            ccSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local db = DB()
-            local isCC = db and db.castTargetClassColor
+            -- Custom color swatch (to the left of class swatch)
+            local stColorGet = function() return DBColor("castTargetColor") end
+            local stColorSet = function(r, g, b)
+                DB().castTargetColor = { r = r, g = g, b = b }
+                for _, plate in pairs(plates) do plate:UpdateHealth() end
+                UpdatePreview()
+            end
+            local stSwatch, stUpdate = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, stColorGet, stColorSet, nil, 20)
+            PP.Point(stSwatch, "RIGHT", ccSwatch, "LEFT", -9, 0)
+            rightRgn._lastInline = stSwatch
+            stSwatch._eabOrigClick = stSwatch:GetScript("OnClick")
+            stSwatch:SetScript("OnClick", function(self)
+                local db = DB()
+                local cc = db and db.castTargetClassColor
+                if cc == nil then cc = defaults.castTargetClassColor end
+                if cc then
+                    DB().castTargetClassColor = false
+                    for _, plate in pairs(plates) do plate:UpdateHealth() end
+                    UpdatePreview()
+                    EllesmereUI:RefreshPage()
+                    return
+                end
+                if self._eabOrigClick then self._eabOrigClick(self) end
+            end)
+            stSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(stSwatch, "Custom Color") end)
+            stSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local db = DB()
+                local isCC = db and db.castTargetClassColor
+                if isCC == nil then isCC = defaults.castTargetClassColor end
+                stSwatch:SetAlpha(isCC and 0.3 or 1)
+                ccSwatch:SetAlpha(isCC and 1 or 0.3)
+                stUpdate()
+                ccUpdate()
+            end)
+            local isCC = (DB() and DB().castTargetClassColor)
             if isCC == nil then isCC = defaults.castTargetClassColor end
             stSwatch:SetAlpha(isCC and 0.3 or 1)
             ccSwatch:SetAlpha(isCC and 1 or 0.3)
-            stUpdate()
-            ccUpdate()
-        end)
-        local isCC = (DB() and DB().castTargetClassColor)
-        if isCC == nil then isCC = defaults.castTargetClassColor end
-        stSwatch:SetAlpha(isCC and 0.3 or 1)
-        ccSwatch:SetAlpha(isCC and 1 or 0.3)
+        end
     end
     y = y - h
 

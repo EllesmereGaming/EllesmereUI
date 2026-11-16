@@ -144,14 +144,15 @@ local function UpdateKeybinds()
             -- form/skyriding slot after we deliberately STOP the icon from
             -- following it. Left native, a stealthed keypress casts the
             -- page-7 ability the button no longer shows (the show-one/
-            -- fire-another split GetClassPagingConditions warns about). Cost:
-            -- press-and-hold repeat on MainBar while the opt-out is on.
+            -- fire-another split GetClassPagingConditions warns about).
             -- Read through the paging conditions' own rule, so the keys
             -- follow exactly the opt-outs the bar's page follows.
             local noForm, noSky = EAB_VTABLE.GetAutoPagingOptOuts(info.key)
             if noForm or noSky then
                 barHasCustomPaging = true
             end
+            -- Modifier/target paging flips pages too often to rebind on: static click route.
+            local dynOk = info.key == "MainBar" and not EAB_VTABLE.HasActiveModTargetPaging(bs)
             for i, btn in ipairs(btns) do
                 if btn then
                     local cmd = prefix .. i
@@ -201,6 +202,8 @@ local function UpdateKeybinds()
                     -- visible button so SpellFlyout anchors somewhere the
                     -- player can actually see.
                     local useClick = barHasCustomPaging or (info.customPage ~= nil) or isFlyout
+                    -- Action Bar 1: flip native/click in the secure page handler instead.
+                    if useClick and dynOk and not isFlyout then useClick = "dyn" end
                     k1 = k1 or false
                     k2 = k2 or false
                     if sig[n + 1] ~= k1 or sig[n + 2] ~= k2
@@ -226,6 +229,8 @@ local function UpdateKeybinds()
     _bindState.sigValid = true
     -- Pass 2: apply. Reads the routing decisions computed above.
     ClearOverrideBindings(_eabBindOwner)
+    local mainFrame = barFrames.MainBar
+    local dynN = 0
     local j = 0
     for _, info in ipairs(BAR_CONFIG) do
         local prefix = BINDING_MAP[info.key]
@@ -235,7 +240,15 @@ local function UpdateKeybinds()
                 if btn then
                     local k1, k2, useClick = sig[j + 1], sig[j + 2], sig[j + 3]
                     j = j + 4
-                    if useClick then
+                    if useClick == "dyn" then
+                        if mainFrame then
+                            dynN = dynN + 1
+                            mainFrame:SetAttribute("eabdk1-" .. dynN, k1 or nil)
+                            mainFrame:SetAttribute("eabdk2-" .. dynN, k2 or nil)
+                            mainFrame:SetAttribute("eabdbtn" .. dynN, btn:GetName())
+                            mainFrame:SetAttribute("eabdcmd" .. dynN, prefix .. i)
+                        end
+                    elseif useClick then
                         local btnName = btn:GetName()
                         if k1 and btnName then
                             SetOverrideBindingClick(_eabBindOwner, false, k1, btnName)
@@ -255,6 +268,20 @@ local function UpdateKeybinds()
                 end
             end
         end
+    end
+    if mainFrame then
+        local natConds = dynN > 0 and I.GetNativeMainPageConditions() or nil
+        mainFrame:SetAttribute("eabnativeconds", natConds)
+        if dynN > 0 and not _bindState.nativeDriver then
+            RegisterStateDriver(mainFrame, "eabnative", natConds)
+            _bindState.nativeDriver = true
+        elseif dynN == 0 and _bindState.nativeDriver then
+            UnregisterStateDriver(mainFrame, "eabnative")
+            _bindState.nativeDriver = nil
+        end
+        mainFrame:SetAttribute("eabdynn", dynN)
+        mainFrame:SetAttribute("eabdynclick", nil)
+        mainFrame:Execute(ns._eabDynBindSnippet)
     end
     -- Pass 3: re-evaluate pressAndHoldAction on every button. Routing the key is only
     -- HALF of hold-and-release -- a CLICK-routed key still behaves as Press-and-Tap

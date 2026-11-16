@@ -406,6 +406,17 @@ end
 -- that is family-incompatible with the config rejects the candidate;
 -- secret/unreadable fails open so variant slots stay bindable in combat.
 local function TbbFuzzyNameOK(cfg, frame)
+    -- A slot whose own spell is the one the bar was saved under is no
+    -- neighbor, whatever linked aura it shows (WoW Forever's Seals entry has no
+    -- aura of its own and shows the active seal). Only cfg.spellID counts: a
+    -- captured base (cfg.baseSpellID) can be a generic spell several slots
+    -- share, and those still answer to the name check below. The live table's
+    -- id can be secret, which is no match.
+    local info = frame.cooldownInfo
+    local own = info and info.spellID
+    if own and not (issecretvalue and issecretvalue(own)) and own == cfg.spellID then
+        return true
+    end
     local fam = TbbFrameNameFamily(frame)
     if not fam then return true end
     return TbbCfgFamilyMatch(cfg, fam, true)
