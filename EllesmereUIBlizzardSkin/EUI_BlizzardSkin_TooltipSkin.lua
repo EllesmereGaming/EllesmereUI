@@ -454,9 +454,11 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             end
         end
         -- Append only while the tooltip still shows this GUID and the line is not already present.
+        -- No primary info means a world-unit tooltip is fading out; re-Showing it would cancel the fade.
         local cached = _ilvlCache[guid]
         local ttd = GetFFD(_GameTooltip)
         if cached and _GameTooltip:IsShown() and _tipShownGUID == guid
+            and _GameTooltip:GetPrimaryTooltipInfo()
             and not ttd.ilvlShown
             and not _tipHasLine(_GameTooltip, EllesmereUI.L("Item Level")) then
             local nBefore = _GameTooltip:NumLines() or 0
