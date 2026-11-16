@@ -644,6 +644,14 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
                 }
                 _, h = W:DualRow(parent, y, offL, offR);  y = y - h
             end
+
+            _, h = W:DualRow(parent, y,
+                { type = "slider", text = "Opacity",
+                  min = 5, max = 100, step = 1, isPercent = false,
+                  getValue = function() return AF.Get("opacity") end,
+                  setValue = function(v) AFSet("opacity", v) end },
+                BLANK()
+            );  y = y - h
         end
     end
 
