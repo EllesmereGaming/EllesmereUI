@@ -872,6 +872,20 @@ local function RenderEmptyRow(btn, cols, d, rowW, x, y, stripe)
 end
 ns.ListRowH = RowH
 
+local function RenderKeyringEmptyLabel(child, x, y)
+    if not _keyringEmptyLabel then
+        _keyringEmptyLabel = child:CreateFontString(nil, "OVERLAY")
+        _keyringEmptyLabel:SetTextColor(0.55, 0.55, 0.55)
+        _keyringEmptyLabel:SetJustifyH("LEFT")
+    end
+    SetListFont(_keyringEmptyLabel)
+    _keyringEmptyLabel:ClearAllPoints()
+    _keyringEmptyLabel:SetPoint("TOPLEFT", x, y)
+    _keyringEmptyLabel:SetText(L("No Items"))
+    _keyringEmptyLabel:Show()
+    return RowH()
+end
+
 -- Returns the header height and whether the section is collapsed.
 local function PlaceSection(key, label, count, x, y, w, sub)
     _sectionsUsed = _sectionsUsed + 1
@@ -1132,17 +1146,7 @@ function ns.RenderListView(items, opts)
         y = y - 6
     end
     if opts.keyringEmpty and opts.slotView == "keyring" then
-        if not _keyringEmptyLabel then
-            _keyringEmptyLabel = child:CreateFontString(nil, "OVERLAY")
-            SetBagFont(_keyringEmptyLabel, 11)
-            _keyringEmptyLabel:SetTextColor(0.55, 0.55, 0.55)
-            _keyringEmptyLabel:SetJustifyH("LEFT")
-        end
-        _keyringEmptyLabel:ClearAllPoints()
-        _keyringEmptyLabel:SetPoint("TOPLEFT", x + 5, y)
-        _keyringEmptyLabel:SetText(L("No Items"))
-        _keyringEmptyLabel:Show()
-        y = y - RowH()
+        y = y - RenderKeyringEmptyLabel(child, x + 5, y)
     elseif _keyringEmptyLabel then
         _keyringEmptyLabel:Hide()
     end
