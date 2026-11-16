@@ -871,6 +871,10 @@ function EABR.FvSleepingBagOwned()
     return owned
 end
 
+-- Arcane Censer: track the buff, apply it with the item in the bags.
+local FV_CENSER_BUFF_IDS
+local FV_CENSER_ITEM = 275730
+
 -- WoW Forever collector: the Camp Benefits campfire buff, the Sleeping Bag's
 -- Well-Rested buff (missing or under its full stacks, or inside its cog's Show
 -- Below minutes of running out, then with the countdown; while a Cozy Sleeping
@@ -909,7 +913,8 @@ function EABR.CollectForever(missing, inInstance, inPvP)
     -- Weapon Buffs' bag listener (below) already hears every bag change.
     EABR.FvSyncSleepBagWatch(wantBag and not sleepBag and not EABR._fvMaxLevel
         and fo.weapon ~= true or false)
-    EABR.FvSyncBagEvent(shows and (fo.weapon == true or sleepBag) or false)
+    local wantCenser = shows and fo.arcaneCenser == true and EllesmereUI.IsInDungeon()
+    EABR.FvSyncBagEvent(shows and (fo.weapon == true or sleepBag or wantCenser) or false)
     local watchPickerSpells = shows and PickerEnabled() or false
     if watchPickerSpells ~= (EABR._fvPickerSpellEvents or false) then
         EABR.FvSyncPickerSpellEvents(watchPickerSpells)
@@ -958,6 +963,20 @@ function EABR.CollectForever(missing, inInstance, inPvP)
             e.expireAt, e.expireTotal = expireAt, remaining
             e.label = EllesmereUI.L("Sleeping")
             e.cat = "forever"; e.dismissKey = "forever:sleepingbag"
+            missing[#missing+1] = e
+        end
+    end
+    if wantCenser and not FV_CENSER_BUFF_IDS then FV_CENSER_BUFF_IDS = { 1297774 } end
+    if wantCenser and not PlayerHasAuraByID(FV_CENSER_BUFF_IDS)
+        and not (auraLock and not EABR.FvRanksReadable(FV_CENSER_BUFF_IDS)) then
+        local count = CachedGetItemCount(FV_CENSER_ITEM)
+        if count > 0 then
+            local e = AcquireEntry()
+            e.mode = "item"; e.itemID = FV_CENSER_ITEM
+            e.texture = Tex(FV_CENSER_BUFF_IDS[1]) or C_Item.GetItemIconByID(FV_CENSER_ITEM)
+            e.label = ShortLabel(SpellName(FV_CENSER_BUFF_IDS[1]) or "1297774")
+            e.bagCount = count
+            e.cat = "forever"; e.dismissKey = "forever:1297774"
             missing[#missing+1] = e
         end
     end
@@ -1060,7 +1079,8 @@ function EABR.CollectForever(missing, inInstance, inPvP)
     for i = 1, #custom do
         local id = custom[i]
         local off = classOff and classOff[id]
-        if not (off and off[class] == false) then
+        -- The built-in item reminder owns this ID while enabled.
+        if not (wantCenser and id == FV_CENSER_BUFF_IDS[1]) and not (off and off[class] == false) then
             local name = SpellName(id)
             if not (coveredIDs and (coveredIDs[id] or (name and coveredNames[name]))) then
                 local fam = EABR.ForeverFamily(id)
