@@ -939,7 +939,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
             local recentItems = {}
             if EUI_Bags._recentItems then
                 for _, d in ipairs(tempItems) do
-                    if not d._pinnedOnly and d.info and d.info.itemID and EUI_Bags._recentItems[d.info.itemID] then
+                    if not d._pinnedOnly and EUI_Bags.IsRecentEntry(d) then
                         recentItems[#recentItems + 1] = d
                     end
                 end
@@ -1377,7 +1377,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                    and (BP().bagShowRecentItems ~= false) then
                     local recentItems = {}
                     for _, data in ipairs(displayItems) do
-                        if not data._pinnedOnly and data.info and data.info.itemID and EUI_Bags._recentItems[data.info.itemID] then
+                        if not data._pinnedOnly and EUI_Bags.IsRecentEntry(data) then
                             recentItems[#recentItems + 1] = data
                         end
                     end
