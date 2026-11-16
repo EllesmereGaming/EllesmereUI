@@ -3492,7 +3492,7 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
     end
 
     -- Row 6: Rested Indicator | blank (player only): Quality of Life's EXTRAS
-    -- row mirrored, the same account-wide settings (EllesmereUI.RestedIndicatorCfg).
+    -- row mirrored, the same per-profile settings (EllesmereUI.RestedIndicatorCfg).
     if optState.selectedUnit == "player" then
         local restRow
         restRow, h = W:DualRow(parent, y, EllesmereUI.RestedIndicatorCfg(), EllesmereUI.BlankRowCfg())

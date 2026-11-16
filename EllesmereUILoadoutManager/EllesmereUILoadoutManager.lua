@@ -10,7 +10,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.HexColor and EllesmereUI.COLOR_CODES and EllesmereUI.NewCombatQueue and EllesmereUI.ApplyModuleFont and EllesmereUI.HELD_BACK_ADDONS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.HexColor and EllesmereUI.COLOR_CODES and EllesmereUI.NewCombatQueue and EllesmereUI.ApplyModuleFont and EllesmereUI.HELD_BACK_ADDONS and EllesmereUI.ForeverTalentTrees) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 -- Held back from this release (EllesmereUI.HELD_BACK_ADDONS): nothing runs,
 -- and with no namespace published the options page never registers.
 if EllesmereUI.HELD_BACK_ADDONS[ADDON_NAME] then return end
@@ -24,6 +24,8 @@ ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 local CombatQueue = ns.CombatQueue
 local eventFrame = CreateFrame("Frame")
 local LM = EllesmereUI.Lite.NewAddon(ADDON_NAME)
+-- WoW Forever runs the talent channel on its dual spec (see "WoW Forever: dual spec").
+local IS_FOREVER = EllesmereUI.IS_FOREVER and true or false
 
 -- Chat colours follow the live EllesmereUI accent.
 local function AC() return EllesmereUI.HexColor(EllesmereUI.GetAccentColor()) end
@@ -160,8 +162,78 @@ local function RequestRefresh()
     C_Timer.After(0, FlushRefresh)
 end
 
+-- -----------------------------------------------------------------------------
+-- WoW Forever: dual spec
+-- Forever has one specialization per class and no saved loadouts. Its dual
+-- spec is two spec groups (the talent window's Primary and Secondary tabs),
+-- switched with a cast by C_SpecializationInfo.SetActiveSpecGroup. There the
+-- talent channel picks a spec group: each unlocked group is listed as a
+-- "loadout" whose configID is the negative group index (stable, never a real
+-- config), named after its tab and the tree holding the most points.
+-- The groups also stand in for specializations: the current "spec" is the
+-- negative active group, so Assign For lists Primary and Secondary and gear
+-- (and talents) can be assigned per group. A group switch then re-runs the
+-- swaps like a spec change does on retail.
+-- -----------------------------------------------------------------------------
+
+
+local function SpecGroupCount()
+    local ok, n = pcall(GetNumSpecGroups)
+    return (ok and type(n) == "number" and n > 0) and n or 1
+end
+
+local function ActiveSpecGroup()
+    local ok, group = pcall(C_SpecializationInfo.GetActiveSpecGroup)
+    if ok and type(group) == "number" then return group end
+end
+
+-- The tree with the most points in a group's build ("Holy"), or nil. The trees
+-- come from the shared WoW Forever reader, names only.
+local function ReadTopTree(group)
+    local configID = C_SpecializationInfo.GetCombatConfigIDForSpecGroup(group)
+    if not configID then return nil end
+    local _, _, trees = EllesmereUI.ForeverTalentTrees(configID, true)
+    if not trees then return nil end
+    local ids = {}
+    for i = 1, #trees do ids[i] = trees[i].groupID end
+    local spentBy = {}
+    for _, g in ipairs(C_Traits.GetGroupCurrencyInfo(configID, ids) or NO_ENTRIES) do
+        local c = g.currencyInfos and g.currencyInfos[1]
+        spentBy[g.traitNodeGroupID] = c and c.spent or 0
+    end
+    local best, bestSpent = nil, 0
+    for i = 1, #trees do
+        local spent = spentBy[trees[i].groupID] or 0
+        if spent > bestSpent then best, bestSpent = trees[i].name, spent end
+    end
+    return best
+end
+local function SpecGroupTopTree(group)
+    local ok, name = pcall(ReadTopTree, group)
+    return ok and name or nil
+end
+
+local function SpecGroupName(group)
+    local tab = group == 1 and (DUAL_SPEC_PRIMARY or EllesmereUI.L("Primary")) or (DUAL_SPEC_SECONDARY or EllesmereUI.L("Secondary"))
+    local tree = SpecGroupTopTree(group)
+    return tree and (tab .. " (" .. tree .. ")") or tab
+end
+
+local function SpecGroupOf(loadout)
+    local id = loadout and tonumber(loadout.configID)
+    if id and id < 0 then return -id end
+end
+
 -- The spec info call reports 0, not nil, for a slot with no specialization.
+-- WoW Forever: the group switch the module last started ({ group, manual }),
+-- until it lands or you change places. Its landing ends its own request (the
+-- spec is part of a request's context), so the landing is matched here.
+local ownSwitch = nil
 local function GetCurrentSpecID()
+    if IS_FOREVER then
+        local group = ActiveSpecGroup()
+        return group and -group or nil
+    end
     local index = C_SpecializationInfo.GetSpecialization()
     if not index then return nil end
     local specID = C_SpecializationInfo.GetSpecializationInfo(index)
@@ -203,6 +275,12 @@ end
 -- (it is empty until spec info loads).
 local specListCache = nil
 local function GetSpecList()
+    if IS_FOREVER then
+        -- Live: the second group unlocks mid-session and the names follow the build.
+        local list = {}
+        for group = 1, SpecGroupCount() do list[group] = { id = -group, name = SpecGroupName(group) } end
+        return list
+    end
     if specListCache then return specListCache end
     local list = {}
     local _, _, classID = UnitClass("player")
@@ -499,6 +577,7 @@ local function TalentLoadBlocker()
             if block then return block end
         end
     end
+    if IS_FOREVER then return nil end -- a spec group switch is not a trait edit
     local ok, canEdit = pcall(C_ClassTalents.CanEditTalents)
     if not ok or canEdit == false then return "edit" end
 end
@@ -721,6 +800,14 @@ local function ListTalentLoadouts()
     local loadouts = {}
     if not specID then return loadouts end
 
+    if IS_FOREVER then
+        -- Spec groups in tab order, not by name.
+        for group = 1, SpecGroupCount() do
+            loadouts[#loadouts + 1] = { configID = -group, name = SpecGroupName(group), specID = specID }
+        end
+        return loadouts
+    end
+
     local ok, configIDs = pcall(C_ClassTalents.GetConfigIDsBySpecID, specID)
     if not ok or type(configIDs) ~= "table" then return loadouts end
 
@@ -741,6 +828,11 @@ local function GetTalentLoadoutInfoByID(configID)
     if not configID then return nil end
     local specID = GetCurrentSpecID()
     if not specID then return nil end
+    if IS_FOREVER then
+        local group = -configID
+        if group < 1 or group > SpecGroupCount() then return nil end
+        return { configID = configID, name = SpecGroupName(group), specID = specID }
+    end
     local okIDs, configIDs = pcall(C_ClassTalents.GetConfigIDsBySpecID, specID)
     if not okIDs or type(configIDs) ~= "table" then return nil end
     local belongsToSpec = false
@@ -768,7 +860,7 @@ local function GetTalentLoadoutFromStored(stored)
     stored = NormalizeTalentStored(stored)
     if not stored then return nil end
     local currentSpec = GetCurrentSpecID()
-    if stored.specID and currentSpec and tonumber(stored.specID) ~= tonumber(currentSpec) then return nil end
+    if not IS_FOREVER and stored.specID and currentSpec and tonumber(stored.specID) ~= tonumber(currentSpec) then return nil end
 
     if stored.configID then
         local info = GetTalentLoadoutInfoByID(stored.configID)
@@ -787,7 +879,8 @@ local function StoreTalentLoadout(loadout)
     return {
         configID = tonumber(loadout.configID),
         name = loadout.name,
-        specID = loadout.specID or GetCurrentSpecID(),
+        -- A WoW Forever spec group belongs to no spec scope: any group's scope may assign it.
+        specID = not IS_FOREVER and (loadout.specID or GetCurrentSpecID()) or nil,
     }
 end
 
@@ -806,6 +899,7 @@ end
 
 -- A stored talent loadout is only usable by the spec it belongs to.
 local function TalentMatchesSpec(stored, specID)
+    if IS_FOREVER then return true end -- any spec group, from any group
     local sid = type(stored) == "table" and stored.specID or nil
     if not sid or not specID then return true end
     return tonumber(sid) == tonumber(specID)
@@ -969,6 +1063,14 @@ end
 -- final: combat started, so the load ends here whatever the evidence says.
 CheckTalentCompletion = function(request, final)
     if not RequestIsCurrent(request) or not request.inFlight or request.callingLoad or request.commitFailed then return end
+    if IS_FOREVER then
+        if ActiveSpecGroup() == request.group then
+            CompleteTalentRequest(request)
+        elseif final then
+            FinishRequest(request)
+        end
+        return
+    end
     local activeID = C_ClassTalents.GetActiveConfigID()
     if not activeID or HasStagedTalentChanges(activeID) == true then
         if final then FinishRequest(request) end
@@ -1017,8 +1119,19 @@ end
 local function TalentCastEvent(event, unit, castGUID, spellID)
     if issecretvalue(unit) or issecretvalue(castGUID) or issecretvalue(spellID) then return end
     local request = requests.talent
-    if unit ~= "player" or spellID ~= Constants.TraitConsts.COMMIT_COMBAT_TRAIT_CONFIG_CHANGES_SPELL_ID
-        or not RequestIsCurrent(request) or not request.inFlight then return end
+    if unit ~= "player" then return end
+    if not IS_FOREVER and spellID ~= Constants.TraitConsts.COMMIT_COMBAT_TRAIT_CONFIG_CHANGES_SPELL_ID then return end
+    if not RequestIsCurrent(request) or not request.inFlight then return end
+    if IS_FOREVER then
+        -- The spec switch cast has no known spell ID here: it is the first
+        -- player cast to start once the switch was called (nothing else was
+        -- casting then), and the rest of its events carry its GUID.
+        if event == "UNIT_SPELLCAST_START" then
+            if request.commitCastGUID then return end
+        elseif not castGUID or castGUID ~= request.commitCastGUID then
+            return
+        end
+    end
     if castGUID and castGUID == request.supersededCastGUID then return end
     if event == "UNIT_SPELLCAST_START" then
         if request.commitCastGUID and request.commitCastGUID ~= castGUID then
@@ -1066,8 +1179,67 @@ local function HoldTalentRequest(request, blocker, quiet)
     end
 end
 
+-- WoW Forever: switch to the assigned spec group (see "WoW Forever: dual spec").
+local function TryActivateSpecGroup(request)
+    local blocker = TalentLoadBlocker()
+    if blocker == "keystone" then FinishRequest(request) return end
+    local stored = NormalizeTalentStored(request.value)
+    local loadout = stored and GetTalentLoadoutFromStored(stored)
+    local group = SpecGroupOf(loadout)
+    if not group then
+        Print(EllesmereUI.L("The assigned talent loadout was not found for your current specialization."))
+        FinishRequest(request)
+        return
+    end
+    request.configID, request.specID, request.loadoutName, request.group = loadout.configID, loadout.specID, loadout.name, group
+    -- Already active: like a worn gear set, only a button press says so.
+    if ActiveSpecGroup() == group then
+        if request.manual then Print(EllesmereUI.Lf("Talent loadout %s is already active.", Hi(loadout.name))) end
+        FinishRequest(request)
+        return
+    end
+    if blocker then
+        HoldTalentRequest(request, blocker, false)
+        return
+    end
+    -- The switch is a cast: it waits while you move (one that cannot start is
+    -- never retried, and the next cast would be taken for it) and for any cast
+    -- in progress to end. A restricted speed counts as standing still; the
+    -- cast name can read secret: only its type is tested.
+    local speed = GetUnitSpeed("player")
+    if (not issecretvalue(speed) and (speed or 0) > 0)
+        or type(UnitCastingInfo("player")) ~= "nil" or type(UnitChannelInfo("player")) ~= "nil" then
+        DeferRequest(request, EllesmereUI.L("Talent swap held: you are moving or casting."), false, "availability")
+        return
+    end
+    request.waitReason, request.restriction = nil, nil
+
+    request.callingLoad, request.inFlight = true, true
+    request.commitCastGUID, request.commitFailed, request.casting = nil, nil, nil
+    request.commitCastSucceeded, request.commitSignal = nil, nil
+    UpdateRequestEvents()
+    ownSwitch = { group = group, manual = request.manual }
+    local okCall = pcall(C_SpecializationInfo.SetActiveSpecGroup, group)
+    request.callingLoad = nil
+    if not RequestIsCurrent(request) then return end
+    if not okCall or request.commitFailed then
+        request.inFlight = nil
+        HideSpecChangeWarning()
+        DeferRequest(request, EllesmereUI.Lf("Could not load talent loadout %s.", Bad(loadout.name)))
+        return
+    end
+    if request.casting then ShowSpecChangeWarning() end
+    if request.reason then
+        Announce(EllesmereUI.Lf("Loading talent loadout %1$s (%2$s).", Hi(loadout.name), request.reason))
+    else
+        Announce(EllesmereUI.Lf("Loading talent loadout %s.", Hi(loadout.name)))
+    end
+    ScheduleRequest(request, true)
+end
+
 TryLoadTalentLoadout = function(request)
     if not RequestIsCurrent(request) or request.inFlight then return end
+    if IS_FOREVER then return TryActivateSpecGroup(request) end
     local blocker = TalentLoadBlocker()
     if blocker == "keystone" then FinishRequest(request) return end -- talents are locked for the whole run
     local stored = NormalizeTalentStored(request.value)
@@ -1186,7 +1358,10 @@ local function SourceLabel(ctx, source, key)
     return ctx.name
 end
 
-local function CheckAndSwap(manual)
+-- gearOnly: a recheck after a WoW Forever spec group switch. It applies the
+-- new group's gear and never switches talents again (no ping-pong, and a
+-- switch you made yourself is never undone).
+local function CheckAndSwap(manual, gearOnly)
     local db = ReadDB()
     if not manual and not db.enabled then return end
     if KeystoneRunning() then return end -- gear and talents are locked mid-key
@@ -1197,7 +1372,15 @@ local function CheckAndSwap(manual)
     local ctx = GetCurrentInstanceContext()
     local setName, gearSource, gearKey, talentStored, talentSource, talentKey
     if manual or db.gearEnabled then setName, gearSource, gearKey = GetAssignedSetForContext(ctx) end
-    if manual or db.talentEnabled then talentStored, talentSource, talentKey = GetAssignedTalentForContext(ctx) end
+    if (manual or db.talentEnabled) and not gearOnly then talentStored, talentSource, talentKey = GetAssignedTalentForContext(ctx) end
+    -- WoW Forever: a talent assignment that switches spec groups brings the
+    -- target group's gear: no gear is equipped now, and the group change
+    -- re-runs the check, gear only, once the switch lands.
+    local gearAfterSwitch
+    if IS_FOREVER and talentStored then
+        local target = SpecGroupOf(GetTalentLoadoutFromStored(talentStored))
+        gearAfterSwitch = target ~= nil and target ~= ActiveSpecGroup()
+    end
     if not setName and not talentStored then
         -- Automatic checks stay silent (most places have nothing assigned,
         -- and outside instances only an Open World default applies).
@@ -1211,7 +1394,7 @@ local function CheckAndSwap(manual)
         return
     end
 
-    if setName then
+    if setName and not gearAfterSwitch then
         TryEquipSet(BeginRequest("gear", setName, SourceLabel(ctx, gearSource, gearKey), manual))
     end
     if talentStored then
@@ -1222,17 +1405,21 @@ end
 
 -- One automatic check per frame: the latest request wins, and CancelRequests
 -- (which bumps the serial) drops one still queued.
-local autoCheckQueued, autoCheckQueuedSerial, autoCheckKey = false, nil, nil
+-- opts (WoW Forever group switches): gearOnly, manual (a Check Now switch:
+-- runs with automation off).
+local autoCheckQueued, autoCheckQueuedSerial, autoCheckKey, autoCheckOpts = false, nil, nil, nil
 local function RunAutoCheck()
     autoCheckQueued = false
-    if autoCheckQueuedSerial ~= autoCheckSerial or not AutomationLive() then return end
+    local opts = autoCheckOpts or NO_ENTRIES
+    if autoCheckQueuedSerial ~= autoCheckSerial or not (AutomationLive() or opts.manual) then return end
     if autoCheckKey ~= BuildAutoInstanceKey(GetCurrentInstanceContext()) then return end
-    CheckAndSwap(false)
+    CheckAndSwap(opts.manual or false, opts.gearOnly)
 end
 
-local function QueueAutoCheck()
+local function QueueAutoCheck(opts)
     autoCheckSerial = autoCheckSerial + 1
     autoCheckQueuedSerial = autoCheckSerial
+    autoCheckOpts = opts
     autoCheckKey = BuildAutoInstanceKey(GetCurrentInstanceContext())
     if not autoCheckQueued then
         autoCheckQueued = true
@@ -1245,6 +1432,7 @@ local function HandlePossibleInstanceEntry()
     if place == lastPlaceKey then return end
     lastPlaceKey = place
     lastSpecID = GetCurrentSpecID()
+    ownSwitch = nil
     -- Switched off, only button presses run, and RequestIsCurrent already
     -- drops one whose context changed.
     if not AutomationLive() then return end
@@ -1448,6 +1636,9 @@ local TALENT_CATALOG_EVENTS = {
     "TRAIT_CONFIG_LIST_UPDATED", "ACTIVE_COMBAT_CONFIG_CHANGED", "SELECTED_LOADOUT_CHANGED",
 }
 local TALENT_REQUEST_EVENTS = { "CONFIG_COMMIT_FAILED", "PLAYER_TALENT_UPDATE", "TRAIT_NODE_CHANGED", "TRAIT_TREE_CHANGED" }
+-- WoW Forever: the events a spec group switch fires, also watched while
+-- automation is live (each stays on its own list above).
+local FOREVER_GROUP_EVENTS = IS_FOREVER and { PLAYER_TALENT_UPDATE = true, ACTIVE_COMBAT_CONFIG_CHANGED = true } or {}
 local TALENT_CAST_EVENTS = { "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED" }
 
 local EVENT_HANDLERS = {}
@@ -1477,22 +1668,32 @@ end
 -- Registered for the player only. It also fires without a spec change
 -- (entering an arena, for one): only a new spec ID counts, so a spec event
 -- that lands before the zone events of an entry never swallows the entry.
-EVENT_HANDLERS.PLAYER_SPECIALIZATION_CHANGED = function()
+local function OnSpecChanged()
     local specID = GetCurrentSpecID()
     if specID == lastSpecID then return end
     local known = lastSpecID ~= nil
     lastSpecID = specID
     if not known then return end
+    -- WoW Forever: the module's own group switch just landed.
+    local own = IS_FOREVER and ownSwitch and ownSwitch.group == ActiveSpecGroup() and ownSwitch or nil
+    ownSwitch = nil
     CancelRequests()
-    UI.selectedTalent = nil -- the picker lists only the current spec's loadouts
+    if not IS_FOREVER then UI.selectedTalent = nil end -- the picker lists only the current spec's loadouts
     local ctx = GetCurrentInstanceContext()
-    if AutomationLive() and ReadDB().specSwap and ctx.inInstance then
-        -- Re-run the swap for the new spec; it covers this place too.
+    if own then
+        -- Its gear follows, without another switch.
         lastPlaceKey = BuildPlaceKey(ctx)
-        QueueAutoCheck()
+        QueueAutoCheck({ gearOnly = true, manual = own.manual })
+    elseif AutomationLive() and ReadDB().specSwap and (ctx.inInstance or IS_FOREVER) then
+        -- Re-run the swap for the new spec; it covers this place too. On
+        -- WoW Forever a group you switched to yourself brings its gear,
+        -- anywhere, and is never switched back.
+        lastPlaceKey = BuildPlaceKey(ctx)
+        QueueAutoCheck(IS_FOREVER and { gearOnly = true } or nil)
     end
     RequestRefresh()
 end
+EVENT_HANDLERS.PLAYER_SPECIALIZATION_CHANGED = OnSpecChanged
 
 -- Registered only while a talent load is in flight.
 EVENT_HANDLERS.PLAYER_REGEN_DISABLED = function()
@@ -1543,6 +1744,15 @@ end
 EVENT_HANDLERS.PLAYER_TALENT_UPDATE = OnTalentTreeEvent
 EVENT_HANDLERS.TRAIT_NODE_CHANGED = OnTalentTreeEvent
 EVENT_HANDLERS.TRAIT_TREE_CHANGED = OnTalentTreeEvent
+-- WoW Forever: a spec group switch (ours or yours) is a spec change. It also
+-- fires ACTIVE_COMBAT_CONFIG_CHANGED, handled with the catalog events.
+if IS_FOREVER then
+    local function OnForeverTalentEvent()
+        OnTalentTreeEvent()
+        OnSpecChanged()
+    end
+    EVENT_HANDLERS.PLAYER_TALENT_UPDATE = OnForeverTalentEvent
+end
 
 -- Player casts: the talent commit cast, and the end of any cast an
 -- availability wait (gear held by a cast) is waiting on.
@@ -1590,6 +1800,7 @@ local function OnTalentCatalog(event, configID)
         end
     end
     RequestRefresh()
+    if IS_FOREVER and event == "ACTIVE_COMBAT_CONFIG_CHANGED" then OnSpecChanged() end
 end
 for i = 1, #TALENT_CATALOG_EVENTS do EVENT_HANDLERS[TALENT_CATALOG_EVENTS[i]] = OnTalentCatalog end
 
@@ -1626,7 +1837,10 @@ UpdateRequestEvents = function()
     SetEventState("PLAYER_SPECIALIZATION_CHANGED", context, true)
     -- Catalogs: a request on that channel, or the open page.
     SetEventState("EQUIPMENT_SETS_CHANGED", gear or pageShown)
-    for i = 1, #TALENT_CATALOG_EVENTS do SetEventState(TALENT_CATALOG_EVENTS[i], talent or pageShown) end
+    for i = 1, #TALENT_CATALOG_EVENTS do
+        local event = TALENT_CATALOG_EVENTS[i]
+        SetEventState(event, talent or pageShown or (FOREVER_GROUP_EVENTS[event] and context))
+    end
     -- Gear: while a swap is verified, or waits on the catalog or availability.
     local gearWait = gear and (gear.verifying or gear.waitReason == "catalog" or gear.waitReason == "availability")
     SetEventState("EQUIPMENT_SWAP_FINISHED", gear and gear.verifying)
@@ -1634,7 +1848,10 @@ UpdateRequestEvents = function()
     SetEventState("PLAYER_EQUIPMENT_CHANGED", gearWait)
     -- Talents: while a load is in flight.
     local inFlight = talent and talent.inFlight
-    for i = 1, #TALENT_REQUEST_EVENTS do SetEventState(TALENT_REQUEST_EVENTS[i], inFlight) end
+    for i = 1, #TALENT_REQUEST_EVENTS do
+        local event = TALENT_REQUEST_EVENTS[i]
+        SetEventState(event, inFlight or (FOREVER_GROUP_EVENTS[event] and context))
+    end
     SetEventState("PLAYER_REGEN_DISABLED", inFlight)
     -- Availability waits wake on movement, resting and the end of a cast.
     local availability = (gear and gear.waitReason == "availability") or (talent and talent.waitReason == "availability")

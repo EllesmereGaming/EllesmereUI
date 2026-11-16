@@ -23,11 +23,11 @@ local UnitCastingInfo, UnitChannelInfo = UnitCastingInfo, UnitChannelInfo
 
 local defaults, GetNPOutline, HP_BAR_SLOTS = I.defaults, I.GetNPOutline, I.HP_BAR_SLOTS
 local SetFSFont, ApplyHealthBarTexture = I.SetFSFont, I.ApplyHealthBarTexture
-local GetCastBarHeight, GetEnemyNameTextSize = I.GetCastBarHeight, I.GetEnemyNameTextSize
+local GetCastBarHeight = I.GetCastBarHeight
 local GetFocusCastHeight, GetHealthBarHeight = I.GetFocusCastHeight, I.GetHealthBarHeight
 local GetHealthBarWidth, GetHitboxYShift = I.GetHealthBarWidth, I.GetHitboxYShift
 local GetNameplateYOffset, GetNameYOffset = I.GetNameplateYOffset, I.GetNameYOffset
-local GetShowCastIcon, GetStackSpacingScale = I.GetShowCastIcon, I.GetStackSpacingScale
+local GetShowCastIcon = I.GetShowCastIcon
 local GetTextSlot, GetTextSlotColor = I.GetTextSlot, I.GetTextSlotColor
 local GetTextSlotOffsets, GetTextSlotSize = I.GetTextSlotOffsets, I.GetTextSlotSize
 local IsComboHealthText = I.IsComboHealthText
@@ -51,6 +51,10 @@ local storedParents = {}
 -- Park record per pooled UnitFrame (our table, weak on the frame): the swept children in park
 -- order, plus .held while HideBlizzardFrame owns the frame. Wiped and reused by the reclaim.
 ns._npParked = setmetatable({}, { __mode = "k" })
+-- Stacking bounds frame per Blizzard nameplate (our table, weak on the frame). The game keeps
+-- the last frame a nameplate was handed (its call has no clear), so the frame stays on its own
+-- nameplate for good and never moves on with a pooled plate.
+ns._npStackBounds = setmetatable({}, { __mode = "k" })
 local function MoveToOffscreen(element, unit)
     if not element then return end
     -- PERF: skip SetParent if already offscreen (saves ~14 calls per plate respawn)
@@ -1009,28 +1013,27 @@ function NameplateFrame:SetUnit(unit, nameplate)
         self._deferredSetupCB = function()
             if not self.unit then return end
             local np = self.nameplate
-            -- Stacking bounds
+            -- Stacking bounds: the rectangle the game stacks this nameplate by, on the
+            -- nameplate's OWN frame (ns._npStackBounds). A frame that travelled with this
+            -- pooled plate would leave its last nameplate measuring a rectangle that sits here.
             if np and np.SetStackingBoundsFrame then
-                if not self._stackBounds then
-                    self._stackBounds = CreateFrame("Frame", nil, np)
+                local sb = ns._npStackBounds[np]
+                if not sb then
+                    sb = CreateFrame("Frame", nil, np)
                     -- Load-bearing: SetStackingBoundsFrame reads this frame's rendered bounds
                     -- (union of its regions), NOT its SetSize. Without a full-size region the
                     -- bounds rect is empty and plates stop stacking. Alpha 0 so it never shows.
-                    local tex = self._stackBounds:CreateTexture(nil, "BACKGROUND")
+                    local tex = sb:CreateTexture(nil, "BACKGROUND")
                     tex:SetColorTexture(1, 0, 0, 0)
-                    tex:SetAllPoints(self._stackBounds)
+                    tex:SetAllPoints(sb)
+                    ns._npStackBounds[np] = sb
                 end
-                self._stackBounds:SetParent(np)
-                self._stackBounds:ClearAllPoints()
-                local barH = GetHealthBarHeight()
-                local castH2 = GetCastBarHeight()
-                local nameGap = 4 + GetEnemyNameTextSize()
-                local totalH = nameGap + barH + castH2
-                local scale = GetStackSpacingScale() / 100
-                self._stackBounds:SetPoint("CENTER", np, "CENTER", 0, GetNameplateYOffset())
-                self._stackBounds:SetSize(GetHealthBarWidth(), totalH * scale)
-                self._stackBounds:Show()
-                np:SetStackingBoundsFrame(self._stackBounds)
+                self._stackBounds = sb
+                sb:ClearAllPoints()
+                sb:SetPoint("CENTER", np, "CENTER", 0, GetNameplateYOffset())
+                sb:SetSize(GetHealthBarWidth(), ns.NP_StackHeight())
+                sb:Show()
+                np:SetStackingBoundsFrame(sb)
             end
             -- Focus cast height override
             if UnitIsUnit(self.unit, "focus") then
@@ -1190,6 +1193,7 @@ function NameplateFrame:ClearUnit()
     if self.nameRaidFrame then self.nameRaidFrame:Hide() end
     self.raidFrame:Hide()
     self.classFrame:Hide()
+    if self.questFrame then self.questFrame:Hide() end
     if self.factionFrame then self.factionFrame:Hide() end
     if self.questTextFrame then self.questTextFrame:Hide() end
     if self.questTextTypeIcon then self.questTextTypeIcon:Hide() end
@@ -1205,12 +1209,13 @@ function NameplateFrame:ClearUnit()
     ns._scaleAnim[self] = nil
     self:SetParent(UIParent)
     self:ClearAllPoints()
-    -- Detach stacking bounds from the old nameplate so it doesn't
-    -- confuse the stacking engine when the nameplate is recycled.
+    -- The nameplate keeps its stacking bounds frame: empty it (no points, hidden), so the
+    -- game stacks whatever unit takes the nameplate next by nothing of ours until that
+    -- unit's own setup. This plate only lets go of it.
     if self._stackBounds then
         self._stackBounds:ClearAllPoints()
-        self._stackBounds:SetParent(self)
         self._stackBounds:Hide()
+        self._stackBounds = nil
     end
 end
 

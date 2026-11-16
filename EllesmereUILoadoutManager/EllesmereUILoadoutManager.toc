@@ -1,11 +1,10 @@
 ## Interface: 120000, 120001, 120005, 120007, 120100, 120105, 16001
-## AllowLoadGameType: standard
 ## Title: |cff0cd29fEllesmereUI|r Loadout Manager
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
 ## Notes: Applies gear sets and talent loadouts automatically per instance type and specialization.
 ## Author: Ellesmere
-## Version: 9.8.6
+## Version: 9.8.8
 ## Dependencies: EllesmereUI
 # Held back (EllesmereUI.HELD_BACK_ADDONS): load on demand, and nothing loads
 # it, so it never loads and its saved data stays untouched. Drop this to ship.

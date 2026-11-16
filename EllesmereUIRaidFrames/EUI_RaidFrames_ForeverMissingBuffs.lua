@@ -8,7 +8,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Mark of the Wild and Thorns (druid), Arcane Intellect (mage; on mana users
 --  only), Salvation and a paladin blessing --
 --  i.e. a trained rank or the group version is in the player's spellbook. On
---  the member every rank and the group version count (looked up by name). A
+--  the member every rank and the group version count, another caster's
+--  included, and so does a stronger buff of the same stat that the game
+--  will not let the player's rank replace (EllesmereUI.ForeverFamilyAura). A
 --  member gets at most one blessing: the first of the priority list their
 --  assigned role takes (Tank / Healer / DPS Blessing; empty = no reminder; no
 --  role assigned = the DPS list) that the player can cast and the member
@@ -64,7 +66,8 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 -- merged below into names (spells whose localized names cover every rank and
 -- the group version), ranks (the player ranks and the group version: the
 -- "player can cast it" and restriction tests) and ids (every spell that
--- applies the buff, for the aura-event probe).
+-- applies the buff, and the family's stronger buffs, for the aura-event
+-- probe).
 local FAMILIES = {
     { key = "fort",   class = "PRIEST", setting = "missingBuffsFort",   icon = 1243,  from = { "fort" } },
     { key = "mark",   class = "DRUID",  setting = "missingBuffsMark",   icon = 1126,  from = { "mark" } },
@@ -97,6 +100,11 @@ for i = 1, NUM_FAMILIES do
         for _, id in ipairs(shared.single) do ranks[#ranks + 1] = id end
         for _, id in ipairs(shared.group) do ranks[#ranks + 1] = id end
         for _, id in ipairs(shared.ids) do ids[#ids + 1] = id end
+        -- The shared read's stronger buffs: gaining one re-reads the member.
+        fam.amounts, fam.stronger = shared.amounts, shared.stronger
+        if shared.stronger then
+            for id in pairs(shared.stronger) do ids[#ids + 1] = id end
+        end
         -- Only these classes need it (nil = everyone).
         fam.only = shared.beneficiaries
     end
@@ -188,24 +196,11 @@ local solo = true        -- not in a group (full passes)
 local wantFam = {}       -- key -> switched on where the indicator shows (raid, party or Extra Frames)
 local enabled = false
 local trusted = {}       -- key -> readable right now (Trusted rebuilds it once per frame)
-local names = {}         -- family index -> { localized names }
 local icons = {}         -- family index -> texture
+local FamilyAura = EllesmereUI.ForeverFamilyAura
 
 local function SettingsFor(d)
     return d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
-end
-
-local function FamilyNames(i)
-    local n = names[i]
-    if n then return n end
-    n = {}
-    for _, id in ipairs(FAMILIES[i].names) do
-        local name = C_Spell.GetSpellName(id)
-        if name then n[#n + 1] = name end
-    end
-    -- Spell data can be cold this early: keep an empty answer uncached.
-    if #n > 0 then names[i] = n end
-    return n
 end
 
 local function FamilyIcon(i)
@@ -354,25 +349,19 @@ local function Evaluate(unit, restricted)
         -- A buff the player cannot cast, switched off everywhere, or one the
         -- member's class does not need, is never looked up (it never shows).
         if known and Tracked(i) and not (restricted and not Trusted(i)) and Serves(FAMILIES[i], unit) then
-            local list = FamilyNames(i)
-            if #list > 0 then
-                value = false
-                for n = 1, #list do
-                    local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, unit, list[n], "HELPFUL")
-                    if not ok or issecretvalue(aura) then value = nil; break end
-                    if aura then
-                        value = true
-                        -- The caster, not isFromPlayerOrPlayerPet: that is
-                        -- true for any player's aura, another paladin's too.
-                        if FAMILIES[i].blessing and mine ~= true then
-                            local src = aura.sourceUnit
-                            if issecretvalue(src) then mine = nil elseif src == "player" then mine = true end
-                        end
-                        local iid = aura.auraInstanceID
-                        if iid and not issecretvalue(iid) then found[iid] = true end
-                        break
-                    end
+            local aura = FamilyAura(unit, FAMILIES[i])
+            if aura then
+                value = true
+                -- The caster, not isFromPlayerOrPlayerPet: that is
+                -- true for any player's aura, another paladin's too.
+                if FAMILIES[i].blessing and mine ~= true then
+                    local src = aura.sourceUnit
+                    if issecretvalue(src) then mine = nil elseif src == "player" then mine = true end
                 end
+                local iid = aura.auraInstanceID
+                if iid and not issecretvalue(iid) then found[iid] = true end
+            elseif aura == false then
+                value = false
             end
         end
         st[key] = value

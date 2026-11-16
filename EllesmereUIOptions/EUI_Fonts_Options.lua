@@ -465,6 +465,17 @@ local function TileQoL(parent, y, W, tile)
                 if fn then fn() end
             end }
     end
+    -- Quality of Life keys that follow profiles (EllesmereUI.QoLExtrasGet / QoLExtrasSet,
+    -- defined by that module, which is loaded here: the tile is a note while it is off).
+    local function psize(label, key, minV, maxV, def, applyName)
+        return { type = "slider", text = label, min = minV, max = maxV, step = 1,
+            getValue = function() return EllesmereUI.QoLExtrasGet(key) or def end,
+            setValue = function(v)
+                EllesmereUI.QoLExtrasSet(key, v)
+                local fn = EllesmereUI[applyName]
+                if fn then fn() end
+            end }
+    end
     local function brDB()
         local d = _G._EUI_BattleRes_DB and _G._EUI_BattleRes_DB()
         return d and d.profile and d.profile.battleRes
@@ -508,8 +519,8 @@ local function TileQoL(parent, y, W, tile)
     local function add(cfg) slots[#slots + 1] = cfg end
     add(ModuleOutlineCfg(tile.folder, tile.display))
     add(gsize("Map Coordinates Text Size", "mapCoordsTextSize", 8, 24, 12, "_applyMapCoords"))
-    add(gsize("Group Death Alert Text Size", "groupDeathTextSize", 14, 64, 34, "_applyGroupDeathAlert"))
-    add(gsize("Combat Alert Text Size", "combatAlertTextSize", 14, 64, 22, "_applyCombatAlertFrame"))
+    add(psize("Group Death Alert Text Size", "groupDeathTextSize", 14, 64, 34, "_applyGroupDeathAlert"))
+    add(psize("Combat Alert Text Size", "combatAlertTextSize", 14, 64, 22, "_applyCombatAlertFrame"))
     add({ type = "slider", text = "FPS Counter Text Size", min = 8, max = 30, step = 1,
           getValue = function()
               if EllesmereUI.QoLExtrasGet then
@@ -521,8 +532,8 @@ local function TileQoL(parent, y, W, tile)
               if EllesmereUI.QoLExtrasSet then EllesmereUI.QoLExtrasSet("fpsTextSize", v) end
               if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
           end })
-    add(gsize("Durability Warning Text Size", "durWarnTextSize", 10, 50, 30, "_durWarnApplySettings"))
-    add(gsize("Target Distance Text Size", "targetDistanceTextSize", 10, 48, 18, "_applyTargetDistanceFrame"))
+    add(psize("Durability Warning Text Size", "durWarnTextSize", 10, 50, 30, "_durWarnApplySettings"))
+    add(psize("Target Distance Text Size", "targetDistanceTextSize", 10, 48, 18, "_applyTargetDistanceFrame"))
     if not FOREVER then
         add({ type = "slider", text = "Keystone Popup Text Size", min = 8, max = 16, step = 1,
               getValue = function()

@@ -456,6 +456,8 @@ ReloadFramesBody = function()
                 else
                     frame.Portrait.backdrop:SetFrameLevel(frame:GetFrameLevel() + 1)
                 end
+                -- Rested Indicator on the portrait: follows its show / hide and level.
+                if frame._restFollowPortrait then frame._restFollowPortrait() end
             end
 
             if unit == "player" or unit == "target" then

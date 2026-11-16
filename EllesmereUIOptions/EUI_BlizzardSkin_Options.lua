@@ -1518,6 +1518,39 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._refreshCharSheetIconZoom then EllesmereUI._refreshCharSheetIconZoom() end
               end })
 
+        -- WoW Forever's Show Item Level, on the character sheet and the
+        -- inspect sheet: one dropdown over the sheet's shown key (on unless
+        -- false; Never writes it false and keeps the position) and its
+        -- position key (beside the slot unless set, or inside its icon).
+        local function ItemLevelDropdown(showKey, posKey, refresh, disabled, disabledTooltip)
+            return { type="dropdown", text="Show Item Level",
+              tooltip="Where each item's level shows on its slot, in the item's quality colour.",
+              values={ never="Never", beside="Beside Slot", icontop="Icon Top", iconcenter="Icon Center", iconbottom="Icon Bottom" },
+              order={ "never", "beside", "icontop", "iconcenter", "iconbottom" },
+              disabled=disabled, disabledTooltip=disabledTooltip,
+              getValue=function()
+                  if EllesmereUIDB and EllesmereUIDB[showKey] == false then return "never" end
+                  return EllesmereUIDB and EllesmereUIDB[posKey] or "beside"
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB[showKey] = v ~= "never"
+                  if v ~= "never" then EllesmereUIDB[posKey] = v end
+                  local fn = EllesmereUI[refresh]
+                  if fn then fn() end
+              end }
+        end
+        -- Ticking Show Item Stats there moves an item level that sits beside
+        -- the slot into the icon's bottom, out of the stats line (Never and a
+        -- position inside the icon stay). Only on that click: unticking moves
+        -- nothing back, and nothing else ever moves the position.
+        local function LevelIntoIcon(showKey, posKey)
+            local db = EllesmereUIDB
+            if db[showKey] ~= false and (db[posKey] or "beside") == "beside" then
+                db[posKey] = "iconbottom"
+            end
+        end
+
         if not EllesmereUI.IS_FOREVER then
             -- Mythic+ Rating | Item Details: a checkbox dropdown, a view over
             -- the item level, upgrade track and gem keys (each on unless
@@ -1615,21 +1648,25 @@ initFrame:SetScript("OnEvent", function(self)
                 })
             end
         else
-            -- WoW Forever has no Mythic+, item level text, upgrade tracks or
-            -- sockets: the track key shows each item's main and secondary stat
-            -- (or its armor when it has none) and each weapon's damage per
-            -- second there. Icon Zoom greys out under Blizz Default.
+            -- WoW Forever has no Mythic+, upgrade tracks or sockets. Show
+            -- Item Stats (a key of this client's own, off unless turned on)
+            -- shows each item's main and secondary stat (or its armor when
+            -- it has none) and each weapon's damage per second. Icon Zoom
+            -- greys out under Blizz Default.
             local statsRow
             statsRow, h = W:DualRow(parent, y,
+                ItemLevelDropdown("showItemLevel", "charSheetItemLevelPos", "_refreshItemLevelVisibility"),
                 { type="toggle", text="Show Item Stats",
                   tooltip="Show each item's main and secondary stat (or its armor) and each weapon's damage per second beside its slot.",
-                  getValue=function() return EllesmereUIDB and EllesmereUIDB.showUpgradeTrack ~= false end,
+                  getValue=function() return EllesmereUIDB and EllesmereUIDB.charSheetShowItemStats == true or false end,
                   setValue=function(v)
                       if not EllesmereUIDB then EllesmereUIDB = {} end
-                      EllesmereUIDB.showUpgradeTrack = v
+                      EllesmereUIDB.charSheetShowItemStats = v
+                      if v then LevelIntoIcon("showItemLevel", "charSheetItemLevelPos") end
                       if EllesmereUI._refreshUpgradeTrackVisibility then EllesmereUI._refreshUpgradeTrackVisibility() end
-                  end },
-                iconZoomCfg);  y = y - h
+                      -- The Show Item Level dropdown beside it shows the move
+                      EllesmereUI:RefreshPage()
+                  end });  y = y - h
             AttachDisabledOverlay(statsRow)
         end
 
@@ -1672,7 +1709,8 @@ initFrame:SetScript("OnEvent", function(self)
                   -- Shows or hides the Text Size cog
                   EllesmereUI:RefreshPage()
               end },
-            { type="toggle", text="Show PvP Item Level",
+            -- WoW Forever has no PvP item level: Icon Zoom takes its place.
+            EllesmereUI.IS_FOREVER and iconZoomCfg or { type="toggle", text="Show PvP Item Level",
               tooltip="Display your PvP item level above the Mythic+ rating on the character sheet.",
               getValue=function() return EllesmereUIDB and EllesmereUIDB.showPvpItemLevel or false end,
               setValue=function(v)
@@ -1720,6 +1758,16 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage()
               end }
         end
+        -- Gear flyout item levels: its own section on retail, beside
+        -- Durability on WoW Forever (the section's only option there).
+        local flyoutLevelsCfg = { type="toggle",
+              text=EllesmereUI.IS_FOREVER and "Flyout Item Levels" or "Show Item Levels",
+              tooltip="Shows the item level on each item in the character sheet gear flyout (the popup of same-slot bag items that appears when hovering an equipped slot), coloured by quality.",
+              getValue=function() return EllesmereUIDB and EllesmereUIDB.flyoutItemLevels or false end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.flyoutItemLevels = v
+              end }
         local durSeasonRow
         durSeasonRow, h = W:DualRow(parent, y,
             { type="toggle", text="Show Item Durability",
@@ -1740,15 +1788,11 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._updateScrollHeaderOffset then EllesmereUI._updateScrollHeaderOffset() end
                   EllesmereUI:RefreshPage()
               end },
-            seasonCfg or EllesmereUI.BlankRowCfg()
+            seasonCfg or (EllesmereUI.IS_FOREVER and flyoutLevelsCfg) or EllesmereUI.BlankRowCfg()
         );  y = y - h
 
         do
-            EllesmereUI.BuildInlineCog(durSeasonRow._leftRegion, {
-                disabled = function() return not (EllesmereUIDB and EllesmereUIDB.showCharSheetDurability) end,
-                disabledTooltip = "Show Item Durability",
-                title = "Durability Settings",
-                rows = {
+            local durRows = {
                     { type="dropdown", label="Location",
                       values={ model="Above Model", header="Stats Header", footer="Frame Footer" },
                       order={ "model", "header", "footer" },
@@ -1769,7 +1813,14 @@ initFrame:SetScript("OnEvent", function(self)
                           EllesmereUIDB.charSheetDurabilityShowLabel = v
                           if EllesmereUI._updateCharSheetDurability then EllesmereUI._updateCharSheetDurability() end
                       end },
-                },
+            }
+            -- WoW Forever: always above the model, so no Location.
+            if EllesmereUI.IS_FOREVER then table.remove(durRows, 1) end
+            EllesmereUI.BuildInlineCog(durSeasonRow._leftRegion, {
+                disabled = function() return not (EllesmereUIDB and EllesmereUIDB.showCharSheetDurability) end,
+                disabledTooltip = "Show Item Durability",
+                title = "Durability Settings",
+                rows = durRows,
             })
 
             -- Inline cog on Season Panel: the Great Vault shortcut is its own opt-in.
@@ -1802,31 +1853,20 @@ initFrame:SetScript("OnEvent", function(self)
         -- sheet off; the slot arrows belong to the sheet and grey out with it.
         -- The sheet's own slot letters live under Item Details (Stat Letters,
         -- Tertiary Stats). All off unless turned on.
-        _, h = WSCardSection(parent, "GEAR FLYOUT", y);  y = y - h
-
-        local flyoutStatsCfg
+        -- WoW Forever: its one option sits beside Durability instead.
         if not EllesmereUI.IS_FOREVER then
-            flyoutStatsCfg = { type="toggle", text="Show Item Stats",
-              tooltip="Shows each item's secondary stats as letters in the gear flyout, largest first (C Crit, H Haste, M Mastery, V Versatility), so items with the same icon are told apart.",
-              getValue=function() return EllesmereUIDB and EllesmereUIDB.flyoutItemStats or false end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.flyoutItemStats = v
-                  EllesmereUI:RefreshPage()
-              end }
-        end
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Show Item Levels",
-              tooltip="Shows the item level on each item in the character sheet gear flyout (the popup of same-slot bag items that appears when hovering an equipped slot), coloured by quality.",
-              getValue=function() return EllesmereUIDB and EllesmereUIDB.flyoutItemLevels or false end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.flyoutItemLevels = v
-              end },
-            flyoutStatsCfg or EllesmereUI.BlankRowCfg()
-        );  y = y - h
+            _, h = WSCardSection(parent, "GEAR FLYOUT", y);  y = y - h
 
-        if not EllesmereUI.IS_FOREVER then
+            local flyoutStatsCfg = { type="toggle", text="Show Item Stats",
+                  tooltip="Shows each item's secondary stats as letters in the gear flyout, largest first (C Crit, H Haste, M Mastery, V Versatility), so items with the same icon are told apart.",
+                  getValue=function() return EllesmereUIDB and EllesmereUIDB.flyoutItemStats or false end,
+                  setValue=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      EllesmereUIDB.flyoutItemStats = v
+                      EllesmereUI:RefreshPage()
+                  end }
+            _, h = W:DualRow(parent, y, flyoutLevelsCfg, flyoutStatsCfg);  y = y - h
+
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Tertiary Stat Letters",
                   tooltip="Adds Leech, Avoidance and Speed (L, A, S) in smaller letters behind the secondary stats in the gear flyout.",
@@ -1847,13 +1887,15 @@ initFrame:SetScript("OnEvent", function(self)
                       if EllesmereUI._refreshCharSheetSlotFlyoutArrows then EllesmereUI._refreshCharSheetSlotFlyoutArrows() end
                   end }
             );  y = y - h
-        end
 
-        _, h = W:Spacer(parent, y, 10);  y = y - h
+            _, h = W:Spacer(parent, y, 10);  y = y - h
+        end
 
         ---------------------------------------------------------------------------
         --  STAT DISPLAY
         ---------------------------------------------------------------------------
+        -- WoW Forever keeps Blizzard's own stat list: none of these apply.
+        if not EllesmereUI.IS_FOREVER then
         _, h = WSCardSection(parent, "STAT DISPLAY", y);  y = y - h
 
         -- Every control here is a view over the keys the sheet already reads
@@ -2030,6 +2072,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
         AttachDisabledOverlay(stRow)
+        end -- not IS_FOREVER
 
         ---------------------------------------------------------------------------
         --  INSPECT SHEET
@@ -2097,60 +2140,48 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        local itemLevelInspectRow
-        itemLevelInspectRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Item Level",
-              tooltip="Toggle visibility of item level text on the inspect sheet.",
+        -- Item Level | Upgrade Track, both off with the sheet (on unless the
+        -- sheet's key is false, as its Enable toggle reads it). WoW Forever
+        -- shows the character sheet's pair instead: Show Item Level (the
+        -- same dropdown over this sheet's own keys) | Show Item Stats (off
+        -- unless turned on); its slot text re-stacks around what shows, so a
+        -- change restyles the slots.
+        local function inspectOff()
+            return EllesmereUIDB and EllesmereUIDB.themedInspectSheet == false
+        end
+        local function InspectLabelToggle(text, tooltip, key, refresh, optIn, onTick)
+            return { type="toggle", text=text, tooltip=tooltip,
+              disabled=inspectOff, disabledTooltip="Inspect Sheet",
               getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.inspectShowItemLevel ~= false
+                  if optIn then return EllesmereUIDB and EllesmereUIDB[key] == true or false end
+                  return not (EllesmereUIDB and EllesmereUIDB[key] == false)
               end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.inspectShowItemLevel = v
-                  if EllesmereUI._refreshInspectItemLevelVisibility then
-                      EllesmereUI._refreshInspectItemLevelVisibility()
-                  end
-              end },
-            { type="toggle", text="Upgrade Track",
-              tooltip="Toggle visibility of upgrade track text on the inspect sheet.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.inspectShowUpgradeTrack ~= false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.inspectShowUpgradeTrack = v
-                  if EllesmereUI._refreshInspectUpgradeTrackVisibility then
-                      EllesmereUI._refreshInspectUpgradeTrackVisibility()
-                  end
+                  EllesmereUIDB[key] = v
+                  if v and onTick then onTick() end
+                  local fn = EllesmereUI[refresh]
+                  if fn then fn() end
+                  -- The dropdown beside it shows what a tick moved
+                  if onTick then EllesmereUI:RefreshPage() end
               end }
-        );  y = y - h
-
-        if not EllesmereUI._prebuilding then
-            local function themedOff()
-                return not (EllesmereUIDB and EllesmereUIDB.themedInspectSheet)
-            end
-
-            local itemLevelInspectBlock = CreateFrame("Frame", nil, itemLevelInspectRow)
-            itemLevelInspectBlock:SetAllPoints(itemLevelInspectRow)
-            itemLevelInspectBlock:SetFrameLevel(itemLevelInspectRow:GetFrameLevel() + 10)
-            itemLevelInspectBlock:EnableMouse(true)
-            local itemLevelInspectBg = EllesmereUI.SolidTex(itemLevelInspectBlock, "BACKGROUND", 0, 0, 0, 0)
-            itemLevelInspectBg:SetAllPoints()
-            itemLevelInspectBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(itemLevelInspectBlock, EllesmereUI.DisabledTooltip("Inspect Sheet"))
-            end)
-            itemLevelInspectBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            EllesmereUI.RegisterWidgetRefresh(function()
-                if themedOff() then
-                    itemLevelInspectBlock:Show()
-                    itemLevelInspectRow:SetAlpha(0.3)
-                else
-                    itemLevelInspectBlock:Hide()
-                    itemLevelInspectRow:SetAlpha(1)
-                end
-            end)
-            if themedOff() then itemLevelInspectBlock:Show() itemLevelInspectRow:SetAlpha(0.3) else itemLevelInspectBlock:Hide() itemLevelInspectRow:SetAlpha(1) end
+        end
+        if EllesmereUI.IS_FOREVER then
+            _, h = W:DualRow(parent, y,
+                ItemLevelDropdown("inspectShowItemLevel", "inspectItemLevelPos", "_refreshInspectSlotLabels",
+                    inspectOff, "Inspect Sheet"),
+                InspectLabelToggle("Show Item Stats",
+                    "Show each item's main and secondary stat (or its armor) and each weapon's damage per second beside its slot.",
+                    "inspectShowItemStats", "_refreshInspectSlotLabels", true,
+                    function() LevelIntoIcon("inspectShowItemLevel", "inspectItemLevelPos") end)
+            );  y = y - h
+        else
+            _, h = W:DualRow(parent, y,
+                InspectLabelToggle("Item Level", "Toggle visibility of item level text on the inspect sheet.",
+                    "inspectShowItemLevel", "_refreshInspectItemLevelVisibility"),
+                InspectLabelToggle("Upgrade Track", "Toggle visibility of upgrade track text on the inspect sheet.",
+                    "inspectShowUpgradeTrack", "_refreshInspectUpgradeTrackVisibility")
+            );  y = y - h
         end
 
         return y
@@ -3251,6 +3282,16 @@ initFrame:SetScript("OnEvent", function(self)
             end,
         },
         {
+            key   = "keyring",
+            title = "Keyring",
+            desc  = "The keyring window: its frame, title and key slots. Skinned while EllesmereUI Bags handles your bags.",
+            reloadMsg = "Changing the Keyring reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
+            setEnabled = function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.reskinKeyring = v
+            end,
+        },
+        {
             key   = "gossip",
             title = "Gossip",
             desc  = "The NPC dialog window: greeting text, gossip and quest options, and goodbye button.",
@@ -3370,15 +3411,22 @@ initFrame:SetScript("OnEvent", function(self)
             greatvault = true,
             delvepicker = true, housing = true,
         }
+        -- The Keyring skin applies only while EllesmereUI Bags keeps Blizzard's
+        -- other bag frames parked, so without that module there is no card.
+        if not (EllesmereUI._ModuleNS and EllesmereUI._ModuleNS.EllesmereUIBags) then
+            foreverDropped.keyring = true
+        end
         for i = #WINDOWS, 1, -1 do
             if foreverDropped[WINDOWS[i].key] then table.remove(WINDOWS, i) end
         end
     else
-        -- The Bag Bar, Progress Legacy and Pet Stable skins exist only on
-        -- Forever; drop their cards on retail.
+        -- The Bag Bar, Progress Legacy, Pet Stable and Keyring skins exist
+        -- only on Forever; drop their cards on retail.
         for i = #WINDOWS, 1, -1 do
             local key = WINDOWS[i].key
-            if key == "bagbar" or key == "legacysystem" or key == "stable" then table.remove(WINDOWS, i) end
+            if key == "bagbar" or key == "legacysystem" or key == "stable" or key == "keyring" then
+                table.remove(WINDOWS, i)
+            end
         end
     end
 
@@ -4979,6 +5027,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinCraftOrders = nil
                 EllesmereUIDB.reskinTrainer = nil
                 EllesmereUIDB.reskinStable = nil
+                EllesmereUIDB.reskinKeyring = nil
                 EllesmereUIDB.reskinGossip = nil
                 EllesmereUIDB.reskinQuest = nil
                 EllesmereUIDB.reskinInspectRecipe = nil
@@ -5044,6 +5093,10 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.charSheetBlizzColors = nil
                 EllesmereUIDB.inspectEnchantNames = nil
                 EllesmereUIDB.inspectEnchantSize = nil
+                EllesmereUIDB.charSheetItemLevelPos = nil
+                EllesmereUIDB.inspectItemLevelPos = nil
+                EllesmereUIDB.charSheetShowItemStats = nil
+                EllesmereUIDB.inspectShowItemStats = nil
                 -- The rest of what the export bundle carries for these two tabs
                 -- (BLIZZ_SKIN_GLOBAL_KEYS): card and tooltip settings, defaults too.
                 for _, k in ipairs({

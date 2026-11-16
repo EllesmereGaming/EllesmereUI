@@ -435,8 +435,10 @@ local DEFAULTS = {
             -- Spark colours (mhSparkR/G/B/A, ohSpark.., rSpark..) are unset by default:
             -- white, and a combined off hand's spark its fill colour.
             depleteFill   = true,   -- start full and deplete instead of filling up
-            idleShowFill  = nil,    -- true = idle row sits full of its fill colour
-            hideWhenIdle  = false,  -- hide the whole bar while no swing is running
+            -- Idle Behavior (one dropdown over these three keys):
+            idleShowFill  = nil,    -- true = idle row sits full of its fill colour (Filled)
+            hideWhenIdle  = false,  -- hide the whole bar while no swing is running (Hidden)
+            idleHidePerType = nil,  -- true with hideWhenIdle = each row hides while its weapon is not attacking
             showTime      = true,   -- remaining seconds on each row
             showLabel     = true,   -- MH / OH / R tag on each row
             showMH        = true,   -- per-row toggles (a row also needs a weapon in the slot)

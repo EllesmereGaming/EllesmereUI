@@ -351,6 +351,7 @@ end)
 
 -- Close button (created after search/sort so it renders on top)
 local close = CreateFrame("Button", nil, header)
+EUI_Bank._closeBtn = close  -- Junk Marker mode lets a click on it through
 close:SetSize(12, 12)
 close:SetPoint("RIGHT", header, "RIGHT", -9, 0)
 close.icon = close:CreateTexture(nil, "OVERLAY")
@@ -630,7 +631,6 @@ do
     withdrawMoneyBtn:SetPoint("RIGHT", depositMoneyBtn, "LEFT", -8, 0)
 
     local function ShowMoneyPopup(title, onAccept)
-        if not EUI.ShowInputPopup then return end
         EUI:ShowInputPopup({
             title = EllesmereUI.L(title),
             message = EllesmereUI.L("Enter an amount:"),
@@ -1546,6 +1546,7 @@ end
 --  List view (bankListView): rows from EllesmereUIBags_List.lua
 -------------------------------------------------------------------------------
 local _bankRows = {}
+EUI_Bank._bankRows = _bankRows  -- mark mode hit-tests the bank's rows too
 
 -- Latched on the first read after the profile loads, like EUI_Bags.IsListMode:
 -- switching needs a reload, so only one bank display builds per session.
@@ -2498,6 +2499,21 @@ function EUI_Bank:RefreshBank()
         _catIndex = nil
     end
     if _catSel and not _catIndex then _catSel = nil end
+    -- A category that is gone (Delete) or turned off, or a group with no member
+    -- that is on, shows nowhere
+    if _catSel then
+        local CM = _G.EUI_CategoryManager
+        local dc = BP().bagDisabledCategories
+        if _catSel.group then
+            if not CM:FirstOnMember(_catSel.group, dc) then _catSel = nil end
+        else
+            local found
+            for _, c in ipairs(CM:GetCategories()) do
+                if c._defaultName == _catSel.key then found = c; break end
+            end
+            if not found or CM:IsCategoryOff(found, dc) then _catSel = nil end
+        end
+    end
 
     if _catSel then
         LayoutSelectionSlots(GetSelectionSlots() or {})
@@ -2625,6 +2641,7 @@ function EUI_Bank:RefreshBank()
             btn:SetItemButtonTexture(nil)
             btn:SetItemButtonCount(0)
             SetItemButtonDesaturated(btn, false)
+            if btn._junkCoin then btn._junkCoin:Hide() end
             if btn.icon then btn.icon:Hide() end
             btn._emptyBg:Show(); ns.PaintSlotBackground(btn._emptyBg, 0.35)
             btn:EnableMouse(true)
@@ -2642,8 +2659,11 @@ function EUI_Bank:RefreshBank()
             ns.SetSlotIcon(btn, info.iconFileID)
             btn:SetItemButtonCount(info.stackCount)
             local quality = info.quality or 1
-            SetItemButtonDesaturated(btn, info.isLocked or (desatJunk and (quality == 0
-                or (junkOn and _G.EUI_CategoryManager:IsJunk(info.itemID, quality)))) or false)
+            -- The mark is read only where it is drawn: Desaturate, or mark mode's coin
+            local marking = EUI_Bags._junkMode
+            local isJunk = (desatJunk or marking) and junkOn and _G.EUI_CategoryManager:IsJunk(info.itemID, quality) or false
+            SetItemButtonDesaturated(btn, info.isLocked or (desatJunk and (quality == 0 or isJunk)) or false)
+            if marking or btn._junkCoin then ns.PaintJunkCoin(btn, marking and isJunk or false) end
             local itemLink = C_Container.GetContainerItemLink(bagID, slot)
             if itemLink then btn:SetItemButtonQuality(quality, itemLink, false, false) end
             if btn.ProfessionQualityOverlay and btn.ProfessionQualityOverlay:IsShown() and btn._textOverlay then
@@ -3407,6 +3427,9 @@ function BuildBankSidebar()
 
         local anyCat = false
         local renderedGroups = {}
+        -- A turned-off category holds nothing here (its items are the catch-all's)
+        -- and lends its group no icon
+        local dc = BP().bagDisabledCategories
         for _, cat in ipairs(cats) do
             -- Pinned / Recent / Reagent Bag / Special Bags are bag-side concepts with
             -- no bank equivalent; ClassifyItem never routes bank items to them anyway.
@@ -3418,7 +3441,7 @@ function BuildBankSidebar()
                         local total, firstCat = 0, nil
                         for _, mi in ipairs(members) do
                             local mc = cats[mi]
-                            if mc then
+                            if mc and not CM:IsCategoryOff(mc, dc) then
                                 total = total + CountFor(mc)
                                 if not firstCat then firstCat = mc end
                             end

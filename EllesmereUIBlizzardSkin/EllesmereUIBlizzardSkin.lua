@@ -70,11 +70,12 @@ local WINDOW_ENABLE_KEYS = {
     trade           = "reskinTrade",
     flagcarrier     = "reskinFlagCarriers",
 }
--- WoW Forever's own windows: the bag bar, Progress Legacy and Pet Stable skins exist only there.
+-- WoW Forever's own windows: the bag bar, Progress Legacy, Pet Stable and keyring skins exist only there.
 if EllesmereUI.IS_FOREVER then
     WINDOW_ENABLE_KEYS.bagbar       = "reskinBagBar"
     WINDOW_ENABLE_KEYS.legacysystem = "reskinLegacySystem"
     WINDOW_ENABLE_KEYS.stable       = "reskinStable"
+    WINDOW_ENABLE_KEYS.keyring      = "reskinKeyring"
 end
 
 -- Windows whose skin starts at Blizz Default (owner 2026-10-29: the Flag
@@ -138,6 +139,8 @@ do
         BATCHES[#BATCHES + 1] = { marker = "foreverLegacySkinSeeded", keys = { "legacysystem" } }
         -- WoW Forever: the Pet Stable window began skinning there.
         BATCHES[#BATCHES + 1] = { marker = "foreverStableSkinSeeded", keys = { "stable" } }
+        -- WoW Forever: the keyring window began skinning there.
+        BATCHES[#BATCHES + 1] = { marker = "foreverKeyringSkinSeeded", keys = { "keyring" } }
     end
     local function SeedBatch(marker, newKeys)
         if EllesmereUIDB[marker] then return end

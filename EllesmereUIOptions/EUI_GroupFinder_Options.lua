@@ -159,7 +159,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return ns.Cfg().cancelOldest == true end,
               setValue = function(v) ns.Cfg().cancelOldest = v and true or false end },
             { type = "toggle", text = "Cancel Mismatched Applications",
-              tooltip = "Cancels a pending application once the group no longer matches your filters, for example when your role fills up. Only judges the tab you're on, and the cancel goes out on your next click on the list.",
+              tooltip = "Cancels a pending application that no longer matches your filters, on your next click in the list.",
               getValue = function() return ns.Cfg().autoCancelMismatch == true end,
               setValue = function(v) ns.Cfg().autoCancelMismatch = v and true or nil end });  y = y - h
         if PGFLoaded() then
@@ -240,7 +240,7 @@ initFrame:SetScript("OnEvent", function(self)
         local lineRow
         lineRow, h = W:DualRow(parent, y,
             { type = "dropdown", text = "Row Highlight",
-              tooltip = "Marks the groups you applied to in their status color, with a line under the group or a tinted row. The cog picks which statuses show and their colors.",
+              tooltip = "Marks the groups you applied to in their status color, with a line under the group or a tinted row.",
               values = { none = "None", underline = "Underline", row = "Full Row" }, order = { "none", "underline", "row" },
               getValue = function()
                   local v = ns.OwnListGet("statusStyle")

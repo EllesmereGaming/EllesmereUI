@@ -1368,11 +1368,13 @@ end
 do
     local function ByOrder(a, b) return a.orderIndex < b.orderIndex end
 
-    -- The active config ID and tree ID, and the trees in their order, each
+    -- The config ID (the active one unless another is given: a dual spec group's build)
+    -- and tree ID, and the trees in their order, each
     -- { groupID, name, nodes = { nodeID, ... } } with its visible talents
     -- (name: the game's own). The list is nil while there is no tree.
-    function EllesmereUI.ForeverTalentTrees()
-        local configID = C_ClassTalents.GetActiveConfigID()
+    -- namesOnly: the node lists stay empty (no walk of the tree).
+    function EllesmereUI.ForeverTalentTrees(configID, namesOnly)
+        configID = configID or C_ClassTalents.GetActiveConfigID()
         local config = configID and C_Traits.GetConfigInfo(configID)
         local treeID = config and config.treeIDs[1]
         if not treeID then return configID, nil, nil end
@@ -1383,6 +1385,7 @@ do
             trees[i] = { groupID = g.groupID, name = g.displayName, nodes = {} }
             byGroup[g.groupID] = trees[i]
         end
+        if namesOnly then return configID, treeID, trees end
         for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID)) do
             local info = C_Traits.GetNodeInfo(configID, nodeID)
             if info and info.isVisible and info.entryIDs[1] then

@@ -22,6 +22,7 @@ local tremove          = table.remove
 local tconcat          = table.concat
 local floor            = math.floor
 local max              = math.max
+local min              = math.min
 
 local CONTENT_BASE         = K.CONTENT_BASE
 local InstKey              = K.InstKey
@@ -542,7 +543,22 @@ local function MMAddCharStats()
         ns.Tip_AddDouble(STAT_AVERAGE_ITEM_LEVEL or "Item Level", format("%.1f", eq), ar, ag, ab, 1, 1, 1)
     end
 
-    local pLabel, pIdx = MMPrimaryStat()
+    -- WoW Forever has no primary stat (one class-wide spec), so list all five
+    -- attributes in UNITSTAT order under the client's own names, as its own
+    -- character sheet does.
+    if EllesmereUI.IS_FOREVER then
+        for i = 1, 5 do
+            local label = _G["SPELL_STAT" .. i .. "_NAME"]
+            local _, eff = UnitStat("player", i)
+            eff = clean(eff)
+            if label and eff then
+                ns.Tip_AddDouble(label, format("%.0f", eff), ar, ag, ab, 1, 1, 1)
+            end
+        end
+    end
+
+    local pLabel, pIdx
+    if not EllesmereUI.IS_FOREVER then pLabel, pIdx = MMPrimaryStat() end
     if pLabel and pIdx then
         local _, eff = UnitStat("player", pIdx)
         eff = clean(eff)
@@ -798,6 +814,52 @@ local function MMBuildGuildTip(s)
     ns.Tip_AddDouble(L["SHIFT_LEFT_CLICK"], L["INVITE"],  1, 1, 1, ar, ag, ab)
 end
 
+-- A button's click and hover area reaches past its own icon-sized frame: across the bar to
+-- the bar's edges, along the bar into the gaps beside it, and over its counter. No two
+-- buttons ever share a piece of it.
+--
+-- The counter's reach past the frame along the bar, toward the button before it and toward
+-- the one after it (tw x th, centred tx, ty off the button's centre). Negative: inside.
+local function MMTextAlong(vertical, icon, tx, ty, tw, th)
+    local h = icon / 2
+    if vertical then return th / 2 + ty - h, th / 2 - ty - h end
+    return tw / 2 - tx - h, tw / 2 + tx - h
+end
+
+-- How two neighbours share the gap between them (g wide). a: the first button's counter
+-- reach toward the second, c: the second's toward the first (nil: no counter). A counter in
+-- the gap keeps its part, never past the other button's frame, and the other button takes
+-- the rest; with none in the gap, or two that meet, each takes half.
+-- Returns the first button's reach, then the second's.
+local function MMGapSplit(g, a, c)
+    local half = g / 2
+    a = min(max(a or 0, 0), g)
+    c = min(max(c or 0, 0), g)
+    if a + c > g then return half, half end
+    if a > half then return a, g - a end
+    if c > half then return g - c, c end
+    return half, half
+end
+
+-- The reach to the left, right, top and bottom, never negative, in the strip's units.
+-- before / after: the reach along the bar, already settled with the neighbours; halfThick:
+-- half the bar's thickness; across: how far the strip sits off the bar's middle (up or right
+-- positive); the counter as above (tw nil: none shows).
+local function MMHitReach(vertical, icon, halfThick, across, before, after, tx, ty, tw, th)
+    local h = icon / 2
+    local l, r, t, b
+    if vertical then
+        t, b = before, after
+        r, l = halfThick - across - h, halfThick + across - h
+        if tw then l, r = max(l, tw / 2 - tx - h), max(r, tw / 2 + tx - h) end
+    else
+        l, r = before, after
+        t, b = halfThick - across - h, halfThick + across - h
+        if tw then t, b = max(t, th / 2 + ty - h), max(b, th / 2 - ty - h) end
+    end
+    return max(l, 0), max(r, 0), max(t, 0), max(b, 0)
+end
+
 ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)
@@ -817,6 +879,16 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
     local frames = {}
     local icons = {}
     local textFS = {}
+    -- The button under the cursor (its enter and leave scripts): the hover look follows the
+    -- button's whole click area, which is larger than its frame.
+    local hovered = {}
+    -- Refresh's scratch: the laid-out buttons in order with the spacing before each, and the
+    -- click area each button was last given.
+    local laidKeys, laidGap = {}, {}
+    -- Each laid-out button's counter: its width (false: none shows) and its reach along the
+    -- bar toward the button before and after.
+    local laidText = { w = {}, before = {}, after = {} }
+    local hitL, hitR, hitT, hitB = {}, {}, {}, {}
     local active, portraitEvents, guildEvents = false, false, false
     local guildEmblem
     local lastRosterRequest = 0
@@ -879,7 +951,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         if aspect and aspect < 1 then w = floor(size * aspect + 0.5)
         elseif aspect and aspect > 1 then h = floor(size / aspect + 0.5) end
         icon:SetSize(w, h)
-        if frame:IsMouseOver() then icon:SetVertexColor(ns.GetAccent())
+        if hovered[key] then icon:SetVertexColor(ns.GetAccent())
         else icon:SetVertexColor(IconColor(blockCfg, icon)) end
         if key == "guild" then PaintGuildEmblem(icon, frame, painted, w, h) end
     end
@@ -918,7 +990,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
             fs:Show()
             if icons[key] then PlaceIcon(key) end
         end
-        if frames[key]:IsMouseOver() then fs:SetTextColor(ns.GetAccent())
+        if hovered[key] then fs:SetTextColor(ns.GetAccent())
         else fs:SetTextColor(BlockColorOf(blockCfg)) end
     end
 
@@ -1015,6 +1087,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
 
         -- OnEnter / OnLeave are never protected, safe on all button types.
         frame:SetScript("OnEnter", function()
+            hovered[name] = true
             -- Hover tint stays alive in combat (our textures/fonts only).
             local r, g, b = ns.GetAccent()
             if icons[name] then
@@ -1037,6 +1110,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
             ShowButtonTooltip(name)
         end)
         frame:SetScript("OnLeave", function()
+            hovered[name] = nil
             if icons[name] then icons[name]:SetVertexColor(IconColor(blockCfg, icons[name])) end
             if textFS[name] then textFS[name]:SetTextColor(BlockColorOf(blockCfg)) end
             ns.Tip_HideUnlessInteractive(frame)
@@ -1172,11 +1246,13 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         local ICON_SIZE = GetIconSize()
         local isVertical = barCtx.IsVertical()
         local totalWidth, totalHeight, prev = 0, 0, nil
+        local laidN = 0
         for _, key in ipairs(ns.GetMicroMenuOrder(mm, orderScratch)) do
             local frame = frames[key]
             -- Hide buttons toggled off after creation; lay out enabled ones.
             if frame and not MMButtonOn(mm, key) then
                 frame:Hide()
+                hovered[key] = nil
                 frame = nil
             end
             if frame then
@@ -1200,6 +1276,8 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
                 end
                 local prevSpacing = 0
                 if prev then prevSpacing = spacing end
+                laidN = laidN + 1
+                laidKeys[laidN], laidGap[laidN] = key, prevSpacing
                 if isVertical then
                     totalHeight = totalHeight + ICON_SIZE + prevSpacing
                     totalWidth  = max(totalWidth, ICON_SIZE)
@@ -1212,6 +1290,46 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         end
 
         content:SetSize(max(totalWidth, 1), max(totalHeight, 1))
+
+        -- Click areas: the whole of what a button shows takes the mouse, as on the other
+        -- blocks (MMHitReach). The buttons are secure frames, so the insets are written here,
+        -- out of combat, and only when one changed.
+        local s = (blockCfg.scale or 100) / 100
+        if s < 0.25 then s = 0.25 elseif s > 3 then s = 3 end
+        local across = blockCfg.yOff
+        if isVertical then across = blockCfg.xOff end
+        across = (across or 0) / s
+        local halfThick = barCtx.GetThickness() / s / 2
+        local tx, ty = blockCfg.textXOff or 0, blockCfg.textYOff or 0
+        local th = SocialFontSize() + 2
+        local textW, textBefore, textAfter = laidText.w, laidText.before, laidText.after
+        for i = 1, laidN do
+            local fs, tw = textFS[laidKeys[i]], false
+            textBefore[i], textAfter[i] = nil, nil
+            if fs and fs:IsShown() then
+                tw = fs:GetStringWidth()
+                if not (tw and tw > 0) then tw = th end
+                tw = tw + 4
+                textBefore[i], textAfter[i] = MMTextAlong(isVertical, ICON_SIZE, tx, ty, tw, th)
+            end
+            textW[i] = tw
+        end
+        for i = 1, laidN do
+            local key = laidKeys[i]
+            -- At an end of the strip the counter's own reach; between two buttons their share of the gap.
+            local before, after = textBefore[i] or 0, textAfter[i] or 0
+            if i > 1 then
+                local _, mine = MMGapSplit(laidGap[i], textAfter[i - 1], textBefore[i])
+                before = mine
+            end
+            if i < laidN then after = MMGapSplit(laidGap[i + 1], textAfter[i], textBefore[i + 1]) end
+            local l, r, t, b = MMHitReach(isVertical, ICON_SIZE, halfThick, across,
+                before, after, tx, ty, textW[i] or nil, th)
+            if hitL[key] ~= l or hitR[key] ~= r or hitT[key] ~= t or hitB[key] ~= b then
+                hitL[key], hitR[key], hitT[key], hitB[key] = l, r, t, b
+                frames[key]:SetHitRectInsets(-l, -r, -t, -b)
+            end
+        end
 
         MaybeRelayout(inst)
     end
@@ -1267,6 +1385,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         active, portraitEvents, guildEvents = false, false, false
         UnregisterInstEvents(self)
         content:Hide()
+        wipe(hovered)
     end
 
     -- Refresh sizes content to the laid-out strip.

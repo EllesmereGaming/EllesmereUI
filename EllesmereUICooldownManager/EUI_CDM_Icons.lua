@@ -552,6 +552,33 @@ function ns.StyleCustomChargeText(icon, barKey)
     fs:SetPoint(scPoint, txOverlay or icon, scPoint, scX, scY)
 end
 
+-- Duration Above Glows (opt-in, per bar). The swipe and the countdown number share one
+-- Cooldown widget, so raising the widget would lift the swipe over the glow as well. Instead
+-- only the countdown FontString moves, onto our own carrier: a child of cd (so it shows, hides
+-- and fades with the widget) levelled above every glow overlay (the buff and proc overlays at
+-- +16, the pandemic overlay at +17) and below textOverlay (+23). The
+-- number stays anchored to cd. Keyed weakly by cd, never a field on a Blizzard frame; built on
+-- first enable only, and turning it off moves the number back onto cd. Returns the frame that
+-- holds the number now.
+local CD_TEXT_CARRIER_LEVEL = 18
+local _cdTextCarrier = setmetatable({}, { __mode = "k" })
+local function CdmCountdownHost(icon, cd, on)
+    local car = _cdTextCarrier[cd]
+    if on and not car then
+        car = CreateFrame("Frame", nil, cd)
+        car:SetAllPoints(cd)
+        car:EnableMouse(false)
+        _cdTextCarrier[cd] = car
+    end
+    if not car then return cd end
+    local fs = cd.GetCountdownFontString and cd:GetCountdownFontString()
+    if not fs then return cd end
+    if on then car:SetFrameLevel(icon:GetFrameLevel() + CD_TEXT_CARRIER_LEVEL) end
+    local host = on and car or cd
+    if fs:GetParent() ~= host then fs:SetParent(host) end
+    return host
+end
+
 -- Refresh visual properties of existing icons (called when settings change)
 local function RefreshCDMIconAppearance(barKey)
     -- Custom auras render in their own engine container, so their style is
@@ -820,6 +847,8 @@ local function RefreshCDMIconAppearance(barKey)
             local hideCD = not showCD
             if ns.CdmShouldHideCountdown then hideCD = ns.CdmShouldHideCountdown(icon, hideCD) end
             cd:SetHideCountdownNumbers(hideCD)
+            -- Opt-in Duration Above Glows: the number may live on a carrier above the glow.
+            local cdTextHost = CdmCountdownHost(icon, cd, barData.cooldownTextAboveGlow)
             -- Apply cooldown text font directly.
             if showCD then
                 local cdFont = GetCDMFont()
@@ -831,11 +860,12 @@ local function RefreshCDMIconAppearance(barKey)
                     or barData.cooldownTextPosition or "center"
                 local cdX = (ssb and ssb.cooldownTextX) or barData.cooldownTextX or 0
                 local cdY = (ssb and ssb.cooldownTextY) or barData.cooldownTextY or 0
-                -- Find Blizzard's countdown FontString on the Cooldown widget. Keep it ON the
-                -- widget (anchored to cd) so the user's position and X/Y offset work -- REPARENTING
-                -- it makes Blizzard's engine re-center and ignore both. Setting our own anchor also
+                -- Find Blizzard's countdown FontString on its host: the Cooldown widget, or the
+                -- Duration Above Glows carrier (a child of the widget). Keep it anchored to cd so
+                -- the user's position and X/Y offset work -- hung from a frame outside the widget
+                -- Blizzard's engine re-centers it and ignores both. Setting our own anchor also
                 -- overrides the engine's stale baseline (raw SetFont vs SetCountdownFont); off-center anchors are where a missed or stomped anchor first becomes visible.
-                for _, rgn in pairs({ cd:GetRegions() }) do
+                for _, rgn in pairs({ cdTextHost:GetRegions() }) do
                     if rgn and rgn.GetObjectType and rgn:GetObjectType() == "FontString" then
                         EllesmereUI.ApplyIconTextFont(rgn, cdFont, cdSize, "cdm")
                         rgn:SetTextColor(cdR, cdG, cdB)

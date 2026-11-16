@@ -569,9 +569,31 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     if ns.OfflinePanel then ns.OfflinePanel(sidebarW) end
 end
 
+-- A turned-off category (Enabled Categories, or Delete on a default one) shows
+-- nowhere: while it is open, or a group whose members are all off, the bags
+-- show the view they open on. Costs one category lookup per refresh (a walk of
+-- the list while a group is open), nothing while no category is off.
+local function LeaveTurnedOff()
+    local dc = BP().bagDisabledCategories
+    if not dc then return end
+    local mgr = EUI_CategoryManager
+    if selectedGroupName then
+        if mgr:FirstOnMember(selectedGroupName, dc) then return end
+        I.SetSelectedGroupName(nil)
+    elseif selectedCategoryIndex > 0 then
+        local cat = mgr:GetCategories()[selectedCategoryIndex]
+        if not (cat and mgr:IsCategoryOff(cat, dc)) then return end
+    else
+        return
+    end
+    I.SetSelectedCategoryIndex(ns.OpenBagViewIndex())
+    if EUI_Bags._scrollFrame then EUI_Bags._scrollFrame:SetVerticalScroll(0) end
+end
+
 function EUI_Bags:RefreshInventory()
     if not EUI_Bags:IsVisible() then return end
     ns.ApplySlotMetrics()
+    LeaveTurnedOff()
 
     -- A select mode's hover box sits on a button this refresh may refill: put
     -- that button's border back now and re-test the hover after
@@ -851,11 +873,14 @@ function EUI_Bags:RefreshInventory()
         -- As in All Items, such an item stays in its group too. Only a pinned item that is
         -- hidden in its category (_pinnedOnly, Hide Items in Their Categories) leaves it: _vgOnly.
         -- Junk (what Sell Junk sells, while the Junk Marker is on) is not offered to the
-        -- provider: _vgJunk files it in a Junk section of ours, drawn last. An item whose
-        -- link has not loaded is not offered either and stays unstamped (_vg nil): it is
-        -- not drawn, as in All Items.
+        -- provider: _vgJunk files it in a Junk section of ours, drawn last, or in Other
+        -- while the Junk category is turned off (elsewhere it goes to the catch-all
+        -- then). An item whose link has not loaded is not offered either and stays
+        -- unstamped (_vg nil): it is not drawn, as in All Items.
         local keepPin = view.keepPinned and showPinned and pinnedSet or nil
         local keepRec = view.keepRecent and showRecent and EUI_Bags._recentItems or nil
+        local junkCat = EUI_CategoryManager:GetCategories()[EUI_CategoryManager._junkCatIdx or 0]
+        local junkSection = not (junkCat and EUI_CategoryManager:IsCategoryOff(junkCat, BP().bagDisabledCategories))
         for _, data in ipairs(displayItems) do
             local info = data.info
             local itemID = info and info.itemID
@@ -863,7 +888,7 @@ function EUI_Bags:RefreshInventory()
             if link then
                 local quality = info and info.quality
                 local junk = EUI_CategoryManager:IsJunk(itemID, quality) or nil
-                data._vgJunk = junk
+                data._vgJunk = junkSection and junk or nil
                 data._vg = junk and 0
                     or EUI_CategoryManager:ClassifyView(view, link, itemID, data.bag, data.slot, quality)
                 data._vgPin = keepPin and itemID and IsItemPinned(keepPin, link, itemID) or nil
