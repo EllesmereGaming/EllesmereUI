@@ -688,6 +688,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if not DBVal("classificationIncludeFaction") then plate:UpdateFaction() end
                 if ns.ApplySlotStrata then ns.ApplySlotStrata(plate) end
             end
+            for _, fp in pairs(ns.friendlyPlates) do fp:UpdateRaidIcon() end
             ns.NP_RefreshFriendlyFaction()
             UpdatePreview()
             EllesmereUI:RefreshPage()
