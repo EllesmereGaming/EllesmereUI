@@ -4516,6 +4516,29 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                     end } })
                 end
 
+                -- 4b3. Buff Stacks (per-spell, default off): the stack count of the
+                -- spell's own buff on this cooldown icon, mirrored from its item in
+                -- Blizzard's buff viewers. Runtime in EUI_CDM_CdBuffStacks.lua, gated by ns._cdmAnyCdBuffStacks.
+                local BUFF_STACKS_ITEMS = {
+                    { val = nil,  label = "Off" },
+                    { val = true, label = "Show Buff Stacks",
+                      tooltip = "Shows the stack count of this spell's buff on the icon, e.g. blocks left on Shield Block. The buff must be tracked in Blizzard's Cooldown Manager buffs." },
+                }
+                MakeSubnavRow("Buff Stacks", BUFF_STACKS_ITEMS,
+                    function() return ss.showBuffStacks and true or nil end,
+                    function(v)
+                        EnsureSS(); SetOwn("showBuffStacks", v or nil)
+                        if v then ns._cdmAnyCdBuffStacks = true end
+                        if ns.QueueReanchor then ns.QueueReanchor() end
+                    end,
+                    function() return ss.showBuffStacks == nil end,
+                    nil,
+                    { apply = { keys = { "showBuffStacks" },
+                                write = function(t, v)
+                                    t.showBuffStacks = v or false
+                                    if v then ns._cdmAnyCdBuffStacks = true end
+                                end } })
+
                 -- 4c. Audio Effect on CD Ready (cd/utility per-icon): play a sound the moment
                 -- the spell's real cooldown finishes. Same sound list + speaker preview as the
                 -- buff Audio rows/Focus Cast Sound (shared ns.FOCUSKICK_SOUND_* tables); stored

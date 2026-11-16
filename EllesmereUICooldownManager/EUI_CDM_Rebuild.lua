@@ -913,6 +913,7 @@ BuildAllCDMBars = function()
     ns.RescanActiveGlowFlag()     -- set the Active State Glow gate (once) before refresh
     ns.RescanTalentCondFlag()     -- set the Talent Conditions gate (once) before refresh
     ns.RescanStanceBarFlag()      -- set the Stance Bar gate (once) before refresh
+    if ns.RescanCdBuffStacksFlag then ns.RescanCdBuffStacksFlag() end -- Buff Stacks gate (once)
 
     local p = ECME.db.profile
 

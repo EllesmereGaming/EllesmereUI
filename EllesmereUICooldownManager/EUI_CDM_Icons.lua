@@ -522,8 +522,10 @@ end
 -- Styles the custom-spell "Show Charges" count text (created lazily by the CdmHooks ticker) to
 -- match the bar's native stack/charge text: font, size, color, anchor position and X/Y offset.
 -- Called at creation and from every RefreshCDMIconAppearance pass so option changes apply live. With no bar data the defaults resolve to size 11, bottom-right, +2 nudge.
-function ns.StyleCustomChargeText(icon, barKey)
-    local fs = icon and icon._castCountText
+-- fs: another count FontString of ours on the icon (Buff Stacks); defaults to
+-- the custom-spell charge text.
+function ns.StyleCustomChargeText(icon, barKey, fs)
+    fs = fs or (icon and icon._castCountText)
     if not fs then return end
     local barData = (barKey and barDataByKey[barKey]) or {}
     -- Fonts render at the frame's native scale; compensate like the main pass.
@@ -963,6 +965,8 @@ local function RefreshCDMIconAppearance(barKey)
         if icon._castCountText then
             ns.StyleCustomChargeText(icon, barKey)
         end
+        -- Per-spell Buff Stacks text (EUI_CDM_CdBuffStacks.lua), same settings.
+        if ns.CdBuffStacksRestyle then ns.CdBuffStacksRestyle(icon, barKey) end
 
         -- Update keybind text style
         if kbText then
