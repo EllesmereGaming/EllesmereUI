@@ -181,9 +181,10 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     --  Valuable Quest Reward (EllesmereUIForeverEssentials_QuestRewards.lua) |
     --  Gathering Skill in Tooltips (EllesmereUIForeverEssentials_GatherSkill.lua),
     --  then Auto Summon Pet | Favorites per
-    --  Character, then Mark Non-Classic Quests
-    --  (EllesmereUIForeverEssentials_QuestMarks.lua). Every control reads and writes its feature's own key and
-    --  runs that feature's own apply.
+    --  Character, then Mark Non-Classic Quests | Recipes
+    --  (EllesmereUIForeverEssentials_QuestMarks.lua, _RecipeMarks.lua). Every
+    --  control reads and writes its feature's own key and runs that feature's
+    --  own apply.
     ---------------------------------------------------------------------------
     local QR, GS = EllesmereUI._QuestRewards, EllesmereUI._GatherSkill
     _, h = W:SectionHeader(parent, "GENERAL", y);  y = y - h
@@ -299,10 +300,11 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         );  y = y - h
     end
 
-    -- Mark Non-Classic Quests (EllesmereUIForeverEssentials_QuestMarks.lua):
-    -- one checkbox per place, in a checkbox dropdown as Classic Windows.
-    local QM = EllesmereUI._QuestMarks
-    local QM_LABEL = "Mark Non-Classic Quests"
+    -- Mark Non-Classic Quests | Mark Non-Classic Recipes
+    -- (EllesmereUIForeverEssentials_QuestMarks.lua, _RecipeMarks.lua): one
+    -- checkbox per place, in a checkbox dropdown as Classic Windows.
+    local QM, RM = EllesmereUI._QuestMarks, EllesmereUI._RecipeMarks
+    local QM_LABEL, RM_LABEL = "Mark Non-Classic Quests", "Mark Non-Classic Recipes"
     local qmItems = {
         { key = "givers", label = "At Quest Givers",
           tooltip = "In the quest giver's list and on the quest text before you accept it." },
@@ -312,26 +314,36 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         qmItems[#qmItems + 1] = { key = "tracker", label = "On the Quest Tracker",
             tooltip = "On the quest rows of the Custom Quest Tracker." }
     end
+    local rmItems = {
+        { key = "window", label = "In the Profession Window", tooltip = "After the recipe's name in the recipe list." },
+        { key = "trainer", label = "At Profession Trainers", tooltip = "On the icon of what the trainer teaches." },
+        { key = "tooltip", label = "On Recipe Tooltips", tooltip = "A line on the tooltip of a pattern, formula, plans or recipe." },
+    }
     RegisterDropdownSearch(QM_LABEL, qmItems)
-    local qmRow
-    qmRow, h = W:DualRow(parent, y,
+    RegisterDropdownSearch(RM_LABEL, rmItems)
+    local marksRow
+    marksRow, h = W:DualRow(parent, y,
         { type = "label", text = QM_LABEL,
           tooltip = "A small blue infinity marks the quests that are not from the original game, in the places you pick." },
-        BLANK()
+        { type = "label", text = RM_LABEL,
+          tooltip = "The same blue infinity marks the recipes that are not from the original game, in the places you pick." }
     );  y = y - h
     if not EllesmereUI._prebuilding then
-        local rgn = qmRow._leftRegion
-        local qmDD, qmRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-            rgn, 210, rgn:GetFrameLevel() + 2, qmItems,
-            function(key) return QM.Get(key) end,
-            function(key, v)
-                QM.Cfg()[key] = v
-                QM.Apply()
-            end)
-        EllesmereUI.PanelPP.Point(qmDD, "RIGHT", rgn, "RIGHT", -20, 0)
-        rgn._control = qmDD
-        rgn._lastInline = nil
-        EllesmereUI.RegisterWidgetRefresh(qmRefresh)
+        local function MarksDropdown(rgn, items, api)
+            local dd, refresh = EllesmereUI.BuildVisOptsCBDropdown(
+                rgn, 210, rgn:GetFrameLevel() + 2, items,
+                function(key) return api.Get(key) end,
+                function(key, v)
+                    api.Cfg()[key] = v
+                    api.Apply()
+                end)
+            EllesmereUI.PanelPP.Point(dd, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = dd
+            rgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(refresh)
+        end
+        MarksDropdown(marksRow._leftRegion, qmItems, QM)
+        MarksDropdown(marksRow._rightRegion, rmItems, RM)
     end
 
     ---------------------------------------------------------------------------

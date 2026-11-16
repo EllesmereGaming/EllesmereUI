@@ -26,15 +26,14 @@ local R, G, B = 0.30, 0.65, 1.00
 -- Settings live in EllesmereUIDB.questMarks; unset keys read these.
 local F = module.Feature("questMarks", { givers = false, log = false, tracker = false })
 
-local ORIGINAL = module.ORIGINAL_QUESTS
-
-local function IsOriginal(id)
-    local lo, hi = 1, #ORIGINAL / 2
+-- id is in list, sorted first, last ID pairs.
+local function InList(list, id)
+    local lo, hi = 1, #list / 2
     while lo <= hi do
         local mid = math.floor((lo + hi) / 2)
-        if id < ORIGINAL[mid * 2 - 1] then
+        if id < list[mid * 2 - 1] then
             hi = mid - 1
-        elseif id > ORIGINAL[mid * 2] then
+        elseif id > list[mid * 2] then
             lo = mid + 1
         else
             return true
@@ -53,21 +52,25 @@ local function NewMark(parent)
     return f
 end
 
--- Shows host's mark when the quest is marked here, else hides it; place(mark)
--- anchors a shown one.
-local function Mark(store, host, on, id, place, ...)
-    local mark = store[host]
-    if on and type(id) == "number" and id > 0 and not IsOriginal(id) then
-        if not mark then
-            mark = NewMark(host)
-            store[host] = mark
+-- A marker for the IDs missing from original: Mark(store, host, on, id,
+-- place, ...) shows host's mark when id is marked here, else hides it;
+-- place(mark, ...) anchors a shown one.
+local function Marker(original)
+    return function(store, host, on, id, place, ...)
+        local mark = store[host]
+        if on and type(id) == "number" and id > 0 and not InList(original, id) then
+            if not mark then
+                mark = NewMark(host)
+                store[host] = mark
+            end
+            place(mark, ...)
+            mark:Show()
+        elseif mark then
+            mark:Hide()
         end
-        place(mark, ...)
-        mark:Show()
-    elseif mark then
-        mark:Hide()
     end
 end
+local Mark = Marker(module.ORIGINAL_QUESTS)
 
 local function HideAll(store)
     for _, mark in pairs(store) do mark:Hide() end
@@ -79,6 +82,12 @@ local function AfterText(mark, fs)
     mark:SetPoint("LEFT", fs, "TOPLEFT", math.min(fs:GetUnboundedStringWidth(), fs:GetWidth()) + 3,
         -fs:GetLineHeight() / 2)
 end
+
+-- Shared with Mark Non-Classic Recipes (EllesmereUIForeverEssentials_RecipeMarks.lua).
+module.ClassicMarks = {
+    ATLAS = ATLAS, R = R, G = G, B = B,
+    InList = InList, Marker = Marker, HideAll = HideAll, AfterText = AfterText,
+}
 
 -------------------------------------------------------------------------------
 --  Quest givers: the gossip list, the greeting list, the quest text

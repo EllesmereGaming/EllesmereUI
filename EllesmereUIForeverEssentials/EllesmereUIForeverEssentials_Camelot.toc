@@ -42,6 +42,8 @@ EllesmereUIForeverEssentials_MapTravel.lua
 EllesmereUIForeverEssentials_QuestRewards.lua
 EllesmereUIForeverEssentials_QuestMarksData.lua
 EllesmereUIForeverEssentials_QuestMarks.lua
+EllesmereUIForeverEssentials_RecipeMarksData.lua
+EllesmereUIForeverEssentials_RecipeMarks.lua
 
 # Travel (flight timer)
 EllesmereUIForeverEssentials_FlightTimerData.lua
