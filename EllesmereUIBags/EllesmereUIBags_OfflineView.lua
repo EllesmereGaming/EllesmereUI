@@ -757,13 +757,13 @@ end
 
 -- everything the grid draws from; the same signature twice means nothing moved.
 -- gold and the saved time are painted on their own, outside it
-local function Signature(v, list, src, query, keyring, keyringTime)
+local function Signature(v, list, src, query, keyring, keyringTime, showKeyring)
     local p = BP()
     local sel, group = ns.GetSelection()
     local r, g, b = EUI.GetAccentColor()
     local dis = DisabledKey()
     return strjoin("|", tostring(v.mode), tostring(list), list and list[1] and tostring(list[1]) or "",
-        Offline.ListRev(src), Offline.ListRev(keyring), tostring(keyringTime), query, v.viewTab, tostring(sel),
+        Offline.ListRev(src), Offline.ListRev(keyring), tostring(keyringTime), tostring(showKeyring), query, v.viewTab, tostring(sel),
         tostring(group), math.floor(v.panel:GetWidth() + 0.5), SLOT_SIZE, SPACING, catGen, GetFont(),
         tostring(p.bagItemIconZoom), tostring(p.bagCountFontSize), tostring(p.itemlevelFontSize),
         tostring(p.showItemlevelInBags), tostring(p.bagQualityBorder), tostring(p.bagCatTitleSize),
@@ -811,7 +811,7 @@ Paint = function(v, force)
     end
     v.info:SetText(infoText or "")
     PaintGold(v, Gold(v))
-    local sig = Signature(v, list, src, query, keyring, keyringTime)
+    local sig = Signature(v, list, src, query, keyring, keyringTime, showKeyring)
     if not force and sig == v.sig then
         PaintCount(v)
         return

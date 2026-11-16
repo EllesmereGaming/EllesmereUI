@@ -89,6 +89,11 @@ local function KeyringDisplaySlots(slots, used, capacity, searching, compact)
     end
     return display
 end
+
+local function ListEmptySlots(viewIndex, displayItems, liveItems, liveEmpty)
+    if viewIndex == -4 or #displayItems ~= #liveItems then return nil end
+    return liveEmpty
+end
 local _anyItemPanelOpen = I._anyItemPanelOpen
 I.anyItemPanelOpenSetters[#I.anyItemPanelOpenSetters + 1] = function(v) _anyItemPanelOpen = v end
 
@@ -1160,7 +1165,7 @@ function EUI_Bags:RefreshInventory()
             -- The Recent Items tab: its items in one newest-first section
             recentOnly = isRecentView or nil,
             -- Empty rows only when nothing is search-filtered out
-            emptySlots = (#displayItems == #liveItems) and liveEmpty or nil,
+            emptySlots = ListEmptySlots(selectedCategoryIndex, displayItems, liveItems, liveEmpty),
             keyringSlots = keyringDisplaySlots,
             keyringEmpty = selectedCategoryIndex == -4 and not keyringSearching and (keyringUsed or 0) == 0,
             showKeyring = selectedCategoryIndex == -4 or selectedCategoryIndex == -1
