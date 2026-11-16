@@ -181,6 +181,7 @@ end
 -------------------------------------------------------------------------------
 local _rows, _sections, _hdrBars = {}, {}, {}
 local _rowsUsed, _sectionsUsed = 0, 0
+local _keyringEmptyLabel
 
 local function SkinRow(btn)
     -- Methods only on template sub-objects (property writes taint)
@@ -1130,6 +1131,21 @@ function ns.RenderListView(items, opts)
             end
         end
         y = y - 6
+    end
+    if opts.keyringEmpty and opts.slotView == "keyring" then
+        if not _keyringEmptyLabel then
+            _keyringEmptyLabel = child:CreateFontString(nil, "OVERLAY")
+            SetBagFont(_keyringEmptyLabel, 11)
+            _keyringEmptyLabel:SetTextColor(0.55, 0.55, 0.55)
+            _keyringEmptyLabel:SetJustifyH("LEFT")
+        end
+        _keyringEmptyLabel:ClearAllPoints()
+        _keyringEmptyLabel:SetPoint("TOPLEFT", x + 5, y)
+        _keyringEmptyLabel:SetText(L("No Items"))
+        _keyringEmptyLabel:Show()
+        y = y - RowH()
+    elseif _keyringEmptyLabel then
+        _keyringEmptyLabel:Hide()
     end
     for i = _rowsUsed + 1, #_rows do _rows[i]:GetParent():Hide() end
     return math.abs(y) + 10, COLHDR_H

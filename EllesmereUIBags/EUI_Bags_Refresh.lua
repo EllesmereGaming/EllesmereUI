@@ -71,6 +71,24 @@ function ns.CollectKeyringSlots(bagID, searching)
     end
     return slots, used, capacity
 end
+
+local function KeyringDisplaySlots(slots, used, capacity, searching, compact)
+    local list = EUI_Bags.IsListMode()
+    if not slots or (not compact and not list) then return slots end
+    local display, firstEmpty = {}, nil
+    for _, data in ipairs(slots) do
+        if data.info then
+            display[#display + 1] = data
+        elseif compact and not searching and not firstEmpty then
+            firstEmpty = firstEmpty or data
+            display[#display + 1] = data
+        end
+    end
+    if compact and not searching and used == 0 and capacity > 0 and #display == 0 then
+        display[1] = firstEmpty
+    end
+    return display
+end
 local _anyItemPanelOpen = I._anyItemPanelOpen
 I.anyItemPanelOpenSetters[#I.anyItemPanelOpenSetters + 1] = function(v) _anyItemPanelOpen = v end
 
@@ -830,6 +848,9 @@ function EUI_Bags:RefreshInventory()
         keyringSlots, keyringUsed, keyringCapacity = ns.CollectKeyringSlots(keyringBag,
             EUI_Bags._appliedSearch and EUI_Bags._appliedSearch ~= "")
     end
+    local keyringSearching = EUI_Bags._appliedSearch and EUI_Bags._appliedSearch ~= ""
+    local keyringDisplaySlots = KeyringDisplaySlots(keyringSlots, keyringUsed, keyringCapacity,
+        keyringSearching, EUI_Bags.IsCompactMode() and not EUI_Bags.IsListMode())
 
     -- 3. Update sidebar
     BuildSidebarButtons(categoryCounts, totalCount, keyringAvailable ~= nil)
@@ -999,8 +1020,8 @@ function EUI_Bags:RefreshInventory()
                 if hasSetChild then S = S + 1 end
             end
             if S < 1 then S = 1 end
-            if keyringSlots and #keyringSlots > 0 then
-                n = n + #keyringSlots
+            if keyringDisplaySlots and #keyringDisplaySlots > 0 then
+                n = n + #keyringDisplaySlots
                 S = S + 1
             end
         elseif view then
@@ -1010,8 +1031,8 @@ function EUI_Bags:RefreshInventory()
             n = #displayItems
             S = #view.groups + 1 + (view.keepPinned and 1 or 0) + (view.keepRecent and 1 or 0)
                 + (EUI_CategoryManager:IsJunkMarkerEnabled() and 1 or 0)
-            if keyringSlots and #keyringSlots > 0 then
-                n = n + #keyringSlots
+            if keyringDisplaySlots and #keyringDisplaySlots > 0 then
+                n = n + #keyringDisplaySlots
                 S = S + 1
             end
         elseif selectedCategoryIndex == -2 then
@@ -1019,21 +1040,21 @@ function EUI_Bags:RefreshInventory()
             n = #tempItems + #emptySlots
             S = 0
             for bag = 0, 5 do if C_Container.GetContainerNumSlots(bag) > 0 then S = S + 1 end end
-            if keyringSlots and #keyringSlots > 0 then
-                n = n + #keyringSlots
+            if keyringDisplaySlots and #keyringDisplaySlots > 0 then
+                n = n + #keyringDisplaySlots
                 S = S + 1
             end
             if S < 1 then S = 1 end
         elseif selectedCategoryIndex == -4 then
-            n = keyringSlots and #keyringSlots or 1
+            n = keyringDisplaySlots and #keyringDisplaySlots or 1
             S = 1
         else
             -- OneBag / group view: a few sections (pinned/recent/main/reagent,
             -- plus OneBag's special bags)
             n = #tempItems + #emptySlots
             S = 3 + (selectedCategoryIndex == -1 and spBags or 0)
-            if selectedCategoryIndex == -1 and keyringSlots and #keyringSlots > 0 then
-                n = n + #keyringSlots
+            if selectedCategoryIndex == -1 and keyringDisplaySlots and #keyringDisplaySlots > 0 then
+                n = n + #keyringDisplaySlots
                 S = S + 1
             end
         end
@@ -1115,7 +1136,8 @@ function EUI_Bags:RefreshInventory()
             recentOnly = isRecentView or nil,
             -- Empty rows only when nothing is search-filtered out
             emptySlots = (#displayItems == #liveItems) and liveEmpty or nil,
-            keyringSlots = keyringSlots,
+            keyringSlots = keyringDisplaySlots,
+            keyringEmpty = selectedCategoryIndex == -4 and not keyringSearching and (keyringUsed or 0) == 0,
             showKeyring = selectedCategoryIndex == -4 or selectedCategoryIndex == -1
                 or selectedCategoryIndex == -2 or isAllItems or view ~= nil,
             keyringCapacity = keyringCapacity,
@@ -1130,7 +1152,7 @@ function EUI_Bags:RefreshInventory()
         return
     end
 
-    local curY = ns.RenderGridView(liveItems, displayItems, liveEmpty, child, columns, gridW, gridPadX, showPinned, pinnedSet, keyringSlots, keyringCapacity, keyringUsed)
+    local curY = ns.RenderGridView(liveItems, displayItems, liveEmpty, child, columns, gridW, gridPadX, showPinned, pinnedSet, keyringDisplaySlots, keyringCapacity, keyringUsed)
 
     -- Compact: the window drops the remainder its widest band leaves short of
     -- the columns, less than a cell (ns.CompactBagsContentW). While open it
