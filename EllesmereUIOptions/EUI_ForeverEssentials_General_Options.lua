@@ -181,7 +181,8 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     --  Valuable Quest Reward (EllesmereUIForeverEssentials_QuestRewards.lua) |
     --  Gathering Skill in Tooltips (EllesmereUIForeverEssentials_GatherSkill.lua),
     --  then Auto Summon Pet | Favorites per
-    --  Character. Every control reads and writes its feature's own key and
+    --  Character, then Mark Non-Classic Quests
+    --  (EllesmereUIForeverEssentials_QuestMarks.lua). Every control reads and writes its feature's own key and
     --  runs that feature's own apply.
     ---------------------------------------------------------------------------
     local QR, GS = EllesmereUI._QuestRewards, EllesmereUI._GatherSkill
@@ -204,22 +205,24 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               CT.Apply()
           end },
     }
-    -- Global search sees row labels and tooltips only, so this row's entry,
-    -- registered before the row (the index keeps the first one), carries the
-    -- dropdown's names as search text; it is never shown.
-    if EllesmereUI._RegisterSearchEntry then
+    -- Global search sees row labels and tooltips only, so a checkbox dropdown
+    -- row's entry, registered before the row (the index keeps the first one),
+    -- carries the dropdown's names as search text; it is never shown.
+    local function RegisterDropdownSearch(label, items)
+        if not EllesmereUI._RegisterSearchEntry then return end
         local words = {}
-        for i = 1, #cwItems do
-            local s = cwItems[i].label
+        for i = 1, #items do
+            local s = items[i].label
             words[#words + 1] = s
             local loc = EllesmereUI.L(s)
             if loc ~= s then words[#words + 1] = loc end
         end
-        local labelLoc = EllesmereUI.L(CW_LABEL)
-        EllesmereUI._RegisterSearchEntry(CW_LABEL, labelLoc ~= CW_LABEL and labelLoc or nil,
+        local labelLoc = EllesmereUI.L(label)
+        EllesmereUI._RegisterSearchEntry(label, labelLoc ~= label and labelLoc or nil,
             table.concat(words, " "), EllesmereUI._buildingModule, EllesmereUI._buildingPage,
             parent._currentSection and parent._currentSection._sectionName)
     end
+    RegisterDropdownSearch(CW_LABEL, cwItems)
 
     local generalRow
     generalRow, h = W:DualRow(parent, y,
@@ -294,6 +297,41 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
                   PS.RefreshJournal()
               end }
         );  y = y - h
+    end
+
+    -- Mark Non-Classic Quests (EllesmereUIForeverEssentials_QuestMarks.lua):
+    -- one checkbox per place, in a checkbox dropdown as Classic Windows.
+    local QM = EllesmereUI._QuestMarks
+    local QM_LABEL = "Mark Non-Classic Quests"
+    local qmItems = {
+        { key = "givers", label = "At Quest Givers",
+          tooltip = "In the quest giver's list and on the quest text before you accept it." },
+        { key = "log", label = "In the Quest Log", tooltip = "Under the quest's track checkbox." },
+    }
+    if QM.HasTracker() then
+        qmItems[#qmItems + 1] = { key = "tracker", label = "On the Quest Tracker",
+            tooltip = "On the quest rows of the Custom Quest Tracker." }
+    end
+    RegisterDropdownSearch(QM_LABEL, qmItems)
+    local qmRow
+    qmRow, h = W:DualRow(parent, y,
+        { type = "label", text = QM_LABEL,
+          tooltip = "A small blue infinity marks the quests that are not from the original game, in the places you pick." },
+        BLANK()
+    );  y = y - h
+    if not EllesmereUI._prebuilding then
+        local rgn = qmRow._leftRegion
+        local qmDD, qmRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+            rgn, 210, rgn:GetFrameLevel() + 2, qmItems,
+            function(key) return QM.Get(key) end,
+            function(key, v)
+                QM.Cfg()[key] = v
+                QM.Apply()
+            end)
+        EllesmereUI.PanelPP.Point(qmDD, "RIGHT", rgn, "RIGHT", -20, 0)
+        rgn._control = qmDD
+        rgn._lastInline = nil
+        EllesmereUI.RegisterWidgetRefresh(qmRefresh)
     end
 
     ---------------------------------------------------------------------------
