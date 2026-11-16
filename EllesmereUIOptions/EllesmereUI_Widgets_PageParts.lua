@@ -1010,7 +1010,9 @@ end
 -------------------------------------------------------------------------------
 --  Rested Indicator row
 --  The player frame's rest marker (ZZZ text, or Blizzard's animated rest
---  icon), drawn by Unit Frames from account-wide keys. Quality of Life's
+--  icon), drawn by Unit Frames from settings that follow profiles
+--  (EllesmereUI.RestedGet / RestedSet, defined by Unit Frames; the
+--  account-wide keys while that module is off). Quality of Life's
 --  EXTRAS row and its mirror in the Unit Frames player EXTRAS are this one
 --  toggle and cog, so both pages show the same settings, whichever of the
 --  two modules is loaded.
@@ -1026,20 +1028,27 @@ local function RestPlace()
     local pf = RestPlayerFrame()
     if pf and pf._restPlace then pf._restPlace() end
 end
+local function RestGet(key)
+    if EllesmereUI.RestedGet then return EllesmereUI.RestedGet(key) end
+    return EllesmereUIDB and EllesmereUIDB[key]
+end
 local function RestSet(key, v)
+    if EllesmereUI.RestedSet then
+        EllesmereUI.RestedSet(key, v)
+        return
+    end
     if not EllesmereUIDB then EllesmereUIDB = {} end
     EllesmereUIDB[key] = v
 end
 local function RestOff()
-    return not EllesmereUIDB or EllesmereUIDB.showRestedIndicator ~= true
+    return RestGet("showRestedIndicator") ~= true
 end
 
 function EllesmereUI.RestedIndicatorCfg()
     return { type="toggle", text="Rested Indicator",
       tooltip="Displays a ZZZ indicator on your player frame when you are in a resting area.",
       getValue=function()
-        if not EllesmereUIDB then return true end
-        return EllesmereUIDB.showRestedIndicator == true
+        return RestGet("showRestedIndicator") == true
       end,
       setValue=function(v)
         RestSet("showRestedIndicator", v)
@@ -1048,34 +1057,42 @@ function EllesmereUI.RestedIndicatorCfg()
       end }
 end
 
--- Animated, Size, X / Y Offset; greyed while the indicator is off.
+-- Anchor, Animated, Size, X / Y Offset; greyed while the indicator is off.
 function EllesmereUI.BuildRestedIndicatorCog(region)
     return EllesmereUI.BuildInlineCog(region, {
         title = "Rested Indicator",
         rows = {
+            { type="dropdown", label="Anchor",
+              values={ health="Health Bar", portrait="Portrait" }, order={ "health", "portrait" },
+              tooltip="Portrait needs a shown portrait; without one the indicator stays on the health bar.",
+              get=function() return RestGet("restedIndicatorAnchor") or "health" end,
+              set=function(v)
+                  RestSet("restedIndicatorAnchor", v)
+                  RestPlace()
+              end },
             { type="toggle", label="Animated",
               tooltip="Shows the animated rest icon from Blizzard's player frame instead of the ZZZ text.",
-              get=function() return EllesmereUIDB and EllesmereUIDB.restedIndicatorAnimated == true or false end,
+              get=function() return RestGet("restedIndicatorAnimated") == true end,
               set=function(v)
                   RestSet("restedIndicatorAnimated", v)
                   RestUpdate()
               end },
             { type="slider", label="Size", min=12, max=64, step=1,
-              disabled=function() return not (EllesmereUIDB and EllesmereUIDB.restedIndicatorAnimated == true) end,
+              disabled=function() return RestGet("restedIndicatorAnimated") ~= true end,
               disabledTooltip="Animated",
-              get=function() return (EllesmereUIDB and EllesmereUIDB.restedIndicatorAnimatedSize) or 24 end,
+              get=function() return RestGet("restedIndicatorAnimatedSize") or 24 end,
               set=function(v)
                   RestSet("restedIndicatorAnimatedSize", v)
                   RestPlace()
               end },
             { type="slider", label="X Offset", min=-50, max=50, step=1,
-              get=function() return (EllesmereUIDB and EllesmereUIDB.restedIndicatorXOffset) or 0 end,
+              get=function() return RestGet("restedIndicatorXOffset") or 0 end,
               set=function(v)
                   RestSet("restedIndicatorXOffset", v)
                   RestPlace()
               end },
             { type="slider", label="Y Offset", min=-50, max=50, step=1,
-              get=function() return (EllesmereUIDB and EllesmereUIDB.restedIndicatorYOffset) or 0 end,
+              get=function() return RestGet("restedIndicatorYOffset") or 0 end,
               set=function(v)
                   RestSet("restedIndicatorYOffset", v)
                   RestPlace()

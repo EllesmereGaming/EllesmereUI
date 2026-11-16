@@ -1139,11 +1139,10 @@ initFrame:SetScript("OnEvent", function(self)
             { type="toggle", text="Low Durability Warning",
               tooltip="Flashes a warning on screen when any equipped item drops below the configured durability threshold. Only triggers out of combat.",
               getValue=function()
-                return EllesmereUIDB and EllesmereUIDB.repairWarning ~= false
+                return EllesmereUI.QoLExtrasGet("repairWarning") ~= false
               end,
               setValue=function(v)
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB.repairWarning = v
+                EllesmereUI.QoLExtrasSet("repairWarning", v)
                 if EllesmereUI._syncDurWarnEvents then EllesmereUI._syncDurWarnEvents() end
                 if not v and EllesmereUI._durWarnHidePreview then
                     EllesmereUI._durWarnHidePreview()
@@ -1195,7 +1194,7 @@ initFrame:SetScript("OnEvent", function(self)
         do
             local leftRgn = durWarnRow._leftRegion
             local function durOff()
-                return EllesmereUIDB and EllesmereUIDB.repairWarning == false
+                return EllesmereUI.QoLExtrasGet("repairWarning") == false
             end
 
             -- Cog popup for durability settings (rightmost inline, closest to toggle)
@@ -1205,41 +1204,37 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Text Size",
                       min=10, max=50, step=1,
                       get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.durWarnTextSize) or 30
+                        return EllesmereUI.QoLExtrasGet("durWarnTextSize") or 30
                       end,
                       set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.durWarnTextSize = v
+                        EllesmereUI.QoLExtrasSet("durWarnTextSize", v)
                         if EllesmereUI._durWarnApplySettings then EllesmereUI._durWarnApplySettings() end
                       end },
                     { type="slider", label="Y-Offset",
                       min=-600, max=600, step=1,
                       get=function()
-                        return EllesmereUIDB and EllesmereUIDB.durWarnYOffset or 250
+                        return EllesmereUI.QoLExtrasGet("durWarnYOffset") or 250
                       end,
                       set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.durWarnYOffset = v
-                        EllesmereUIDB.durWarnPos = nil  -- clear custom pos so slider always takes effect
+                        EllesmereUI.QoLExtrasSet("durWarnYOffset", v)
+                        EllesmereUI.QoLExtrasSet("durWarnPos", false)  -- clear custom pos so slider always takes effect
                         if EllesmereUI._durWarnPreview then EllesmereUI._durWarnPreview() end
                       end },
                     { type="slider", label="Repair %",
                       min=5, max=100, step=1,
                       get=function()
-                        return EllesmereUIDB and EllesmereUIDB.durWarnThreshold or 40
+                        return EllesmereUI.QoLExtrasGet("durWarnThreshold") or 40
                       end,
                       set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.durWarnThreshold = v
+                        EllesmereUI.QoLExtrasSet("durWarnThreshold", v)
                       end },
                     EllesmereUI.IS_FOREVER and { type="toggle", label="Ignore Thrown Weapons",
                       tooltip="Thrown weapons lose durability with every throw.",
                       get=function()
-                        return EllesmereUIDB and EllesmereUIDB.durWarnIgnoreThrown ~= false
+                        return EllesmereUI.QoLExtrasGet("durWarnIgnoreThrown") ~= false
                       end,
                       set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.durWarnIgnoreThrown = v
+                        EllesmereUI.QoLExtrasSet("durWarnIgnoreThrown", v)
                         if EllesmereUI._syncDurWarnEvents then EllesmereUI._syncDurWarnEvents() end
                       end } or nil,
                 },
@@ -1249,13 +1244,12 @@ initFrame:SetScript("OnEvent", function(self)
             if not EllesmereUI._prebuilding then
                 -- Color swatch (left of the cog)
                 local durSwGet = function()
-                    local c = EllesmereUIDB and EllesmereUIDB.durWarnColor
+                    local c = EllesmereUI.QoLExtrasGet("durWarnColor")
                     if c then return c.r, c.g, c.b end
                     return 1, 0.27, 0.27
                 end
                 local durSwSet = function(r, g, b)
-                    if not EllesmereUIDB then EllesmereUIDB = {} end
-                    EllesmereUIDB.durWarnColor = { r = r, g = g, b = b }
+                    EllesmereUI.QoLExtrasSet("durWarnColor", { r = r, g = g, b = b })
                     if EllesmereUI._applyDurWarn then EllesmereUI._applyDurWarn() end
                 end
                 local durSwatch, durUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, durSwGet, durSwSet, nil, 20)
@@ -1717,24 +1711,23 @@ initFrame:SetScript("OnEvent", function(self)
             { type="toggle", text="Target Distance (Range) Text",
               tooltip="Shows the approximate distance to your current target as movable on-screen text (default 30-35). Use the cog for format, alignment, and text size; use Unlock Mode to position or Anchor to your Player Frame.",
               getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled or false
+                  return EllesmereUI.QoLExtrasGet("targetDistanceEnabled") or false
               end,
               setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.targetDistanceEnabled = v
+                  EllesmereUI.QoLExtrasSet("targetDistanceEnabled", v)
                   if EllesmereUI._applyTargetDistance then EllesmereUI._applyTargetDistance() end
                   EllesmereUI:RefreshPage()
               end }
         );  y = y - h
 
-        -- Inline cog on Rested Indicator (left region): Animated, Size, X/Y offsets
+        -- Inline cog on Rested Indicator (left region): Anchor, Animated, Size, X/Y offsets
         EllesmereUI.BuildRestedIndicatorCog(restedRow._leftRegion)
 
         -- Target Distance settings cog (right slot of the Rested row)
         do
             local rgn = restedRow._rightRegion
             local function tdOff()
-                return not (EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled)
+                return not EllesmereUI.QoLExtrasGet("targetDistanceEnabled")
             end
 
             local tdFormatValues = {
@@ -1757,35 +1750,32 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="dropdown", label="Format",
                       values=tdFormatValues, order=tdFormatOrder,
                       get=function()
-                        local f = EllesmereUIDB and EllesmereUIDB.targetDistanceFormat
+                        local f = EllesmereUI.QoLExtrasGet("targetDistanceFormat")
                         if f == "plus" or f == "min" or f == "range" then return f end
                         return "range"
                       end,
                       set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.targetDistanceFormat = v
+                        EllesmereUI.QoLExtrasSet("targetDistanceFormat", v)
                         if EllesmereUI._applyTargetDistanceFrame then EllesmereUI._applyTargetDistanceFrame() end
                       end },
                     { type="dropdown", label="Text Align",
                       values=tdAlignValues, order=tdAlignOrder,
                       get=function()
-                        local a = EllesmereUIDB and EllesmereUIDB.targetDistanceAlign
+                        local a = EllesmereUI.QoLExtrasGet("targetDistanceAlign")
                         if a == "LEFT" or a == "CENTER" or a == "RIGHT" then return a end
                         return "CENTER"
                       end,
                       set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.targetDistanceAlign = v
+                        EllesmereUI.QoLExtrasSet("targetDistanceAlign", v)
                         if EllesmereUI._applyTargetDistanceFrame then EllesmereUI._applyTargetDistanceFrame() end
                       end },
                     { type="slider", label="Text Size",
                       min=10, max=48, step=1,
                       get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.targetDistanceTextSize) or 18
+                        return EllesmereUI.QoLExtrasGet("targetDistanceTextSize") or 18
                       end,
                       set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.targetDistanceTextSize = v
+                        EllesmereUI.QoLExtrasSet("targetDistanceTextSize", v)
                         if EllesmereUI._applyTargetDistanceFrame then EllesmereUI._applyTargetDistanceFrame() end
                       end },
                     { type="dropdown", label="Frame Strata",
@@ -1793,11 +1783,10 @@ initFrame:SetScript("OnEvent", function(self)
                       values = EllesmereUI.FRAME_STRATA_LABELS,
                       order = EllesmereUI.FRAME_STRATA_ORDER_BASE,
                       get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.targetDistanceStrata) or "HIGH"
+                        return EllesmereUI.QoLExtrasGet("targetDistanceStrata") or "HIGH"
                       end,
                       set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.targetDistanceStrata = v
+                        EllesmereUI.QoLExtrasSet("targetDistanceStrata", v)
                         if EllesmereUI._applyTargetDistanceFrame then EllesmereUI._applyTargetDistanceFrame() end
                       end },
                 },
@@ -2708,7 +2697,28 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.targetDistanceOffsetX = nil
                 EllesmereUIDB.targetDistanceOffsetY = nil
                 EllesmereUIDB.targetDistanceTextSize = nil
+                EllesmereUIDB.targetDistanceStrata = nil
                 EllesmereUIDB.targetDistancePos = nil
+                -- The on-screen elements follow profiles: this profile's own values go too,
+                -- so it reads the cleared account-wide ones.
+                for _, k in ipairs({
+                    "targetDistanceEnabled", "targetDistanceFormat", "targetDistanceAlign",
+                    "targetDistanceTextSize", "targetDistanceStrata", "targetDistancePos",
+                    "announceGroupDeaths", "groupDeathTextSize", "groupDeathAlertPos", "groupDeathSound",
+                    "groupDeathSoundKey",
+                    "combatAlertEnabled", "combatAlertMode", "combatAlertTextSize", "combatAlertPos",
+                    "combatAlertEnterText", "combatAlertLeaveText", "combatAlertEnterColor", "combatAlertLeaveColor",
+                    "combatAlertEnterUseClassColor", "combatAlertLeaveUseClassColor", "alertsPos",
+                    "potionAlertEnabled", "potionAlertText", "potionAlertTextSize", "potionAlertColor",
+                    "potionAlertUseClassColor",
+                    "talentAlertEnabled", "talentAlertText", "talentAlertTextSize", "talentAlertColor",
+                    "talentAlertUseClassColor",
+                    -- not repairWarning: the Global Settings reset owns that switch
+                    "durWarnThreshold", "durWarnTextSize", "durWarnColor", "durWarnYOffset",
+                    "durWarnPos", "durWarnIgnoreThrown",
+                }) do
+                    EllesmereUI.QoLExtrasSet(k, nil)
+                end
                 EllesmereUIDB.mapSidebarsClear = nil
                 EllesmereUIDB.mapSidebarsOpacity = nil
                 EllesmereUIDB.mapSidebarsClickThrough = nil

@@ -384,6 +384,33 @@ end
 -- range-on-override-swap staleness it replaced is cosmetic, and is repainted
 -- below WITHIN this law: our own texture only, no frame field, no paint call.
 
+-- Blizzard hands pooled item frames to other cooldowns, so an override kept
+-- for the frame's previous cooldown is dropped once the frame holds another
+-- one. The frame's cooldown id is the test: Blizzard assigns it before the
+-- frame's first repaint and clears it on a pool release. Its range check
+-- spell is no test: it is empty from a release until after that first
+-- repaint (the same spell coming back would read as another one), and it
+-- stays on the old spell when a spell without a range takes the frame.
+local function DropStaleOverride(icon, fd)
+    local cdID = icon.cooldownID
+    if issecretvalue and issecretvalue(cdID) then return false end
+    if cdID == fd._oorCdID then return false end
+    fd._oorSpellID, fd._oorCdID = nil, nil
+    ns._oorLiveCount = ns._oorLiveCount - 1
+    return true
+end
+
+-- Whether the frame's own range check is on this base spell now. Blizzard
+-- leaves rangeCheckSpellID on the previous spell when a spell without a range
+-- takes the frame, so the id counts only while needsRangeCheck holds. Both
+-- fields are READ, never written.
+local function ChecksBase(icon, baseSpellID)
+    if icon.rangeCheckSpellID ~= baseSpellID then return false end
+    local needs = icon.needsRangeCheck
+    if issecretvalue and issecretvalue(needs) then return false end
+    return needs and true or false
+end
+
 -- Blizzard arms the range check on the BASE spell, so while an override is up the
 -- icon tracks the wrong spell's range. Repainted on fd.tex and the side table,
 -- never the frame. The hook RE-POLLS instead of replaying a stored answer: it
@@ -397,21 +424,24 @@ function ns.ApplyOverrideRangeTint(icon, overrideSpellID)
     local tex = fd and fd.tex
     local C = CooldownViewerConstants
     if not (tex and C) then return end
-    -- Live-override count, kept on the nil<->value transitions of the ONLY
-    -- writer of _oorSpellID: RepaintOverrideRange gates its whole icon walk on
-    -- it, so the event dispatches Blizzard's own base-spell registrations
-    -- produce (nearly all of them, for nearly every player) cost one integer
-    -- read instead of a full bar scan.
+    -- Live-override count, kept on the nil<->value transitions of
+    -- _oorSpellID (here; DropStaleOverride and DisarmOverrideRanges clear it
+    -- too and keep the count themselves): RepaintOverrideRange gates its whole
+    -- icon walk on it, so the event dispatches Blizzard's own base-spell
+    -- registrations produce (nearly all of them, for nearly every player)
+    -- cost one integer read instead of a full bar scan.
     if (fd._oorSpellID ~= nil) ~= (overrideSpellID ~= nil) then
         ns._oorLiveCount = (ns._oorLiveCount or 0) + (overrideSpellID and 1 or -1)
     end
     fd._oorSpellID = overrideSpellID
+    -- The cooldown the override was set for (see DropStaleOverride).
+    fd._oorCdID = overrideSpellID and icon.cooldownID or nil
     if not fd._oorHooked then
         fd._oorHooked = true
         local guard = false
         hooksecurefunc(tex, "SetVertexColor", function()
             local sid = fd._oorSpellID
-            if guard or not sid then return end
+            if guard or not sid or DropStaleOverride(icon, fd) then return end
             local r = C_Spell.IsSpellInRange(sid)
             if issecretvalue and issecretvalue(r) then return end
             if r ~= false then return end
@@ -495,10 +525,33 @@ function ns.DisarmOverrideRanges()
     for _, icons in pairs(cdmBarIcons) do
         for _, icon in ipairs(icons) do
             local fd = _getFD(icon)
-            if fd and fd._oorSpellID ~= nil then fd._oorSpellID = nil end
+            if fd and fd._oorSpellID ~= nil then fd._oorSpellID, fd._oorCdID = nil, nil end
         end
     end
     ns._oorLiveCount = 0
+    if ns._oorLive then wipe(ns._oorLive) end
+end
+
+-- After a reanchor: Blizzard may have handed its frames out again. The frame
+-- that held an override lets go by itself (DropStaleOverride); the frame
+-- whose range check is now on that base spell takes the override here, since
+-- no override event comes for a reshuffle. With no override live this is one
+-- table test.
+function ns.ReapplyOverrideRanges()
+    local live = ns._oorLive
+    if not live or next(live) == nil then return end
+    for _, icons in pairs(cdmBarIcons) do
+        for _, icon in ipairs(icons) do
+            local base = icon.rangeCheckSpellID
+            local ov = base and live[base]
+            if ov and ChecksBase(icon, base) then
+                local fd = _getFD(icon)
+                if fd and (fd._oorSpellID ~= ov or fd._oorCdID ~= icon.cooldownID) then
+                    ns.ApplyOverrideRangeTint(icon, ov)
+                end
+            end
+        end
+    end
 end
 
 -- SPELL_RANGE_CHECK_UPDATE. Keyed off the icon's own stored override id rather than
@@ -515,7 +568,7 @@ function ns.RepaintOverrideRange(spellID)
     for _, icons in pairs(cdmBarIcons) do
         for _, icon in ipairs(icons) do
             local fd = _getFD(icon)
-            if fd and fd._oorSpellID == spellID then
+            if fd and fd._oorSpellID == spellID and not DropStaleOverride(icon, fd) then
                 ns.ApplyOverrideRangeTint(icon, spellID)
             end
         end
@@ -535,9 +588,14 @@ function ns.ResyncCdmRange(baseSpellID, overrideSpellID)
     local liveOverride = (overrideSpellID and overrideSpellID ~= baseSpellID)
         and overrideSpellID or nil
     ns.ArmOverrideRange(baseSpellID, liveOverride)
+    -- The live pairs, for the frames a later reshuffle gives the base spell to
+    -- (ns.ReapplyOverrideRanges).
+    local live = ns._oorLive
+    if not live then live = {}; ns._oorLive = live end
+    live[baseSpellID] = liveOverride
     for _, icons in pairs(cdmBarIcons) do
         for _, icon in ipairs(icons) do
-            if icon.rangeCheckSpellID == baseSpellID then
+            if ChecksBase(icon, baseSpellID) then
                 ns.ApplyOverrideRangeTint(icon, liveOverride)
             end
         end

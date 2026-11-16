@@ -80,6 +80,8 @@ initFrame:SetScript("OnEvent", function(self)
     for _, info in ipairs(ns.INSTANCE_TYPE_ORDER) do TYPE_INFO[info.key] = info end
 
     local TYPE_LAYOUT = { "party", "mplus", "raid", "timewalking", "scenario", "delve", "arena", "pvp", "world" }
+    -- WoW Forever has dungeons, raids and battlegrounds only.
+    if EllesmereUI.IS_FOREVER then TYPE_LAYOUT = { "party", "raid", "pvp", "world" } end
 
     -- Tooltips for the types whose label alone does not say where they
     -- apply; the others have none.
@@ -502,7 +504,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- The module saves talents only into All Specs or the current spec.
         local function TalentScopeOK()
             local scope = ns.GetScope()
-            return scope == nil or scope == ns.GetCurrentSpecID()
+            -- WoW Forever: any spec group can be assigned from any group's scope.
+            return EllesmereUI.IS_FOREVER or scope == nil or scope == ns.GetCurrentSpecID()
         end
         local function HasSelection() return GearPick() ~= nil or TalentPickKey() ~= nil end
         local function CanSave()

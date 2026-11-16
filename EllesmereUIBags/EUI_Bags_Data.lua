@@ -43,7 +43,7 @@ I.groupNameSetters[#I.groupNameSetters + 1] = function(v) selectedGroupName = v 
 -- Invalidate categories after the equipment-set list changes (event or the
 -- split-mode toggle). Re-resolves the selection by stable key: the rebuild
 -- shifts indices, and "EquipSet:"..setID survives renames; a vanished
--- category/group falls back to All Items.
+-- category/group falls back to the view the bags open on.
 function EUI_Bags.InvalidateSetCategories()
     local mgr = _G.EUI_CategoryManager
     if not mgr then return end
@@ -54,7 +54,7 @@ function EUI_Bags.InvalidateSetCategories()
     end
     mgr:OnEquipmentSetsChanged()
     if selKey then
-        local found = 0
+        local found = ns.OpenBagViewIndex()
         for i, cat in ipairs(mgr:GetCategories()) do
             if cat._defaultName == selKey then found = i; break end
         end
@@ -65,7 +65,7 @@ function EUI_Bags.InvalidateSetCategories()
         for _, cat in ipairs(mgr:GetCategories()) do
             if cat.groupName == selectedGroupName then alive = true; break end
         end
-        if not alive then SetSelectedGroupName(nil); SetSelectedCategoryIndex(0) end
+        if not alive then SetSelectedGroupName(nil); SetSelectedCategoryIndex(ns.OpenBagViewIndex()) end
     end
 end
 

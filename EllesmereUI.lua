@@ -837,7 +837,6 @@ end
 -- than sit in them disabled. Extend the set whenever a TOC gets that line.
 EllesmereUI.FOREVER_HIDDEN_ADDONS = {
     EllesmereUIMythicTimer = true, EllesmereUIFriends = true,
-    EllesmereUILoadoutManager = true,
     EllesmereUIGroupFinder = true,
     -- Not an addon: the Dragon Riding profile pseudo-folder (its file returns at
     -- load on Forever), listed so the profile import/export checklists drop it.
@@ -3534,7 +3533,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.8.6"
+EllesmereUI.VERSION = "9.8.8"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -4649,15 +4648,17 @@ initFrame:SetScript("OnEvent", function(self, event)
                 end
                 unlockBtn:ClearAllPoints()
                 unlockBtn:SetPoint("TOP", lastBtn, "BOTTOM", 0, showEUI and -4 or -12)
-                extraH = extraH + (showEUI and 40 or 40)
+                extraH = extraH + 40
             end
 
-            -- Push all Blizzard buttons below the anchor down
-            local anchorBottom = anchorBtn:GetBottom()
-            if anchorBottom then
+            -- Move every Blizzard button laid out after the anchor down. Their order is
+            -- layoutIndex, the key Blizzard's layout sorts by, never a screen position:
+            -- a button has no rect until it has been drawn once.
+            local anchorIndex = anchorBtn.layoutIndex
+            if anchorIndex then
                 for menuBtn in GameMenuFrame.buttonPool:EnumerateActive() do
-                    local top = menuBtn:GetTop()
-                    if top and top < anchorBottom + 2 then
+                    local idx = menuBtn.layoutIndex
+                    if idx and idx > anchorIndex then
                         local p, rel, rp, x, y = menuBtn:GetPoint(1)
                         if p then
                             menuBtn:ClearAllPoints()

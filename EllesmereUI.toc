@@ -2,7 +2,7 @@
 ## Title: |cff0cd29fEllesmereUI|r
 ## Notes: Shared framework for the EllesmereUI addon suite
 ## Author: Ellesmere
-## Version: 9.8.6
+## Version: 9.8.8
 ## SavedVariables: EllesmereUIDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 ## X-Curse-Project-ID: 1477613
@@ -52,6 +52,7 @@ EllesmereUI_Panel.lua
 EllesmereUI_VisibilityRules.lua
 EllesmereUI_SharedHelpers.lua
 EllesmereUI_Popups.lua
+EllesmereUI_IconPicker.lua
 EllesmereUI_TextTags.lua
 EllesmereUI_Colors.lua
 EllesmereUI_Fonts.lua

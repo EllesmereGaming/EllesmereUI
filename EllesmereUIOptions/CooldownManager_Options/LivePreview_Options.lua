@@ -70,6 +70,143 @@ local function BuildCDMLivePreview(parent, yOff)
         return math.floor(val * s + 0.5) / s
     end
 
+    -- Sideways scroll for a row wider than the preview. The icons keep their real
+    -- size (no scale-to-fit), so a long row starts at its first icon and slides
+    -- under the viewport: everything in the icon grid hangs from pf._gridOrigin, a
+    -- point of pf that moves left by the scroll offset (pf's own units; the hint
+    -- text under the grid hangs from pf itself and stays where it is). While a row
+    -- overflows, the scroll frame is inset by a gutter on each side and an arrow
+    -- fills each gutter: a click or a wheel notch moves one icon, holding an arrow
+    -- keeps going, and a drag near an edge scrolls that way. The offset is kept per bar for the
+    -- session (optState), so a rebuilt preview comes back where it was.
+    do
+        local GUTTER = 24                             -- wrapper units, each side
+        local HOLD_DELAY, HOLD_RATE = 0.35, 0.09
+        local DRAG_EDGE, DRAG_ICONS_PER_SEC = 28, 7
+        local origin = CreateFrame("Frame", nil, pf)
+        origin:SetSize(1, 1)
+        origin:SetPoint("TOPLEFT", pf, "TOPLEFT", 0, 0)
+        pf._gridOrigin = origin
+        pf._hGutter = GUTTER
+        local arrows = {}
+        local function SyncArrows()
+            local max, off = pf._hMax or 0, pf._hOff or 0
+            for dir, b in pairs(arrows) do
+                if max > 0 then
+                    b._live = (dir < 0 and off > 0.5) or (dir > 0 and off < max - 0.5)
+                    b._tex:SetAlpha(b._live and (b._hover and 0.95 or 0.55) or 0.15)
+                    b:Show()
+                else
+                    b._live = false
+                    b:Hide()
+                end
+            end
+        end
+        local function SetHScroll(off)
+            local max = pf._hMax or 0
+            if off > max then off = max end
+            if off < 0 then off = 0 end
+            if pf._hKey then optState._cdmPvHKey, optState._cdmPvHOff = pf._hKey, off end
+            if off ~= pf._hOff or not pf._hPlaced then
+                pf._hOff, pf._hPlaced = off, true
+                origin:ClearAllPoints()
+                origin:SetPoint("TOPLEFT", pf, "TOPLEFT", -Snap(off), 0)
+            end
+            SyncArrows()
+        end
+        pf._SetHScroll = SetHScroll
+        local function StepHScroll(dir)
+            local step = pf._hStep or 38
+            SetHScroll((math.floor((pf._hOff or 0) / step + 0.5) + dir) * step)
+        end
+        -- The bar this preview shows changed: its own remembered offset, else the start.
+        pf._hSelect = function(key)
+            if pf._hKey == key then return end
+            pf._hKey = key
+            pf._hOff = (optState._cdmPvHKey == key and optState._cdmPvHOff) or 0
+            pf._hPlaced = nil
+        end
+        -- The scroll frame gives the arrows their gutters only while a row overflows.
+        pf._hSetViewport = function(over)
+            if pf._hOver == over then return end
+            pf._hOver = over
+            sf:ClearAllPoints()
+            if over then
+                sf:SetPoint("TOPLEFT", wrapper, "TOPLEFT", GUTTER, 0)
+                sf:SetPoint("BOTTOMRIGHT", wrapper, "BOTTOMRIGHT", -GUTTER, 0)
+            else
+                sf:SetAllPoints(wrapper)
+            end
+        end
+        -- The arrow glyphs sit level with the middle of the icon grid (y down from
+        -- the wrapper's top, wrapper units), or mid-height when the grid is taller.
+        pf._hPlaceArrows = function(y)
+            local h = wrapper:GetHeight()
+            if y > h - 8 then y = h / 2 end
+            for _, b in pairs(arrows) do
+                b._tex:ClearAllPoints()
+                b._tex:SetPoint("CENTER", b, "TOP", 0, -y)
+            end
+        end
+        -- While an icon is dragged: the cursor (cx, UIParent units) near an edge scrolls that way.
+        pf._DragAutoScroll = function(cx, dt)
+            if (pf._hMax or 0) <= 0 then return end
+            local l, r = sf:GetLeft(), sf:GetRight()
+            if not l then return end
+            local k = sf:GetEffectiveScale() / UIParent:GetEffectiveScale()
+            local dir = (cx < l * k + DRAG_EDGE and -1) or (cx > r * k - DRAG_EDGE and 1) or 0
+            if dir ~= 0 then
+                SetHScroll((pf._hOff or 0) + dir * (pf._hStep or 38) * DRAG_ICONS_PER_SEC * dt)
+            end
+        end
+        -- The wheel over the row scrolls it sideways while it overflows, one icon a
+        -- notch, up toward the start. Shift + wheel stays the panel's scale, and a row
+        -- that fits leaves the wheel to the preview's own vertical scroll.
+        local vWheel = sf:GetScript("OnMouseWheel")
+        local function HWheel(self, delta)
+            if EllesmereUI._ShiftWheelScale(delta) then return end
+            if (pf._hMax or 0) > 0 then
+                StepHScroll(delta > 0 and -1 or 1)
+            elseif self == sf and vWheel then
+                vWheel(self, delta)
+            end
+        end
+        sf:SetScript("OnMouseWheel", HWheel)
+        for _, dir in ipairs({ -1, 1 }) do
+            local b = CreateFrame("Button", nil, wrapper)
+            b:SetWidth(GUTTER)
+            b:EnableMouseWheel(true)
+            b:SetScript("OnMouseWheel", HWheel)
+            b:SetPoint(dir < 0 and "TOPLEFT" or "TOPRIGHT")
+            b:SetPoint(dir < 0 and "BOTTOMLEFT" or "BOTTOMRIGHT")
+            b:SetFrameLevel(wrapper:GetFrameLevel() + 3)
+            b._tex = b:CreateTexture(nil, "ARTWORK")
+            b._tex:SetTexture(dir < 0 and "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.png"
+                or "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-right.png")
+            b._tex:SetSize(16, 16)
+            b._tex:SetPoint("CENTER")
+            b:Hide()
+            b:SetScript("OnEnter", function(self) self._hover = true; SyncArrows() end)
+            b:SetScript("OnLeave", function(self) self._hover = nil; SyncArrows() end)
+            b:SetScript("OnMouseDown", function(self, button)
+                if button ~= "LeftButton" or not self._live then return end
+                StepHScroll(dir)
+                local wait = HOLD_DELAY
+                self:SetScript("OnUpdate", function(held, dt)
+                    if not held._live or not IsMouseButtonDown("LeftButton") then
+                        held:SetScript("OnUpdate", nil)
+                        return
+                    end
+                    wait = wait - dt
+                    if wait <= 0 then wait = HOLD_RATE; StepHScroll(dir) end
+                end)
+            end)
+            b:SetScript("OnMouseUp", function(self) self:SetScript("OnUpdate", nil) end)
+            b:SetScript("OnHide", function(self) self:SetScript("OnUpdate", nil) end)
+            arrows[dir] = b
+        end
+    end
+
     -- Bar background texture (shown when barBgEnabled)
     local pvBarBg = pf:CreateTexture(nil, "BACKGROUND", nil, -8)
     pvBarBg:SetColorTexture(0, 0, 0, 0.4)  -- default; updated in refresh
@@ -229,7 +366,7 @@ local function BuildCDMLivePreview(parent, yOff)
                 s._currentOffY = curY
                 if s._baseX then
                     s:ClearAllPoints()
-                    PP.Point(s, "TOPLEFT", pf, "TOPLEFT", s._baseX + s._currentOffX, s._baseY + curY)
+                    PP.Point(s, "TOPLEFT", pf._gridOrigin, "TOPLEFT", s._baseX + s._currentOffX, s._baseY + curY)
                 end
             end
         end
@@ -259,7 +396,7 @@ local function BuildCDMLivePreview(parent, yOff)
                 s._targetOffY = nil
                 s._currentOffY = nil
                 s:ClearAllPoints()
-                PP.Point(s, "TOPLEFT", pf, "TOPLEFT", s._baseX, s._baseY)
+                PP.Point(s, "TOPLEFT", pf._gridOrigin, "TOPLEFT", s._baseX, s._baseY)
             end
         end
     end
@@ -278,13 +415,14 @@ local function BuildCDMLivePreview(parent, yOff)
         -- so drag logic must also use left-to-right ordering.
         local growLeft = false
 
-        -- Convert cursor from screen units to pf-local units
+        -- Convert cursor from screen units to grid-local units (pf's scale, from the grid's
+        -- origin, which is pf's corner moved by the sideways scroll)
         local pfES = pf:GetEffectiveScale()
         local uiES = UIParent:GetEffectiveScale()
         local rawCX = cx * uiES
         local rawCY = cy * uiES
-        local rawPfL = pf:GetLeft() * pfES
-        local rawPfT = pf:GetTop() * pfES
+        local rawPfL = pf._gridOrigin:GetLeft() * pfES
+        local rawPfT = pf._gridOrigin:GetTop() * pfES
         local localX = (rawCX - rawPfL) / pfES
         local localY = -((rawPfT - rawCY) / pfES)
 
@@ -638,15 +776,15 @@ local function BuildCDMLivePreview(parent, yOff)
                 insertLine:ClearAllPoints()
                 if stacked then
                     insertLine:SetHeight(2)
-                    PP.Point(insertLine, "LEFT", pf, "TOPLEFT", lineX, lineY)
-                    PP.Point(insertLine, "RIGHT", pf, "TOPLEFT", lineX + iconSz2, lineY)
+                    PP.Point(insertLine, "LEFT", pf._gridOrigin, "TOPLEFT", lineX, lineY)
+                    PP.Point(insertLine, "RIGHT", pf._gridOrigin, "TOPLEFT", lineX + iconSz2, lineY)
                 else
                     -- As tall as the icons are drawn (a cropped shape is shorter than the size).
                     local ref = rightSlot or leftSlot
                     local lineH = (ref and ref:GetHeight()) or iconSz2
                     insertLine:SetWidth(2)
-                    PP.Point(insertLine, "TOP", pf, "TOPLEFT", lineX, lineY)
-                    PP.Point(insertLine, "BOTTOM", pf, "TOPLEFT", lineX, lineY - lineH)
+                    PP.Point(insertLine, "TOP", pf._gridOrigin, "TOPLEFT", lineX, lineY)
+                    PP.Point(insertLine, "BOTTOM", pf._gridOrigin, "TOPLEFT", lineX, lineY - lineH)
                 end
                 insertLine:Show()
             else
@@ -1146,6 +1284,7 @@ local function BuildCDMLivePreview(parent, yOff)
                 local gs = dragGhost:GetScale() or 1
                 dragGhost:ClearAllPoints()
                 dragGhost:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx / gs, cy / gs)
+                pf._DragAutoScroll(cx, dt)
                 TickAnimation(dt)
                 local tBd = SelectedCDMBar()
                 local tCount = 0
@@ -1385,8 +1524,11 @@ local function BuildCDMLivePreview(parent, yOff)
         local bd = SelectedCDMBar()
         if not bd then
             for i = 1, MAX_PREVIEW_ICONS do previewSlots[i]:Hide() end
-            addBtn:Hide(); buffAddBtn:Hide(); self:SetHeight(1); return
+            addBtn:Hide(); buffAddBtn:Hide(); self:SetHeight(1)
+            self._hMax = 0; self._hSetViewport(false); self._SetHScroll(0)
+            return
         end
+        self._hSelect(bd.key)
 
         local iconSize = bd.iconSize or 36
         -- Width-matched bars derive their real icon size from the matched target, so
@@ -1653,13 +1795,20 @@ local function BuildCDMLivePreview(parent, yOff)
             totalH = (numRows * iconH) + ((numRows - 1) * spacing)
         end
 
-        -- CDM preview: no scale-to-fit -- SetClipsChildren on the content
-        -- header clips any overflow so icon scale remains accurate.
+        -- CDM preview: no scale-to-fit, so icon scale remains accurate. A row that
+        -- fits is centered; a wider one starts at its first icon and scrolls sideways
+        -- between the two arrows, whose gutters come off the visible width.
         local curParentW = (parent:GetWidth() - PAD * 2) / previewScale
+        self._hMax = 0
+        if curParentW > 0 and totalW > curParentW then
+            curParentW = curParentW - 2 * self._hGutter / previewScale
+            self._hMax = totalW - curParentW
+        end
         if curParentW > 0 then
             self:SetWidth(curParentW)
         end
-        local startX = math.floor((curParentW - totalW) / 2)
+        self._hSetViewport(self._hMax > 0)
+        local startX = self._hMax > 0 and 0 or math.floor((curParentW - totalW) / 2)
         local startY = -5
 
         -- Position helper: places frame at grid position (col, row).
@@ -1677,7 +1826,7 @@ local function BuildCDMLivePreview(parent, yOff)
                 end
                 local px = startX + vRow * (iconSize + spacing)
                 local py = startY - col * (iconH + spacing) - rowOffset
-                PP.Point(frame, "TOPLEFT", self, "TOPLEFT", px, py)
+                PP.Point(frame, "TOPLEFT", self._gridOrigin, "TOPLEFT", px, py)
                 frame._baseX = px
                 frame._baseY = py
             else
@@ -1686,7 +1835,7 @@ local function BuildCDMLivePreview(parent, yOff)
                 end
                 local px = startX + col * (iconSize + spacing) + rowOffset
                 local py = startY - vRow * (iconH + spacing)
-                PP.Point(frame, "TOPLEFT", self, "TOPLEFT", px, py)
+                PP.Point(frame, "TOPLEFT", self._gridOrigin, "TOPLEFT", px, py)
                 frame._baseX = px
                 frame._baseY = py
             end
@@ -2015,7 +2164,7 @@ local function BuildCDMLivePreview(parent, yOff)
             addPy = startY - lastRow * (iconH + spacing)
         end
         PP.Size(addBtn, iconSize, iconH); addBtn:ClearAllPoints()
-        PP.Point(addBtn, "TOPLEFT", self, "TOPLEFT", addPx, addPy)
+        PP.Point(addBtn, "TOPLEFT", self._gridOrigin, "TOPLEFT", addPx, addPy)
         if PP.GetBorders(addBtn) then PP.SetBorderSize(addBtn, 1) end
         local ar, ag, ab = EllesmereUI.GetAccentColor()
 
@@ -2025,7 +2174,7 @@ local function BuildCDMLivePreview(parent, yOff)
         -- Second "+" (buff) button sits one slot right of the standard "+", on CD/utility bars only (buff-family/custom_buff/focuskick bars track buffs their own way).
         if not isBuffBar and not isCustomBuffBar and not isFocusKick then
             PP.Size(buffAddBtn, iconSize, iconH); buffAddBtn:ClearAllPoints()
-            PP.Point(buffAddBtn, "TOPLEFT", self, "TOPLEFT", addPx + iconSize + spacing, addPy)
+            PP.Point(buffAddBtn, "TOPLEFT", self._gridOrigin, "TOPLEFT", addPx + iconSize + spacing, addPy)
             if PP.GetBorders(buffAddBtn) then PP.SetBorderSize(buffAddBtn, 1) end
             buffAddBtn:Show()
         else
@@ -2043,8 +2192,8 @@ local function BuildCDMLivePreview(parent, yOff)
         end
         if bd.barBgEnabled then
             pvBarBg:ClearAllPoints()
-            pvBarBg:SetPoint("TOPLEFT", startX, startY)
-            pvBarBg:SetPoint("BOTTOMRIGHT", pf, "TOPLEFT", startX + spellW, startY - spellH)
+            pvBarBg:SetPoint("TOPLEFT", pf._gridOrigin, "TOPLEFT", startX, startY)
+            pvBarBg:SetPoint("BOTTOMRIGHT", pf._gridOrigin, "TOPLEFT", startX + spellW, startY - spellH)
             pvBarBg:SetColorTexture(bd.barBgR or 0, bd.barBgG or 0, bd.barBgB or 0, bd.barBgA or 0.5)
             if pvBarBg.SetSnapToPixelGrid then pvBarBg:SetSnapToPixelGrid(false); pvBarBg:SetTexelSnappingBias(0) end
             pvBarBg:Show()
@@ -2159,6 +2308,10 @@ local function BuildCDMLivePreview(parent, yOff)
             if self._scrollFrame then self._scrollFrame:SetVerticalScroll(0) end
         end
         if self._updatePVThumb then self._updatePVThumb() end
+        -- Sideways scroll: one arrow click is one icon; the offset is clamped to this layout.
+        self._hStep = iconSize + spacing
+        self._hPlaceArrows((5 + totalH / 2) * self._previewScale)
+        self._SetHScroll(self._hOff or 0)
 
         -- Restart active state preview on first icon if toggled on
         if _cdmActivePreviewOn then

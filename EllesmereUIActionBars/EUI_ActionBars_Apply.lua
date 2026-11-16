@@ -30,6 +30,7 @@ local ApplyButtonBorders, ApplyShapeToButton = I.ApplyButtonBorders, I.ApplyShap
 local SafeEnableMouse, SafeEnableMouseMotionOnly = I.SafeEnableMouse, I.SafeEnableMouseMotionOnly
 local ShouldQuickKeybindSurfaceBar = I.ShouldQuickKeybindSurfaceBar
 local SHOWGRID, SetShowGridInsecure = I.SHOWGRID, I.SetShowGridInsecure
+local GetButtonActionSlot = I.GetButtonActionSlot
 
 -------------------------------------------------------------------------------
 --  EAB Methods Apply functions called by the options UI
@@ -277,6 +278,28 @@ function EAB.PlaceButtonText(fs, parent, anchor, ox, oy)
     return true
 end
 
+-- Out-of-range keybind text. Blizzard paints a button's keybind red while its action is out
+-- of range (ActionButton_UpdateRangeIndicator) and repaints it only when that state changes,
+-- so a color write of ours has to put the red back. hkOut[btn] is Blizzard's last answer for
+-- a button, noted by a post-hook Blizzard calls per button on a range change only: the
+-- color-only pass reads it and asks the game nothing. The hook goes in with the first bar
+-- that has a custom keybind color, the one case that pass repaints.
+local hkOut = setmetatable({}, { __mode = "k" })
+local function NoteHotkeyRange(btn, checksRange, inRange)
+    if buttonToBar[btn] then
+        hkOut[btn] = (checksRange and not inRange) or nil
+    end
+end
+-- The game's own answer for a button with an action slot (it also seeds the note once the
+-- hook is in); a button without one (stance, pet) has only the note.
+local function HotkeyOutOfRange(btn)
+    local slot = GetButtonActionSlot(btn)
+    if not slot then return hkOut[btn] end
+    local out = (C_ActionBar.IsActionInRange(slot) == false) or nil
+    if EAB._hkRangeHooked then hkOut[btn] = out end
+    return out
+end
+
 function EAB:ApplyFontsForBar(barKey)
     local s = self.db.profile.bars[barKey]
     if not s then return end
@@ -306,6 +329,12 @@ function EAB:ApplyFontsForBar(barKey)
     local macroOY = s.macroOffsetY or 0
     local macroAnchor = s.macroAnchor
     local RANGE_INDICATOR = RANGE_INDICATOR or "\226\128\162"
+    -- A custom keybind color is what the color-only pass repaints: it needs the range notes.
+    if not hideKB and not EAB._hkRangeHooked and ActionButton_UpdateRangeIndicator
+       and (kbColor.r ~= 1 or kbColor.g ~= 1 or kbColor.b ~= 1) then
+        EAB._hkRangeHooked = true
+        hooksecurefunc("ActionButton_UpdateRangeIndicator", NoteHotkeyRange)
+    end
 
     for i = 1, #buttons do
         local btn = buttons[i]
@@ -342,7 +371,11 @@ function EAB:ApplyFontsForBar(barKey)
                 hk:SetText(text)
                 hk:Show()
                 EllesmereUI.ApplyIconTextFont(hk, fontPath, kbSize, "actionBars")
-                hk:SetTextColor(kbColor.r, kbColor.g, kbColor.b)
+                if HotkeyOutOfRange(btn) then
+                    hk:SetTextColor(RED_FONT_COLOR:GetRGB())
+                else
+                    hk:SetTextColor(kbColor.r, kbColor.g, kbColor.b)
+                end
                 -- Anchor unset (the default) = the stock placement below; the
                 -- nil test is the whole cost of the feature while it is off.
                 if not (kbAnchor and EAB.PlaceButtonText(hk, btn, kbAnchor, kbOX, kbOY)) then
@@ -399,7 +432,8 @@ end
 -- text color, reverting a custom color to white on target change, combat
 -- transitions, drag-and-drop, and usability flips until the next full
 -- ApplyFonts. Re-applies ONLY the color -- no fonts, no anchors -- and does no
--- button work at all for bars on the default white.
+-- button work at all for bars on the default white. A button Blizzard last
+-- reported out of range (hkOut) keeps its red.
 function EAB:ReapplyHotkeyColors()
     local bars = self.db and self.db.profile and self.db.profile.bars
     if not bars then return end
@@ -407,9 +441,13 @@ function EAB:ReapplyHotkeyColors()
         local s = bars[barKey]
         local c = s and not s.hideKeybind and s.keybindFontColor
         if c and (c.r ~= 1 or c.g ~= 1 or c.b ~= 1) then
+            local rr, rg, rb = RED_FONT_COLOR:GetRGB()
             for i = 1, #buttons do
-                local hk = buttons[i] and buttons[i].HotKey
-                if hk then hk:SetTextColor(c.r, c.g, c.b) end
+                local btn = buttons[i]
+                local hk = btn and btn.HotKey
+                if hk then
+                    if hkOut[btn] then hk:SetTextColor(rr, rg, rb) else hk:SetTextColor(c.r, c.g, c.b) end
+                end
             end
         end
     end

@@ -97,8 +97,9 @@ function NameplateFrame:UpdateName()
     -- Custom texts: name, level and target follow the unit.
     self:PaintCustomTexts()
 end
--- Places an icon of a Core Positions slot (the raid marker, the Rare/Quest indicator, the
--- Quest Objective Text, the faction badge; sz: its height) by the slot's own rule: centred
+-- Places an icon of a Core Positions slot (the raid marker, the Elite/Rare and Quest
+-- indicators, the Quest Objective Text, the faction badge; sz: its height) by the slot's
+-- own rule: centred
 -- above the bar at Top, beside the bar at Left and Right (past the cast icon where the two
 -- meet), on the bar's top corners (lift: the raid marker sits on the corner, the indicators
 -- 2 up; above the corner's Top Left / Top Right text while it shows one), under the cast bar
@@ -134,70 +135,95 @@ local function InInstance()
     local _, iType = GetInstanceInfo()
     return iType == "party" or iType == "raid" or iType == "pvp" or iType == "arena"
 end
--- The Rare/Quest frame: the Quest Indicator (the quest icon on a quest mob) takes priority
--- over the Elite/Rare Indicator (the elite and rare marks), each half on while its box is
--- checked and, in an instance, its Show In Instances is on. The frame keeps the size it was
--- given in _npSz (each half its own size; the chain and the faction badge read it).
+-- The Elite/Rare Indicator (plate.classFrame: the elite and rare marks) and the Quest
+-- Indicator (plate.questFrame: the quest icon on a quest mob, built on first show) are two
+-- elements of one slot. Each shows while its box is checked and, in an instance, its Show In
+-- Instances is on, at its own size (_npSz: the chain, the name width and the faction badge
+-- read it). A mob that is both shows both: the slot's chain (ns.NP_CoreChain) lays them out
+-- side by side in the slot's order.
+local function EliteRareAtlas(unit)
+    local c = UnitClassification(unit)
+    -- Classic WoW UI carries elite rank in the plate's own art, so the indicator marks
+    -- RARITY alone there: a plain elite shows nothing, and a rare elite takes the rare mark
+    -- rather than the elite one.
+    if ns.NP_Classic() then
+        if c == "rare" or c == "rareelite" then return "nameplates-icon-rareelite" end
+        return nil
+    end
+    if c == "elite" or c == "worldboss" then return "nameplates-icon-elite-gold" end
+    if c == "rareelite" then return "nameplates-icon-elite-silver" end
+    if c == "rare" then return "nameplates-icon-rareelite" end
+    return nil
+end
+-- The indicator a riding faction badge (Rare/Quest + Faction) stacks behind: the elite/rare
+-- mark, else the quest icon; nil while neither shows.
+function ns.NP_RideFrame(plate)
+    local f = plate.classFrame
+    if f:IsShown() then return f end
+    f = plate.questFrame
+    if f and f:IsShown() then return f end
+    return nil
+end
 function NameplateFrame:UpdateClassification()
     if not self.unit then return end
     local slot = GetClassificationSlot()
+    local qf = self.questFrame
     if slot == "none" then
         self.classFrame:Hide()
+        if qf then qf:Hide() end
         self:UpdateNameWidth()
         return
     end
     local inInstance = InInstance()
-    -- Elite/Rare Indicator off: no elite or rare marks (the WoW Forever look starts with
-    -- it off, NP_SeedForever). Quest Indicator off: no quest scan, a quest mob shows its
-    -- elite/rare mark instead.
-    local rareOn = not (p and p.classificationHideRare)
-        and (not inInstance or ns.NP_ShowInInstances("rare"))
-    local questOn = ns.NP_QuestIconOn() and (not inInstance or ns.NP_ShowInInstances("quest"))
-    local sz
-    if questOn and ns.IsQuestMob(self.unit) then
-        self.class:SetAtlas("Crosshair_Quest_64")
-        sz = ns.NP_ElementSize("quest")
-    else
-        if not rareOn then
-            self.classFrame:Hide()
-            self:UpdateNameWidth()
-            return
-        end
-        sz = GetRareEliteIconSize()
-        local c = UnitClassification(self.unit)
-        -- Classic WoW UI carries elite rank in the plate's own art, so the
-        -- indicator marks RARITY alone there: a plain elite shows nothing,
-        -- and a rare elite takes the rare mark rather than the elite one.
-        if ns.NP_Classic() then
-            if c == "rare" or c == "rareelite" then
-                self.class:SetAtlas("nameplates-icon-rareelite")
-            else
-                self.classFrame:Hide()
-                self:UpdateNameWidth()
-                return
-            end
-        elseif c == "elite" or c == "worldboss" then
-            self.class:SetAtlas("nameplates-icon-elite-gold")
-        elseif c == "rareelite" then
-            self.class:SetAtlas("nameplates-icon-elite-silver")
-        elseif c == "rare" then
-            self.class:SetAtlas("nameplates-icon-rareelite")
-        else
-            self.classFrame:Hide()
-            self:UpdateNameWidth()
-            return
-        end
-    end
     local cxOff, cyOff = GetAuraSlotOffsets("classification")
-    self.classFrame._npSz = sz
-    PP.Size(self.classFrame, sz, sz)
-    PlaceSlotIcon(self, self.classFrame, slot, cxOff, cyOff, 2, sz)
-    self.classFrame:Show()
+    -- Quest Indicator. Off: no quest scan.
+    if ns.NP_QuestIconOn() and (not inInstance or ns.NP_ShowInInstances("quest"))
+        and ns.IsQuestMob(self.unit) then
+        if not qf then
+            -- The Elite/Rare Indicator's tier, born in the plate's aspect holder like the
+            -- other slot icons (PlatePool, coreHost), so a Core Positions chain can anchor
+            -- it to an aura row.
+            qf = CreateFrame("Frame", nil, self.coreHost or self)
+            qf:SetFrameStrata(ns.GetSlotRaiseStrata(slot) and "HIGH" or "MEDIUM")
+            qf:SetFrameLevel(self.health:GetFrameLevel() + 3)
+            local icon = qf:CreateTexture(nil, "ARTWORK")
+            icon:SetAllPoints()
+            icon:SetAtlas("Crosshair_Quest_64")
+            self.questFrame = qf
+        end
+        local sz = ns.NP_ElementSize("quest")
+        qf._npSz = sz
+        PP.Size(qf, sz, sz)
+        PlaceSlotIcon(self, qf, slot, cxOff, cyOff, 2, sz)
+        qf:Show()
+    elseif qf then
+        qf:Hide()
+    end
+    -- Elite/Rare Indicator (the WoW Forever look starts with it off, NP_SeedForever).
+    local atlas
+    if not (p and p.classificationHideRare) and (not inInstance or ns.NP_ShowInInstances("rare")) then
+        atlas = EliteRareAtlas(self.unit)
+    end
+    local cf = self.classFrame
+    if atlas then
+        -- The texture keeps its art across pool recycles, so the memo never goes stale.
+        if cf._npAtlas ~= atlas then
+            self.class:SetAtlas(atlas)
+            cf._npAtlas = atlas
+        end
+        local sz = GetRareEliteIconSize()
+        cf._npSz = sz
+        PP.Size(cf, sz, sz)
+        PlaceSlotIcon(self, cf, slot, cxOff, cyOff, 2, sz)
+        cf:Show()
+    else
+        cf:Hide()
+    end
     self:UpdateNameWidth()
 end
--- "Rare/Quest + Faction": the faction badge's step-aside depends on whether the
--- classification icon shows, and some passes (quest objective refreshes) redraw only
--- the classification, so re-place the badge after every classification pass. The Quest
+-- "Rare/Quest + Faction": the faction badge's step-aside depends on whether an
+-- indicator shows, and some passes (quest objective refreshes) redraw only the
+-- indicators, so re-place the badge after every classification pass. The Quest
 -- Objective Text follows every classification pass too (quest refreshes, plate setup).
 NameplateFrame._UpdateClassificationBase = NameplateFrame.UpdateClassification
 function NameplateFrame:UpdateClassification()
@@ -206,7 +232,8 @@ function NameplateFrame:UpdateClassification()
     local slot = GetClassificationSlot()
     -- Its own chain pass is this one's when the two share the slot.
     self:UpdateQuestText(slot)
-    -- Elements sharing the slot follow the indicator's show, hide and move.
+    -- Elements sharing the slot follow the indicators' show, hide and move, and the two
+    -- indicators stand side by side where a mob shows both.
     if ns.NP_CoreChain then ns.NP_CoreChain(self, slot) end
 end
 
@@ -455,18 +482,19 @@ function NameplateFrame:UpdateFaction(artOnly)
     local sz = ns.NP_GetFactionIconSize()
     self.factionFrame._npSz = sz
     PP.Size(self.factionFrame, sz, sz)
-    -- "Rare/Quest + Faction" with the classification icon showing too: the faction
-    -- badge stacks behind it, overlapping by 40% of the icon's current size
-    -- (classification is a frame level above, so it draws on top); up, or down in the
-    -- Bottom slot so it clears the cast bar.
-    if p and p.classificationIncludeFaction and self.classFrame:IsShown() then
-        local step = math.floor((self.classFrame._npSz or GetRareEliteIconSize()) * 0.6 + 0.5)
+    -- "Rare/Quest + Faction" with an indicator showing too (the elite/rare mark, else
+    -- the quest icon): the faction badge stacks behind it, overlapping by 40% of the
+    -- icon's current size (the indicators are a frame level above, so they draw on
+    -- top); up, or down in the Bottom slot so it clears the cast bar.
+    local ride = p and p.classificationIncludeFaction and ns.NP_RideFrame(self)
+    if ride then
+        local step = math.floor((ride._npSz or GetRareEliteIconSize()) * 0.6 + 0.5)
         if slot == "bottom" then step = -step end
         if ns.NP_CoreChained and ns.NP_CoreChained(slot) then
             -- Other elements share the slot: the pair is one member of its chain, so the
             -- badge rides the indicator wherever the chain puts it.
             self.factionFrame:ClearAllPoints()
-            PP.Point(self.factionFrame, "BOTTOMLEFT", self.classFrame, "BOTTOMLEFT", 0, step)
+            PP.Point(self.factionFrame, "BOTTOMLEFT", ride, "BOTTOMLEFT", 0, step)
         else
             PlaceSlotIcon(self, self.factionFrame, slot, fxOff, fyOff + step, 2, sz)
         end
@@ -493,8 +521,8 @@ function ns.NP_OnNameRow(slot)
     return slot == "top" or slot == "topleft" or slot == "topright"
 end
 local OnNameRow = ns.NP_OnNameRow
--- The room a name has in the Top slot: the bar minus the raid marker, the Rare/Quest
--- indicator, the Quest Objective Text and the faction badge while they show on the name's
+-- The room a name has in the Top slot: the bar minus the raid marker, the Elite/Rare and
+-- Quest indicators, the Quest Objective Text and the faction badge while they show on the name's
 -- row, and minus the wider Top Left / Top Right text on each side (the name is centred
 -- between them). The Top Custom text naming the unit takes it too (AddCustomText, then
 -- UpdateNameWidth keeps it current).
@@ -504,16 +532,20 @@ local function TopNameWidth(self, barW)
     if OnNameRow(GetRaidMarkerPos()) and self.raidFrame:IsShown() then
         nameW = nameW - 2 * (GetRaidMarkerSize() - 2) - 7
     end
-    if OnNameRow(GetClassificationSlot()) and self.classFrame:IsShown() then
-        nameW = nameW - ((self.classFrame._npSz or GetRareEliteIconSize()) + 4)
+    if OnNameRow(GetClassificationSlot()) then
+        if self.classFrame:IsShown() then
+            nameW = nameW - ((self.classFrame._npSz or GetRareEliteIconSize()) + 4)
+        end
+        local qi = self.questFrame
+        if qi and qi:IsShown() then nameW = nameW - ((qi._npSz or GetRareEliteIconSize()) + 4) end
     end
     local qf = self.questTextFrame
     if qf and qf:IsShown() and OnNameRow(ns.NP_GetQuestTextSlot()) then
         nameW = nameW - ((qf._npW or 0) + 4)
     end
-    -- Stacked with the classification icon ("Rare/Quest + Faction") it takes
-    -- no extra width; alone it reserves its own.
-    local stacked = p and p.classificationIncludeFaction and self.classFrame:IsShown()
+    -- Stacked behind an indicator ("Rare/Quest + Faction") it takes no extra width;
+    -- alone it reserves its own.
+    local stacked = p and p.classificationIncludeFaction and ns.NP_RideFrame(self)
     if self.factionFrame and self.factionFrame:IsShown() and not stacked
         and OnNameRow(ns.NP_GetFactionSlot()) then
         nameW = nameW - (ns.NP_GetFactionIconSize() + 4)

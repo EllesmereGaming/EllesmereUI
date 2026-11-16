@@ -499,6 +499,9 @@ end
 -- reload). CDM excludes spell-coupled subtrees (per-spell tiers, active states)
 -- and stores owned by the unlock LAYER system (positions, grow).
 local SETTING_BLACKLIST = {
+    EllesmereUIUnitFrames = {
+        restedIndicator = true, -- the Rested Indicator's per-profile settings: one look for every spec
+    },
     EllesmereUIChat = {
         showFriends = true, showDurability = true, showCopy = true,
         showPortals = true, showVoice = true, showSettings = true,

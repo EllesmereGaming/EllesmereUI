@@ -16,7 +16,8 @@ local EUI = EllesmereUI
 
 local ApplyBagScale, BagsItemUnusable, BP = I.ApplyBagScale, I.BagsItemUnusable, I.BP
 local CurrencyOrder, GetAccentRGB = I.CurrencyOrder, I.GetAccentRGB
-local GetCatTitleSize, GetDefaultBagType = I.GetCatTitleSize, I.GetDefaultBagType
+local GetCatTitleSize = I.GetCatTitleSize
+local BagViewIndexShown = I.BagViewIndexShown
 local GetFont, SetBagFont, SLOT_SIZE, SPACING = I.GetFont, I.SetBagFont, I.SLOT_SIZE, I.SPACING
 local ApplySavedOrder = I.ApplySavedOrder
 local ArmorySlotGroupingEnabled = I.ArmorySlotGroupingEnabled
@@ -78,13 +79,9 @@ I.paintedPanelOpenSetters[#I.paintedPanelOpenSetters + 1] = function(v) _painted
 local function StartAddon()
     RegisterPawnIntegration()
 
-    -- Apply default view based on setting (DB now available)
-    local _dbt = GetDefaultBagType()
-    if _dbt == "onebag" then
-        SetSelectedCategoryIndex(-1)
-    elseif _dbt == "multibag" then
-        SetSelectedCategoryIndex(-2)
-    end
+    -- The view the bags open on (DB now available): the Default Selected Bag
+    -- while its sidebar row shows (GetDefaultBagType)
+    SetSelectedCategoryIndex(ns.OpenBagViewIndex())
 
     GoldLedger.Register("bags", OnGoldChanged)
 
@@ -171,6 +168,12 @@ local function StartAddon()
         self:RepinIconLevels()
         ns.SettleWindowPos(self, "bagsPosition")
         PlaySound(SOUNDKIT.IG_BACKPACK_OPEN)
+        -- The open view's sidebar row was hidden meanwhile (another profile):
+        -- the bags show the view they open on (the refresh after the show paints it)
+        if not selectedGroupName and BP().bagHiddenViews and not BagViewIndexShown(selectedCategoryIndex) then
+            SetSelectedCategoryIndex(ns.OpenBagViewIndex())
+            if self._scrollFrame then self._scrollFrame:SetVerticalScroll(0) end
+        end
         -- Repaint if the unmerge state changed while hidden: the flag-flip refresh is gated on
         -- IsVisible, and closing a mailbox hides bags in the same breath so that repaint is thrown away (costs one boolean compare when already matching).
         -- Same for session unmerge marks: the close that hid the bags wiped
@@ -537,6 +540,17 @@ local function StartAddon()
     -- bag that opens while parented here (the keyring below) keeps that pin
     -- after it is let out, so a rectless container left it with no position.
     _blizzBagHidden:SetAllPoints(UIParent)
+    -- And that container's strata and frame level, so a bag frame keeps the
+    -- level it was made at when it is parked here and when it is let out. A
+    -- parentless frame sits at level 0, under Blizzard's container: a bag frame
+    -- parked there would sit below the level it was made at, and its background
+    -- (a child Blizzard declares at level 0, the lowest there is) cannot follow
+    -- it down (seen as the keyring window's background over its own slots).
+    do
+        local home = ContainerFrameContainer or UIParent
+        _blizzBagHidden:SetFrameStrata(home:GetFrameStrata())
+        _blizzBagHidden:SetFrameLevel(home:GetFrameLevel())
+    end
 
     -- WoW Forever's keyring (bag -1) has no place in our bag window, so its
     -- button keeps opening Blizzard's own keyring window: the one bag frame
@@ -556,6 +570,10 @@ local function StartAddon()
         end
     end
     KillBlizzard()
+    -- Blizzard's other bag frames stay parked for the session, so the keyring's
+    -- frame is the one Blizzard bag window ever seen: Blizzard Skins+' keyring
+    -- skin applies only while this is set.
+    ns.BlizzardBagsParked = true
 
     local keyringHooked = setmetatable({}, { __mode = "k" })
     hooksecurefunc("ToggleBag", function(id)

@@ -688,6 +688,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if not DBVal("classificationIncludeFaction") then plate:UpdateFaction() end
                 if ns.ApplySlotStrata then ns.ApplySlotStrata(plate) end
             end
+            for _, fp in pairs(ns.friendlyPlates) do fp:UpdateRaidIcon() end
             ns.NP_RefreshFriendlyFaction()
             UpdatePreview()
             EllesmereUI:RefreshPage()
@@ -1050,6 +1051,11 @@ initFrame:SetScript("OnEvent", function(self)
             if pv._classIcon then
                 classOverlay = CreateHitOverlay(pv._classIcon, "classIcon")
                 if not optState.showClassificationPreview then classOverlay:Hide() end
+            end
+            -- Quest Indicator sample: shown and hidden with it by the preview update.
+            if pv._questIcon then
+                pv._questIconOverlay = CreateHitOverlay(pv._questIcon, "classIcon")
+                pv._questIconOverlay:SetShown(pv._questIcon:IsShown())
             end
             -- Faction badge: shown and hidden with the badge by the preview update.
             if pv._factionIcon then
