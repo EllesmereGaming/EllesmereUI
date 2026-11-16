@@ -619,9 +619,10 @@ end
 -------------------------------------------------------------------------------
 --  Flight Time on the Map (off by default): a destination's tooltip on the
 --  flight map shows how long the flight takes, from the same lengths and
---  speed as the bar. WoW Forever opens the Taxi frame, never
---  Blizzard_FlightMap. The hook is set up the first time the option is on and
---  cannot be removed, so it returns at once while the option is off.
+--  speed as the bar. The line goes in the Taxi frame, the flight map WoW
+--  Forever's flight masters open (Blizzard_FlightMap is not covered). The
+--  hook is set up the first time the option is on and cannot be removed,
+--  so it returns at once while the option is off.
 -------------------------------------------------------------------------------
 local tipHooked = false
 
