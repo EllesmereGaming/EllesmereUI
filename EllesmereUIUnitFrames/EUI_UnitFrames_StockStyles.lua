@@ -1360,6 +1360,8 @@ function ns.UF_ApplyBlizzPortrait(frame, G)
         repaint = true
     end
     if repaint and pt.ForceUpdate then pt:ForceUpdate() end
+    -- Rested Indicator on the portrait: follows the stock portrait's show and level.
+    if frame._restFollowPortrait then frame._restFollowPortrait() end
 end
 
 -- Text zones: the left zone (the name by default) moves onto the stock name

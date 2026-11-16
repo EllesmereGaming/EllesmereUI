@@ -1429,8 +1429,9 @@ local function PositionLockout(plate, f, slotVal)
 end
 
 ------------------------------------------------------------------------------
--- Core Positions chains: the elements sharing one slot (the raid marker, the Rare/Quest
--- indicator, the Quest Objective Text, the faction badge, the three aura rows), laid out one
+-- Core Positions chains: the elements sharing one slot (the raid marker, the Elite/Rare
+-- Indicator, the Quest Indicator, the Quest Objective Text, the faction badge, the three
+-- aura rows), laid out one
 -- after another in the slot's order (<pos>SlotOrder: the option keys joined by commas; unset
 -- = the default order), <pos>SlotElementSpacing apart (unset = the first aura row's Spacing
 -- in that order, else the global aura spacing). A slot holding fewer than two of them costs
@@ -1453,9 +1454,9 @@ end
 ------------------------------------------------------------------------------
 local Chain = {
     DEFAULT = "debuffs,buffs,ccs,raidmarker,rare,quest,questtext,faction",
-    -- Option key -> member (rare and quest are one frame).
+    -- Option key -> member (rare: the elite/rare mark, with a riding faction badge).
     MEMBER = { debuffs = "debuffs", buffs = "buffs", ccs = "cc", raidmarker = "raid",
-        rare = "class", quest = "class", questtext = "qtext", faction = "faction" },
+        rare = "class", quest = "quest", questtext = "qtext", faction = "faction" },
     orderMemo = {},   -- [pos] = { src = the saved string, list = { member, ... } }
     keys = {},        -- [pos] = the slot's setting keys (no string building per pass)
     m = {},           -- the slot's members in order (ChainMembers)
@@ -1507,16 +1508,18 @@ local function ChainOrder(pos)
 end
 
 -- The members the slot holds, in its order, into Chain.m; returns their count. A member
--- counts while its own position key names the slot: the badge riding the Rare/Quest
--- indicator is part of that member, Crowd Control inside the debuff row is the debuff row's.
--- The Rare/Quest member counts only while one of its halves is on or the badge rides it.
+-- counts while its own position key names the slot: the badge riding an indicator is
+-- part of the Elite/Rare member, Crowd Control inside the debuff row is the debuff row's.
+-- The Elite/Rare Indicator and the Quest Indicator share one slot key and are two members:
+-- the first counts while its box is checked or the badge rides it, the second while its
+-- box is.
 local function ChainMembers(pos)
     local m = Chain.m
     local n = 0
     local ds, bs, cs = ns.GetAuraSlots()
     local raid, class = ns.GetRaidMarkerPos(), ns.GetClassificationSlot()
-    if PVal("classificationHideRare") and not ns.NP_QuestIconOn()
-        and PVal("classificationIncludeFaction") ~= true then class = "none" end
+    local quest = ns.NP_QuestIconOn() and class or "none"
+    if PVal("classificationHideRare") and PVal("classificationIncludeFaction") ~= true then class = "none" end
     local fac = (PVal("classificationIncludeFaction") ~= true) and ns.NP_GetFactionSlot() or "none"
     local qtext = ns.NP_GetQuestTextSlot()
     local order = ChainOrder(pos)
@@ -1528,6 +1531,7 @@ local function ChainMembers(pos)
         elseif id == "cc" then at = cs
         elseif id == "raid" then at = raid
         elseif id == "class" then at = class
+        elseif id == "quest" then at = quest
         elseif id == "qtext" then at = qtext
         else at = fac end
         if at == pos then
@@ -1602,10 +1606,14 @@ local function ChainShown(plate, pos, n)
             lead = plate.raidFrame
         elseif id == "class" then
             lead = plate.classFrame
-            -- Rare/Quest + Faction with no mark: the badge stands in for the pair.
-            if not (lead and lead:IsShown()) and PVal("classificationIncludeFaction") == true then
+            -- Rare/Quest + Faction with no indicator: the badge stands in for them (behind
+            -- the quest icon alone it rides that member instead).
+            if not (lead and lead:IsShown()) and PVal("classificationIncludeFaction") == true
+                and not ns.NP_RideFrame(plate) then
                 lead = plate.factionFrame
             end
+        elseif id == "quest" then
+            lead = plate.questFrame
         elseif id == "qtext" then
             lead = plate.questTextFrame
         elseif id == "faction" then
@@ -2177,7 +2185,7 @@ local function GeoFP()
         PVal("toprightSlotElementSpacing"), PVal("topleftSlotElementSpacing"), PVal("bottomSlotElementSpacing"),
         PVal("raidMarkerPos"), PVal("classificationSlot"), PVal("factionSlot"),
         PVal("classificationIncludeFaction"),
-        -- The Rare/Quest member's halves decide whether it is a member at all.
+        -- Each indicator's box decides whether it is a member at all.
         PVal("classificationHideRare") and true or false, ns.NP_QuestIconOn(),
         -- The Quest Objective Text's slot: its own key and, while that is unset, the legacy
         -- view (Replace Quest Icon with Objective, the Quest Indicator box and slot).

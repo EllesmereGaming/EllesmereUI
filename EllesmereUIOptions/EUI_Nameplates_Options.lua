@@ -1052,6 +1052,11 @@ initFrame:SetScript("OnEvent", function(self)
                 classOverlay = CreateHitOverlay(pv._classIcon, "classIcon")
                 if not optState.showClassificationPreview then classOverlay:Hide() end
             end
+            -- Quest Indicator sample: shown and hidden with it by the preview update.
+            if pv._questIcon then
+                pv._questIconOverlay = CreateHitOverlay(pv._questIcon, "classIcon")
+                pv._questIconOverlay:SetShown(pv._questIcon:IsShown())
+            end
             -- Faction badge: shown and hidden with the badge by the preview update.
             if pv._factionIcon then
                 pv._factionOverlay = CreateHitOverlay(pv._factionIcon, "factionIcon")

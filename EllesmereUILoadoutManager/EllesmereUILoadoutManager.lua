@@ -10,7 +10,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.HexColor and EllesmereUI.COLOR_CODES and EllesmereUI.NewCombatQueue and EllesmereUI.ApplyModuleFont and EllesmereUI.HELD_BACK_ADDONS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.HexColor and EllesmereUI.COLOR_CODES and EllesmereUI.NewCombatQueue and EllesmereUI.ApplyModuleFont and EllesmereUI.HELD_BACK_ADDONS and EllesmereUI.ForeverTalentTrees) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 -- Held back from this release (EllesmereUI.HELD_BACK_ADDONS): nothing runs,
 -- and with no namespace published the options page never registers.
 if EllesmereUI.HELD_BACK_ADDONS[ADDON_NAME] then return end
@@ -187,33 +187,34 @@ local function ActiveSpecGroup()
     if ok and type(group) == "number" then return group end
 end
 
--- The tree with the most points in a group's build ("Holy"), or nil.
+-- The tree with the most points in a group's build ("Holy"), or nil. The trees
+-- come from the shared WoW Forever reader, names only.
+local function ReadTopTree(group)
+    local configID = C_SpecializationInfo.GetCombatConfigIDForSpecGroup(group)
+    if not configID then return nil end
+    local _, _, trees = EllesmereUI.ForeverTalentTrees(configID, true)
+    if not trees then return nil end
+    local ids = {}
+    for i = 1, #trees do ids[i] = trees[i].groupID end
+    local spentBy = {}
+    for _, g in ipairs(C_Traits.GetGroupCurrencyInfo(configID, ids) or NO_ENTRIES) do
+        local c = g.currencyInfos and g.currencyInfos[1]
+        spentBy[g.traitNodeGroupID] = c and c.spent or 0
+    end
+    local best, bestSpent = nil, 0
+    for i = 1, #trees do
+        local spent = spentBy[trees[i].groupID] or 0
+        if spent > bestSpent then best, bestSpent = trees[i].name, spent end
+    end
+    return best
+end
 local function SpecGroupTopTree(group)
-    local ok, name = pcall(function()
-        local configID = C_SpecializationInfo.GetCombatConfigIDForSpecGroup(group)
-        local info = configID and C_Traits.GetConfigInfo(configID)
-        local treeID = info and info.treeIDs and info.treeIDs[1]
-        if not treeID then return nil end
-        local displays = C_Traits.GetGroupDisplayInfoByTreeID(treeID)
-        local ids = {}
-        for i = 1, #displays do ids[i] = displays[i].groupID end
-        local spentBy = {}
-        for _, g in ipairs(C_Traits.GetGroupCurrencyInfo(configID, ids) or {}) do
-            local c = g.currencyInfos and g.currencyInfos[1]
-            spentBy[g.traitNodeGroupID] = c and c.spent or 0
-        end
-        local best, bestSpent = nil, 0
-        for i = 1, #displays do
-            local spent = spentBy[displays[i].groupID] or 0
-            if spent > bestSpent then best, bestSpent = displays[i].displayName, spent end
-        end
-        return best
-    end)
+    local ok, name = pcall(ReadTopTree, group)
     return ok and name or nil
 end
 
 local function SpecGroupName(group)
-    local tab = group == 1 and (DUAL_SPEC_PRIMARY or "Primary") or (DUAL_SPEC_SECONDARY or "Secondary")
+    local tab = group == 1 and (DUAL_SPEC_PRIMARY or EllesmereUI.L("Primary")) or (DUAL_SPEC_SECONDARY or EllesmereUI.L("Secondary"))
     local tree = SpecGroupTopTree(group)
     return tree and (tab .. " (" .. tree .. ")") or tab
 end
@@ -224,14 +225,11 @@ local function SpecGroupOf(loadout)
 end
 
 -- The spec info call reports 0, not nil, for a slot with no specialization.
--- Set only while CheckAndSwap resolves the group a switch is heading to.
-local specOverride = nil
 -- WoW Forever: the group switch the module last started ({ group, manual }),
 -- until it lands or you change places. Its landing ends its own request (the
 -- spec is part of a request's context), so the landing is matched here.
 local ownSwitch = nil
 local function GetCurrentSpecID()
-    if specOverride then return specOverride end
     if IS_FOREVER then
         local group = ActiveSpecGroup()
         return group and -group or nil
@@ -1121,7 +1119,9 @@ end
 local function TalentCastEvent(event, unit, castGUID, spellID)
     if issecretvalue(unit) or issecretvalue(castGUID) or issecretvalue(spellID) then return end
     local request = requests.talent
-    if unit ~= "player" or not RequestIsCurrent(request) or not request.inFlight then return end
+    if unit ~= "player" then return end
+    if not IS_FOREVER and spellID ~= Constants.TraitConsts.COMMIT_COMBAT_TRAIT_CONFIG_CHANGES_SPELL_ID then return end
+    if not RequestIsCurrent(request) or not request.inFlight then return end
     if IS_FOREVER then
         -- The spec switch cast has no known spell ID here: it is the first
         -- player cast to start once the switch was called (nothing else was
@@ -1131,8 +1131,6 @@ local function TalentCastEvent(event, unit, castGUID, spellID)
         elseif not castGUID or castGUID ~= request.commitCastGUID then
             return
         end
-    elseif spellID ~= Constants.TraitConsts.COMMIT_COMBAT_TRAIT_CONFIG_CHANGES_SPELL_ID then
-        return
     end
     if castGUID and castGUID == request.supersededCastGUID then return end
     if event == "UNIT_SPELLCAST_START" then
@@ -1204,10 +1202,14 @@ local function TryActivateSpecGroup(request)
         HoldTalentRequest(request, blocker, false)
         return
     end
-    -- The switch is a cast: wait for any cast in progress to end. The cast
-    -- name can read secret: only its type is tested.
-    if type(UnitCastingInfo("player")) ~= "nil" or type(UnitChannelInfo("player")) ~= "nil" then
-        DeferRequest(request, EllesmereUI.L("Talent swap held: a talent change is in progress."), false, "availability")
+    -- The switch is a cast: it waits while you move (one that cannot start is
+    -- never retried, and the next cast would be taken for it) and for any cast
+    -- in progress to end. A restricted speed counts as standing still; the
+    -- cast name can read secret: only its type is tested.
+    local speed = GetUnitSpeed("player")
+    if (not issecretvalue(speed) and (speed or 0) > 0)
+        or type(UnitCastingInfo("player")) ~= "nil" or type(UnitChannelInfo("player")) ~= "nil" then
+        DeferRequest(request, EllesmereUI.L("Talent swap held: you are moving or casting."), false, "availability")
         return
     end
     request.waitReason, request.restriction = nil, nil
@@ -1372,20 +1374,12 @@ local function CheckAndSwap(manual, gearOnly)
     if manual or db.gearEnabled then setName, gearSource, gearKey = GetAssignedSetForContext(ctx) end
     if (manual or db.talentEnabled) and not gearOnly then talentStored, talentSource, talentKey = GetAssignedTalentForContext(ctx) end
     -- WoW Forever: a talent assignment that switches spec groups brings the
-    -- target group's gear, equipped once the switch lands (the group change
-    -- re-runs the check, gear only).
+    -- target group's gear: no gear is equipped now, and the group change
+    -- re-runs the check, gear only, once the switch lands.
     local gearAfterSwitch
     if IS_FOREVER and talentStored then
         local target = SpecGroupOf(GetTalentLoadoutFromStored(talentStored))
-        if target and target ~= ActiveSpecGroup() then
-            gearAfterSwitch = true
-            if manual or db.gearEnabled then
-                specOverride = -target
-                local ok, a, b, c = pcall(GetAssignedSetForContext, ctx)
-                specOverride = nil
-                if ok then setName, gearSource, gearKey = a, b, c else setName = nil end
-            end
-        end
+        gearAfterSwitch = target ~= nil and target ~= ActiveSpecGroup()
     end
     if not setName and not talentStored then
         -- Automatic checks stay silent (most places have nothing assigned,
@@ -1416,7 +1410,7 @@ end
 local autoCheckQueued, autoCheckQueuedSerial, autoCheckKey, autoCheckOpts = false, nil, nil, nil
 local function RunAutoCheck()
     autoCheckQueued = false
-    local opts = autoCheckOpts or {}
+    local opts = autoCheckOpts or NO_ENTRIES
     if autoCheckQueuedSerial ~= autoCheckSerial or not (AutomationLive() or opts.manual) then return end
     if autoCheckKey ~= BuildAutoInstanceKey(GetCurrentInstanceContext()) then return end
     CheckAndSwap(opts.manual or false, opts.gearOnly)

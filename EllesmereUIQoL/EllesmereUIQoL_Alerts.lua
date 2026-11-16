@@ -10,6 +10,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --    Potion Ready     (below)                short
 --    Unspent Talents  (below)                persistent
 --  Nothing is built or registered for an alert until it is enabled.
+--  Every alert's settings and the anchor's spot are per profile, through the
+--  extras store (EllesmereUI.QoLExtrasGet / QoLExtrasSet): a profile that never
+--  set a key reads the account-wide value saved before the alerts followed profiles.
 -------------------------------------------------------------------------------
 
 local ns = select(2, ...)
@@ -18,7 +21,7 @@ local DEFAULT_SIZE = 22
 local DEFAULT_POS = { point = "CENTER", relPoint = "CENTER", x = 0, y = 169 }
 local GAP = 4
 
-local function DB(key) return EllesmereUIDB and EllesmereUIDB[key] end
+local function DB(key) return EUI.QoLExtrasGet(key) end
 
 -------------------------------------------------------------------------------
 --  Core: anchor + stacked lines
@@ -226,8 +229,7 @@ local function RegisterUnlock()
             end,
             savePos = function(_, point, relPoint, x, y)
                 if not point then return end
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB.alertsPos = { point = point, relPoint = relPoint, x = x, y = y }
+                EUI.QoLExtrasSet("alertsPos", { point = point, relPoint = relPoint, x = x, y = y })
                 if anchor and not EUI._unlockActive then PlaceAnchor(); Layout() end
             end,
             loadPos = function()
@@ -235,10 +237,9 @@ local function RegisterUnlock()
                 return { point = p.point, relPoint = p.relPoint, x = p.x, y = p.y }
             end,
             clearPos = function()
-                if EllesmereUIDB then
-                    EllesmereUIDB.alertsPos = nil
-                    EllesmereUIDB.combatAlertPos = nil
-                end
+                -- false, not nil: an unset key would read the old account-wide spot.
+                EUI.QoLExtrasSet("alertsPos", false)
+                EUI.QoLExtrasSet("combatAlertPos", false)
                 if anchor then PlaceAnchor(); Layout() end
             end,
             applyPos = function()
@@ -522,6 +523,9 @@ do
             watcher:UnregisterAllEvents()
             installed = false
             Alerts.Hide("talent")
+        elseif on then
+            -- Already on (a profile switch): a line that is up takes this profile's text and color.
+            MarkDirty()
         end
         Alerts.Refresh()
     end

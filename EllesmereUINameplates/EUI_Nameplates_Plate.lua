@@ -1193,6 +1193,7 @@ function NameplateFrame:ClearUnit()
     if self.nameRaidFrame then self.nameRaidFrame:Hide() end
     self.raidFrame:Hide()
     self.classFrame:Hide()
+    if self.questFrame then self.questFrame:Hide() end
     if self.factionFrame then self.factionFrame:Hide() end
     if self.questTextFrame then self.questTextFrame:Hide() end
     if self.questTextTypeIcon then self.questTextTypeIcon:Hide() end

@@ -250,7 +250,8 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     PP.Size(plate.classFrame, _reIconSz, _reIconSz)
     PP.Point(plate.classFrame, "LEFT", plate.health, "LEFT", 2, 0)
     -- INDICATOR TIER (see raidFrame). MEDIUM strata + low level (health+3=13) so the
-    -- classification/elite/rare/quest indicator sits below auras/text but above the flattened bar.
+    -- Elite/Rare Indicator sits below auras/text but above the flattened bar. The Quest
+    -- Indicator's frame (plate.questFrame) is built on first use by UpdateClassification.
     plate.classFrame:SetFrameStrata("MEDIUM")
     plate.classFrame:SetFrameLevel(plate.health:GetFrameLevel() + 3)
     plate.classFrame:Hide()

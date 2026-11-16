@@ -795,7 +795,15 @@ local function SkinInspectSheet()
             label:SetFont(fontPath, 10, "")
             label:SetPoint("CENTER", btn, "CENTER", 0, 0)
             label:SetJustifyH("CENTER")
-            label:SetText(EllesmereUI.L(labelText))
+            label:SetText(labelText)
+            -- A translated label wider than the button shrinks to fit (never under 8), then is cut.
+            local room = BTN_W - 6
+            local textW = label:GetStringWidth()
+            if textW and textW > room then
+                label:SetFont(fontPath, math.max(8, math.floor(10 * room / textW)), "")
+            end
+            label:SetWidth(room)
+            label:SetWordWrap(false)
             label:SetTextColor(1, 1, 1, 1)
             ffd.label = label
 
@@ -821,14 +829,14 @@ local function SkinInspectSheet()
                     child:EnableMouse(false)
                 end
             end
-            RestyleButton(talentsBtn, "Talents", "BOTTOMRIGHT", "BOTTOMRIGHT", -7)
+            RestyleButton(talentsBtn, EllesmereUI.L("Talents"), "BOTTOMRIGHT", "BOTTOMRIGHT", -7)
         end
 
         -- WoW Forever: Blizzard keeps the View button hidden there, and it
         -- stays hidden (the room left of the main hand is its text's).
         if not EllesmereUI.IS_FOREVER then
             local blizViewBtn = InspectPaperDollFrame and InspectPaperDollFrame.ViewButton
-            RestyleButton(blizViewBtn, "Transmog", "BOTTOMLEFT", "BOTTOMLEFT", 10)
+            RestyleButton(blizViewBtn, EllesmereUI.L("Transmog"), "BOTTOMLEFT", "BOTTOMLEFT", 10)
         end
     end
 
