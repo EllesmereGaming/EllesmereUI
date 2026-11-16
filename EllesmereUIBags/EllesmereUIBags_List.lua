@@ -803,7 +803,15 @@ local function RenderRow(btn, data, cols, rowW, x, y, stripe, dim)
                     local tc = data._giTrackColor
                     if tc then fs:SetTextColor(tc.r, tc.g, tc.b) end
                 elseif id == "count" then
-                    text = data._lvCount > 1 and data._lvCount or ""
+                    -- Recent Items picked-up proxy: "OLD+N" with a green "+N",
+                    -- or "+N" in green when nothing was carried before
+                    if data._recentGained then
+                        local full, short = ns.RecentGainedText(data._lvCount, data._recentCarried)
+                        text = full or short
+                        if not full then fs:SetTextColor(GREEN_FONT_COLOR:GetRGB()) end
+                    else
+                        text = data._lvCount > 1 and data._lvCount or ""
+                    end
                 elseif id == "sell" then
                     text = data._lvSell > 0 and C_CurrencyInfo.GetCoinTextureString(data._lvSell) or ""
                 end
@@ -959,25 +967,32 @@ function ns.RenderListView(items, opts)
         return bag
     end
     local pinnedSet, recentOn = opts.pinned, opts.recent ~= nil
-    -- New Items Only may list only some copies of an item: the Recent section
-    -- is then picked from the unmerged items and merged on its own. In a view
-    -- Refresh has marked them (_vgRec). Slot views merge nothing.
+    -- The Recent section is built apart, from the unmerged items, when only some
+    -- copies of an item list (New Items Only, Show Picked-Up Amount) or picked-up
+    -- amounts show: picked, ns.RecentGainedItems, merged, as in the grid. In a
+    -- view Refresh has marked the picks (_vgRec). Slot views merge nothing.
+    local gainedOn = BP().bagRecentShowGained == true
     local recentItems
-    if recentOn and not slotView and BP().bagRecentNewOnly and next(EUI_Bags._recentCopies) then
+    if (gainedOn and (recentOn or opts.recentOnly))
+        or (recentOn and not slotView and BP().bagRecentNewOnly and next(EUI_Bags._recentCopies)) then
         recentItems = {}
         for _, d in ipairs(items) do
-            if d.info and d.itemLink and not d._pinnedOnly
-                and (view and d._vgRec or not view and EUI_Bags.IsRecentEntry(d)) then
+            if d.info and d.itemLink and (opts.recentOnly or not d._pinnedOnly
+                and (view and d._vgRec or not view and EUI_Bags.IsRecentEntry(d))) then
                 recentItems[#recentItems + 1] = d
             end
         end
-        recentItems = ns.MergeDuplicates(recentItems)
+        if gainedOn then recentItems = ns.RecentGainedItems(recentItems) end
+        if not slotView then recentItems = ns.MergeDuplicates(recentItems) end
     end
-    if not slotView then items = ns.MergeDuplicates(items) end
+    -- The Recent Items tab with its own Recent list: the main loop would add
+    -- nothing there (no Pinned or Recent sections on that tab)
+    local mainLoop = not (opts.recentOnly and recentItems and not pinnedSet)
+    if mainLoop and not slotView then items = ns.MergeDuplicates(items) end
     -- Group Gear by Slot: the gear categories' sub-sections are equip slots,
     -- in place of Split by Type
     local gearSlots = not slotView and ns.ArmorySlotGroupingEnabled()
-    for _, d in ipairs(items) do
+    for _, d in ipairs(mainLoop and items or _emptyP) do
         local ci = d.categoryIndex
         local cat = ci and cats[ci]
         if d.info and d.itemLink then
@@ -992,7 +1007,7 @@ function ns.RenderListView(items, opts)
                 Add("recent", "", d)
             end
             if opts.recentOnly then
-                Add("recent", "", d)
+                if not recentItems then Add("recent", "", d) end
             elseif opts.reagentView then
                 Add(opts.reagentView, "", d)
             elseif slotView then
@@ -1026,7 +1041,8 @@ function ns.RenderListView(items, opts)
     end
     if recentItems then
         for _, d in ipairs(recentItems) do
-            StampItem(d) -- a merged copy counts only the listed copies
+            -- copies show other counts, and a pick may be merged away in the main list
+            StampItem(d)
             Add("recent", "", d)
         end
     end

@@ -565,6 +565,16 @@ initFrame:SetScript("OnEvent", function(self)
                               if v and _G.EUI_Bags and _G.EUI_Bags.SeedRecentCopies then _G.EUI_Bags.SeedRecentCopies() end
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
+                        { type="toggle", label="Show Picked-Up Amount",
+                          tooltip="Recent Items shows how many of a stackable item you picked up instead of every stack you carry, and only the new copies of an item that does not stack. While you send mail, or a vendor, trade, auction house, bank or guild bank window is open, the real stacks show.",
+                          get=function() return db.profile.bagRecentShowGained == true end,
+                          set=function(v)
+                              db.profile.bagRecentShowGained = v
+                              -- Sums stop while off: drop them, so a later switch-on starts clean
+                              if not v and _G.EUI_Bags and _G.EUI_Bags._recentGained then wipe(_G.EUI_Bags._recentGained) end
+                              if v and _G.EUI_Bags and _G.EUI_Bags.SeedRecentCopies then _G.EUI_Bags.SeedRecentCopies() end
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
                     },
                 })
             end

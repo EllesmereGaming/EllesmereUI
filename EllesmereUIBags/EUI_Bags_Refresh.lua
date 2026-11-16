@@ -1062,8 +1062,10 @@ function EUI_Bags:RefreshInventory()
     end
 
     -- Both views below paint with the current panel state, merging or not
-    -- (slot views and an unmerged list never reach MergeDuplicates)
+    -- (slot views and an unmerged list never reach MergeDuplicates). The unmerge
+    -- state is set again by whichever merge helper runs in this paint.
     SetPaintedPanelOpen(_anyItemPanelOpen)
+    EUI_Bags._paintedUnmerged = nil
 
     -- no live items laid out under the offline panel (select modes would hit them)
     local liveItems, liveEmpty = tempItems, emptySlots

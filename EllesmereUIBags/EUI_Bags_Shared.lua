@@ -334,6 +334,18 @@ function ns.SetSlotIcon(btn, texture)
     btn.icon:SetTexCoord(z, 1 - z, z, 1 - z)
 end
 
+-- Recent Items "Show Picked-Up Amount": marker for the proxies RecentGainedItems
+-- builds (_recentGained, with the carried amount in _recentCarried). Their
+-- count reads "OLD+N" with "+N" in green, or "+N" alone.
+-- full: the amount carried before the pickups, then "+N" in green through a
+-- color escape; nil when nothing was carried before. short: "+N" uncolored.
+function ns.RecentGainedText(n, carried)
+    local short = "+" .. n
+    local old = (carried or n) - n
+    if old <= 0 then return nil, short end
+    return old .. GREEN_FONT_COLOR:WrapTextInColorCode(short), short
+end
+
 -- Flat look for a ContainerFrameItemButtonTemplate slot, plus the text overlay
 -- (above the cooldown swipe) with Count, ItemLevelText and BindTypeText.
 -- Methods only: writing properties onto Blizzard template sub-objects taints.
