@@ -795,7 +795,7 @@ local function SkinInspectSheet()
             label:SetFont(fontPath, 10, "")
             label:SetPoint("CENTER", btn, "CENTER", 0, 0)
             label:SetJustifyH("CENTER")
-            label:SetText(labelText)
+            label:SetText(EllesmereUI.L(labelText))
             label:SetTextColor(1, 1, 1, 1)
             ffd.label = label
 
