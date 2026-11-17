@@ -59,21 +59,27 @@ local nodes, hooked
 local missing = {}  -- herb item ID = true while its name is not loaded
 local events = CreateFrame("Frame")
 
+-- A node name as the lookup keys it: the client writes some apostrophes
+-- typographic (U+2019) and some straight, and the case of a word can differ.
+local function Key(name)
+    return (name:gsub("\226\128\153", "'"):lower())
+end
+
 local function AddHerb(itemID)
     local name = C_Item.GetItemNameByID(itemID)
     if not name then return false end
-    nodes[name] = { HERBALISM, HERBS[itemID] }
+    nodes[Key(name)] = { HERBALISM, HERBS[itemID] }
     return true
 end
 
 local function Build()
     nodes = {}
     for name, lvl in pairs(ORES) do
-        nodes[EllesmereUI.GameName(name)] = { MINING, lvl }
-        nodes[name] = { MINING, lvl }
+        nodes[Key(EllesmereUI.GameName(name))] = { MINING, lvl }
+        nodes[Key(name)] = { MINING, lvl }
     end
     for name, itemID in pairs(HERB_NODES) do
-        nodes[EllesmereUI.GameName(name)] = { HERBALISM, HERBS[itemID] }
+        nodes[Key(EllesmereUI.GameName(name))] = { HERBALISM, HERBS[itemID] }
     end
     for itemID in pairs(HERBS) do
         if not AddHerb(itemID) then
@@ -119,7 +125,7 @@ local function OnObjectTooltip(tooltip, data)
     local title = lines and lines[1] and lines[1].leftText
     if not title or issecretvalue(title) then return end
     if not nodes then Build() end
-    local node = nodes[title]
+    local node = nodes[Key(title)]
     if not node then return end
     local skillName = C_Spell.GetSpellName(node[1] == MINING and MINING_SPELL or HERBALISM_SPELL)
     if not skillName then return end
