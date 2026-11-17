@@ -1275,6 +1275,7 @@ local function Apply()
         return
     end
     CreateAnchor()
+    UpdateSummary() -- hidden while the feed was off
     if not events then
         events = CreateFrame("Frame")
         events:SetScript("OnEvent", OnEvent)
