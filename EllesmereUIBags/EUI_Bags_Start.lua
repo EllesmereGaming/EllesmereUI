@@ -729,9 +729,10 @@ local function StartAddon()
     -- One total per item across the bags AND worn gear: equipping, taking off
     -- and equipment set swaps only move an item between the two, so its total
     -- holds and nothing re-flags, while loot still raises it. Slots 1-30 are
-    -- gear and profession gear, 31-35 the equipped bags; a worn stack (a thrown
-    -- weapon stack on WoW Forever) counts by its size. The ammo slot (0) is
-    -- skipped: it names a type whose ammo is already counted in the bags.
+    -- gear and profession gear, 31-35 the equipped bags (one item each); a worn
+    -- stack (a thrown weapon stack on WoW Forever) counts by its size. The ammo
+    -- slot (0) is skipped: it names a type whose ammo is already counted in the
+    -- bags.
     -- track: also note the single-item slots (_oneBag, _oneSlot, _oneItem).
     local function TallyItemCounts(track)
         local counts, order = {}, {}
@@ -754,7 +755,10 @@ local function StartAddon()
             local itemID = GetInventoryItemID("player", slot)
             if itemID then
                 if not counts[itemID] then order[#order + 1] = itemID end
-                local c = GetInventoryItemCount("player", slot) or 1
+                -- an equipped bag is one item, whatever its slot reports (0 on
+                -- WoW Forever); any other worn slot holds at least one
+                local c = GetInventoryItemCount("player", slot)
+                if slot > CONTAINER_BAG_OFFSET or not c or c < 1 then c = 1 end
                 counts[itemID] = (counts[itemID] or 0) + c
                 if track and c == 1 then
                     n = n + 1
