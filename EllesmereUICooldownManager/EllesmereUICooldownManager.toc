@@ -40,6 +40,7 @@ EUI_CDM_HookPressMirror.lua
 EllesmereUICdmSpellPicker.lua
 EllesmereUICdmBarGlows.lua
 EllesmereUICdmBarGlowConditions.lua
+EllesmereUICdmBarGlowSwing.lua
 EllesmereUICdmBuffBars.lua
 EUI_CDM_BuffBarStore.lua
 EUI_CDM_BuffBarGroups.lua
