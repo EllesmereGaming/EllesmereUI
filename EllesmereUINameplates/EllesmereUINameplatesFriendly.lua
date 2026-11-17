@@ -118,9 +118,17 @@ local function ShowNPCTitles()
     return fp and (fp.showNPCTitles ~= false)
 end
 
+-- A pet's owner line answers its own switch, so the pet never depends on what
+-- the friendly NPCs are set to show. Blizzard puts no owner line under a pet, so
+-- this is ours to give: on unless the user turns it off.
+local function ShowPetOwnerName()
+    local fp = FP()
+    return fp and (fp.showPetOwnerName ~= false)
+end
+
 -- The subtitle, the pet test and the group roster the entity colours read live
 -- together, in EUI_Nameplates_AlliedColors.lua.
-local GetNPCTitle = ns.Allied.GetNPCTitle
+local GetCachedNPCTitle = ns.Allied.GetCachedNPCTitle
 local IsPetUnit = ns.Allied.IsPet
 local UpdateRecentGroupMembers = ns.Allied.UpdateRecentGroupMembers
 
@@ -203,6 +211,21 @@ end
 local function GetSubTextSize()
     local fp = FP()
     return (fp and fp.friendlyBelowNameSize) or 12
+end
+
+-- An NPC's subtitle on the health bar plate takes the friendly NPC title size,
+-- the same setting the name-only overlay gives it.
+local function GetPlateNPCTitleSize()
+    local fp = FP()
+    return (fp and fp.friendlyNPCTitleSize) or NPC_TITLE_FONT_SIZE
+end
+
+-- One sub text's family, for the line it currently holds: the guild line's size
+-- comes from ApplySubtitleFont's bulk pass, an NPC subtitle's from its own
+-- setting, and a pooled plate can carry either in turn -- so the family is set
+-- per paint (SetFontFamily is memoized on the FontObject, so a repeat is cheap).
+local function SetPlateSubTextFont(fs, size)
+    EllesmereUI.SetFontFamily(fs, GetFont(), size, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG", false)
 end
 
 -- The guild sub texts (full-plate subText1) take one font family for the
@@ -556,7 +579,13 @@ local function ApplyOverlayStyle(overlay, unit)
         overlay.name:SetTexelSnappingBias(0)
     end
     EllesmereUI.SetFontFamily(overlay.title, font, GetNPCTitleSize(overlay), outline, shadow)
-    overlay.title:SetTextColor(ns.Allied.GetTitleColor(unit))
+    -- A pet's owner line takes its own colour (or the pet's name colour when it is
+    -- set to match); an NPC's subtitle takes the NPC Title Color pair.
+    if overlay.isPet then
+        overlay.title:SetTextColor(ns.Allied.GetPetOwnerColor(unit))
+    else
+        overlay.title:SetTextColor(ns.Allied.GetTitleColor(unit))
+    end
 end
 
 -- The Friendly NPC Name Format (friendlyNPCNameFormat; unset = the whole
@@ -568,9 +597,12 @@ local function FormatNPCName(name)
     return EllesmereUI.ShortName(name, mode)
 end
 
+-- The line under the overlay's name: an NPC's subtitle (Show NPC Titles) or a
+-- pet's owner (Show Owner Name). null-safe on the unit's own kind.
 local function SetOverlayTitle(overlay, unit)
-    if ShowNPCTitles() and unit then
-        local titleText = GetNPCTitle(unit)
+    local show = overlay.isPet and ShowPetOwnerName() or ShowNPCTitles()
+    if show and unit then
+        local titleText = GetCachedNPCTitle(unit)
         if titleText then
             overlay.title:SetText("<" .. titleText .. ">")
             overlay.title:Show()
@@ -600,6 +632,9 @@ local function ShowNPCOverlay(nameplate, unit)
     if overlay and overlay.unit == unit then
         overlay:Show()
         ApplyOverlayStyle(overlay, unit)
+        -- The line under the name answers a switch that can change under us (Show
+        -- NPC Titles, Show Owner Name), so a repeated show re-reads it too.
+        SetOverlayTitle(overlay, unit)
         -- The marker is the reason a filtered NPC can be on screen at all, so a
         -- repeated show re-anchors it rather than leaving a stale one.
         UpdateOverlayRaidIcon(overlay)
@@ -1194,11 +1229,14 @@ do
         titledCount[mode] = titledCount[mode] + 1
         return s
     end
-    local aFormat, aMode, aBrackets, aMatch, aLevel, aDiff, aGroupBrackets, aNameEsc, stamped
+    local aFormat, aNpcFormat, aMode, aBrackets, aMatch, aLevel, aDiff, aGroupBrackets, aNameEsc, stamped
     StampFriendlyNames = function()
         local fp = FP()
         if not fp then return end
         aFormat, aMode = fp.friendlyNameFormat, fp.friendlyBelowName or "none"
+        -- An NPC's name takes its own format, on the name-only overlay and on the
+        -- health bar plate alike.
+        aNpcFormat = fp.friendlyNPCNameFormat
         aBrackets, stamped = fp.friendlyBelowNameGuildBrackets ~= false, true
         aMatch = fp.friendlyBelowNameMatchNameColor == true
         aLevel, aDiff = fp.friendlyShowLevel == true, fp.friendlyLevelDiffColor == true
@@ -1212,6 +1250,7 @@ do
         if not fp then return end
         if not stamped then StampFriendlyNames(); return end
         if fp.friendlyNameFormat == aFormat and (fp.friendlyBelowName or "none") == aMode
+            and fp.friendlyNPCNameFormat == aNpcFormat
             and (fp.friendlyBelowNameGuildBrackets ~= false) == aBrackets
             and (fp.friendlyBelowNameMatchNameColor == true) == aMatch
             and (fp.friendlyShowLevel == true) == aLevel
@@ -2013,6 +2052,31 @@ end)
 -------------------------------------------------------------------------------
 local FriendlyFrame = {}
 
+-- Seat a raid marker (frame or texture) in the Raid Marker element's slot, with
+-- the slot's own X/Y nudges: the friendly plate's marker and the options
+-- sample's come from here, so the two cannot drift apart.
+function ns.NP_PlaceFriendlyRaidMarker(marker, anchor, pos)
+    local sz = ns.GetRaidMarkerSize()
+    local xOff, yOff = ns.GetAuraSlotOffsets("raidMarker")
+    marker:SetSize(sz, sz)
+    marker:ClearAllPoints()
+    if pos == "top" then
+        marker:SetPoint("BOTTOM", anchor, "TOP", xOff, ns.GetDebuffYOffset() + yOff)
+    elseif pos == "left" then
+        -- Classic WoW UI: gap off the border art (sized by the friendly bar's
+        -- own height), not the bare bar edge.
+        marker:SetPoint("RIGHT", anchor, "LEFT", -(ns.GetSideAuraXOffset() + ns.NP_ClassicSide("left", GetFriendlyHealthBarHeight())) + xOff, yOff)
+    elseif pos == "right" then
+        marker:SetPoint("LEFT", anchor, "RIGHT", ns.GetSideAuraXOffset() + ns.NP_ClassicSide("right", GetFriendlyHealthBarHeight()) + xOff, yOff)
+    elseif pos == "topleft" then
+        -- Flush with the nameplate's left edge (PP borders inset -> bar corner is
+        -- the outer edge; offset 0 = flush). Matches the enemy plate convention.
+        marker:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", xOff, yOff)
+    elseif pos == "topright" then
+        marker:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", xOff, yOff)
+    end
+end
+
 function FriendlyFrame:SetUnit(unit, nameplate)
     self.unit = unit
     self.nameplate = nameplate
@@ -2129,6 +2193,12 @@ function FriendlyFrame:UpdateName()
     if fmt and isPlayer and unitName then
         unitName = FormatFriendlyName(unit, unitName, hasTitle)
     end
+    -- An NPC's name takes the Friendly NPC Name Format, as the name-only overlay's
+    -- does. isPlayer above is a lazy guard (false whenever none of the player
+    -- features is on), so the NPC test is asked here, once, for its answer.
+    if unitName and not isPlayer and not UnitIsPlayer(unit) then
+        unitName = FormatNPCName(unitName)
+    end
     local gKind = (showGroup and isPlayer) and GetUnitGroupBracketKind(unit) or nil
     self._grpKind = gKind
     local bOpen  = (gKind == "party" and PARTY_BRACKET_OPEN)  or (gKind == "raid" and RAID_BRACKET_OPEN)  or ""
@@ -2144,11 +2214,11 @@ function FriendlyFrame:UpdateName()
     self:UpdateSubText()
 end
 
--- Below Name sub text (guild only -- the title is inline on the name). The
--- name normally hangs 4px above the bar (the pool initializer's base
--- anchor); a populated guild line reserves extra room under it so it fits
--- between the name and the bar. The name anchor is memoized on the COMPUTED
--- offset (a pure function of line count and sub text size, its only two
+-- Below Name sub text: a player's guild line (the title is inline on the name),
+-- or an NPC's subtitle. The name normally hangs 4px above the bar (the pool
+-- initializer's base anchor); a populated line reserves extra room under it so
+-- it fits between the name and the bar. The name anchor is memoized on the
+-- COMPUTED offset (a pure function of line count and line size, its only two
 -- inputs), so it self-invalidates on size and mode changes and survives pool
 -- round-trips. _subOff == 4 means base anchor + empty text, which is the
 -- zero-write fast path while the feature is off.
@@ -2157,13 +2227,32 @@ function FriendlyFrame:UpdateSubText()
     if not unit then return end
     local lines = 0
     local size = 0
-    if ModeHasGuild(GetBelowNameMode()) and UnitIsPlayer(unit) then
+    local isPlayer = UnitIsPlayer(unit)
+    if isPlayer and ModeHasGuild(GetBelowNameMode()) then
         -- The font is ApplySubtitleFont's (set at build and on a change); only
         -- the content and the name-lift offset are per-plate.
         size = GetSubTextSize()
+        SetPlateSubTextFont(self.subText1, size)
         lines = ApplySubText(self.subText1, unit)
+    elseif not isPlayer and not UnitPlayerControlled(unit) and ShowNPCTitles() then
+        -- An NPC's subtitle, as the name-only overlay draws it: the same switch,
+        -- on the same row, both styles. A pet is player controlled (or names a
+        -- player owner), so its bar plate is left without a line: the overlay's
+        -- Pet Subtitle Settings are the pet's own.
+        local title = GetCachedNPCTitle(unit)
+        if title then
+            size = GetPlateNPCTitleSize()
+            SetPlateSubTextFont(self.subText1, size)
+            self.subText1:SetText("<" .. title .. ">")
+            self.subText1:SetTextColor(ns.Allied.GetTitleColor(unit))
+            lines = 1
+        elseif self._subOff == 4 then
+            return   -- no subtitle to draw: nothing to do
+        else
+            self.subText1:SetText("")
+        end
     elseif self._subOff == 4 then
-        return   -- no guild line drawn: nothing to do
+        return   -- no line drawn: nothing to do
     else
         self.subText1:SetText("")
     end
@@ -2171,7 +2260,7 @@ function FriendlyFrame:UpdateSubText()
     if off ~= self._subOff then
         self._subOff = off
         -- Both texts hang off the HEALTH BAR (a frame) with computed numbers:
-        -- the name's bottom sits at off, so the guild line's top sits 1px
+        -- the name's bottom sits at off, so the line's top sits 1px
         -- under it. Chaining the line off the name's rect instead is what
         -- made it jitter on moving plates.
         self.name:SetPoint("BOTTOM", self.health, "TOP", 0, off)
@@ -2187,27 +2276,15 @@ function FriendlyFrame:UpdateRaidIcon()
     local idx = GetRaidTargetIndex and GetRaidTargetIndex(self.unit)
     -- type() is taint-safe: "nil" / "number" without reading a secret index
     if type(idx) == "nil" then self.raidFrame:Hide(); return end
-    SetRaidTargetIconTexture(self.raid, idx)
-    local sz = ns.GetRaidMarkerSize()
-    -- The slot's X/Y offsets, as the enemy plates' marker takes them.
-    local xOff, yOff = ns.GetAuraSlotOffsets("raidMarker")
-    self.raidFrame:SetSize(sz, sz)
-    self.raidFrame:ClearAllPoints()
-    if pos == "top" then
-        self.raidFrame:SetPoint("BOTTOM", self.health, "TOP", xOff, ns.GetDebuffYOffset() + yOff)
-    elseif pos == "left" then
-        -- Classic WoW UI: gap off the border art (sized by the friendly bar's
-        -- own height), not the bare bar edge.
-        self.raidFrame:SetPoint("RIGHT", self.health, "LEFT", -(ns.GetSideAuraXOffset() + ns.NP_ClassicSide("left", GetFriendlyHealthBarHeight())) + xOff, yOff)
-    elseif pos == "right" then
-        self.raidFrame:SetPoint("LEFT", self.health, "RIGHT", ns.GetSideAuraXOffset() + ns.NP_ClassicSide("right", GetFriendlyHealthBarHeight()) + xOff, yOff)
-    elseif pos == "topleft" then
-        -- Flush with the nameplate's left edge (PP borders inset -> bar corner is
-        -- the outer edge; offset 0 = flush). Matches the enemy plate convention.
-        self.raidFrame:SetPoint("BOTTOMLEFT", self.health, "TOPLEFT", xOff, yOff)
-    elseif pos == "topright" then
-        self.raidFrame:SetPoint("BOTTOMRIGHT", self.health, "TOPRIGHT", xOff, yOff)
+    -- A non-player's marker answers the Friendly page's Show Raid Marker, the
+    -- switch the name-only overlay's marker takes. A player's does not: that row
+    -- sits in the NPCs' section.
+    local fp = FP()
+    if fp and fp.showNPCRaidMarker == false and not UnitIsPlayer(self.unit) then
+        self.raidFrame:Hide(); return
     end
+    SetRaidTargetIconTexture(self.raid, idx)
+    ns.NP_PlaceFriendlyRaidMarker(self.raidFrame, self.health, pos)
     self.raidFrame:Show()
 end
 
@@ -2642,6 +2719,15 @@ do
     end
 end
 
+-- The Friendly page's Show Raid Marker: repaint the marker on every live
+-- friendly plate, so an NPC's marker answers the switch in the health bar style
+-- as it does on the name-only overlay.
+function ns.RefreshFriendlyRaidIcons()
+    for _, plate in pairs(friendlyPlates) do
+        plate:UpdateRaidIcon()
+    end
+end
+
 -- Live-apply a Subtitle Text setting change (mode / size / color) from the
 -- options panel, in whichever friendly mode is active.
 function ns.RefreshFriendlyBelowName()
@@ -2801,9 +2887,9 @@ function ns.UpdateFriendlyNameplateSystem()
     if not InCombatLockdown() then
         local fp = FP()
         local euiManagesPlayers = fp and (fp.showFriendlyPlayers ~= false)
-        -- nil = the pet toggle was never set: Blizzard's own pet CVars are left
-        -- alone outside instances, and untouched in them too.
-        local petChoice = fp and fp.showFriendlyPets
+        -- EUI owns the pet CVars, so the toggle is written in every branch below,
+        -- off included: Blizzard's own default shows friendly pets.
+        local showPets = fp and (fp.showFriendlyPets == true)
         local _, iType = GetInstanceInfo()
         local inInstance = (iType == "party" or iType == "raid" or iType == "scenario" or iType == "arena" or iType == "pvp")
         if IsInFollowerDungeon() then
@@ -2816,15 +2902,12 @@ function ns.UpdateFriendlyNameplateSystem()
             end
             pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNPCs", 0, "EllesmereUINameplates")
             pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNpcs", 0, "EllesmereUINameplates")
-            -- Pets are hidden here only when the user asked EUI for them, and only
-            -- because this content cannot be styled: an untouched profile keeps
-            -- whatever Blizzard's settings say.
-            if petChoice == true then
-                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", 0, "EllesmereUINameplates")
-                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", 0, "EllesmereUINameplates")
-                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", 0, "EllesmereUINameplates")
-                pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", 0, "EllesmereUINameplates")
-            end
+            -- Pets cannot be styled here, so their plates are hidden whatever
+            -- the toggle says.
+            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", 0, "EllesmereUINameplates")
+            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", 0, "EllesmereUINameplates")
+            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", 0, "EllesmereUINameplates")
+            pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", 0, "EllesmereUINameplates")
         elseif inInstance then
             -- NPC plates only: force off in instances since our frame
             -- suppression doesn't work on protected nameplate frames.
@@ -2843,13 +2926,12 @@ function ns.UpdateFriendlyNameplateSystem()
             end
             pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNPCs", 0, "EllesmereUINameplates")
             pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNpcs", 0, "EllesmereUINameplates")
-            -- Pets: as in the follower-dungeon branch, only what the user asked for.
-            if petChoice == true then
-                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", 0, "EllesmereUINameplates")
-                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", 0, "EllesmereUINameplates")
-                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", 0, "EllesmereUINameplates")
-                pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", 0, "EllesmereUINameplates")
-            end
+            -- Pets: as in the follower-dungeon branch, hidden because they
+            -- cannot be styled here.
+            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", 0, "EllesmereUINameplates")
+            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", 0, "EllesmereUINameplates")
+            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", 0, "EllesmereUINameplates")
+            pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", 0, "EllesmereUINameplates")
         else
             -- Restore user's preferred friendly CVar state
             if fp then
@@ -2863,15 +2945,12 @@ function ns.UpdateFriendlyNameplateSystem()
                 end
                 pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNPCs", showNPCs and 1 or 0, "EllesmereUINameplates")
                 pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNpcs", showNPCs and 1 or 0, "EllesmereUINameplates")
-                -- Pets: written only once the toggle has been set, so an untouched
-                -- profile hands these CVars back to Blizzard's own settings.
-                if petChoice ~= nil then
-                    local showPets = petChoice == true
-                    pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", showPets and 1 or 0, "EllesmereUINameplates")
-                    pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", showPets and 1 or 0, "EllesmereUINameplates")
-                    pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", showPets and 1 or 0, "EllesmereUINameplates")
-                    pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", showPets and 1 or 0, "EllesmereUINameplates")
-                end
+                -- Pets: written from the toggle in every case, so a profile that
+                -- never touched the option still gets the default's silence.
+                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", showPets and 1 or 0, "EllesmereUINameplates")
+                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", showPets and 1 or 0, "EllesmereUINameplates")
+                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", showPets and 1 or 0, "EllesmereUINameplates")
+                pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", showPets and 1 or 0, "EllesmereUINameplates")
             end
         end
     else

@@ -259,6 +259,11 @@ local function CachedNPCTitle(unit)
     return title or nil
 end
 
+-- A unit's subtitle, cached by GUID: the tooltip build is the expensive part, and
+-- every plate that draws the line (the name-only overlay, the health bar plate)
+-- reads the same answer.
+function Allied.GetCachedNPCTitle(unit) return CachedNPCTitle(unit) end
+
 function Allied.IsPet(unit)
     if not unit or not UnitExists(unit) or UnitIsPlayer(unit) then return false end
     if UnitPlayerControlled(unit) then return true end
@@ -488,6 +493,22 @@ function Allied.GetNameColor(unit)
     local r, g, b = Allied.GetOverrideColor(unit, fp)
     if r then return r, g, b end
     return ReactionBase(unit, fp)
+end
+
+-- A pet's owner line colour: the pet's own name colour when Match Pet Name Color
+-- is on (a pet takes no class colour, so this is the same colour its name takes),
+-- else the Owner Text Color swatch, whose alpha is what sets the line apart from
+-- the name above it.
+function Allied.GetPetOwnerColor(unit)
+    local fp = FP()
+    local c = (fp and fp.friendlyPetOwnerColor) or (ns.defaults and ns.defaults.friendlyPetOwnerColor)
+    local alpha = (c and c.a) or 1
+    if fp and fp.friendlyPetOwnerMatchNameColor == true then
+        local r, g, b = Allied.GetNameColor(unit)
+        return r, g, b, alpha
+    end
+    if c then return c.r, c.g, c.b, alpha end
+    return 1, 1, 1, alpha
 end
 
 -- The subtitle under the overlay's name: the name's own colour when Match NPC

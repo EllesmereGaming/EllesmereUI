@@ -361,17 +361,17 @@ local function SetupAuraCVars()
         end
         EllesmereUI.SetCVar("nameplateShowFriendlyNPCs", showNPCs and 1 or 0, "EllesmereUINameplates")
         EllesmereUI.SetCVar("nameplateShowFriendlyNpcs", showNPCs and 1 or 0, "EllesmereUINameplates")
-        -- Friendly pets: this toggle is the only thing that manages these CVars,
-        -- so a profile that never set it leaves them to Blizzard -- updating must
-        -- not hide a pet nameplate nobody asked us to hide. Once the toggle has
-        -- been set it owns them, off included.
-        local petChoice = p and p.showFriendlyPets
-        if petChoice ~= nil then
-            EllesmereUI.SetCVar("nameplateShowFriendlyPlayerMinions", petChoice and 1 or 0, "EllesmereUINameplates")
-            EllesmereUI.SetCVar("nameplateShowFriendlyMinions", petChoice and 1 or 0, "EllesmereUINameplates")
-            EllesmereUI.SetCVar("nameplateShowFriendlyPets", petChoice and 1 or 0, "EllesmereUINameplates")
-            EllesmereUI.SetCVar("UnitNameFriendlyMinionName", petChoice and 1 or 0, "EllesmereUINameplates")
-        end
+        -- Friendly pets: EUI owns these CVars, so the toggle is written either
+        -- way. nil reads as off, and the enable pass seeds the profile from the
+        -- client's own pet and minion setting first, so an untouched profile
+        -- keeps the pet plates it already had.
+        local showPets = (db.showFriendlyPets == true)
+        EllesmereUI.SetCVar("nameplateShowFriendlyPlayerMinions", showPets and 1 or 0, "EllesmereUINameplates")
+        EllesmereUI.SetCVar("nameplateShowFriendlyMinions", showPets and 1 or 0, "EllesmereUINameplates")
+        EllesmereUI.SetCVar("nameplateShowFriendlyPets", showPets and 1 or 0, "EllesmereUINameplates")
+        EllesmereUI.SetCVar("UnitNameFriendlyMinionName", showPets and 1 or 0, "EllesmereUINameplates")
+        -- Enemy pets and minions: one switch, written either way, and seeded from
+        -- the client's own setting at enable while the option is unchosen.
         local showEnemyPets = (db.showEnemyPets == true)
         EllesmereUI.SetCVar("nameplateShowEnemyPets", showEnemyPets and 1 or 0, "EllesmereUINameplates")
         EllesmereUI.SetCVar("nameplateShowEnemyMinions", showEnemyPets and 1 or 0, "EllesmereUINameplates")

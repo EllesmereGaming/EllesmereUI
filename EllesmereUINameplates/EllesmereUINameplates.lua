@@ -315,11 +315,11 @@ local defaults = {
     nameOnlyStylePlayerRelationships = false,
     nameOnlyStyleFriendlyNPCs = false,
     nameOnlyStyleHostileNPCs = false,
-    -- Show Friendly Pet Nameplates has no default on purpose: unset means the
-    -- user never chose, and then the pet CVars (nameplateShowFriendlyPets and
-    -- the minion names beside it) stay Blizzard's own, so updating never hides a
-    -- pet nameplate nobody asked us to hide. A merge would turn a default into
-    -- "chose off", which is why the key is absent here.
+    -- Show Friendly Pet Nameplates has no default: nil means the user never
+    -- chose, and the nameplates init then takes the setting the client already
+    -- has for pet and minion plates, so a profile that never touched the option
+    -- keeps the pet plates Blizzard was showing. Once it has a value -- from that
+    -- seed or from the option -- the toggle writes the four pet CVars itself.
     nameOnlyCustomEnabled_FRIENDLY_PLAYER_FRIEND = false,
     nameOnlyCustomColor_FRIENDLY_PLAYER_FRIEND = { r = 1.00, g = 0.84, b = 0.00 },
     nameOnlyCustomEnabled_FRIENDLY_PLAYER_RECENT = false,
@@ -351,13 +351,19 @@ local defaults = {
     friendlyNPCColor = { r = 0, g = 1, b = 0 },
     friendlyNPCNameColor = { r = 0, g = 1, b = 0 },
     friendlyNPCTitleColor = { r = 0, g = 1, b = 0, a = 0.7 },
-    -- The subtitle under a friendly NPC's (or its pet's) name takes the name's
-    -- colour instead of the swatch above; the swatch keeps the alpha.
+    -- The subtitle under a friendly NPC's name takes the name's colour instead of
+    -- the swatch above; the swatch keeps the alpha.
     friendlyNPCTitleMatchNameColor = false,
     friendlyNPCNameSize = 13,
     friendlyPetNameSize = 13,
     friendlyNPCTitleSize = 10,
     friendlyPetTitleSize = 10,
+    -- A pet's owner line has settings of its own, so a pet never depends on what
+    -- the friendly NPCs are configured to show. It is on by default, with the name
+    -- in Blizzard's own white and the softer alpha a subtitle takes.
+    showPetOwnerName = true,
+    friendlyPetOwnerColor = { r = 1, g = 1, b = 1, a = 0.7 },
+    friendlyPetOwnerMatchNameColor = false,
     friendlyNameTextSize = 12,
     friendlyBelowName = "none",
     friendlyBelowNameSize = 12,
@@ -368,7 +374,11 @@ local defaults = {
     friendlyShowLevel = false,
     friendlyLevelDiffColor = false,
     friendlyGroupBrackets = false,
-    showEnemyPets = false,
+    -- Show Enemy Pet Nameplates has no default either: nil means the user never
+    -- chose, and the nameplates init then takes the enemy pet and minion setting
+    -- the client already has, the way Show Friendly Pet Nameplates does above.
+    -- The one toggle writes nameplateShowEnemyPets, nameplateShowEnemyMinions and
+    -- UnitNameEnemyMinionName together.
     -- Blizzard's nameplateSize CVar (1 Small .. 5 Huge), applied on load; 3 = Large, the old forced value.
     nameplateSize = 3,
     font = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF",

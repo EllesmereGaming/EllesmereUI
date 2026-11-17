@@ -197,6 +197,7 @@ function npAddon:OnInitialize()
         ns.healthBarTextures
     )
 end
+
 function npAddon:OnEnable()
     -- Re-read profile: PreSeedSpecProfile may have re-pointed db.profile between OnInitialize and OnEnable.
     SetProfile(ENP.db.profile)
@@ -244,6 +245,24 @@ function npAddon:OnEnable()
         ns.NP_ForeverWatchLevels()
     end
     SetRawSetTex((PP and PP.RawSetTexture) or function(t, v) t:SetTexture(v) end)
+    -- Show Friendly Pet Nameplates and Show Enemy Pet Nameplates have no default:
+    -- until the user chooses, each takes the setting the client already has, so a
+    -- profile that never touched them keeps the pet plates Blizzard was showing.
+    -- Read the pet CVar alone: EUI has always written the enemy one, so it holds
+    -- the choice made here, while the minion CVars beside it are the client's own
+    -- and would report the switch as on for everyone.
+    if p then
+        local function On(name)
+            local ok, v = pcall(GetCVar, name)
+            return ok and v == "1"
+        end
+        if p.showFriendlyPets == nil then
+            p.showFriendlyPets = On("nameplateShowFriendlyPets")
+        end
+        if p.showEnemyPets == nil then
+            p.showEnemyPets = On("nameplateShowEnemyPets")
+        end
+    end
     SetupAuraCVars()
     ns.ApplyKeptNameplateCVars()
     ApplyClassPowerSetting()

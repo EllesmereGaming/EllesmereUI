@@ -852,6 +852,104 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
             UpdatePreview()
           end });  y = y - h
 
+    ---------------------------------------------------------------
+    --  Friendly pets: their own nameplates, name size and owner line
+    ---------------------------------------------------------------
+    local function petOverlayOff() return petPlatesOff() or nameOnlyOff() end
+    local function petOverlayTip()
+        if nameOnlyOff() then return NAMEONLY_REQ end
+        return PET_PLATES_REQ
+    end
+    -- The owner line answers its own switches (showPetOwnerName and the two colour
+    -- keys), never the NPC subtitle's, so a pet shows exactly what its own cog says.
+    local function petOwnerLineOff() return petOverlayOff() or DBVal("showPetOwnerName") == false end
+    local function petOwnerLineTip()
+        return petOverlayOff() and petOverlayTip() or "Show Owner Name"
+    end
+
+    local petOwnerNameRow =
+        { type="toggle", label="Show Owner Name",
+          tooltip="Shows the owner's name under a friendly pet's name.\n\nBlizzard shows no owner line, so this adds one; it is on by default.",
+          disabled=petOverlayOff, disabledTooltip=petOverlayTip, rawTooltip=true,
+          get=function() return DBVal("showPetOwnerName") ~= false end,
+          set=function(v)
+            DB().showPetOwnerName = v and true or false
+            if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
+            ns.NPO_FriendlyPreviewUpdate()
+          end }
+    local petOwnerMatchNameRow =
+        { type="toggle", label="Match Pet Name Color",
+          tooltip="Colors the owner's name to match the pet's name color.\n\nWhen disabled, the owner line uses the Owner Text Color swatch.",
+          disabled=petOwnerLineOff, disabledTooltip=petOwnerLineTip, rawTooltip=true,
+          get=function() return DBVal("friendlyPetOwnerMatchNameColor") == true end,
+          set=function(v)
+            DB().friendlyPetOwnerMatchNameColor = v and true or false
+            if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
+            ns.NPO_FriendlyPreviewUpdate()
+          end }
+    local petOwnerColorRow =
+        { type="colorpicker", label="Owner Text Color", hasAlpha=true,
+          tooltip="Color of the owner's name under a friendly pet's name.\n\nWith Match Pet Name Color on, the pet's name color is used and only this swatch's transparency applies.",
+          disabled=petOwnerLineOff, disabledTooltip=petOwnerLineTip, rawTooltip=true,
+          get=function()
+            local c = DBVal("friendlyPetOwnerColor") or defaults.friendlyPetOwnerColor
+            return c.r, c.g, c.b, c.a
+          end,
+          set=function(r, g, b, a)
+            DB().friendlyPetOwnerColor = { r = r, g = g, b = b, a = a or 1 }
+            if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
+            ns.NPO_FriendlyPreviewUpdate()
+          end }
+    local petTitleSizeRow =
+        { type="slider", label="Owner Text Size", min=6, max=30, step=1,
+          tooltip="Size of the line under a friendly pet's name, where its owner is named.",
+          disabled=petOwnerLineOff, disabledTooltip=petOwnerLineTip, rawTooltip=true,
+          get=function() return DBVal("friendlyPetTitleSize") or defaults.friendlyPetTitleSize end,
+          set=function(v)
+            DB().friendlyPetTitleSize = v
+            if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
+            ns.NPO_FriendlyPreviewUpdate()
+          end }
+    SearchWords("Show Friendly Pet Nameplates", "FRIENDLY PLAYERS", "Friendly Pet Name Size",
+        "Owner Text Size", petOwnerNameRow.label, petOwnerNameRow.tooltip,
+        petOwnerColorRow.label, petOwnerMatchNameRow.label, petTitleSizeRow.tooltip)
+    local petSizeRow
+    petSizeRow, h = W:DualRow(parent, y,
+        { type="toggle", text="Show Friendly Pet Nameplates",
+          tooltip="Friendly player pets and minions get a nameplate of their own. In Name Only style it shows just the name.",
+          getValue=function() return DBVal("showFriendlyPets") == true end,
+          setValue=function(v)
+            DB().showFriendlyPets = v
+            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", v and 1 or 0, "EllesmereUINameplates")
+            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", v and 1 or 0, "EllesmereUINameplates")
+            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", v and 1 or 0, "EllesmereUINameplates")
+            pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", v and 1 or 0, "EllesmereUINameplates")
+            if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
+            EllesmereUI:RefreshPage()
+            ns.NPO_FriendlyPreviewUpdate()
+          end },
+        { type="slider", text="Friendly Pet Name Size", trackWidth=120,
+          min=6, max=30, step=1,
+          disabled=petOverlayOff, disabledTooltip=petOverlayTip, rawTooltip=true,
+          getValue=function() return DBVal("friendlyPetNameSize") or defaults.friendlyPetNameSize end,
+          setValue=function(v)
+            DB().friendlyPetNameSize = v
+            if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
+            ns.NPO_FriendlyPreviewUpdate()
+          end });  y = y - h
+
+    -- The pet's subtitle settings ride the pet nameplate toggle's cog, as the NPC
+    -- rows' do: the owner line's switch, its colour and its match, then its size.
+    do
+        EllesmereUI.BuildInlineCog(petSizeRow._leftRegion, {
+            title = "Pet Subtitle Settings",
+            rows = { petOwnerNameRow, petOwnerColorRow, petOwnerMatchNameRow, petTitleSizeRow },
+            disabled = petOverlayOff,
+            disabledTooltip = petOverlayTip,
+            rawTooltip = true,
+        })
+    end
+
     _, h = W:Spacer(parent, y, 20);  y = y - h
 
     -----------------------------------------------------------------------
@@ -862,28 +960,26 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     npcHeader, h = W:SectionHeader(parent, "FRIENDLY NPCS", y);  y = y - h
 
     local function npcOff() return DBVal("showFriendlyNPCs") ~= true end
+    local NPC_PLATES_REQ = "Requires Show Friendly NPC Nameplates to be enabled"
     -- The name-only overlay's rows (every row of the section but the first
     -- half): greyed while friendly NPC plates are off or outside the Name Only style.
     local function npcOverlayOff() return npcOff() or nameOnlyOff() end
     local function npcOverlayTip()
-        return npcOff() and "Requires Show Friendly NPC Nameplates to be enabled" or NAMEONLY_REQ
+        return npcOff() and NPC_PLATES_REQ or NAMEONLY_REQ
     end
     local function titleOff() return DBVal("showNPCTitles") == false end
-    -- The title's own controls also need Show NPC Titles.
-    local function npcTitleOff() return npcOverlayOff() or titleOff() end
-    local function npcTitleTip() return npcOverlayOff() and npcOverlayTip() or "Show NPC Titles" end
-    -- The subtitle rows answer for both sides: an NPC's own subtitle and a pet's
-    -- owner line take the same switch, the same colour and the same match, so they
-    -- stay live while either kind of plate can show.
-    local function titlesOff() return nameOnlyOff() or (npcOff() and petPlatesOff()) end
-    local function titlesTip()
-        if nameOnlyOff() then return NAMEONLY_REQ end
-        return "Requires Show Friendly NPC Nameplates or Show Friendly Pet Nameplates to be enabled"
-    end
+    -- The subtitle and the marker are drawn in BOTH friendly styles -- the
+    -- name-only overlay and the health bar plate -- so their rows answer only to
+    -- the NPC plates' own toggle. The name's colour and size stay the overlay's,
+    -- above, and keep the Name Only requirement. A pet's owner line reads its own
+    -- switches in the pet cog below, so these stay the NPC's even when only pets
+    -- are shown.
+    local function titlesOff() return npcOff() end
+    local function titlesTip() return NPC_PLATES_REQ end
     -- A shared colour also needs the line itself shown.
     local function titleColorOff() return titlesOff() or titleOff() end
     local function titleColorTip() return titlesOff() and titlesTip() or "Show NPC Titles" end
-    -- The overlay's marker follows the Raid Marker element, as the friendly plates' does.
+    -- The marker follows the Raid Marker element, in both friendly styles.
     local function markerOff() return (DBVal("raidMarkerPos") or defaults.raidMarkerPos) == "none" end
 
     -- The friendly NPC Name Format; Full Name is saved as unset.
@@ -892,6 +988,8 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
         function(v)
             DB().friendlyNPCNameFormat = (v ~= "full") and v or nil
             if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
+            -- The health bar style names NPCs too: re-letter its live plates.
+            if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
             ns.NPO_FriendlyPreviewUpdate()
         end)
 
@@ -908,7 +1006,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
             ns.NPO_FriendlyPreviewUpdate()
           end },
         { type="dropdown", text="Friendly NPC Name Format",
-          disabled=npcOverlayOff, disabledTooltip=npcOverlayTip, rawTooltip=true,
+          disabled=npcOff, disabledTooltip=NPC_PLATES_REQ, rawTooltip=true,
           values=nnfValues, order=nnfOrder, getValue=nnfGet, setValue=nnfSet });  y = y - h
 
     -- Inline swatch: friendly NPC bar & name color, full-plate mode only -- the exact complement of the rows below, which own the name-only colors.
@@ -954,37 +1052,39 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     local npcTitlesRow
     npcTitlesRow, h = W:DualRow(parent, y,
         { type="toggle", text="Show NPC Titles",
-          tooltip="Shows the subtitle under a friendly NPC's name, and the owner's name under a pet's.",
+          tooltip="Shows the subtitle under a friendly NPC's name, in both friendly styles.",
           disabled=titlesOff, disabledTooltip=titlesTip, rawTooltip=true,
           getValue=function() return DBVal("showNPCTitles") ~= false end,
           setValue=function(v)
             DB().showNPCTitles = v and true or false
             if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
+            if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
             EllesmereUI:RefreshPage()
             ns.NPO_FriendlyPreviewUpdate()
           end },
         { type="toggle", text="Show Raid Marker",
-          disabled=function() return npcOverlayOff() or markerOff() end,
-          disabledTooltip=function() return npcOverlayOff() and npcOverlayTip() or "Raid Marker" end,
-          rawTooltip=npcOverlayOff,
+          tooltip="Shows the raid marker on a friendly NPC, in both friendly styles.",
+          disabled=function() return npcOff() or markerOff() end,
+          disabledTooltip=function() return npcOff() and NPC_PLATES_REQ or "Raid Marker" end,
+          rawTooltip=npcOff,
           getValue=function() return DBVal("showNPCRaidMarker") ~= false end,
           setValue=function(v)
             DB().showNPCRaidMarker = v and true or false
             if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
+            if ns.RefreshFriendlyRaidIcons then ns.RefreshFriendlyRaidIcons() end
             EllesmereUI:RefreshPage()  -- the row's eye greys with it
             ns.NPO_FriendlyPreviewUpdate()
           end });  y = y - h
 
     -- The eye beside Show Raid Marker: the sample NPC wears a raid marker only
     -- while it is on (off until asked, as the Display page's markers are).
-    -- Greyed while the sample could not wear one: outside Name Only, with no
-    -- Raid Marker slot, or with Show Raid Marker off (not with friendly NPC
-    -- nameplates off: the samples only dim then). None in the search pre-build.
+    -- Greyed while the sample could not wear one: with no Raid Marker slot or
+    -- with Show Raid Marker off (not with friendly NPC nameplates off: the
+    -- samples only dim then). None in the search pre-build.
     if not EllesmereUI._prebuilding then
         local optState = env.optState
         local rgn = npcTitlesRow._rightRegion
-        local function BarMode() return DBVal("friendlyNameOnly") == false end
-        local function Off() return BarMode() or markerOff() or DBVal("showNPCRaidMarker") == false end
+        local function Off() return markerOff() or DBVal("showNPCRaidMarker") == false end
         local eyeBtn = CreateFrame("Button", nil, rgn)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
@@ -1007,8 +1107,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
         end)
         eyeBtn:SetScript("OnEnter", function(self)
             if Off() then
-                EllesmereUI.ShowWidgetTooltip(self, BarMode() and NAMEONLY_REQ
-                    or EllesmereUI.DisabledTooltip(markerOff() and "Raid Marker" or "Show Raid Marker"), { width = 175 })
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip(markerOff() and "Raid Marker" or "Show Raid Marker"), { width = 175 })
                 return
             end
             EllesmereUI.SetGlyphAlpha(self, 0.7)
@@ -1036,7 +1135,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
           end },
         { type="slider", text="Friendly NPC Title Size", trackWidth=120,
           min=6, max=30, step=1,
-          disabled=npcTitleOff, disabledTooltip=npcTitleTip, rawTooltip=npcOverlayOff,
+          disabled=titleColorOff, disabledTooltip=titleColorTip, rawTooltip=titlesOff,
           getValue=function() return DBVal("friendlyNPCTitleSize") or defaults.friendlyNPCTitleSize end,
           setValue=function(v)
             DB().friendlyNPCTitleSize = v
@@ -1053,7 +1152,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     SearchWords("NPC Title Color", "FRIENDLY NPCS", "Title Color", "Match NPC Name Color")
     local npcMatchNameRow =
         { type="toggle", label="Match NPC Name Color",
-          tooltip="Colors the subtitle under an NPC's name, and the owner line under a pet's, to match the name color, including target highlights.\n\nWhen disabled, the line uses the NPC Title Color swatch.",
+          tooltip="Colors the subtitle under an NPC's name to match the name color, including target highlights.\n\nWhen disabled, the line uses the NPC Title Color swatch.",
           -- Raw only while no plate that wears the line can show (titlesTip then
           -- reads as a sentence); with just the titles off, the wrapper adds the
           -- "Requires ... to be enabled" around the control's name, as the
@@ -1130,9 +1229,9 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
             end,
         },
     })
-    -- The subtitle's own cog: the one row that makes it follow the name. It
-    -- answers for a pet's owner line too, so it greys only when neither side can
-    -- wear a line.
+    -- The subtitle's own cog: the one row that makes it follow the name. It is
+    -- the NPC plate's subtitle alone; a pet's owner line has its own cog with the
+    -- pets' rows in the players' section.
     EllesmereUI.BuildInlineCog(npcColorRow._rightRegion, {
         title = "NPC Subtitle Settings",
         rows = { npcMatchNameRow },
@@ -1140,64 +1239,6 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
         disabledTooltip = titleColorTip,
         rawTooltip = true,
     })
-
-    ---------------------------------------------------------------
-    --  Friendly pets: their own nameplates, name size and owner line
-    ---------------------------------------------------------------
-    local function petOverlayOff() return petPlatesOff() or nameOnlyOff() end
-    local function petOverlayTip()
-        if nameOnlyOff() then return NAMEONLY_REQ end
-        return "Show Friendly Pet Nameplates"
-    end
-    local function petTitleOff() return petOverlayOff() or DBVal("showNPCTitles") == false end
-    local function petTitleTip() return petOverlayOff() and petOverlayTip() or "Show NPC Titles" end
-
-    local petTitleSizeRow =
-        { type="slider", label="Owner Text Size", min=6, max=30, step=1,
-          tooltip="Size of the line under a friendly pet's name, where its owner is named.",
-          get=function() return DBVal("friendlyPetTitleSize") or defaults.friendlyPetTitleSize end,
-          set=function(v)
-            DB().friendlyPetTitleSize = v
-            if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
-            ns.NPO_FriendlyPreviewUpdate()
-          end }
-    SearchWords("Show Friendly Pet Nameplates", "FRIENDLY NPCS", "Friendly Pet Name Size",
-        "Owner Text Size", petTitleSizeRow.tooltip)
-    local petSizeRow
-    petSizeRow, h = W:DualRow(parent, y,
-        { type="toggle", text="Show Friendly Pet Nameplates",
-          tooltip="Friendly player pets and minions get a nameplate of their own. In Name Only style it shows just the name.",
-          getValue=function() return DBVal("showFriendlyPets") == true end,
-          setValue=function(v)
-            DB().showFriendlyPets = v
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", v and 1 or 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", v and 1 or 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", v and 1 or 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", v and 1 or 0, "EllesmereUINameplates")
-            if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
-            EllesmereUI:RefreshPage()
-            ns.NPO_FriendlyPreviewUpdate()
-          end },
-        { type="slider", text="Friendly Pet Name Size", trackWidth=120,
-          min=6, max=30, step=1,
-          disabled=petOverlayOff, disabledTooltip=petOverlayTip, rawTooltip=true,
-          getValue=function() return DBVal("friendlyPetNameSize") or defaults.friendlyPetNameSize end,
-          setValue=function(v)
-            DB().friendlyPetNameSize = v
-            if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
-            ns.NPO_FriendlyPreviewUpdate()
-          end });  y = y - h
-
-    -- Owner Text Size rides the pet nameplate toggle's cog, as the NPC rows' do.
-    do
-        EllesmereUI.BuildInlineCog(petSizeRow._leftRegion, {
-            title = "Pet Subtitle Settings",
-            rows = { petTitleSizeRow },
-            disabled = petTitleOff,
-            disabledTooltip = petTitleTip,
-            rawTooltip = true,
-        })
-    end
 
     -- Nothing of the samples' click navigation in the search pre-build.
     if EllesmereUI._prebuilding then return math.abs(y) end
