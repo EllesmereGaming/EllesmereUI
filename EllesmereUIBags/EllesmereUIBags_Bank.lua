@@ -1399,7 +1399,8 @@ end
 
 local function ProcessTransfer(srcBag, srcSlot)
     local loc = ItemLocation:CreateFromBagAndSlot(srcBag, srcSlot)
-    if not C_Item.DoesItemExist(loc) or C_Item.IsLocked(loc) then
+    if not C_Item.DoesItemExist(loc) then return true end -- slot emptied, discard
+    if C_Item.IsLocked(loc) then
         return false -- still locked, needs re-queue
     end
     local bank = _G.EUI_BankFrame
