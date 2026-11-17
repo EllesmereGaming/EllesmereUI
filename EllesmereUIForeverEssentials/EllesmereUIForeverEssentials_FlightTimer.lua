@@ -43,6 +43,8 @@ local PREVIEW_ROUTES = {
 -- Settings live in EllesmereUIDB.flightTimer; unset keys read these.
 local DEFAULTS = {
     enabled = true,
+    showMapTime = false,
+    showMapLabels = false,
     -- trackHeight: its own key; the retired bar style's `height` stays unread.
     width = 300, trackHeight = TRACK_HEIGHT, showEndCaps = true,
     texture = "none", bgTexture = "none",
@@ -66,6 +68,8 @@ local BAR_TEXTURES, BAR_TEXTURE_NAMES, BAR_TEXTURE_ORDER = EllesmereUI.BuildBarT
 
 local routes = EllesmereUI._FlightTimerRoutes
 local bar, events, ticker, hooked
+local mapWaiter, mapTimeHooked, taxiTimeHooked
+local taxiLabels, flightLabels, flightLabelProvider
 local pending   -- destination picked on the flight map, waiting for takeoff
 local flight    -- the flight in progress
 
@@ -99,6 +103,10 @@ local function SpeedMultiplier()
     return (node and node.activeRank or 0) > 0 and 1.2 or 1
 end
 
+local function EstimateTime(yards, multiplier)
+    return yards / (Speed() * multiplier)
+end
+
 local function FormatTime(sec)
     sec = math.max(0, math.floor(sec + 0.5))
     return string.format("%d:%02d", math.floor(sec / 60), sec % 60)
@@ -123,29 +131,47 @@ local function FillColor()
     return EG.r, EG.g, EG.b
 end
 
--- Sums the stored length of every hop on the way to slot; nil when any hop
--- is missing from the data, which leaves the bar showing elapsed time only.
--- Also returns every node on the way, start first, each with the yards flown
--- to reach it (nil once a hop is missing).
-local function RouteInfo(slot)
-    local hops = GetNumRoutes(slot)
-    if hops < 1 then return nil end
-    -- The taxi UI can open without a map id; no id means no route lookup.
-    local mapID = GetTaxiMapID and GetTaxiMapID()
+local function AddTaxiNodeIDs(idBySlot, mapID)
     local nodes = mapID and C_TaxiMap and C_TaxiMap.GetAllTaxiNodes(mapID)
-    local idBySlot = {}
-    for _, node in ipairs(nodes or idBySlot) do
+    if not nodes then return end
+    for _, node in ipairs(nodes) do
         idBySlot[node.slotIndex] = node.nodeID
     end
+end
+
+local function TaxiNodeIDs(displayedMapID)
+    -- The taxi UI can open without a map id; no id means no route lookup.
+    local openingMapID = GetTaxiMapID and GetTaxiMapID()
+    local idBySlot = {}
+    AddTaxiNodeIDs(idBySlot, openingMapID)
+    -- Connecting legs can include slots that the displayed map does not show.
+    if displayedMapID and displayedMapID ~= openingMapID then
+        AddTaxiNodeIDs(idBySlot, displayedMapID)
+    end
+    return idBySlot
+end
+
+-- Sums the stored length of every hop on the way to slot; nil when any hop
+-- is missing from the data, which leaves the bar showing elapsed time only.
+-- The in-flight display also needs each node and its cumulative distance.
+local function RouteInfo(slot, includePoints, idBySlot)
+    local hops = GetNumRoutes(slot)
+    if hops < 1 then return nil end
+    idBySlot = idBySlot or TaxiNodeIDs()
     local yards = 0
-    local points = { { name = TaxiNodeName(TaxiGetNodeSlot(slot, 1, true)), yards = 0 } }
+    local points
+    if includePoints then
+        points = { { name = TaxiNodeName(TaxiGetNodeSlot(slot, 1, true)), yards = 0 } }
+    end
     for hop = 1, hops do
         local toSlot = TaxiGetNodeSlot(slot, hop, false)
         local from = idBySlot[TaxiGetNodeSlot(slot, hop, true)]
         local to = idBySlot[toSlot]
         local hopYards = from and to and routes[from * 10000 + to]
         yards = yards and hopYards and yards + hopYards
-        points[#points + 1] = { name = TaxiNodeName(toSlot), yards = yards }
+        if points then
+            points[#points + 1] = { name = TaxiNodeName(toSlot), yards = yards }
+        end
     end
     return yards and yards > 0 and yards or nil, points
 end
@@ -545,7 +571,7 @@ local function StartFlight(yards, points)
     flight = { yards = yards, start = GetTime(), points = points }
     if yards then
         flight.mult = SpeedMultiplier()
-        flight.eta = yards / (Speed() * flight.mult)
+        flight.eta = EstimateTime(yards, flight.mult)
     end
     CreateBar()
     ArmTimer(bar, flight)
@@ -609,8 +635,145 @@ end
 
 local function OnTakeTaxiNode(slot)
     if not Enabled() then return end
-    local yards, points = RouteInfo(slot)
+    local yards, points = RouteInfo(slot, true)
     pending = { yards = yards, points = points, clicked = GetTime() }
+end
+
+local function AddMapFlightTime(slot, idBySlot)
+    local yards = RouteInfo(slot, false, idBySlot)
+    if not yards then return end
+    local time = FormatTime(EstimateTime(yards, SpeedMultiplier()))
+    GameTooltip_AddHighlightLine(GameTooltip, EllesmereUI.Lf("Flight time: %s", time), true)
+    return true
+end
+
+local function FlightDestinationSlot(pin)
+    local node = pin.taxiNodeData
+    if not pin.isMapLayerTransition and node and node.state == Enum.FlightPathState.Reachable then
+        return node.slotIndex
+    end
+end
+
+local function OnFlightMapRoute(provider, pin)
+    if not Get("showMapTime") then return end
+    local slot = FlightDestinationSlot(pin)
+    if slot and GameTooltip:IsOwned(pin) then
+        AddMapFlightTime(slot, TaxiNodeIDs(provider:GetMap():GetMapID()))
+    end
+end
+
+local function OnTaxiButtonEnter(button)
+    if not Get("showMapTime") or not GameTooltip:IsOwned(button) then return end
+    local slot = button:GetID()
+    if TaxiNodeGetType(slot) == "REACHABLE" and AddMapFlightTime(slot) then
+        -- The taxi button's handler already showed the tooltip with the fare.
+        GameTooltip:Show()
+    end
+end
+
+local function HideMapLabels(labels)
+    if not labels then return end
+    for _, label in pairs(labels) do label:Hide() end
+end
+
+local function LabelRoute(labels, pin, slot, idBySlot, multiplier)
+    local yards = RouteInfo(slot, false, idBySlot)
+    if not yards then return end
+    local label = labels[pin]
+    if not label then
+        -- Parent to the pin so the text follows its position, scale and visibility.
+        local overlay = CreateFrame("Frame", nil, pin)
+        overlay:SetAllPoints(pin)
+        label = overlay:CreateFontString(nil, "OVERLAY", "GameFontWhiteSmall")
+        label:SetPoint("TOP", overlay, "BOTTOM", 0, -1)
+        label:SetShadowColor(0, 0, 0, 1)
+        label:SetShadowOffset(1, -1)
+        labels[pin] = label
+    end
+    label:SetText(FormatTime(EstimateTime(yards, multiplier)))
+    label:Show()
+end
+
+local function RefreshTaxiLabels()
+    if not Get("showMapLabels") or not TaxiFrame:IsShown() then return end
+    HideMapLabels(taxiLabels)
+    local idBySlot, multiplier = TaxiNodeIDs(), SpeedMultiplier()
+    for slot = 1, NumTaxiNodes() do
+        local button = _G["TaxiButton" .. slot]
+        if button and button:IsShown() and TaxiNodeGetType(slot) == "REACHABLE" then
+            LabelRoute(taxiLabels, button, slot, idBySlot, multiplier)
+        end
+    end
+end
+
+local function RefreshFlightLabels(provider)
+    if not Get("showMapLabels") or not FlightMapFrame:IsShown() then return end
+    HideMapLabels(flightLabels)
+    local pins = provider.slotIndexToPin
+    if not pins then return end
+    local idBySlot, multiplier = TaxiNodeIDs(provider:GetMap():GetMapID()), SpeedMultiplier()
+    for _, pin in pairs(pins) do
+        local slot = pin:IsShown() and FlightDestinationSlot(pin)
+        if slot then
+            LabelRoute(flightLabels, pin, slot, idBySlot, multiplier)
+        end
+    end
+end
+
+local function ApplyMapOptions()
+    local showTime, showLabels = Get("showMapTime"), Get("showMapLabels")
+    if not showLabels then
+        HideMapLabels(taxiLabels)
+        HideMapLabels(flightLabels)
+    end
+    if showTime and not taxiTimeHooked and type(TaxiNodeOnButtonEnter) == "function" then
+        hooksecurefunc("TaxiNodeOnButtonEnter", OnTaxiButtonEnter)
+        taxiTimeHooked = true
+    end
+    if showLabels and TaxiFrame then
+        if not taxiLabels then
+            taxiLabels = setmetatable({}, { __mode = "k" })
+            TaxiFrame:HookScript("OnShow", RefreshTaxiLabels)
+        end
+        RefreshTaxiLabels()
+    end
+    if showLabels and flightLabelProvider then RefreshFlightLabels(flightLabelProvider) end
+    local attachTime = showTime and not mapTimeHooked
+    local attachLabels = showLabels and not flightLabelProvider
+    if not (attachTime or attachLabels) then
+        if mapWaiter then mapWaiter:UnregisterEvent("ADDON_LOADED") end
+        return
+    end
+    if not C_AddOns.IsAddOnLoaded("Blizzard_FlightMap") then
+        if not mapWaiter then
+            mapWaiter = CreateFrame("Frame")
+            mapWaiter:SetScript("OnEvent", function(self, _, addon)
+                if addon ~= "Blizzard_FlightMap" then return end
+                self:UnregisterEvent("ADDON_LOADED")
+                ApplyMapOptions()
+            end)
+        end
+        mapWaiter:RegisterEvent("ADDON_LOADED")
+        return
+    end
+    local providers = FlightMapFrame and FlightMapFrame.dataProviders
+    if not providers then return end
+    for provider in pairs(providers) do
+        if type(provider.HighlightRouteToPin) == "function" then
+            if attachTime then
+                -- The pin has populated the fare and is about to show the tooltip.
+                hooksecurefunc(provider, "HighlightRouteToPin", OnFlightMapRoute)
+                mapTimeHooked = true
+            end
+            if attachLabels then
+                flightLabels = setmetatable({}, { __mode = "k" })
+                flightLabelProvider = provider
+                hooksecurefunc(provider, "RefreshAllData", RefreshFlightLabels)
+                RefreshFlightLabels(provider)
+            end
+            return
+        end
+    end
 end
 
 local function Apply()
@@ -636,6 +799,7 @@ local function Apply()
         pending = nil
         if flight then EndFlight() end
     end
+    ApplyMapOptions()
 end
 
 -------------------------------------------------------------------------------

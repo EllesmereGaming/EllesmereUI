@@ -368,5 +368,29 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
         }, { disabled = off, disabledTooltip = "Flight Timer" })
     end
 
+    _, h = W:Spacer(parent, y, 20);  y = y - h
+
+    ---------------------------------------------------------------------------
+    --  FLIGHT MAP
+    ---------------------------------------------------------------------------
+    _, h = W:SectionHeader(parent, "FLIGHT MAP", y);  y = y - h
+
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Show Flight Time in Tooltip",
+          tooltip = "Shows the estimated duration when you hover over a flight destination.",
+          getValue = function() return FT.Get("showMapTime") end,
+          setValue = function(v)
+              FT.Cfg().showMapTime = v
+              FT.Apply()
+          end },
+        { type = "toggle", text = "Show Flight Times on Map",
+          tooltip = "Shows estimated flight times beside reachable destinations on the flight map.",
+          getValue = function() return FT.Get("showMapLabels") end,
+          setValue = function(v)
+              FT.Cfg().showMapLabels = v
+              FT.Apply()
+          end }
+    );  y = y - h
+
     return math.abs(y)
 end
