@@ -4755,12 +4755,12 @@ initFrame:SetScript("OnEvent", function(self, event)
         -- there -- under aura restrictions the tooltip's id is a SECRET value -- but the
         -- engine-side tooltipShowAuraSpellIDs CVar (68824+) formats the ID itself and works under
         -- full secrecy, including the forbidden container tooltips. The CVar is session-only, so
-        -- it re-asserts every login and on toggle edits. Modifier-gated configs skip it: the engine renders always-on, which would override the user's hold-a-modifier preference (their combat aura IDs stay unavailable -- inherent trade).
+        -- it re-asserts every login and on toggle edits. Modifier-gated configs hold it on
+        -- only while the key is down (synced from MODIFIER_STATE_CHANGED below).
         function EllesmereUI.SyncAuraSpellIDCVar()
-            local db = EllesmereUIDB
-            local on = EllesmereUI.SpellIDOn()
-                and (db.spellIDModifier or "none") == "none"
-            pcall(EllesmereUI.SetCVar, "tooltipShowAuraSpellIDs", on and "1" or "0")
+            local want = (EllesmereUI.SpellIDOn() and IsSpellIDModifierHeld()) and "1" or "0"
+            if GetCVar("tooltipShowAuraSpellIDs") == want then return end
+            pcall(EllesmereUI.SetCVar, "tooltipShowAuraSpellIDs", want)
         end
         do
             -- PLAYER_ENTERING_WORLD, not PLAYER_LOGIN: the engine settles its
@@ -4813,13 +4813,9 @@ initFrame:SetScript("OnEvent", function(self, event)
             if not IsSpellIDModifierHeld() then return end
             if not data or not data.id then return end
             if _isSecret and _isSecret(data.id) then return end
-            -- 12.1 no-modifier configs render aura IDs engine-side via the tooltipShowAuraSpellIDs
-            -- CVar (see SyncAuraSpellIDCVar); adding the Lua line too would show the ID twice on aura tooltips.
-            if Enum.TooltipDataType
-                and data.type == Enum.TooltipDataType.UnitAura
-                and (EllesmereUIDB.spellIDModifier or "none") == "none" then
-                return
-            end
+            -- Aura IDs are rendered engine-side by the tooltipShowAuraSpellIDs CVar (see
+            -- SyncAuraSpellIDCVar), which also reaches the forbidden aura-container tooltips.
+            if Enum.TooltipDataType and data.type == Enum.TooltipDataType.UnitAura then return end
             if not tooltip or not tooltip.GetName then return end
             local ok, name = pcall(tooltip.GetName, tooltip)
             if not ok or not name then return end
@@ -4928,13 +4924,14 @@ initFrame:SetScript("OnEvent", function(self, event)
         end
         local modWatcher = CreateFrame("Frame")
         modWatcher:RegisterEvent("MODIFIER_STATE_CHANGED")
-        modWatcher:SetScript("OnEvent", function(_, key)
+        modWatcher:SetScript("OnEvent", function(_, _, key)
             local db = EllesmereUIDB
             if not db then return end
             local relevant =
                 (EllesmereUI.SpellIDOn() and KeyMatchesModifier(key, db.spellIDModifier or "none"))
                 or (db.showItemMaxStacks and KeyMatchesModifier(key, db.itemStackModifier or "none"))
             if not relevant then return end
+            EllesmereUI.SyncAuraSpellIDCVar()
             if GameTooltip and GameTooltip:IsShown() and GameTooltip.RefreshData then
                 GameTooltip:RefreshData()
             end
