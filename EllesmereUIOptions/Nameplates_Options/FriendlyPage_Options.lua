@@ -213,6 +213,19 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
             ns.NPO_FriendlyPreviewUpdate()
           end }
 
+    -- Name Only in Instances: the third row of the first row's cog. Blizzard draws
+    -- the friendly plates inside instances, so the Nameplate style shows its plain
+    -- health bar plates there; this shows those players as Name Only instead.
+    local instNameOnlyRow =
+        { type="toggle", label="Name Only in Instances",
+          tooltip="With the Nameplate style, friendly players show as Name Only inside dungeons, raids, scenarios, arenas and battlegrounds.",
+          disabled=friendlyPlateOff, disabledTooltip=PLATE_TIP, rawTooltip=true,
+          get=function() return DBVal("friendlyNameOnlyInInstances") == true end,
+          set=function(v)
+            DB().friendlyNameOnlyInInstances = v and true or false
+            if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
+          end }
+
     -- The health bar plate's two rows (the bar's size; its colour and the health
     -- percent) are on the page only under the Nameplate style, and the name size
     -- row holds the slider of the style in use: a pick of the style builds the
@@ -228,6 +241,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     -- Class Colored Names and its swatches' names.
     SearchWords("Friendly Nameplate Style", "FRIENDLY PLAYERS", "Show EUI Friendly Player Nameplates",
         "Make Friendly Nameplates Name Only", npSizeRow.label, npSizeRow.tooltip, bracketsRow.label, bracketsRow.tooltip,
+        instNameOnlyRow.label, instNameOnlyRow.tooltip,
         unpack(OFF_PAGE))
     SearchWords("Name Color", "FRIENDLY PLAYERS", "Class Colored Names", "Class Color", "Custom Color")
     local friendlyRow
@@ -244,12 +258,13 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
 
     -- Friendly Nameplate Style inline cog. Never greyed: its slider sizes
     -- Blizzard's own plates, which show whatever the settings here say (its
-    -- brackets row greys by itself under Blizzard Default).
+    -- brackets row greys by itself under Blizzard Default, its Name Only in
+    -- Instances row outside the Nameplate style).
     -- Quiet: the dropdown's writes never light its dot.
     do
         EllesmereUI.BuildInlineCog(friendlyRow._leftRegion, {
             title = "Friendly Nameplate Settings",
-            rows = { npSizeRow, bracketsRow },
+            rows = { npSizeRow, bracketsRow, instNameOnlyRow },
             quiet = true,
         })
     end
