@@ -71,6 +71,7 @@ local fontGen = 1
 local inEncounter = false
 local prevObj = {}    -- questID -> objective texts last shown (update flashes)
 local rowHooks, hookW = {}, 0  -- public row hooks; hookW: width they reserve
+local hookIDs = {}             -- [id] = true while that hook is registered
 local TITLE_MIN_W = 40         -- the narrowest a quest title gets, whatever the hooks reserve
 
 -------------------------------------------------------------------------------
@@ -206,7 +207,7 @@ local function AcquireLine(kind, id, text, x, y, width, key)
     l.key = key
     if l.focus and kind ~= "quest" then l.focus:Hide() end
     if l.slots and kind ~= "quest" then
-        for _, s in ipairs(l.slots) do s:Hide() end
+        for _, s in pairs(l.slots) do s:Hide() end
     end
     if l.bar then l.bar:Hide() end
     -- Only a changed row is measured or moved.
@@ -835,25 +836,36 @@ end
 -------------------------------------------------------------------------------
 -- Row hooks (public, EllesmereUI.RegisterQuestTrackerRow): other addons add
 -- their own icons or buttons to quest title rows. Each hook gets its own slot
--- frame per row, right of the title, its reserved width wide. Developer
--- guide: PLUGINS_API.md.
+-- frame per row (keyed by its id), right of the title, its reserved width
+-- wide; an unregistered hook's slots hide and the later ones move left.
+-- Developer guide: PLUGINS_API.md.
 -------------------------------------------------------------------------------
 local function RunRowHooks(l, questID)
     local slots = l.slots
     if not slots then slots = {}; l.slots = slots end
-    for i, h in ipairs(rowHooks) do
-        local s = slots[i]
+    for _, h in ipairs(rowHooks) do
+        local s = slots[h.id]
         if not s then
             s = CreateFrame("Frame", nil, l)
+            slots[h.id] = s
+        end
+        if s.x ~= h.x or s.w ~= h.width then
+            s.x, s.w = h.x, h.width
+            s:ClearAllPoints()
             s:SetPoint("TOPLEFT", l, "TOPRIGHT", h.x, 0)
             s:SetPoint("BOTTOMLEFT", l, "BOTTOMRIGHT", h.x, 0)
             s:SetWidth(h.width)
-            slots[i] = s
         end
         s:Show()
         local ok, err = pcall(h.fn, s, questID, l.text)
         if not ok then geterrorhandler()(err) end
     end
+    -- A row whose hooks are all gone is skipped from then on (slotsIdle).
+    local shown = false
+    for id, s in pairs(slots) do
+        if hookIDs[id] then shown = true else s:Hide() end
+    end
+    l.slotsIdle = not shown or nil
 end
 
 -- The header's filter button in the header colour, as the header's text and
@@ -972,7 +984,7 @@ local function Render()
                 local l, h = AcquireLine("quest", questID, QuestTitle(questID), titleX, y,
                     math.max(TITLE_MIN_W, width - titleX - itemW - hookW))
                 l.text:SetTextColor(TitleRGB(questID, complete))
-                if rowHooks[1] then RunRowHooks(l, questID) end
+                if rowHooks[1] or (l.slots and not l.slotsIdle) then RunRowHooks(l, questID) end
                 if focusSize > 0 then
                     ShowFocusButton(l, questID, complete, focusSize)
                 elseif l.focus then
@@ -1046,13 +1058,28 @@ EQT.RefreshCustom = Queue
 -- every render. width (0-64, default 0) is kept free right of the title.
 local HOOK_MAX_W = 64
 function EllesmereUI.RegisterQuestTrackerRow(id, fn, width)
-    if type(id) ~= "string" or id == "" or type(fn) ~= "function" then return false end
-    for _, h in ipairs(rowHooks) do
-        if h.id == id then return false end
-    end
+    if type(id) ~= "string" or id == "" or type(fn) ~= "function" or hookIDs[id] then return false end
     width = Clamp(math.floor(tonumber(width) or 0), 0, HOOK_MAX_W)
     rowHooks[#rowHooks + 1] = { id = id, fn = fn, width = width, x = hookW }
+    hookIDs[id] = true
     hookW = hookW + width
+    Queue()
+    return true
+end
+
+-- Public: takes id's slots off the quest rows and frees their width; false
+-- when id is not registered. The id can register again later.
+function EllesmereUI.UnregisterQuestTrackerRow(id)
+    if not hookIDs[id] then return false end
+    hookIDs[id] = nil
+    hookW = 0
+    for i = #rowHooks, 1, -1 do
+        if rowHooks[i].id == id then table.remove(rowHooks, i) end
+    end
+    for _, h in ipairs(rowHooks) do
+        h.x = hookW
+        hookW = hookW + h.width
+    end
     Queue()
     return true
 end

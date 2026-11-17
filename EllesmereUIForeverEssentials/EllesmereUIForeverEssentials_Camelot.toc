@@ -26,7 +26,7 @@ EllesmereUIForeverEssentials.lua
 ..\EllesmereUILocales\zhCN_GameNames.lua [AllowLoadTextLocale zhCN]
 ..\EllesmereUILocales\zhTW_GameNames.lua [AllowLoadTextLocale zhTW]
 
-# General (spell uprank, classic spellbook and talents, junk items, simplified stats, gathering skill, map fade, active stance icon, map reveal, map markers, quest rewards)
+# General (spell uprank, classic spellbook and talents, junk items, simplified stats, gathering skill, map fade, active stance icon, map reveal, map markers, quest rewards, quest marks)
 EllesmereUIForeverEssentials_Uprank.lua
 EllesmereUIForeverEssentials_ClassicSpellbook.lua
 EllesmereUIForeverEssentials_ClassicTalents.lua
@@ -40,6 +40,10 @@ EllesmereUIForeverEssentials_MapReveal.lua
 EllesmereUIForeverEssentials_MapTravelData.lua
 EllesmereUIForeverEssentials_MapTravel.lua
 EllesmereUIForeverEssentials_QuestRewards.lua
+EllesmereUIForeverEssentials_QuestMarksData.lua
+EllesmereUIForeverEssentials_QuestMarks.lua
+EllesmereUIForeverEssentials_RecipeMarksData.lua
+EllesmereUIForeverEssentials_RecipeMarks.lua
 
 # Travel (flight timer)
 EllesmereUIForeverEssentials_FlightTimerData.lua

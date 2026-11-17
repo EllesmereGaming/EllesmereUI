@@ -181,8 +181,10 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     --  Valuable Quest Reward (EllesmereUIForeverEssentials_QuestRewards.lua) |
     --  Gathering Skill in Tooltips (EllesmereUIForeverEssentials_GatherSkill.lua),
     --  then Auto Summon Pet | Favorites per
-    --  Character. Every control reads and writes its feature's own key and
-    --  runs that feature's own apply.
+    --  Character, then Mark Non-Classic Quests | Recipes
+    --  (EllesmereUIForeverEssentials_QuestMarks.lua, _RecipeMarks.lua). Every
+    --  control reads and writes its feature's own key and runs that feature's
+    --  own apply.
     ---------------------------------------------------------------------------
     local QR, GS = EllesmereUI._QuestRewards, EllesmereUI._GatherSkill
     _, h = W:SectionHeader(parent, "GENERAL", y);  y = y - h
@@ -204,22 +206,24 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               CT.Apply()
           end },
     }
-    -- Global search sees row labels and tooltips only, so this row's entry,
-    -- registered before the row (the index keeps the first one), carries the
-    -- dropdown's names as search text; it is never shown.
-    if EllesmereUI._RegisterSearchEntry then
+    -- Global search sees row labels and tooltips only, so a checkbox dropdown
+    -- row's entry, registered before the row (the index keeps the first one),
+    -- carries the dropdown's names as search text; it is never shown.
+    local function RegisterDropdownSearch(label, items)
+        if not EllesmereUI._RegisterSearchEntry then return end
         local words = {}
-        for i = 1, #cwItems do
-            local s = cwItems[i].label
+        for i = 1, #items do
+            local s = items[i].label
             words[#words + 1] = s
             local loc = EllesmereUI.L(s)
             if loc ~= s then words[#words + 1] = loc end
         end
-        local labelLoc = EllesmereUI.L(CW_LABEL)
-        EllesmereUI._RegisterSearchEntry(CW_LABEL, labelLoc ~= CW_LABEL and labelLoc or nil,
+        local labelLoc = EllesmereUI.L(label)
+        EllesmereUI._RegisterSearchEntry(label, labelLoc ~= label and labelLoc or nil,
             table.concat(words, " "), EllesmereUI._buildingModule, EllesmereUI._buildingPage,
             parent._currentSection and parent._currentSection._sectionName)
     end
+    RegisterDropdownSearch(CW_LABEL, cwItems)
 
     local generalRow
     generalRow, h = W:DualRow(parent, y,
@@ -312,6 +316,52 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
                   PS.RefreshJournal()
               end }
         );  y = y - h
+    end
+
+    -- Mark Non-Classic Quests | Mark Non-Classic Recipes
+    -- (EllesmereUIForeverEssentials_QuestMarks.lua, _RecipeMarks.lua): one
+    -- checkbox per place, in a checkbox dropdown as Classic Windows.
+    local QM, RM = EllesmereUI._QuestMarks, EllesmereUI._RecipeMarks
+    local QM_LABEL, RM_LABEL = "Mark Non-Classic Quests", "Mark Non-Classic Recipes"
+    local qmItems = {
+        { key = "givers", label = "At Quest Givers",
+          tooltip = "In the quest giver's list and on the quest text before you accept it." },
+        { key = "log", label = "In the Quest Log", tooltip = "Under the quest's track checkbox." },
+    }
+    if QM.HasTracker() then
+        qmItems[#qmItems + 1] = { key = "tracker", label = "On the Quest Tracker",
+            tooltip = "On the quest rows of the Custom Quest Tracker." }
+    end
+    local rmItems = {
+        { key = "window", label = "In the Profession Window", tooltip = "After the recipe's name in the recipe list." },
+        { key = "trainer", label = "At Profession Trainers", tooltip = "On the icon of what the trainer teaches." },
+        { key = "tooltip", label = "On Recipe Tooltips", tooltip = "A line on the tooltip of a pattern, formula, plans or recipe." },
+    }
+    RegisterDropdownSearch(QM_LABEL, qmItems)
+    RegisterDropdownSearch(RM_LABEL, rmItems)
+    local marksRow
+    marksRow, h = W:DualRow(parent, y,
+        { type = "label", text = QM_LABEL,
+          tooltip = "A small blue infinity marks the quests that are not from the original game, in the places you pick." },
+        { type = "label", text = RM_LABEL,
+          tooltip = "The same blue infinity marks the recipes that are not from the original game, in the places you pick." }
+    );  y = y - h
+    if not EllesmereUI._prebuilding then
+        local function MarksDropdown(rgn, items, api)
+            local dd, refresh = EllesmereUI.BuildVisOptsCBDropdown(
+                rgn, 210, rgn:GetFrameLevel() + 2, items,
+                function(key) return api.Get(key) end,
+                function(key, v)
+                    api.Cfg()[key] = v
+                    api.Apply()
+                end)
+            EllesmereUI.PanelPP.Point(dd, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = dd
+            rgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(refresh)
+        end
+        MarksDropdown(marksRow._leftRegion, qmItems, QM)
+        MarksDropdown(marksRow._rightRegion, rmItems, RM)
     end
 
     ---------------------------------------------------------------------------

@@ -1136,6 +1136,7 @@ No spells yet. Add spell IDs above.
 No talent
 No talent loadout
 No talent reminders configured
+Non-Classic Recipe
 None
 None (Disabled)
 None (use cooldown icon)

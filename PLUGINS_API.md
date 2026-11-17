@@ -91,11 +91,12 @@ every other module that can't be overridden.
 
 ## Reference
 
-`EllesmereUI.PLUGIN_API_VERSION` is `5`. The API only ever grows; existing
+`EllesmereUI.PLUGIN_API_VERSION` is `6`. The API only ever grows; existing
 functions and fields will not change. Version 2 added
 `EllesmereUI.GetCDMIconsForSpell`, version 3 `EllesmereUI.RequestCDMRepopulate`,
 version 4 `EllesmereUI.GetCDMRepopulateStatus`, version 5
-`EllesmereUI.RegisterQuestTrackerRow` and `EllesmereUI.RefreshQuestTrackerRows`.
+`EllesmereUI.RegisterQuestTrackerRow` and `EllesmereUI.RefreshQuestTrackerRows`,
+version 6 `EllesmereUI.UnregisterQuestTrackerRow`.
 
 ### `EllesmereUI.RegisterPlugin(id, spec)` -> `boolean`
 
@@ -295,7 +296,14 @@ error in `fn` goes to the error handler and does not stop the tracker. Keep
 The tracker redraws on quest log, watch and settings changes. When your own
 state changes, call `EllesmereUI.RefreshQuestTrackerRows()` to redraw it.
 
-Both functions exist only on WoW Forever with the Quest Tracker module
+### `EllesmereUI.UnregisterQuestTrackerRow(id)` -> `boolean`
+
+Takes your slots off the quest rows and frees the width they kept, for a
+feature the player turns off; the tracker redraws at once. Returns `false`
+when `id` is not registered. The same `id` can register again later, and
+gets its slot frames back.
+
+These functions exist only on WoW Forever with the Quest Tracker module
 loaded, so test for them first. Your addon can load before that module:
 register at `PLAYER_LOGIN`, or list `EllesmereUIQuestTracker` in your TOC's
 `## OptionalDeps`. Your callback only runs while the user has the Custom
