@@ -1070,13 +1070,13 @@ initFrame:SetScript("OnEvent", function(self)
     --  slot. The page rebuilds on add and remove, so the slots never need
     --  in-place updates.
     ---------------------------------------------------------------------------
-    local function BuildForeverCustomRows(parent, y, lead)
+    local function BuildForeverCustomRows(parent, y, lead, last)
         local f = FDB()
         local ids = f and f.customIDs
         local newGroupSlot = { type="labeledButton", text="New Spell Group", buttonText="Create", width=90,
             tooltip="Creates a group of spells. A reminder shows if none of the auras from the group are active.",
             onClick=function() PromptSpellGroupName() end }
-        local n = 2 + (ids and #ids or 0)
+        local n = 3 + (ids and #ids or 0)
         local W = EllesmereUI.Widgets
         local PPx = EllesmereUI.PanelPP
         local function Slot(id)
@@ -1087,6 +1087,7 @@ initFrame:SetScript("OnEvent", function(self)
         local function SlotAt(k)
             if k == 1 then return lead end
             if k == 2 then return newGroupSlot end
+            if k == n then return last end
             local id = ids and ids[k - 2]
             return id and Slot(id) or EllesmereUI.BlankRowCfg()
         end
@@ -2136,6 +2137,13 @@ initFrame:SetScript("OnEvent", function(self)
                       if not f then return end
                       f.customIDs = f.customIDs or {}
                       AddSpellIDToList(f.customIDs, text)
+                  end },
+                { type="toggle", text="Arcane Censer",
+                  tooltip="Reminds you in dungeons when the Arcane Censer buff is missing.\nOnly while an Arcane Censer is in your bags. Click the icon to use it.",
+                  getValue=function() local f = FDB(); return f and f.arcaneCenser == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.arcaneCenser = v
+                      RefreshAll()
                   end })
             y = BuildForeverGroupSections(parent, y)
 
