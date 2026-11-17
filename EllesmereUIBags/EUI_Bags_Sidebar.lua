@@ -1138,7 +1138,7 @@ local function AddItemIcons(lead, seen, idx, cat)
                 if cat.isPinned then
                     held = pinned and IsItemPinned(pinned, C_Container.GetContainerItemLink(bag, slot), info.itemID)
                 elseif cat.isRecent then
-                    held = recent and recent[info.itemID]
+                    held = recent and EUI_Bags.IsRecentEntry({ bag = bag, slot = slot, info = info })
                 else
                     local ci = _slotCategories[bag * 1000 + slot]
                     held = ci == idx or (withSets and ci and cats[ci] and cats[ci].isEquipSet)
