@@ -64,8 +64,8 @@ local function Bucket()
         if diffID == 24 then return "timewalking" end
     elseif iType == "raid" then
         if diffID == 16 or diffID == 233 then return "raid_mythic" end
-        if diffID == 15 or diffID == 6 then return "raid_heroic" end
-        if diffID == 14 or diffID == 3 or diffID == 4 or diffID == 5
+        if diffID == 15 or diffID == 6 or diffID == 5 then return "raid_heroic" end
+        if diffID == 14 or diffID == 3 or diffID == 4
             or diffID == 17 or diffID == 7 then return "raid_normal_lfr" end
         if diffID == 33 then return "timewalking" end
     elseif iType == "scenario" then
