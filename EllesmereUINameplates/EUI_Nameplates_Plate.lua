@@ -1044,6 +1044,7 @@ function NameplateFrame:SetUnit(unit, nameplate)
                     ns.LayoutCastIcon(self, castH)
                     ns.NP_SetSparkHeight(self, castH)
                     self.kickMarker:SetSize(GetHealthBarWidth(), castH)
+                    self._focusCastSized = true
                 end
             end
             -- Cast target color
@@ -1178,6 +1179,15 @@ function NameplateFrame:ClearUnit()
     self._kickProtected = nil
     self._castImportant = false
     self:HideKickTick()
+    -- Focus Cast Height: ApplyAppearance is skipped on recycle, so hand back the normal height.
+    if self._focusCastSized then
+        self._focusCastSized = nil
+        local castH = GetCastBarHeight()
+        ns.LayoutCastBar(self, ns.GetHealthBarWidth(), castH)
+        ns.LayoutCastIcon(self, castH)
+        ns.NP_SetSparkHeight(self, castH)
+        self.kickMarker:SetSize(GetHealthBarWidth(), castH)
+    end
     -- Both glows: also after an interrupt or fallback end, which leave isCasting false
     -- with the glow still up. Each checks its own active flag.
     self:ClearImportantCastGlow()
