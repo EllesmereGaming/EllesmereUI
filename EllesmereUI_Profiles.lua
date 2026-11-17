@@ -1631,6 +1631,7 @@ end
 --  Uses hidden buttons + SetOverrideBindingClick, same pattern as Party Mode.
 -------------------------------------------------------------------------------
 local _profileBindBtns = {} -- [profileName] = hidden Button
+local _profileBindBtnCount = 0
 
 local function GetProfileKeybinds()
     if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -1640,8 +1641,9 @@ end
 
 local function EnsureProfileBindBtn(profileName)
     if _profileBindBtns[profileName] then return _profileBindBtns[profileName] end
-    local safeName = profileName:gsub("[^%w]", "")
-    local btn = CreateFrame("Button", "EllesmereUIProfileBind_" .. safeName, UIParent)
+    -- Counter, not the profile name: names that strip to the same ASCII would share one global.
+    _profileBindBtnCount = _profileBindBtnCount + 1
+    local btn = CreateFrame("Button", "EllesmereUIProfileBind" .. _profileBindBtnCount, UIParent)
     btn:Hide()
     btn:SetScript("OnClick", function()
         local active = EllesmereUI.GetActiveProfileName()
