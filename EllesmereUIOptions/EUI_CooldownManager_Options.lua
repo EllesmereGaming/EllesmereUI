@@ -1455,6 +1455,10 @@ initFrame:SetScript("OnEvent", function(self)
                             y = y - h
                         end
 
+                        -- Health below / above a percentage
+                        -- (EUI_CooldownManager_BarGlowConditions.lua)
+                        y = ns.BuildBarGlowHealthRow(W, parent, y, entry, Refresh)
+
                         -- Helper: resolve current glow color and restart preview if active
                         local pvKey = assignKey .. "_" .. aIdx
                         local function RefreshPreviewGlow()
