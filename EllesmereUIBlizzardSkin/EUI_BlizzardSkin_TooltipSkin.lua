@@ -1397,14 +1397,8 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         local eb = popup.editBox or (popup.GetName and _G[popup:GetName() .. "EditBox"])
         if eb and not GetFFD(eb).skinned then
             GetFFD(eb).skinned = true
-            local regions = { eb:GetRegions() }
-            for j = 1, #regions do
-                local r = regions[j]
-                if r and r:IsObjectType("Texture") then
-                    r:SetTexture(nil)
-                    if r.SetAtlas then r:SetAtlas("") end
-                end
-            end
+            -- No region strip: the template's own regions hold no art, only the
+            -- engine's blinking caret, which a strip would erase for good.
             -- Midnight edit boxes carry their art on a NineSlice child.
             if eb.NineSlice and eb.NineSlice.SetAlpha then
                 eb.NineSlice:SetAlpha(0)
