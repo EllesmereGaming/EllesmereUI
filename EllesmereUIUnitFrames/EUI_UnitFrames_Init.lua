@@ -911,6 +911,26 @@ local function InitializeFrames()
         end)
     end)
 
+    -- Forever druid without Cat Form: build the combo row once it is learned.
+    if EllesmereUI.ForeverDruidLacksCat() then
+        local catWatcher = CreateFrame("Frame")
+        catWatcher:RegisterEvent("SPELLS_CHANGED")
+        local function BuildCatRow()
+            if ns.ReloadFrames then ns.ReloadFrames() end
+            if frames._toggleClassPower then frames._toggleClassPower() end
+            EllesmereUI:RefreshPage()
+        end
+        catWatcher:SetScript("OnEvent", function(self)
+            if EllesmereUI.ForeverDruidLacksCat() then return end
+            self:UnregisterAllEvents()
+            if InCombatLockdown() then
+                ns.CombatQueue.Defer("UF_CatFormRow", BuildCatRow)
+            else
+                BuildCatRow()
+            end
+        end)
+    end
+
     -- Durably suppress a live Blizzard child frame (target-of-target/focus-target).
     -- These are PROTECTED CHILDREN of TargetFrame/FocusFrame: when the parent uses
     -- Blizzard's source it stays alive and re-drives the child (TargetOfTargetMixin:
