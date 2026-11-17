@@ -829,16 +829,16 @@ local function StartAddon()
         local counts, order = TallyItemCounts(track)
         -- GUIDs known from an earlier on-period would go stale while off
         if not track and next(_knownItemGUIDs) then wipe(_knownItemGUIDs) end
-        -- Right after a trade a copy can arrive as another leaves, so the count
-        -- holds: in that pass the GUIDs of every item that does not stack are
-        -- read. A trade's items stay locked in the bags until it completes, so no
-        -- swap lands while its window is open; TRADE_CLOSED queues the pass that
-        -- finds it. Elsewhere GUIDs are read only for an item whose count changed
-        -- since the last pass, or whose known GUIDs are not a set (max stack was
-        -- unknown, or the option came on without the setter), so they heal on any
-        -- pass. At the mailbox sending and taking are separate passes, but drops
-        -- are ignored there, so a copy sent and another taken bring the count back
-        -- to its known peak: only the GUIDs of that pass show the arrival.
+        -- A trade's items stay locked in the bags until it completes; then a copy
+        -- can arrive as another leaves, so the count holds. In the passes within
+        -- TRADE_GRACE after the window closes, the GUIDs of every item that does
+        -- not stack are read (TRADE_CLOSED queues one, whatever the event order).
+        -- Elsewhere GUIDs are read only for an item whose count changed since the
+        -- last pass, or whose known GUIDs are not a set (max stack was unknown, or
+        -- the option came on without the setter), so they heal on any pass. A new
+        -- GUID in a pass that does not raise the count is an arrival at the
+        -- mailbox (drops are ignored there, so a copy sent and another taken bring
+        -- the count back to its known peak), in a trade and right after one.
         local swaps = track and TradeJustClosed()
         local last = _lastCounts
         local want, sets
@@ -865,7 +865,7 @@ local function StartAddon()
             elseif track and count ~= known and MaxStack(itemID) == nil then
                 cur = false
             end
-            local swapped = (swaps or atMail) and count <= known and HasNewGUID(cur, _knownItemGUIDs[itemID])
+            local swapped = (swaps or atMail or _openItemPanels.trade) and count <= known and HasNewGUID(cur, _knownItemGUIDs[itemID])
             -- New Items Only: more of a stackable item already carried does not
             -- flag. Mail or trade arrivals still do, and so does an item that does
             -- not stack (max stack 1), but only its new copies show.
@@ -898,7 +898,7 @@ local function StartAddon()
                 if atMail and old and cur then
                     -- drops are ignored at the mailbox: a sent copy stays known
                     for guid in pairs(cur) do old[guid] = true end
-                elseif not atMail or count > known then
+                elseif not atMail or count > known or not old then
                     _knownItemGUIDs[itemID] = cur
                 end
             end
