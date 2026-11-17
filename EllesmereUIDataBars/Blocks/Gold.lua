@@ -422,7 +422,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
                     end
                 end
                 if hiddenRows > 0 then
-                    ns.Tip_AddLine(format(L["PLUS_N_MORE"], hiddenRows), 0.6, 0.6, 0.6)
+                    ns.Tip_AddLine(format(EllesmereUI.L(L["PLUS_N_MORE"]), hiddenRows), 0.6, 0.6, 0.6)
                     unlisted = unlisted + hiddenRows
                 end
             end
