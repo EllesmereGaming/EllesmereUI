@@ -1484,12 +1484,15 @@ initFrame:SetScript("OnEvent", function(self)
                         -- Glow Type so every row stays filled. Same operator set and same
                         -- fail-open bias as the per-icon Glow at Stacks feature (Stack Text
                         -- and Glows cog): an unknown/secret application count never blocks
-                        -- the glow.
+                        -- the glow. A Glow When Usable glow has no stacks: that half
+                        -- holds Require Resource (EUI_CooldownManager_BarGlowConditions.lua).
+                        local usable = entry.mode == "USABLE"
                         local stackRow
                         stackRow, h = W:DualRow(parent, y,
+                            usable and ns.BarGlowResourceCfg(entry) or
                             { type = "toggle", text = "At Stacks",
                               tooltip = "Only glow once the buff's stack count matches the comparison set via the gear.",
-                              disabled = function() return entry.mode == "MISSING" or entry.mode == "USABLE" end,
+                              disabled = function() return entry.mode == "MISSING" end,
                               disabledTooltip = "Only available for a buff in Active mode",
                               getValue = function() return entry.stackEnabled == true end,
                               setValue = function(v)
@@ -1514,14 +1517,13 @@ initFrame:SetScript("OnEvent", function(self)
                               end,
                             }
                         );  y = y - h
-                        do
+                        if not usable then
                             local rgn = stackRow._leftRegion
                             EllesmereUI.BuildInlineCog(rgn, {
                                 title = "At Stacks",
-                                disabled = function() return entry.mode == "MISSING" or entry.mode == "USABLE" or not entry.stackEnabled end,
+                                disabled = function() return entry.mode == "MISSING" or not entry.stackEnabled end,
                                 disabledTooltip = function()
                                     if entry.mode == "MISSING" then return "This option is not available in Buff Missing mode" end
-                                    if entry.mode == "USABLE" then return "This option is not available in Glow When Usable mode" end
                                     return "At Stacks"
                                 end,
                                 frameStrata = "FULLSCREEN_DIALOG", frameLevel = 350,

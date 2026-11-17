@@ -322,6 +322,10 @@ end
 --  SPELL_UPDATE_COOLDOWN / SPELL_UPDATE_CHARGES (cooldown start and end),
 --  registered only while such an entry exists and folded into one pass on the
 --  next frame. A changed button ability rebinds through the ability-key path.
+--
+--  Require Resource (entry.requirePower, per glow): the glow also waits for
+--  the ability's rage / energy / mana. UNIT_POWER_FREQUENT (player) is
+--  registered only while a bound entry has it, and re-checks those glows alone.
 -------------------------------------------------------------------------------
 -- The spell on a button: a CDM icon's own spell, or what the action slot holds
 -- right now (a macro counts through its spell; items and empty slots are nil).
@@ -368,6 +372,10 @@ ns.BarGlowButtonSpell = ButtonSpellID
 local UpdateOverlayVisuals  -- forward: defined below
 local usableEventsOn = false
 local usableFlush, usableEvents  -- built on the first Glow When Usable entry
+local powerEventsOn = false
+local powerFlush, powerEvents  -- built on the first Require Resource entry
+local powerBound = {}   -- [key] = overlay of a Usable entry with Require Resource (last BindOverlays)
+local powerUsable = {}  -- [key] = whether its ability was usable at the last power re-check
 local healthEventsOn = false
 local healthFlush, healthEvents
 
@@ -398,7 +406,8 @@ local function RefreshUsableCooldowns()
 end
 
 -- The icon Hidden Until Usable shows: off cooldown (the GCD does not count) and usable.
-local function UsablePressable(sid)
+-- requirePower: missing power counts as not usable too.
+local function UsablePressable(sid, requirePower)
     local onCD = usableOnCD[sid]
     if onCD == nil then
         onCD = ReadRealCooldown(sid); usableOnCD[sid] = onCD
@@ -409,7 +418,7 @@ local function UsablePressable(sid)
         local info = C_Spell.GetSpellCooldown(sid)
         if not (info and info.isActive) then onCD = false; usableOnCD[sid] = false end
     end
-    return not onCD and not ns.CdmSpellNotUsable(sid)
+    return not onCD and not ns.CdmSpellNotUsable(sid, requirePower)
 end
 
 local function SyncUsableEvents(on)
@@ -436,6 +445,40 @@ local function SyncUsableEvents(on)
         usableEvents:UnregisterAllEvents()
         usableFlush:Hide()
         wipe(usableOnCD)
+    end
+end
+
+-- Power edge, registered only while a bound entry has Require Resource. Power
+-- changes every frame while it regenerates or drains, so the edge never runs
+-- the whole glow pass: on the next frame it asks only those glows whether
+-- their ability is usable, and re-evaluates them alone when an answer changed.
+local function SyncPowerEvents(on)
+    if on == powerEventsOn then return end
+    powerEventsOn = on
+    if on then
+        if not powerEvents then
+            powerFlush = ns.TakeShell()
+            powerFlush:Hide()
+            powerFlush:SetScript("OnUpdate", function(self)
+                self:Hide()
+                local changed
+                for key, overlay in pairs(powerBound) do
+                    local sid = UsableSpellOf(overlay)
+                    local usable = sid ~= nil and not ns.CdmSpellNotUsable(sid, true)
+                    if usable ~= powerUsable[key] then
+                        powerUsable[key] = usable
+                        changed = true
+                    end
+                end
+                if changed then UpdateOverlayVisuals(powerBound) end
+            end)
+            powerEvents = ns.TakeShell()
+            powerEvents:SetScript("OnEvent", function() powerFlush:Show() end)
+        end
+        powerEvents:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
+    elseif powerEvents then
+        powerEvents:UnregisterAllEvents()
+        powerFlush:Hide()
     end
 end
 
@@ -561,6 +604,8 @@ local function BindOverlays(bg)
     wipe(glowedAbilities)
     wipe(healthBound)
     wipe(healthPassed)
+    wipe(powerBound)
+    wipe(powerUsable)
 
     local activeKeys = {}
     for assignKey, buffList in pairs(bg.assignments) do
@@ -635,7 +680,10 @@ local function BindOverlays(bg)
                             swingWindows = swingWindows or {}
                             swingWindows[swingWindow] = true
                         end
-                        if entry.mode == "USABLE" then anyUsable = true end
+                        if entry.mode == "USABLE" then
+                            anyUsable = true
+                            if entry.requirePower then powerBound[key] = overlay end
+                        end
                         local sid = entry.stackEnabled and entry.spellID
                         if sid and sid > 0 then
                             stackSids = stackSids or {}
@@ -745,6 +793,7 @@ local function SetupOverlays()
         ns._barGlowStackSids = nil
         ns._barGlowAnyHero = nil
         SyncUsableEvents(false)
+        SyncPowerEvents(false)
         if ns.BarGlowSwingSync then ns.BarGlowSwingSync(nil) end
         SyncHealthEvents(false)
         SyncRebindEvents(false)
@@ -765,6 +814,8 @@ local function SetupOverlays()
     ns._barGlowAnyHero = anyHero
     -- A Glow When Usable entry exists: its own cooldown / usability edges listen.
     SyncUsableEvents(anyUsable == true)
+    -- A Require Resource entry exists: power changes re-check it.
+    SyncPowerEvents(next(powerBound) ~= nil)
     -- WoW Forever: a swing-window entry exists (EllesmereUICdmBarGlowSwing.lua).
     if ns.BarGlowSwingSync then ns.BarGlowSwingSync(swingWindows) end
     SyncHealthEvents(anyHealth == true)
@@ -780,12 +831,13 @@ local function SetupOverlays()
 end
 
 --- Update glow visuals based on current aura state.
---- Called each CDM tick (~10Hz from BuffTicker).
-UpdateOverlayVisuals = function()
+--- Called each CDM tick (~10Hz from BuffTicker). `only` limits the pass to a
+--- { [key] = overlay } subset (the power edge's Require Resource glows).
+UpdateOverlayVisuals = function(only)
     local bg = _cachedBG
     if not bg or not bg.enabled then return end
 
-    for key, overlay in pairs(overlayFrames) do
+    for key, overlay in pairs(only or overlayFrames) do
         if overlay:IsShown() and overlay._assignEntry then
             local entry = overlay._assignEntry
             local spellID = entry.spellID
@@ -803,7 +855,7 @@ UpdateOverlayVisuals = function()
             local shouldGlow
             if mode == "USABLE" then
                 local btnSid = UsableSpellOf(overlay)
-                shouldGlow = btnSid ~= nil and UsablePressable(btnSid)
+                shouldGlow = btnSid ~= nil and UsablePressable(btnSid, entry.requirePower)
             elseif mode == "MISSING" then
                 shouldGlow = not auraActive
             else
