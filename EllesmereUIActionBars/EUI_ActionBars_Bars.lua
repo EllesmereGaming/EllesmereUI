@@ -177,6 +177,8 @@ local function CreateBarFrame(info)
             -- passes cannot rely on (it fires before the state driver runs)
             if ns._eabRangePageEdge then ns._eabRangePageEdge(f._barKey) end
             if ns._eabQueueGlowRescan then ns._eabQueueGlowRescan() end
+            -- WoW Forever: the Swing Timer swipe finds its buttons again.
+            if ns.AB_SwingSweepPageEdge then ns.AB_SwingSweepPageEdge() end
         end
     end)
 

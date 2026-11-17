@@ -38,6 +38,7 @@ EUI_ActionBars_ExtraBars.lua
 EUI_ActionBars_QuickKeybind.lua
 EUI_ActionBars_XPBar.lua
 EUI_ActionBars_Flyout.lua
+EUI_ActionBars_ForeverSwingSweep.lua
 
 # Options
 

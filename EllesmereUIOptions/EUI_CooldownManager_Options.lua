@@ -218,6 +218,27 @@ initFrame:SetScript("OnEvent", function(self)
         return labels, order
     end
 
+    -- Default Glow Type (profile-wide): the glow type a new Bar Glow entry starts
+    -- with. Shown on the Bar Glows and CDM Bars pages; saved entries keep theirs.
+    local function DefaultBarGlowStyle()
+        local p = DB()
+        local v = p and p.cdmBars and tonumber(p.cdmBars.defaultBarGlowStyle)
+        if v and ns.GLOW_STYLES and ns.GLOW_STYLES[v] then return v end
+        return 1
+    end
+    local function DefaultGlowTypeCfg()
+        local labels, order = GetGlowStyleValues()
+        return { type = "dropdown", text = "Default Glow Type (global)",
+                 values = labels, order = order,
+                 tooltip = "The glow type a new Bar Glow starts with. Glows you already made keep their own.",
+                 getValue = DefaultBarGlowStyle,
+                 setValue = function(v)
+                     local p = DB()
+                     if not p or not p.cdmBars then return end
+                     p.cdmBars.defaultBarGlowStyle = tonumber(v) or 1
+                 end }
+    end
+
     ---------------------------------------------------------------------------
     --  Glow sites for Global Settings > Glows: per-bar Pandemic Glow, Buff Glow
     --  and Pixel Glow parameters, Tracked Buff Bars (active spec) and Rotation
@@ -707,7 +728,7 @@ initFrame:SetScript("OnEvent", function(self)
                     assignedSet[sp.spellID] = true
                     local newEntry = {
                         spellID = sp.spellID,
-                        glowStyle = 1,
+                        glowStyle = DefaultBarGlowStyle(),
                         mode = sp.usable and "USABLE" or "ACTIVE",
                         onlyInCombat = false,
                     }
@@ -1354,6 +1375,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:Spacer(parent, y, 8);  y = y - h
 
+        _, h = W:DualRow(parent, y, DefaultGlowTypeCfg(), EllesmereUI.BlankRowCfg());  y = y - h
+
         -- A selected slot that is (now) non-glowable shows no glow settings (the header tip stays).
         if curBtn and type(curBar) == "string" then
             local cdmIcons = ns.cdmBarIcons and ns.cdmBarIcons[curBar]
@@ -1407,6 +1430,30 @@ initFrame:SetScript("OnEvent", function(self)
                         -- (EUI_CooldownManager_BarGlowConditions.lua)
                         local removeAIdx = aIdx
                         y = ns.BuildBarGlowWhenRow(W, parent, y, entry, Refresh, cdmSid)
+
+                        -- WoW Forever: late in the Main Hand swing
+                        -- (EllesmereUICdmBarGlowSwing.lua; absent elsewhere).
+                        if ns.BarGlowSwingPass then
+                            _, h = W:DualRow(parent, y,
+                                { type = "toggle", text = "Glow Late in Swing",
+                                  tooltip = "Only glow during the last seconds of your main hand swing, and not while this attack is already queued for it.",
+                                  getValue = function() return tonumber(entry.swingWindow) ~= nil end,
+                                  setValue = function(v)
+                                      entry.swingWindow = v and 0.5 or nil
+                                      Refresh()
+                                      EllesmereUI:RefreshPage()
+                                  end },
+                                { type = "slider", text = "Seconds Before Swing",
+                                  min = 0.1, max = 2, step = 0.1,
+                                  disabled = function() return not tonumber(entry.swingWindow) end,
+                                  disabledTooltip = "Glow Late in Swing",
+                                  getValue = function() return tonumber(entry.swingWindow) or 0.5 end,
+                                  setValue = function(v)
+                                      entry.swingWindow = math.floor(v * 10 + 0.5) / 10
+                                      Refresh()
+                                  end })
+                            y = y - h
+                        end
 
                         -- Helper: resolve current glow color and restart preview if active
                         local pvKey = assignKey .. "_" .. aIdx
@@ -2039,7 +2086,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- opens or a page is built).
     ns._CDMO_OptEnv = {
         _cdmActivePreviewOn = _cdmActivePreviewOn, AnyIconAlwaysShowOn = AnyIconAlwaysShowOn, BuildKeybindStyleControls = BuildKeybindStyleControls,
-        DB = DB, durationPositionOrder = durationPositionOrder, durationPositionValues = durationPositionValues,
+        DB = DB, DefaultGlowTypeCfg = DefaultGlowTypeCfg, durationPositionOrder = durationPositionOrder, durationPositionValues = durationPositionValues,
         FitMenuWidth = FitMenuWidth, FONT_PATH = FONT_PATH, GetCDMOptOutline = GetCDMOptOutline,
         NormalizeToBase = NormalizeToBase, optState = optState, PP = PP,
         Refresh = Refresh, RefreshCDPreview = RefreshCDPreview, ResolveIconArt = ResolveIconArt,

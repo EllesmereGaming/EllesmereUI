@@ -430,8 +430,13 @@ local function ReleaseAllSlotTables()
     _activeSlotN = 0
 end
 
--- Merge duplicate non-gear items by itemLink within an already-ordered list.
--- itemLink encodes stats/bonuses, so items with different stats stay separate.
+local function GetItemMergeKey(link)
+    if not link or not link:find(":Player-", 1, true) then return link end
+    -- Ignore the crafter GUID while keeping the item's quality and bonuses.
+    return (link:gsub("(|Hitem:[^|]-):Player%-%d+%-%x+([:|])", "%1:%2", 1))
+end
+
+-- Merge duplicate non-gear items within an already-ordered list.
 -- Must run AFTER ApplySavedOrder so the first occurrence in visual order wins.
 -- Returns a new list; the caller's tables are NEVER modified. A merged winner is
 -- replaced in the returned list by a pooled, display-only shallow copy carrying
@@ -455,8 +460,8 @@ local function MergeDuplicates(items)
     local seen = {}
     local out = {}
     for _, data in ipairs(items) do
-        local key = data.itemLink
-        if key and not IsGearCategory(data.categoryIndex or 0) and not (unmerged and unmerged[key]) then
+        local key = not data._isGear and not IsGearCategory(data.categoryIndex or 0) and GetItemMergeKey(data.itemLink)
+        if key and not (unmerged and unmerged[key]) then
             local idx = seen[key]
             if idx then
                 local prev = out[idx]
@@ -716,6 +721,7 @@ I.bagSlots, I.BuildExpansionBuckets = bagSlots, BuildExpansionBuckets
 I.BuildSlotBuckets, I.ClearGroupOrder = BuildSlotBuckets, ClearGroupOrder
 I.DetectAndApplySwaps, I.FOOTER_H = DetectAndApplySwaps, FOOTER_H
 I.GetArmorySlotBucket, I.HEADER_H = GetArmorySlotBucket, HEADER_H
+I.GetItemMergeKey = GetItemMergeKey
 I.IsArmoryGearCategory, I.IsGearOnlyGroup = IsArmoryGearCategory, IsGearOnlyGroup
 I.itemSlots, I.MergeDuplicates = itemSlots, MergeDuplicates
 I.PreCacheSortFields, I.reagentSlots = PreCacheSortFields, reagentSlots

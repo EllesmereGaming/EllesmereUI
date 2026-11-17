@@ -672,6 +672,8 @@ local DEFAULTS = {
             -- Off by default: opt-in, and off means the gate in StartNativeGlow
             -- is a single boolean test that never fires.
             glowsOnlyInCombat = false,
+            -- The glow type a new Bar Glow entry starts with (ns.GLOW_STYLES index).
+            defaultBarGlowStyle = 1,
             -- Rotation Assist uses Blizzard's native highlight until the user
             -- explicitly opts into a custom style.
             rotationAssistStyle = "blizzard",

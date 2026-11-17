@@ -913,6 +913,8 @@ BuildAllCDMBars = function()
     ns.RescanActiveGlowFlag()     -- set the Active State Glow gate (once) before refresh
     ns.RescanTalentCondFlag()     -- set the Talent Conditions gate (once) before refresh
     ns.RescanStanceBarFlag()      -- set the Stance Bar gate (once) before refresh
+    -- WoW Forever: the Swing Timer swipe gate (EUI_CDM_ForeverSwingSweep.lua).
+    if ns.RescanSwingSweepFlag then ns.RescanSwingSweepFlag() end
 
     local p = ECME.db.profile
 

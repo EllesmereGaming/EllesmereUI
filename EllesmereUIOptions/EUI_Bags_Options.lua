@@ -560,7 +560,11 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="toggle", label="New Items Only",
                           tooltip="Only lists items you were not already carrying. Gear, mail and trades always list.",
                           get=function() return db.profile.bagRecentNewOnly == true end,
-                          set=function(v) db.profile.bagRecentNewOnly = v end },
+                          set=function(v)
+                              db.profile.bagRecentNewOnly = v
+                              if v and _G.EUI_Bags and _G.EUI_Bags.SeedRecentCopies then _G.EUI_Bags.SeedRecentCopies() end
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
                     },
                 })
             end
@@ -668,6 +672,17 @@ initFrame:SetScript("OnEvent", function(self)
                       db.profile.bagHideSidebarIconsCollapsed = v and true or false
                       if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                   end }
+            ); y = y - h
+
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Categorize Reagent Bag Items",
+                  tooltip="Show reagent bag items in their item categories in All Items.",
+                  getValue=function() return db.profile.bagCategorizeReagents == true end,
+                  setValue=function(v)
+                      db.profile.bagCategorizeReagents = v
+                      if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                  end },
+                EllesmereUI.BlankRowCfg()
             ); y = y - h
 
             if anyGrid then
