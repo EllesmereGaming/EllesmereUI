@@ -419,7 +419,7 @@ local unitToNameplate = setmetatable({}, { __mode = "v" })
 
 -- Filled further down, where the suppression and the name-only text live: the
 -- overlay here is what calls into them.
-local SuppressBlizzardUF, RestoreNPCNameplate, IsParked
+local SuppressBlizzardUF, RestoreNPCNameplate, IsParked, HideNameOnlySub
 local nameFSUnits, nameFSText
 
 -- The plate's own unit token: namePlateUnitToken first, then the pooled
@@ -478,11 +478,13 @@ local function ShowNPCRaidMarker()
     return fp and fp.showNPCRaidMarker ~= false
 end
 
--- SuppressNPCNameplate hides Blizzard's RaidTargetFrame with the UnitFrame,
--- so the overlay draws its own marker, in the Raid Marker slot the bars use.
--- The name stands in for the health bar, so a slot reads the same way here.
--- Like the friendly plates' marker, it stays hidden while the Raid Marker
--- element is off.
+-- SuppressNPCNameplate hides Blizzard's RaidTargetFrame with the UnitFrame, so
+-- the overlay draws its own marker. An NPC name-only plate has no bar geometry, so
+-- the marker goes where Blizzard puts one on a name-only player plate: centred
+-- above the name, a couple of pixels clear of it. The Raid Marker slot's own X/Y
+-- nudges still apply, so a slot tweaked on the Display page moves this marker too,
+-- and a slot of "none" turns the element off. Like the friendly plates' marker, it
+-- stays hidden while Show Raid Marker is off.
 local function UpdateOverlayRaidIcon(overlay)
     local pos = ns.GetRaidMarkerPos()
     local idx
@@ -500,19 +502,10 @@ local function UpdateOverlayRaidIcon(overlay)
     end
     SetRaidTargetIconTexture(overlay.raid, idx)
     local sz = ns.GetRaidMarkerSize()
+    local xOff, yOff = ns.GetAuraSlotOffsets("raidMarker")
     overlay.raid:SetSize(sz, sz)
     overlay.raid:ClearAllPoints()
-    if pos == "left" then
-        overlay.raid:SetPoint("RIGHT", overlay.name, "LEFT", -2, 0)
-    elseif pos == "right" then
-        overlay.raid:SetPoint("LEFT", overlay.name, "RIGHT", 2, 0)
-    elseif pos == "topleft" then
-        overlay.raid:SetPoint("BOTTOMLEFT", overlay.name, "TOPLEFT", 0, ns.GetRaidMarkerYOffset())
-    elseif pos == "topright" then
-        overlay.raid:SetPoint("BOTTOMRIGHT", overlay.name, "TOPRIGHT", 0, ns.GetRaidMarkerYOffset())
-    else
-        overlay.raid:SetPoint("BOTTOM", overlay.name, "TOP", 0, 2)
-    end
+    overlay.raid:SetPoint("BOTTOM", overlay.name, "TOP", xOff, 2 + yOff)
     overlay.raid:Show()
 end
 
@@ -594,8 +587,6 @@ local function OnOverlayEvent(self, event)
     if not unit then return end
     if event == "UNIT_NAME_UPDATE" then
         self.name:SetText(FormatNPCName(UnitName(unit) or ""))
-    elseif event == "RAID_TARGET_UPDATE" then
-        UpdateOverlayRaidIcon(self)
     elseif event == "UNIT_FLAGS" or event == "UNIT_FACTION" then
         ApplyOverlayStyle(self, unit)
     end
@@ -609,6 +600,9 @@ local function ShowNPCOverlay(nameplate, unit)
     if overlay and overlay.unit == unit then
         overlay:Show()
         ApplyOverlayStyle(overlay, unit)
+        -- The marker is the reason a filtered NPC can be on screen at all, so a
+        -- repeated show re-anchors it rather than leaving a stale one.
+        UpdateOverlayRaidIcon(overlay)
         return
     end
     if not overlay then
@@ -635,9 +629,9 @@ local function ShowNPCOverlay(nameplate, unit)
     SetOverlayTitle(overlay, unit)
     overlay:UnregisterAllEvents()
     UpdateOverlayRaidIcon(overlay)
-    if ShowNPCRaidMarker() then
-        overlay:RegisterEvent("RAID_TARGET_UPDATE")
-    end
+    -- RAID_TARGET_UPDATE is not registered here: one sweep in the friendly
+    -- settings path re-decides every marked plate, which is also what makes a
+    -- newly marked NPC appear at all (see ns.RefreshMarkedNPCOverlays).
     if unit:find("^nameplate") then
         overlay:RegisterUnitEvent("UNIT_NAME_UPDATE", unit)
         overlay:RegisterUnitEvent("UNIT_FLAGS", unit)
@@ -661,22 +655,69 @@ local function HideNPCOverlay(nameplate)
     table.insert(npcOverlayPool, overlay)
 end
 
+-- Drop our name from a plate and hand Blizzard's frame back. A no-op for a plate
+-- we never took.
+local function ReleaseNPCOverlay(nameplate, unit)
+    if suppressedNPCPlates[nameplate] then
+        RestoreNPCNameplate(nameplate, unit)
+    else
+        HideNPCOverlay(nameplate)
+    end
+end
+
+-- Whether the unit wears a raid marker. type() is taint-safe: a secret index
+-- reads as "not a number", never a comparison that could throw.
+local function HasRaidMarker(unit)
+    if not unit or not GetRaidTargetIndex then return false end
+    return type(GetRaidTargetIndex(unit)) == "number"
+end
+
+-- Whether this base's plate is ours to take: a pet rides its own nameplate
+-- toggle, a friendly or neutral NPC its nameplate toggle -- plus any NPC the
+-- player has marked, which is worth showing on its own (naming it and drawing its
+-- marker), so a marked NPC is taken even with the toggle off. Holding the plate
+-- and naming it are separate decisions (PlateNamed below): a plate we hold but do
+-- not name stays parked and invisible, which is the whole point of Name Only --
+-- the NPC keeps its plate, and that plate shows neither a health bar nor a name
+-- Blizzard's own NPC-names filter would have hidden.
+local function PlateClaimed(unit)
+    local fp = FP()
+    if not fp then return false end
+    if IsPetUnit(unit) then return fp.showFriendlyPets == true end
+    return fp.showFriendlyNPCs == true or HasRaidMarker(unit)
+end
+
+-- Whether our name goes on the plate we hold. A pet always takes its name (that
+-- is what its nameplate toggle is for); an NPC follows Blizzard's own filter,
+-- which is what lifts while the unit is hovered or targeted (see
+-- IsFriendlyNPCShownForUnit) -- and a marked NPC is named whatever that filter
+-- says, which is what makes a marked, non-interactable NPC visible at all.
+local function PlateNamed(unit)
+    if IsPetUnit(unit) then return true end
+    return IsFriendlyNPCShownForUnit(unit) or HasRaidMarker(unit)
+end
+
+-- Whether a plate stays ours: a hostile plate we already parked keeps its name
+-- (an NPC that turned on us under it), everything else answers the toggles above.
+local function PlateKept(unit)
+    return (UnitCanAttack("player", unit) and true or false) or PlateClaimed(unit)
+end
+
 -- The one place a friendly non-player plate is taken over: park Blizzard's
 -- UnitFrame (keeping its interact icon) and put our name on the plate, or hand
 -- the plate back untouched when nothing here wants it.
---   Pets ride their own toggles; a friendly or neutral NPC its nameplate toggle
---   plus Blizzard's own "NPC Names" filter (parked either way, so an NPC the
---   game leaves nameless shows nothing rather than a health bar); a hostile
---   plate is the enemy system's unless we already parked it.
+--   A plate we hold (PlateClaimed) stays parked whether or not it carries a name
+--   (PlateNamed): Name Only means no health bar, so an NPC whose name Blizzard's
+--   filter hides keeps an invisible plate rather than getting its bar back. Only
+--   when no toggle wants the plate at all is it handed back. A hostile plate is
+--   the enemy system's unless we already parked it.
 local function RefreshNPCOverlay(nameplate, unit)
     if not nameplate or not unit then return end
     if not IsNameOnlyMode() or UnitIsPlayer(unit) then return end
     -- "Ours" means the park is in place right now, not that we once parked this
     -- base: the driver hands a stale park back on the base's next add (see the
-    -- OnNamePlateAdded hook), and a park that is gone leaves Blizzard's own plate
-    -- drawing again -- the nameplate a click leaves behind after the untarget. A
-    -- claim with no park behind it is dropped here, and the plate is taken again
-    -- below.
+    -- OnNamePlateAdded hook), so a claim with no park behind it is dropped here,
+    -- and the plate is taken again below.
     local owned = suppressedNPCPlates[nameplate] == true and IsParked(nameplate.UnitFrame)
     if not owned then suppressedNPCPlates[nameplate] = nil end
     -- An attackable unit's plate is the enemy nameplate system's, and its
@@ -687,18 +728,14 @@ local function RefreshNPCOverlay(nameplate, unit)
     -- keeps a name here, for an NPC that turned on us under it.
     local hostile = UnitCanAttack("player", unit) and true or false
     if hostile and not owned then return end
-    local fp = FP()
-    local claimed, shown
-    if hostile then
-        claimed, shown = true, true
-    elseif IsPetUnit(unit) then
-        claimed = (fp and fp.showFriendlyPets == true) or false
-        shown = claimed
-    else
-        claimed = (fp and fp.showFriendlyNPCs == true) or false
-        shown = claimed and IsFriendlyNPCShownForUnit(unit)
+    local claimed = hostile or PlateClaimed(unit)
+    if not claimed then
+        -- Nothing here wants this plate at all: hand it back rather than leave it
+        -- parked with nobody asking for it (its nameplate toggle went off).
+        ReleaseNPCOverlay(nameplate, unit)
+        return
     end
-    if claimed and not owned then
+    if not owned then
         -- The park can refuse (an attackable unit, or one EUI already draws an
         -- enemy plate for). Then the plate is not ours: no overlay either -- and
         -- no leftover one from the unit this base held before.
@@ -706,25 +743,46 @@ local function RefreshNPCOverlay(nameplate, unit)
             HideNPCOverlay(nameplate)
             return
         end
-        suppressedNPCPlates[nameplate] = true
-        -- Blizzard's name on this plate is gone: forget anything composed onto it.
+        -- Blizzard's name on this plate is gone: forget anything composed onto it,
+        -- its guild line included -- that line is ours and would otherwise show
+        -- the last friendly player's guild under this NPC's name. Cleared before
+        -- the park is verified, so a rejected claim cannot leave it behind either.
         local nfs = nameplate.UnitFrame and nameplate.UnitFrame.name
-        if nfs then nameFSUnits[nfs], nameFSText[nfs] = nil, nil end
+        if nfs then
+            nameFSUnits[nfs], nameFSText[nfs] = nil, nil
+            HideNameOnlySub(nfs)
+        end
+        -- Bookkeeping is not proof: in combat Blizzard can refuse a write to a
+        -- protected frame, and a park that did not take leaves Blizzard's own
+        -- plate on screen. Painting our name over it as well is the one thing
+        -- this must never do, so the frame is asked what it actually is: parented
+        -- to the hidden holder, or alpha 0 (either one hides it). GetAlpha is read
+        -- through pcall -- a secret answer must never be compared.
+        local uf = nameplate.UnitFrame
+        local hidden
+        if uf then
+            if uf:GetParent() == hiddenFrame then
+                hidden = true
+            elseif uf.GetAlpha then
+                local ok, a = pcall(uf.GetAlpha, uf)
+                hidden = ok and a == 0
+            end
+        end
+        if not hidden then
+            RestoreNPCNameplate(nameplate, unit)
+            HideNPCOverlay(nameplate)
+            return
+        end
+        suppressedNPCPlates[nameplate] = true
     end
-    if not claimed then
-        -- Nothing asks for this plate any more: hand it back rather than leave
-        -- it parked and nameless. A no-op for a plate we never parked.
-        RestoreNPCNameplate(nameplate, unit)
-        return
-    end
-    if shown then
+    -- The plate is ours: our name goes on it only while PlateNamed says so, and
+    -- the rest of the time the parked plate stays empty (Name Only, no bar).
+    if hostile or PlateNamed(unit) then
         ShowNPCOverlay(nameplate, unit)
     else
         HideNPCOverlay(nameplate)
     end
 end
-ns.RefreshNPCOverlay = RefreshNPCOverlay
-ns.UpdateNPCOverlayVisibility = RefreshNPCOverlay
 
 -- Re-style live overlays in place: a slider drag or a swatch change must not
 -- rebuild every overlay, which would re-read each unit's tooltip for the title.
@@ -735,24 +793,61 @@ function ns.RefreshNPCOverlayStyle()
 end
 
 -- Refresh all visible NPC overlays (Show NPC Titles, the title colour, Show
--- Raid Marker): re-point each at the unit it already holds, which re-reads the
--- title and re-registers the events without pooling the frame.
+-- Raid Marker): re-decide each plate, then re-point each overlay at the unit it
+-- already holds, which re-reads the title and re-registers the events without
+-- pooling the frame.
 local function RefreshAllNPCOverlays()
     for nameplate, overlay in pairs(npcOverlays) do
         local unit = overlay.unit
         if unit then
-            -- An overlay whose plate moved on while it lingered keeps no name:
-            -- re-show only the ones still pointing at their plate's unit.
-            if GetNamePlateUnitToken(nameplate) == unit then
+            -- An overlay whose plate moved on while it lingered keeps no name, and
+            -- one whose unit is no longer shown goes with it. The moved-on base
+            -- takes no unit: its own frame answers for whatever holds it now.
+            if GetNamePlateUnitToken(nameplate) == unit and PlateKept(unit) then
                 overlay.unit = nil
                 ShowNPCOverlay(nameplate, unit)
             else
-                HideNPCOverlay(nameplate)
+                ReleaseNPCOverlay(nameplate, nil)
             end
         end
     end
 end
 ns.RefreshAllNPCOverlays = RefreshAllNPCOverlays
+
+-- Hand back every plate we hold that nothing wants any more (its nameplate toggle
+-- went off, or it stopped being a friendly non-player's), leaving the rest alone.
+-- The held set is the authority here, not the overlays: a plate we hold without
+-- naming has no overlay to be found by, and leaving it parked would hide an NPC
+-- plate nobody asked us to touch.
+local function ReleaseUnclaimedNPCOverlays()
+    for nameplate in pairs(suppressedNPCPlates) do
+        local unit = GetNamePlateUnitToken(nameplate)
+        if not (unit and PlateKept(unit)) then
+            RestoreNPCNameplate(nameplate, unit)
+        end
+    end
+end
+
+-- A raid marker going on or off re-decides every plate it can affect: an NPC the
+-- player has marked is shown -- name and marker -- even with its nameplate toggle
+-- off and Blizzard's own filter against it, and one whose marker is gone goes back
+-- to answering the toggles. RAID_TARGET_UPDATE is a user action, so this sweep
+-- costs nothing while markers are left alone.
+function ns.RefreshMarkedNPCOverlays()
+    if not IsNameOnlyMode() then return end
+    local plates = C_NamePlate.GetNamePlates()
+    if not plates then return end
+    for _, nameplate in ipairs(plates) do
+        local unit = GetNamePlateUnitToken(nameplate)
+        -- Attackable plates are the enemy system's, and a friendly player's name
+        -- is not painted here.
+        if unit and not UnitIsPlayer(unit) and not UnitCanAttack("player", unit) then
+            if HasRaidMarker(unit) or suppressedNPCPlates[nameplate] then
+                RefreshNPCOverlay(nameplate, unit)
+            end
+        end
+    end
+end
 
 -- Whether anything here can paint at all: the Name Only style plus one of the
 -- two nameplate toggles. Cheap enough for the hover and target paths to ask
@@ -763,10 +858,10 @@ function ns.FriendlyOverlayActive()
     return fp ~= nil and (fp.showFriendlyNPCs == true or fp.showFriendlyPets == true)
 end
 
--- The plate the target or the cursor was on at the last pass. A click leaves a
--- filtered NPC's plate standing where a hover's plate is removed with the hover,
--- so the plate we stop pointing at is re-decided by name -- whether or not it
--- carries one of our overlays, since Blizzard's own name can be the thing on it.
+-- The plate the target or the cursor was on at the last pass. The plate we stop
+-- pointing at is re-decided by name even when it carries none of our overlays:
+-- a filtered NPC is ours only while it is hovered or targeted, so this is where
+-- an untarget hands it back.
 local lastPointedPlate
 
 -- A target or mouseover change moves the plates it decides for: the two tokens
@@ -779,7 +874,9 @@ local function OnTargetChangedNPCOverlays()
         if unit and UnitExists(unit) and GetNamePlateUnitToken(nameplate) == unit then
             RefreshNPCOverlay(nameplate, unit)
         else
-            HideNPCOverlay(nameplate)
+            -- The base let go of that unit: its own frame answers for whatever
+            -- holds it now.
+            ReleaseNPCOverlay(nameplate, nil)
         end
     end
     local function Check(unitToken)
@@ -794,8 +891,9 @@ local function OnTargetChangedNPCOverlays()
     end
     Check("target")
     Check("mouseover")
-    -- The plate just left: untargeting does not take a filtered NPC's plate away
-    -- the way un-hovering does, so nothing else would bring its name down.
+    -- The plate just left: the unit may have stopped being one we name (a
+    -- filtered NPC we untargeted), so it is re-decided here whether or not it
+    -- carries an overlay of ours.
     local pointed = (UnitExists("target") and C_NamePlate.GetNamePlateForUnit("target"))
         or (UnitExists("mouseover") and C_NamePlate.GetNamePlateForUnit("mouseover"))
     local prev = lastPointedPlate
@@ -806,7 +904,7 @@ local function OnTargetChangedNPCOverlays()
             RefreshNPCOverlay(prev, pu)
         else
             -- The base let go of its unit: give it back rather than leave it parked.
-            RestoreNPCNameplate(prev, nil)
+            ReleaseNPCOverlay(prev, nil)
         end
     end
 end
@@ -818,7 +916,7 @@ ns.OnTargetChangedNPCOverlays = OnTargetChangedNPCOverlays
 -- use, and a no-op for a base we never took.
 function ns.ReleaseOrphanNPCOverlays()
     for nameplate in pairs(npcOverlays) do
-        if not GetNamePlateUnitToken(nameplate) then RestoreNPCNameplate(nameplate, nil) end
+        if not GetNamePlateUnitToken(nameplate) then ReleaseNPCOverlay(nameplate, nil) end
     end
 end
 
@@ -850,12 +948,6 @@ local function ClassRGB(unit, plainOnly)
     local c = EllesmereUI.GetClassColor(tok)
     return true, c.r, c.g, c.b
 end
--- The suite's class colour (custom class colours and Class Color Darken) for a
--- unit, for the allied-colour resolver: a player's pet carries its owner's class,
--- so its base name colour is read here, and it must be the same colour a friendly
--- player plate paints. ok, r, g, b; ok is false when the token is redacted and
--- plainOnly, or the class does not resolve.
-ns.FriendlyClassRGB = ClassRGB
 
 -- Paints one full plate's bar and name. Players: the bar takes the class colour
 -- (Class Colored Health Bar) or friendlyBarColor, the name the class colour or
@@ -1198,7 +1290,7 @@ local function NameOnlySub(nameFS)
     return fs
 end
 
-local function HideNameOnlySub(nameFS)
+HideNameOnlySub = function(nameFS)
     local fs = nameOnlySubs[nameFS]
     if not fs then return end
     fs:SetText("")
@@ -1214,7 +1306,6 @@ local function ClearAllNameOnlySubs()
         nameFSText[nameFS] = nil
     end
 end
-ns.ClearAllNameOnlySubs = ClearAllNameOnlySubs
 
 -- Write (or clear) the guild line: its own font family at Guild Text Size, the
 -- guild colour, the <brackets> the setting asks for.
@@ -1356,8 +1447,20 @@ local function AttachNameOnlyText(nameFS, unit)
         hooksecurefunc(nameFS, "SetText", function(self)
             if _titledNameGuard then return end
             local u = nameFSUnits[self]
-            if not u or not UnitExists(u) or not UnitIsPlayer(u) then return end
+            if not u or not UnitExists(u) or not UnitIsPlayer(u) then
+                -- Blizzard pools these FontStrings, so this one now draws a
+                -- plate that is no longer a friendly player's (an NPC's, a pet's,
+                -- an enemy's). The guild line under it is OURS, and nothing else
+                -- clears it: left alone it shows a nearby player's guild under
+                -- whatever that plate holds now. Forget the pairing and clear it.
+                nameFSUnits[self], nameFSText[self] = nil, nil
+                HideNameOnlySub(self)
+                return
+            end
             if not NeedsNameOnlyTextUpdate(u) then
+                -- Nothing of ours belongs on this name: a line left from the
+                -- plate's last occupant is stale, so take it down.
+                HideNameOnlySub(self)
                 return
             end
             -- Blizzard just overwrote the composed string with its own plain
@@ -1391,7 +1494,6 @@ local function SweepPlayerSubText()
         end
     end
 end
-ns.SweepPlayerSubText = SweepPlayerSubText
 
 -- Re-collapse every visible friendly player name after Blizzard re-anchors
 -- them (UpdateNamePlateOptions / ApplyFrameOptions). Assigns the forward
@@ -1516,12 +1618,18 @@ SuppressBlizzardUF = function(unit, nameplate)
     if unit then suppressedByUnit[unit] = rec end
 
     -- Permanent SetAlpha, Show and SetParent hooks (once per UF instance), so a
-    -- Blizzard update or a target change cannot bring a parked frame back.
+    -- Blizzard update or a target change cannot bring a parked frame back --
+    -- including in combat, which is the case that matters: a friendly NPC that
+    -- enters combat has its plate re-shown by Blizzard's own refresh, and that
+    -- is exactly when an alpha-0 frame must go straight back. So the hooks do
+    -- not bail on IsForbidden: the enemy plates' own hook re-asserts alpha 0 the
+    -- same way, and these frames are not secure-only (Blizzard writes to them
+    -- from insecure code throughout, which is what these hooks intercept).
     if not hookedUFs[uf] then
         hookedUFs[uf] = true
         local locked = false
         hooksecurefunc(uf, "SetAlpha", function(self)
-            if locked or self:IsForbidden() then return end
+            if locked then return end
             if suppressedUFs[self] then
                 locked = true
                 self:SetAlpha(0)
@@ -1529,7 +1637,7 @@ SuppressBlizzardUF = function(unit, nameplate)
             end
         end)
         hooksecurefunc(uf, "Show", function(self)
-            if locked or self:IsForbidden() then return end
+            if locked then return end
             if suppressedUFs[self] then
                 locked = true
                 if self:GetParent() ~= hiddenFrame then
@@ -1540,7 +1648,7 @@ SuppressBlizzardUF = function(unit, nameplate)
             end
         end)
         hooksecurefunc(uf, "SetParent", function(self, newParent)
-            if locked or self:IsForbidden() then return end
+            if locked then return end
             if suppressedUFs[self] and newParent ~= hiddenFrame then
                 locked = true
                 self:SetParent(hiddenFrame)
@@ -1562,7 +1670,6 @@ RestoreNPCNameplate = function(nameplate, unit)
     HideNPCOverlay(nameplate)
     RestoreBlizzardUF(unit, nameplate)
 end
-ns.RestoreNPCNameplate = RestoreNPCNameplate
 
 -- Name-only friendly NPCs never touch friendlyPlates[] -- they're suppressed
 -- purely via RefreshNPCOverlay/npcOverlays, keyed by nameplate rather than
@@ -2694,6 +2801,9 @@ function ns.UpdateFriendlyNameplateSystem()
     if not InCombatLockdown() then
         local fp = FP()
         local euiManagesPlayers = fp and (fp.showFriendlyPlayers ~= false)
+        -- nil = the pet toggle was never set: Blizzard's own pet CVars are left
+        -- alone outside instances, and untouched in them too.
+        local petChoice = fp and fp.showFriendlyPets
         local _, iType = GetInstanceInfo()
         local inInstance = (iType == "party" or iType == "raid" or iType == "scenario" or iType == "arena" or iType == "pvp")
         if IsInFollowerDungeon() then
@@ -2706,10 +2816,15 @@ function ns.UpdateFriendlyNameplateSystem()
             end
             pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNPCs", 0, "EllesmereUINameplates")
             pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNpcs", 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", 0, "EllesmereUINameplates")
+            -- Pets are hidden here only when the user asked EUI for them, and only
+            -- because this content cannot be styled: an untouched profile keeps
+            -- whatever Blizzard's settings say.
+            if petChoice == true then
+                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", 0, "EllesmereUINameplates")
+                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", 0, "EllesmereUINameplates")
+                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", 0, "EllesmereUINameplates")
+                pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", 0, "EllesmereUINameplates")
+            end
         elseif inInstance then
             -- NPC plates only: force off in instances since our frame
             -- suppression doesn't work on protected nameplate frames.
@@ -2728,15 +2843,17 @@ function ns.UpdateFriendlyNameplateSystem()
             end
             pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNPCs", 0, "EllesmereUINameplates")
             pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNpcs", 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", 0, "EllesmereUINameplates")
+            -- Pets: as in the follower-dungeon branch, only what the user asked for.
+            if petChoice == true then
+                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", 0, "EllesmereUINameplates")
+                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", 0, "EllesmereUINameplates")
+                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", 0, "EllesmereUINameplates")
+                pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", 0, "EllesmereUINameplates")
+            end
         else
             -- Restore user's preferred friendly CVar state
             if fp then
                 local showNPCs = (fp.showFriendlyNPCs == true)
-                local showPets = (fp.showFriendlyPets == true)
                 if euiManagesPlayers then
                     local nameOnlyVal = (fp.friendlyNameOnly ~= false) and 1 or 0
                     -- Hand back only what a follower dungeon took. Outside that
@@ -2746,10 +2863,15 @@ function ns.UpdateFriendlyNameplateSystem()
                 end
                 pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNPCs", showNPCs and 1 or 0, "EllesmereUINameplates")
                 pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNpcs", showNPCs and 1 or 0, "EllesmereUINameplates")
-                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", showPets and 1 or 0, "EllesmereUINameplates")
-                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", showPets and 1 or 0, "EllesmereUINameplates")
-                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", showPets and 1 or 0, "EllesmereUINameplates")
-                pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", showPets and 1 or 0, "EllesmereUINameplates")
+                -- Pets: written only once the toggle has been set, so an untouched
+                -- profile hands these CVars back to Blizzard's own settings.
+                if petChoice ~= nil then
+                    local showPets = petChoice == true
+                    pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", showPets and 1 or 0, "EllesmereUINameplates")
+                    pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", showPets and 1 or 0, "EllesmereUINameplates")
+                    pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", showPets and 1 or 0, "EllesmereUINameplates")
+                    pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", showPets and 1 or 0, "EllesmereUINameplates")
+                end
             end
         end
     else
@@ -2759,6 +2881,11 @@ function ns.UpdateFriendlyNameplateSystem()
         -- transition, so re-run it once combat ends.
         ns.CombatQueue.Defer("FriendlyVisibility", ns.UpdateFriendlyNameplateSystem)
     end
+
+    -- Name Only: a plate we no longer hold goes back to Blizzard now, so turning
+    -- a nameplate toggle off never leaves a plate parked with nobody asking for it
+    -- (the CVar pass above can take a plate away a frame later).
+    if nameOnly and next(suppressedNPCPlates) ~= nil then ReleaseUnclaimedNPCOverlays() end
 
     if shouldEnable and not friendlyEnabled then
         -- Switching TO health-bar mode
@@ -2984,10 +3111,9 @@ function ns.TrySuppressNPCHealthBar(unit, nameplate)
     end
 end
 
-function ns.RestoreFriendlyNPCNameColor(nameplate)
-    RestoreNPCNameplate(nameplate, nameplate and GetNamePlateUnitToken(nameplate))
-end
-
-function ns.RestoreNPCHealthBar(nameplate)
+-- Hand a plate back by name: its overlay and anything this file parked on it.
+-- The removal path calls this with no unit -- the driver has cleared the base's
+-- unit by then -- and RestoreBlizzardUF finds the park from the nameplate.
+function ns.RestoreNPCNameplate(nameplate)
     RestoreNPCNameplate(nameplate, nameplate and GetNamePlateUnitToken(nameplate))
 end

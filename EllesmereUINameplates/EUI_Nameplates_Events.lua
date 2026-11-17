@@ -436,13 +436,9 @@ manager:SetScript("OnEvent", function(self, event, unit)
         -- The driver has already released this base's UnitFrame (base.UnitFrame is nil
         -- here); its parked pieces come back on the next acquire (ns.NP_ReclaimBlizzardFrame).
         local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
-        -- Restore NPC name color if we tinted it
-        if nameplate and ns.RestoreFriendlyNPCNameColor then
-            ns.RestoreFriendlyNPCNameColor(nameplate)
-        end
-        -- Restore NPC health bar if we suppressed it
-        if nameplate and ns.RestoreNPCHealthBar then
-            ns.RestoreNPCHealthBar(nameplate)
+        -- Hand the plate back: its overlay and anything this file parked on it
+        if nameplate and ns.RestoreNPCNameplate then
+            ns.RestoreNPCNameplate(nameplate)
         end
         -- The base is often unfindable by now (the driver clears its unit first),
         -- and a name-only NPC overlay left on one would outlive the unit it names.
@@ -556,6 +552,9 @@ manager:SetScript("OnEvent", function(self, event, unit)
             -- arrows sit outside of, so re-run arrow positioning (no-op without arrows).
             ns.PositionArrowsOutsideAuras(plate)
         end
+        -- A marked NPC is shown by the name-only overlay even with its nameplate
+        -- toggle off, so the marker has to decide those plates too.
+        if ns.RefreshMarkedNPCOverlays then ns.RefreshMarkedNPCOverlays() end
     elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
         for _, plate in pairs(ns.plates) do
             plate:UpdateHealthColor()

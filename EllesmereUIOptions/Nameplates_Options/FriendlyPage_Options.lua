@@ -132,11 +132,14 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
             -- Blizzard colours the names it draws by this CVar, and the two styles can answer differently.
             pcall(EllesmereUI.SetCVar, "nameplateUseClassColorForFriendlyPlayerUnitNames", ns.FriendlyNameClassCVar(db), "EllesmereUINameplates")
         end
+        -- The page first, so the tab always repaints with the new style: this
+        -- dropdown swaps whole row sets, and the plate/CVar pass below churns
+        -- Blizzard's nameplates, which must never be able to leave the rebuilt
+        -- tab unpainted.
+        EllesmereUI:RefreshPage(true)
         if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
         -- Re-assert stacking after EUI takes or hands back the friendly plates (Blizzard can reset the stacking bitfield as a side effect).
         if v == "blizzard" or was == "blizzard" then ns.RefreshStackingMotion() end
-        -- The health bar plate's rows and the name size slider follow the style.
-        EllesmereUI:RefreshPage(true)
         ns.NPO_FriendlyPreviewUpdate()
     end
 
@@ -421,7 +424,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
             title = "Nameplate Highlights",
             sections = { { title = "Player Relationships", rows = RowsForSec(1,
                 "Style Player Relationships", "nameOnlyStylePlayerRelationships",
-                "Colors friends, guild members, your group, and the other players around you -- and their pets -- by who they are to you.\n\nOff leaves every friendly player in their base Name Color.") } },
+                "Colors friends, guild members, your group, and the other players around you by who they are to you.\n\nA pet with no color row of its own takes the flag colour its owner would.\n\nOff leaves every friendly player in their base Name Color.") } },
             footer = {
                 buttonText = "Set Player Colors to Default",
                 buttonWidth = 190,
@@ -1113,7 +1116,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
         sections = {
             { title = "Friendly & Neutral Units", rows = RowsForSec(2,
                 "Style Friendly & Neutral Units", "nameOnlyStyleFriendlyNPCs",
-                "Colors friendly and neutral NPCs, and their pets and guardians, by what they are to you.\n\nOff leaves them in their reaction color.") },
+                "Colors friendly and neutral NPCs by what they are to you.\n\nA pet's own row wins while it is on; with it off the pet takes its owner's color.\n\nOff leaves them in their base color.") },
             { title = "Opposing Faction Units", rows = RowsForSec(3,
                 "Style Opposing Faction Units", "nameOnlyStyleHostileNPCs",
                 "Colors opposing faction NPCs you cannot attack yet (unfriendly), and their pets, by what they are to you. An attackable NPC's plate is the enemy nameplates' own.\n\nOff leaves them in their reaction color.") },

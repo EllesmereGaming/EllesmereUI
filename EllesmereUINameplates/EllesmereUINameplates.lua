@@ -315,7 +315,11 @@ local defaults = {
     nameOnlyStylePlayerRelationships = false,
     nameOnlyStyleFriendlyNPCs = false,
     nameOnlyStyleHostileNPCs = false,
-    showFriendlyPets = false,
+    -- Show Friendly Pet Nameplates has no default on purpose: unset means the
+    -- user never chose, and then the pet CVars (nameplateShowFriendlyPets and
+    -- the minion names beside it) stay Blizzard's own, so updating never hides a
+    -- pet nameplate nobody asked us to hide. A merge would turn a default into
+    -- "chose off", which is why the key is absent here.
     nameOnlyCustomEnabled_FRIENDLY_PLAYER_FRIEND = false,
     nameOnlyCustomColor_FRIENDLY_PLAYER_FRIEND = { r = 1.00, g = 0.84, b = 0.00 },
     nameOnlyCustomEnabled_FRIENDLY_PLAYER_RECENT = false,

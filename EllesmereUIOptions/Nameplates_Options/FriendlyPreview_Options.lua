@@ -346,26 +346,15 @@ local function PaintNPC(s, DBVal, nameOnly, marked, key)
         local pos = ns.GetRaidMarkerPos()
         if pos ~= "none" then
             local size = ns.GetRaidMarkerSize()
+            local xOff, yOff = ns.GetAuraSlotOffsets("raidMarker")
             SetRaidTargetIconTexture(s.raid, 8)
             s.raid:SetSize(size, size)
             s.raid:ClearAllPoints()
-            -- The same slots the live overlay uses, the name standing in for
-            -- the health bar. A side slot adds no height to make room for.
-            if pos == "left" then
-                s.raid:SetPoint("RIGHT", s.name, "LEFT", -2, 0)
-            elseif pos == "right" then
-                s.raid:SetPoint("LEFT", s.name, "RIGHT", 2, 0)
-            elseif pos == "topleft" then
-                s.raid:SetPoint("BOTTOMLEFT", s.name, "TOPLEFT", 0, ns.GetRaidMarkerYOffset())
-                top = size + ns.GetRaidMarkerYOffset()
-            elseif pos == "topright" then
-                s.raid:SetPoint("BOTTOMRIGHT", s.name, "TOPRIGHT", 0, ns.GetRaidMarkerYOffset())
-                top = size + ns.GetRaidMarkerYOffset()
-            else
-                s.raid:SetPoint("BOTTOM", s.name, "TOP", 0, 2)
-                top = size + 2
-            end
+            -- Centred above the name, as the live overlay draws it: a name-only
+            -- plate has no bar for a slot's alignment to hang off.
+            s.raid:SetPoint("BOTTOM", s.name, "TOP", xOff, 2 + yOff)
             s.raid:Show()
+            top = size + 2 + yOff
         end
     end
     s.name:ClearAllPoints()

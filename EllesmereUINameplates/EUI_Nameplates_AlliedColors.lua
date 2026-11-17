@@ -151,17 +151,17 @@ ns.NAME_ONLY_TARGETS = {
 
     -- Section 2: Friendly & Neutral Units
     { key = "FRIENDLY_NPC_CIVILIAN", label = "Civilian NPCs", sec = 2,
-      tip = "Friendly civilian NPCs (vendors, quest givers, citizens).\n\nWhen disabled, uses friendly reaction green.",
+      tip = "Friendly civilian NPCs (vendors, quest givers, citizens).\n\nWhen disabled, uses the NPC Name Color swatch.",
       on = "nameOnlyCustomEnabled_FRIENDLY_NPC_CIVILIAN",
       col = "nameOnlyCustomColor_FRIENDLY_NPC_CIVILIAN",
       defColor = { r = 0.00, g = 1.00, b = 0.00 } },
     { key = "FRIENDLY_NPC_STANDARD", label = "Standard NPCs", sec = 2,
-      tip = "Standard friendly NPCs (guards, non-civilians).\n\nWhen disabled, uses friendly reaction green.",
+      tip = "Standard friendly NPCs (guards, non-civilians).\n\nWhen disabled, uses the NPC Name Color swatch.",
       on = "nameOnlyCustomEnabled_FRIENDLY_NPC_STANDARD",
       col = "nameOnlyCustomColor_FRIENDLY_NPC_STANDARD",
       defColor = { r = 0.00, g = 1.00, b = 0.00 } },
     { key = "FRIENDLY_NPC_ESCORT", label = "Escort NPCs (In Combat)", sec = 2,
-      tip = "Friendly NPCs engaged in combat (escort quest objectives).\n\nWhen disabled, uses friendly reaction green.",
+      tip = "Friendly NPCs engaged in combat (escort quest objectives).\n\nWhen disabled, uses the NPC Name Color swatch.",
       on = "nameOnlyCustomEnabled_FRIENDLY_NPC_ESCORT",
       col = "nameOnlyCustomColor_FRIENDLY_NPC_ESCORT",
       defColor = { r = 0.00, g = 1.00, b = 0.00 } },
@@ -189,15 +189,12 @@ ns.NAME_ONLY_TARGETS = {
       defColor = { r = 0.949, g = 0.549, b = 0.098 } },
 }
 
--- key -> entry, for callers holding a saved key (the options page's reset), and
--- the player entries on their own (the per-unit loop's whole scope).
+-- key -> entry, for the resolution above (one saved key per catalog entry).
 local CATALOG_BY_KEY, PLAYER_ENTRIES = {}, {}
 for _, item in ipairs(ns.NAME_ONLY_TARGETS) do
     CATALOG_BY_KEY[item.key] = item
     if item.sec == 1 then PLAYER_ENTRIES[#PLAYER_ENTRIES + 1] = item end
 end
-Allied.Catalog = ns.NAME_ONLY_TARGETS
-Allied.ByKey = CATALOG_BY_KEY
 
 -- An entry's colour: the saved one, else the defaults table's, else the
 -- catalog's own. Returns r, g, b, or nil.
@@ -207,13 +204,11 @@ local function EntryColor(fp, item)
     if not c then return nil end
     return c.r, c.g, c.b
 end
-Allied.EntryColor = EntryColor
 
 -- An entry's toggle, off unless the profile says otherwise.
 local function On(fp, item)
     return item ~= nil and fp ~= nil and fp[item.on] == true
 end
-Allied.EntryOn = On
 
 -------------------------------------------------------------------------------
 --  Entity type: NPCs and their pets
@@ -285,7 +280,7 @@ end
 --  toggle therefore only ever colours; the master toggle above it decides whether
 --  there is anything in its section to colour at all.
 -------------------------------------------------------------------------------
--- The enabled colour of one catalog key, or nil.
+-- The enabled colour of one catalog key, or nil. A disabled entry paints nothing.
 local function ColorOf(fp, key)
     local item = CATALOG_BY_KEY[key]
     if item and On(fp, item) then return EntryColor(fp, item) end
@@ -387,7 +382,6 @@ local function PetColor(unit, fp)
     if UnitPlayerControlled(unit) and not IsOpposing(unit) then return FlaggedColor(unit, fp) end
     return NPCColor(unit, fp)
 end
-Allied.PetColor = PetColor
 
 -- The override colour for a unit, or nil when no entry paints it.
 function Allied.GetOverrideColor(unit, fp)
@@ -400,11 +394,13 @@ function Allied.GetOverrideColor(unit, fp)
 end
 
 -- Whether any player override can fire: the cheap "does anything here paint"
--- probe for the name-only text path's re-stamp test.
+-- probe for the name-only text path's re-stamp test. The pets' entry has no
+-- matcher -- it paints pet plates, never a player's -- so it is not asked.
 function Allied.HasPlayerOverride(fp)
     if not fp or fp.nameOnlyStylePlayerRelationships ~= true then return false end
     for i = 1, #PLAYER_ENTRIES do
-        if fp[PLAYER_ENTRIES[i].on] == true then return true end
+        local item = PLAYER_ENTRIES[i]
+        if item.match and fp[item.on] == true then return true end
     end
     return false
 end
@@ -464,25 +460,9 @@ function Allied.HexEsc(r, g, b)
     return hexStr
 end
 
--- The two sides' own base colours, written once and shared: the colour a unit's
--- name keeps when no entry paints it (GetNameColor below).
-
--- The players' base: the class colour when the style paints class colours, else
--- Name Color. Players only: a pet's own class is not its owner's, so a pet never
--- reaches here.
-local function PlayerBase(unit, fp)
-    if ns.FriendlyNameClass and ns.FriendlyClassRGB and ns.FriendlyNameClass(fp, true) then
-        local ok, r, g, b = ns.FriendlyClassRGB(unit, true)
-        if ok then return r, g, b end
-    end
-    local c = fp and (fp.friendlyNameColor or (ns.defaults and ns.defaults.friendlyNameColor))
-    if c then return c.r, c.g, c.b end
-    return 1, 1, 1
-end
-
--- The reaction base (green friendly, yellow neutral, orange unfriendly, grey
--- tapped): Blizzard's own NPC and pet name colour, and what an NPC's name takes
--- with nothing enabled.
+-- The colour an NPC's or a pet's name keeps when no entry paints it, and the
+-- bottom of every fallback in this file: the reaction colour, which is what
+-- Blizzard itself paints such a plate.
 local function ReactionBase(unit, fp)
     local reaction = UnitReaction(unit, "player")
     if reaction and reaction <= 3 then
@@ -495,17 +475,18 @@ local function ReactionBase(unit, fp)
     if c then return c.r, c.g, c.b end
     return 0.00, 1.00, 0.00
 end
-Allied.PlayerBase, Allied.ReactionBase = PlayerBase, ReactionBase
 
--- The overlay's name colour: the entry that paints the unit, else the base colour
--- of its side. Players take the player base; an NPC and a pet take the reaction
--- base, so a pet with no entry and nothing to inherit is Blizzard's own colour.
+-- The overlay's name colour: the entry that paints the unit, else the reaction
+-- base -- so a pet with no entry and nothing to inherit is Blizzard's own colour.
+-- Callers pass NPCs and pets only, the units EllesmereUI's name-only overlay
+-- draws: a friendly PLAYER's name is coloured by NameOnlyEsc from
+-- GetOverrideColor above (Name Color, else the class colour via the CVar), never
+-- from here.
 function Allied.GetNameColor(unit)
     local fp = FP()
     if not fp then return 0, 1, 0 end
     local r, g, b = Allied.GetOverrideColor(unit, fp)
     if r then return r, g, b end
-    if UnitIsPlayer(unit) then return PlayerBase(unit, fp) end
     return ReactionBase(unit, fp)
 end
 

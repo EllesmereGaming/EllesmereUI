@@ -361,11 +361,17 @@ local function SetupAuraCVars()
         end
         EllesmereUI.SetCVar("nameplateShowFriendlyNPCs", showNPCs and 1 or 0, "EllesmereUINameplates")
         EllesmereUI.SetCVar("nameplateShowFriendlyNpcs", showNPCs and 1 or 0, "EllesmereUINameplates")
-        local showFriendlyPets = (db.showFriendlyPets == true)
-        EllesmereUI.SetCVar("nameplateShowFriendlyPlayerMinions", showFriendlyPets and 1 or 0, "EllesmereUINameplates")
-        EllesmereUI.SetCVar("nameplateShowFriendlyMinions", showFriendlyPets and 1 or 0, "EllesmereUINameplates")
-        EllesmereUI.SetCVar("nameplateShowFriendlyPets", showFriendlyPets and 1 or 0, "EllesmereUINameplates")
-        EllesmereUI.SetCVar("UnitNameFriendlyMinionName", showFriendlyPets and 1 or 0, "EllesmereUINameplates")
+        -- Friendly pets: this toggle is the only thing that manages these CVars,
+        -- so a profile that never set it leaves them to Blizzard -- updating must
+        -- not hide a pet nameplate nobody asked us to hide. Once the toggle has
+        -- been set it owns them, off included.
+        local petChoice = p and p.showFriendlyPets
+        if petChoice ~= nil then
+            EllesmereUI.SetCVar("nameplateShowFriendlyPlayerMinions", petChoice and 1 or 0, "EllesmereUINameplates")
+            EllesmereUI.SetCVar("nameplateShowFriendlyMinions", petChoice and 1 or 0, "EllesmereUINameplates")
+            EllesmereUI.SetCVar("nameplateShowFriendlyPets", petChoice and 1 or 0, "EllesmereUINameplates")
+            EllesmereUI.SetCVar("UnitNameFriendlyMinionName", petChoice and 1 or 0, "EllesmereUINameplates")
+        end
         local showEnemyPets = (db.showEnemyPets == true)
         EllesmereUI.SetCVar("nameplateShowEnemyPets", showEnemyPets and 1 or 0, "EllesmereUINameplates")
         EllesmereUI.SetCVar("nameplateShowEnemyMinions", showEnemyPets and 1 or 0, "EllesmereUINameplates")
