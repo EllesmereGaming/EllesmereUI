@@ -1762,14 +1762,14 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
             spellValues["__any"] = "Any Cast (Sound Only)"
             spellOrder[#spellOrder + 1] = "__any"
             -- The stored selection can outlive its spell (removing the kick empties
-            -- assignedSpells, focusKickInterruptSpellID keeps pointing at it) and the
+            -- assignedSpells, the stored pick keeps pointing at it) and the
             -- dropdown would render the raw spell id. Give it a NAME but do NOT add it
             -- to spellOrder: it must not be selectable on a bar that no longer holds it.
-            -- Label it ONLY when this character can cast it: the id is profile-level but
-            -- the spellbook is per-spec, so a spec sharing the profile can inherit a pick
+            -- Label it ONLY when this character can cast it: the pick is per class but
+            -- the spellbook is per-spec, so a spec sharing the class can inherit a pick
             -- it can never use; unlabelled makes getValue below fall back to the bar's
             -- own contents.
-            local selSid = BD and BD() and BD().focusKickInterruptSpellID
+            local selSid = BD and BD() and ns.GetFocusKickPick(BD())
             if selSid and (not ns.ResolveCastableInterrupt
                 or ns.ResolveCastableInterrupt(selSid)) then
                 local selKey = tostring(selSid)
@@ -1797,8 +1797,8 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
               tooltip = "Pick your kick to play the sound only while it is off cooldown, or Any Cast (Sound Only) to play it on every enemy cast.\nLeave the bar above empty for a sound with no nameplate icon.",
               values = spellValues, order = spellOrder,
               getValue = function()
-                  if BD().focusCastSoundAnyCast == true then return "__any" end
-                  local sid = BD().focusKickInterruptSpellID
+                  local sid, anyCast = ns.GetFocusKickPick(BD())
+                  if anyCast then return "__any" end
                   if not sid then return spellOrder[1] end
                   -- No label means RebuildSpellOptions rejected it: either
                   -- this character cannot cast it, or it is not on the bar
@@ -1809,11 +1809,10 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                   return key
               end,
               setValue = function(v)
-                  BD().focusCastSoundAnyCast = (v == "__any") or nil
-                  if v == "__none" or v == "__any" then
-                      BD().focusKickInterruptSpellID = nil
+                  if v == "__any" then
+                      ns.SetFocusKickPick(BD(), "any")
                   else
-                      BD().focusKickInterruptSpellID = tonumber(v)
+                      ns.SetFocusKickPick(BD(), v ~= "__none" and tonumber(v) or nil)
                   end
                   if ns.RefreshFocusKickProxies then ns.RefreshFocusKickProxies() end
               end });  y = y - h
