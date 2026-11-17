@@ -2289,6 +2289,8 @@ local function CollectAndReanchor()
     -- WoW Forever: buff icons Blizzard draws without a timer
     -- (EUI_CDM_ForeverLinkedAura.lua).
     if ns.CDM_LinkedAuraPlaced then ns.CDM_LinkedAuraPlaced() end
+    -- Buff stacks on cooldown icons (EUI_CDM_CdBuffStacks.lua).
+    if ns.CDM_CdBuffStacksPlaced then ns.CDM_CdBuffStacksPlaced() end
     -- An override's range tint follows its spell onto the frame Blizzard
     -- gave it this time (EUI_CDM_Rotation.lua).
     if ns.ReapplyOverrideRanges then ns.ReapplyOverrideRanges() end

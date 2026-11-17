@@ -4516,6 +4516,39 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                     end } })
                 end
 
+                -- 4b3. Buff Stacks (per-spell, eligible spells only, default on): the
+                -- stack count of the spell's own buff on this cooldown icon, mirrored from
+                -- its item in Blizzard's buff viewers. Eligible: selfAura, no charges, and
+                -- the spell is in Blizzard's buff catalogue (ns.CdBuffStacksEligible).
+                -- Off saves false; unset is on. Runtime in EUI_CDM_CdBuffStacks.lua.
+                local bsKey = (type(spellID) == "string" and anchorFrame and anchorFrame._previewSpellID) or spellID
+                if ns.CdBuffStacksEligible and (ns.CdBuffStacksEligible(spellID) or ns.CdBuffStacksEligible(bsKey)) then
+                    local BUFF_STACKS_ITEMS = {
+                        { val = true,  label = "Show Buff Stacks",
+                          tooltip = "Shows the stack count of this spell's buff on the icon, e.g. blocks left on Shield Block. The buff must be displayed in Blizzard's Cooldown Manager buffs (icon or bar); it does not have to be on an EUI bar." },
+                        { val = false, label = "Off" },
+                    }
+                    MakeSubnavRow("Buff Stacks", BUFF_STACKS_ITEMS,
+                        function() return ss.showBuffStacks ~= false end,
+                        function(v)
+                            EnsureSS()
+                            if v then
+                                SetOwn("showBuffStacks", nil)
+                                -- A bar tier set to Off would turn the cleared key back to false.
+                                if ss.showBuffStacks == false then ss.showBuffStacks = true end
+                            else
+                                ss.showBuffStacks = false
+                            end
+                            if ns.QueueReanchor then ns.QueueReanchor() end
+                        end,
+                        function() return ss.showBuffStacks ~= false end,
+                        nil,
+                        { apply = { keys = { "showBuffStacks" },
+                                    write = function(t, v)
+                                        t.showBuffStacks = (v ~= false) and true or false
+                                    end } })
+                end
+
                 -- 4c. Audio Effect on CD Ready (cd/utility per-icon): play a sound the moment
                 -- the spell's real cooldown finishes. Same sound list + speaker preview as the
                 -- buff Audio rows/Focus Cast Sound (shared ns.FOCUSKICK_SOUND_* tables); stored
