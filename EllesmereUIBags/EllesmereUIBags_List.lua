@@ -904,7 +904,8 @@ end
 -- duplicate pinned items into a Pinned section at the top), slotView ("one" =
 -- OneBag, "multi" = MultiBag: bag sections in slot order like the grid),
 -- recent (recent itemID set: Recent section in slot views), recentOnly (the
--- Recent Items tab: every item in that one section, newest first), emptySlots
+-- Recent Items tab: every item in that one section, newest first), reagentView
+-- (the Reagent Bag tab's category index for categorized reagents), emptySlots
 -- (slot views: empty slots as rows; nil while searching).
 function ns.RenderListView(items, opts)
     local child = EUI_Bags._scrollChild
@@ -977,6 +978,8 @@ function ns.RenderListView(items, opts)
             end
             if opts.recentOnly then
                 Add("recent", "", d)
+            elseif opts.reagentView then
+                Add(opts.reagentView, "", d)
             elseif slotView then
                 Add(BagKey(d.bag), "", d)
             elseif view then

@@ -1385,9 +1385,10 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                 end
             end
 
-            -- Equip-set children don't render standalone in All Items (they fold
-            -- into their anchor's section), so hide/show doesn't apply to them.
-            if not cat.noMove and not cat.isEquipSet then
+            -- Equip-set children fold into their anchor in All Items. With
+            -- categorized reagents, the bag's items use their item sections.
+            if not cat.noMove and not cat.isEquipSet
+                and not (cat.isReagentBag and BP().bagCategorizeReagents == true) then
                 local catKey = cat._defaultName
                 local catHidden = hiddenSet[catKey]
                 rootDescription:CreateButton(catHidden and EllesmereUI.L("Show in All Items") or EllesmereUI.L("Hide in All Items"), function()
