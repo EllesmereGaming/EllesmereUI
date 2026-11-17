@@ -7,6 +7,9 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  needs ("Requires Mining (75)") and, when you can gather it, the color of
 --  your chance to raise your skill there, as recipes show it: orange, yellow,
 --  green, grey. The game's red stays when you cannot.
+--  skinning (off by default, in the cog): a skinnable corpse's "Skinnable"
+--  line gains the skill it needs, in the same colors. The need is worked out
+--  from the creature's level (Classic's rule), not read from game data.
 --
 --  World object tooltips carry no object ID, so a node is known by its name,
 --  in the client's language whatever the options language. A herb node bears
@@ -20,9 +23,9 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 local _, module = ...
 
 -- Settings live in EllesmereUIDB.gatherSkill; unset keys read these.
-local F = module.Feature("gatherSkill", { enabled = false })
+local F = module.Feature("gatherSkill", { enabled = false, skinning = false })
 
-local HERBALISM, MINING = 182, 186          -- skill lines
+local HERBALISM, MINING, SKINNING = 182, 186, 393  -- skill lines
 local HERBALISM_SPELL, MINING_SPELL = 2366, 2575
 
 -- Herb item ID = the skill its node needs.
@@ -142,6 +145,37 @@ local function OnObjectTooltip(tooltip, data)
     end
 end
 
+-- The skill a skinnable creature of that level needs.
+local function SkinningNeed(level)
+    if level <= 10 then return 1 end
+    if level <= 20 then return (level - 10) * 10 end
+    return level * 5
+end
+
+local function OnUnitTooltip(tooltip)
+    if tooltip ~= GameTooltip or not (F.Enabled() and F.Get("skinning")) then return end
+    local _, unit = tooltip:GetUnit()
+    if not unit or issecretvalue(unit) then return end
+    local level = UnitLevel(unit)
+    if issecretvalue(level) or level < 1 then return end
+    for i = 2, tooltip:NumLines() do
+        local fs = _G["GameTooltipTextLeft" .. i]
+        local text = fs and fs:GetText()
+        if text and not issecretvalue(text) and text == UNIT_SKINNABLE_LEATHER then
+            local need = SkinningNeed(level)
+            fs:SetText(("%s (%d)"):format(text, need))
+            local skill = Skill(SKINNING)
+            if skill and skill >= need then
+                fs:SetTextColor(OddsColor(skill, need))
+            else
+                fs:SetTextColor(1, 0.125, 0.125)
+            end
+            tooltip:Show()
+            return
+        end
+    end
+end
+
 -- The tooltip hook goes in the first time the setting is on; off, it returns
 -- at once and no event is registered.
 local function Apply()
@@ -161,6 +195,7 @@ local function Apply()
     -- Nothing to load where the names came in with the module's TOC.
     EllesmereUI.LoadGameNames()
     TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Object, OnObjectTooltip)
+    TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, OnUnitTooltip)
 end
 
 -- Options-page entry points.

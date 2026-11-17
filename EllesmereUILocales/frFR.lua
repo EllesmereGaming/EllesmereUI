@@ -6142,6 +6142,7 @@ L["Map Background Settings"] = "Paramètres du fond de carte"
 L["Clears the black bars beside the maximized map."] = "Rend transparentes les barres noires à côté de la carte agrandie."
 -- Gathering Skill in Tooltips (EllesmereUIForeverEssentials_GatherSkill.lua)
 L["Gathering Skill in Tooltips"] = "Compétence de récolte dans les infobulles"
+L["Also adds the skill a skinnable corpse needs to its tooltip."] = "Ajoute aussi la compétence qu'un corps dépeçable demande à son infobulle."
 L["Adds the skill a herb or ore node needs to its tooltip, colored by your chance to raise your skill there."] = "Ajoute la compétence requise à l'infobulle des herbes et des filons, colorée selon vos chances de progresser."
 L["Nameplate Icon"] = "Icône de barre d'info"
 L["Bars"] = "Barres"
