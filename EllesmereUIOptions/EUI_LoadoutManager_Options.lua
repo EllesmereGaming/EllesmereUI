@@ -81,7 +81,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     local TYPE_LAYOUT = { "party", "mplus", "raid", "timewalking", "scenario", "delve", "arena", "pvp", "world" }
     -- WoW Forever has dungeons, raids and battlegrounds only.
-    if EllesmereUI.IS_FOREVER then TYPE_LAYOUT = { "party", "raid", "pvp", "world" } end
+    if EllesmereUI.IS_FOREVER then TYPE_LAYOUT = { "party", "raid", "pvp", "world", "riding" } end
 
     -- Tooltips for the types whose label alone does not say where they
     -- apply; the others have none.
@@ -89,6 +89,7 @@ initFrame:SetScript("OnEvent", function(self)
         world       = "Applies when you leave an instance.",
         mplus       = "Mythic and Mythic+ dungeons.",
         timewalking = "Timewalking dungeons and raids.",
+        riding      = "Gear only. Worn while you are mounted in the open world; your previous gear comes back when you dismount.",
     }
 
     local INSTANCE_KIND = {
