@@ -8,48 +8,146 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  stacks (e.g. Shield Block on WoW Forever, which blocks two attacks) shows
 --  its cooldown but never how many stacks are left.
 --
---  Source: the same spell's item in Blizzard's buff viewers (BuffIcon /
---  BuffBar), which draws the count. Its Applications text is mirrored as
---  Blizzard sets it (hooksecurefunc on that FontString's SetText, and on its
---  frame's show state), so the copy is as live as Blizzard's own and a secret
---  count (aura restrictions, i.e. combat) goes straight to SetText, never
---  read. The buff must therefore be tracked in Blizzard's Cooldown Manager
---  buffs; it does not have to be shown on any EUI bar.
+--  Eligible spells only: the cooldown entry has selfAura and no charges (the
+--  copy sits in the stack text corner, where a charge number would overlap
+--  it), and Blizzard's buff catalogue (Tracked Buff / Tracked Bar, displayed
+--  or not) has an entry for the same spell. On by default for those; the
+--  per-spell setting showBuffStacks = false turns it off. Every other spell
+--  gets no menu row and no count.
+--
+--  Source: the same spell's item in Blizzard's buff viewers. BuffIcon items
+--  keep the count at item.Applications.Applications, BuffBar items at
+--  item.Icon.Applications. The text is mirrored as Blizzard sets it
+--  (hooksecurefunc on that FontString and its show state), so a secret count
+--  (aura restrictions) goes straight to SetText, never read.
+--
+--  Items are paired by cooldownID through GetCooldownViewerCooldownInfo, whose
+--  copy is never secret (the live frame.cooldownInfo can turn secret mid
+--  fight). Each pass shows only what an active buff item pushed and hides
+--  every other copy, so a re-pointed or vanished item never leaves a stale
+--  number.
 --
 --  The text is a FontString of ours on the icon's text overlay, keyed weakly
 --  by frame (no fields on Blizzard frames), styled with the bar's stack text
 --  settings (ns.StyleCustomChargeText).
 --
---  Stored per spell like every per-spell setting: showBuffStacks = true.
---  Cost: nothing until some saved spell has the setting. ns._cdmAnyCdBuffStacks
---  is set once by RescanCdBuffStacksFlag at setup, or by the menu on first use
---  (monotonic, like the other per-spell gates). Hooks are installed only on
---  buff items whose spell an enabled icon names.
+--  Cost: the pass runs at the end of every reanchor. It allocates nothing
+--  (file-level scratch, wiped per pass) and returns at once while no eligible
+--  spell exists, or none sits on a bar. Entry data is cached per cooldownID
+--  and dropped with the CDM spell caches (MarkCDMSpellCacheDirty: data load,
+--  hotfix, talents, rebuilds) and when Blizzard's CDM settings close; never
+--  in combat-frequent paths.
 -------------------------------------------------------------------------------
 local _, ns = ...
 local I = ns._hookInternals
 if not I or not I.GetViewerFrame then return end
 local GetViewerFrame, hookFrameData = I.GetViewerFrame, I.hookFrameData
 local IsSecret = EllesmereUI.IsSecret
+local CV = C_CooldownViewer
 
 -- cooldown frame -> our FontString
 local texts = setmetatable({}, { __mode = "k" })
--- spell ID -> { [cooldown frame] = true } for enabled icons, rebuilt per reanchor
-local wanted = {}
--- buff item frames hooked once (pooled frames are rebound: the spell is read
--- from the item at each push, never captured)
+-- buff item frames hooked once (pooled frames are rebound: the item's spell is
+-- looked up at each push, never captured)
 local hooked = setmetatable({}, { __mode = "k" })
+
+-- cooldownID -> entry spell / override spell (false: none), and whether the
+-- entry is a selfAura one without charges, from the API copy
+local spellA, spellB, selfNoCharge = {}, {}, {}
+-- Eligibility, built together: cooldown cooldownIDs and their spells
+local eligibleCd, eligibleSpell = {}, {}
+-- Scratch: buff catalogue spells, used only while building
+local catalogue = {}
+local built = false
+
+-- Enabled icons of the last pass: parallel arrays, reused (n = live count)
+local enFrame, enA, enB = {}, {}, {}
+local enN = 0
+-- Pass scratch: frames a shown buff item pushed this pass
+local pushed = {}
+local inPass = false
 
 local function PlainID(v)
     if type(v) == "number" and not IsSecret(v) and v > 0 then return v end
     return nil
 end
 
--- The spell IDs an item answers to: its entry spell and override.
-local function ItemSpells(frame)
-    local info = frame.cooldownInfo
-    if not info or IsSecret(info) then return nil, nil end
-    return PlainID(info.spellID), PlainID(info.overrideSpellID)
+local function Invalidate()
+    wipe(spellA); wipe(spellB); wipe(selfNoCharge)
+    wipe(eligibleCd); wipe(eligibleSpell)
+    built = false
+end
+
+-- The spells a cooldownID names (entry, override), cached.
+local function SpellsOf(cdID)
+    cdID = PlainID(cdID)
+    if not cdID then return nil, nil end
+    local a = spellA[cdID]
+    if a == nil then
+        local info = CV and CV.GetCooldownViewerCooldownInfo and CV.GetCooldownViewerCooldownInfo(cdID)
+        a = info and PlainID(info.spellID) or false
+        spellA[cdID] = a
+        spellB[cdID] = info and PlainID(info.overrideSpellID) or false
+        selfNoCharge[cdID] = (info and info.selfAura == true and not info.charges) or false
+    end
+    return a or nil, spellB[cdID] or nil
+end
+
+local function AddCatalogue(cat)
+    local ok, ids = pcall(CV.GetCooldownViewerCategorySet, cat, true)
+    if not ok or type(ids) ~= "table" then return end
+    for i = 1, #ids do
+        local a, b = SpellsOf(ids[i])
+        if a then catalogue[a] = true end
+        if b then catalogue[b] = true end
+    end
+end
+
+local function AddEligible(cat)
+    local ok, ids = pcall(CV.GetCooldownViewerCategorySet, cat, true)
+    if not ok or type(ids) ~= "table" then return end
+    for i = 1, #ids do
+        local cdID = PlainID(ids[i])
+        local a, b = SpellsOf(cdID)
+        if selfNoCharge[cdID] then
+            if (a and catalogue[a]) or (b and catalogue[b]) then
+                eligibleCd[cdID] = true
+                if a then eligibleSpell[a] = true end
+                if b then eligibleSpell[b] = true end
+            end
+        end
+    end
+end
+
+-- Build eligibility on first need after an invalidation. Not before
+-- Blizzard's CDM data has loaded (ns._cdmDataLoaded, EUI_CDM_Lifecycle.lua):
+-- until then the category sets are the static defaults, without the player's
+-- own tracked buffs, and a build would latch them. Lifecycle queues a
+-- reanchor when the data arrives, which builds it.
+local function EnsureBuilt()
+    if built or not ns._cdmDataLoaded then return end
+    local cats = Enum and Enum.CooldownViewerCategory
+    if not (cats and CV and CV.GetCooldownViewerCategorySet and CV.GetCooldownViewerCooldownInfo) then return end
+    built = true
+    wipe(catalogue)
+    AddCatalogue(cats.TrackedBuff)
+    AddCatalogue(cats.TrackedBar)
+    if next(catalogue) then
+        AddEligible(cats.Essential)
+        AddEligible(cats.Utility)
+    end
+    wipe(catalogue)
+end
+
+-- Whether the options menu offers the Buff Stacks row for this key: a spell
+-- ID, or a cooldownID-keyed "c<id>" slot.
+function ns.CdBuffStacksEligible(key)
+    EnsureBuilt()
+    if type(key) == "string" and string.byte(key, 1) == 99 then
+        local id = tonumber(key:sub(2))
+        return id and eligibleCd[id] or false
+    end
+    return (type(key) == "number" and eligibleSpell[key]) or false
 end
 
 local function TextFor(frame, barKey)
@@ -64,23 +162,49 @@ local function TextFor(frame, barKey)
     return fs
 end
 
--- Copy one buff item's count onto every enabled icon of its spell.
-local function Push(buff)
-    local a, b = ItemSpells(buff)
-    local set = (a and wanted[a]) or (b and wanted[b])
-    if not set then return end
+-- A buff item's count FontString and the frame holding it: BuffIcon items
+-- keep it at Applications.Applications, BuffBar items at Icon.Applications.
+local function CountOf(buff)
     local apps = buff.Applications
-    local afs = apps and apps.Applications
-    local shown = afs and buff:IsShown() and apps:IsShown() and afs:IsShown()
-    for frame in pairs(set) do
-        local fs = texts[frame]
-        if fs then
-            if shown then
-                -- Possibly secret: passed on untouched.
-                fs:SetText(afs:GetText())
-                fs:Show()
-            else
-                fs:Hide()
+    if apps and apps.Applications then return apps.Applications, apps end
+    local icon = buff.Icon
+    if icon and icon.Applications then return icon.Applications, icon end
+    return nil, nil
+end
+
+-- Whether an enabled icon names one of these spells.
+local function Wanted(a, b)
+    for i = 1, enN do
+        local ea, eb = enA[i], enB[i]
+        if (a and (a == ea or a == eb)) or (b and (b == ea or b == eb)) then return true end
+    end
+    return false
+end
+
+-- Copy one buff item's count onto every enabled icon of its spell. Inside a
+-- pass only a shown count is pushed (the pass hides the rest); a hook push
+-- between passes shows or hides.
+local function Push(buff)
+    if enN == 0 then return end
+    local a, b = SpellsOf(buff.cooldownID)
+    if not a and not b then return end
+    local afs, holder = CountOf(buff)
+    local shown = afs and buff:IsShown() and holder:IsShown() and afs:IsShown()
+    if inPass and not shown then return end
+    for i = 1, enN do
+        local ea, eb = enA[i], enB[i]
+        if (a and (a == ea or a == eb)) or (b and (b == ea or b == eb)) then
+            local frame = enFrame[i]
+            local fs = texts[frame]
+            if fs then
+                if shown then
+                    -- Possibly secret: passed on untouched.
+                    fs:SetText(afs:GetText())
+                    fs:Show()
+                    if inPass then pushed[frame] = true end
+                else
+                    fs:Hide()
+                end
             end
         end
     end
@@ -88,70 +212,80 @@ end
 
 local function Hook(buff)
     if hooked[buff] then return end
-    local apps = buff.Applications
-    local afs = apps and apps.Applications
+    local afs, holder = CountOf(buff)
     if not afs then return end
     hooked[buff] = true
     local function push() Push(buff) end
     hooksecurefunc(afs, "SetText", push)
     hooksecurefunc(afs, "Show", push)
     hooksecurefunc(afs, "Hide", push)
-    hooksecurefunc(apps, "Show", push)
-    hooksecurefunc(apps, "Hide", push)
-    if apps.SetShown then hooksecurefunc(apps, "SetShown", push) end
+    if afs.SetShown then hooksecurefunc(afs, "SetShown", push) end
+    hooksecurefunc(holder, "Show", push)
+    hooksecurefunc(holder, "Hide", push)
+    if holder.SetShown then hooksecurefunc(holder, "SetShown", push) end
     buff:HookScript("OnShow", push)
     buff:HookScript("OnHide", push)
 end
 
--- After every reanchor: enroll the enabled cooldown icons, then hook and push
--- the buff items of their spells.
+local function HideAll()
+    for _, fs in pairs(texts) do fs:Hide() end
+end
+
+-- After every reanchor: enroll the enabled cooldown icons, push the buff
+-- items of their spells, hide every copy nothing pushed.
 function ns.CDM_CdBuffStacksPlaced()
-    if not ns._cdmAnyCdBuffStacks then return end
-    wipe(wanted)
-    local any = false
-    local live = {}
+    EnsureBuilt()
+    if not next(eligibleCd) then
+        if enN > 0 then enN = 0; HideAll() end
+        return
+    end
+    enN = 0
+    local fcs = ns._ecmeFC
     for vi = 1, 2 do
         local vf = GetViewerFrame(vi)
         local pool = vf and vf.itemFramePool
         if pool and pool.EnumerateActive then
             for frame in pool:EnumerateActive() do
-                local ss = ns._ResolveCdmSS and ns._ResolveCdmSS(frame)
-                if ss and ss.showBuffStacks == true then
-                    local fc = ns._ecmeFC and ns._ecmeFC[frame]
-                    local fs = TextFor(frame, fc and fc.barKey)
-                    if fs then
-                        live[frame] = true
-                        local a, b = ItemSpells(frame)
-                        for _, sid in ipairs({ a, b }) do
-                            if sid then
-                                wanted[sid] = wanted[sid] or {}
-                                wanted[sid][frame] = true
-                                any = true
-                            end
+                local cdID = PlainID(frame.cooldownID)
+                local fc = cdID and eligibleCd[cdID] and fcs and fcs[frame]
+                if fc and fc.barKey then
+                    local ss = ns._ResolveCdmSS and ns._ResolveCdmSS(frame)
+                    if not (ss and ss.showBuffStacks == false) then
+                        local fs = TextFor(frame, fc.barKey)
+                        if fs then
+                            enN = enN + 1
+                            enFrame[enN] = frame
+                            enA[enN], enB[enN] = SpellsOf(cdID)
                         end
                     end
                 end
             end
         end
     end
-    -- Icons no longer enabled (setting cleared, frame rebound): blank.
-    for frame, fs in pairs(texts) do
-        if not live[frame] then fs:Hide() end
-    end
-    if not any then return end
+    -- Drop references past the live count.
+    for i = enN + 1, #enFrame do enFrame[i] = nil; enA[i] = nil; enB[i] = nil end
+    if enN == 0 then HideAll(); return end
+
+    wipe(pushed)
+    inPass = true
     for vi = 3, 4 do
         local vf = GetViewerFrame(vi)
         local pool = vf and vf.itemFramePool
         if pool and pool.EnumerateActive then
             for buff in pool:EnumerateActive() do
-                local a, b = ItemSpells(buff)
-                if (a and wanted[a]) or (b and wanted[b]) then
+                local a, b = SpellsOf(buff.cooldownID)
+                if (a or b) and Wanted(a, b) then
                     Hook(buff)
                     Push(buff)
                 end
             end
         end
     end
+    inPass = false
+    for frame, fs in pairs(texts) do
+        if not pushed[frame] then fs:Hide() end
+    end
+    wipe(pushed)
 end
 
 -- Restyle with the bar's stack text settings (RefreshCDMIconAppearance).
@@ -160,16 +294,11 @@ function ns.CdBuffStacksRestyle(frame, barKey)
     if fs and ns.StyleCustomChargeText then ns.StyleCustomChargeText(frame, barKey, fs) end
 end
 
--- Gate: set ns._cdmAnyCdBuffStacks once if any saved spell (any spec) or bar
--- tier has the setting. Same monotonic, scanned-once contract as the others.
-function ns.RescanCdBuffStacksFlag()
-    if ns._cdmAnyCdBuffStacks or ns._cdBuffStacksFlagScanned then return end
-    if not EllesmereUIDB or not ns.ForEachSavedSettingsBlock then return end
-    ns._cdBuffStacksFlagScanned = true
-    ns.ForEachSavedSettingsBlock(function(ss)
-        if rawget(ss, "showBuffStacks") == true then
-            ns._cdmAnyCdBuffStacks = true
-            return true
-        end
-    end)
+-- Cache drops: with the CDM spell caches (talents, data load, hotfix, rebuild)
+-- and when Blizzard's CDM settings close (tracked buffs may have changed).
+if ns.MarkCDMSpellCacheDirty then
+    hooksecurefunc(ns, "MarkCDMSpellCacheDirty", Invalidate)
+end
+if EventRegistry and EventRegistry.RegisterCallback then
+    EventRegistry:RegisterCallback("CooldownViewerSettings.OnHide", Invalidate, {})
 end
