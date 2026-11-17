@@ -71,7 +71,9 @@ end
 local function LayoutTotemBar()
     if not totemBarFrame or not TotemFrame then return end
     local tb = GetTotemSettings()
-    if not tb or not tb.enabledClasses then return end
+    -- Same per-class test as BuildTotemBar, so the Update hook leaves TotemFrame alone when off for this class
+    local _, classFile = UnitClass("player")
+    if not tb or not (tb.enabledClasses and tb.enabledClasses[classFile]) then return end
 
     local spacing = tb.spacing or 2
     local PP = EllesmereUI and EllesmereUI.PP
