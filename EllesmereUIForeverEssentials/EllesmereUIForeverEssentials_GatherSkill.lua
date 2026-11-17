@@ -7,6 +7,9 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  needs ("Requires Mining (75)") and, when you can gather it, the color of
 --  your chance to raise your skill there, as recipes show it: orange, yellow,
 --  green, grey. The game's red stays when you cannot.
+--  skinning (off by default, in the cog): a skinnable corpse's "Skinnable"
+--  line gains the skill it needs, in the same colors. The need is worked out
+--  from the creature's level (Classic's rule), not read from game data.
 --
 --  World object tooltips carry no object ID, so a node is known by its name,
 --  in the client's language whatever the options language. A herb node bears
@@ -20,9 +23,9 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 local _, module = ...
 
 -- Settings live in EllesmereUIDB.gatherSkill; unset keys read these.
-local F = module.Feature("gatherSkill", { enabled = false })
+local F = module.Feature("gatherSkill", { enabled = false, skinning = false })
 
-local HERBALISM, MINING = 182, 186          -- skill lines
+local HERBALISM, MINING, SKINNING = 182, 186, 393  -- skill lines
 local HERBALISM_SPELL, MINING_SPELL = 2366, 2575
 
 -- Herb item ID = the skill its node needs.
@@ -59,21 +62,27 @@ local nodes, hooked
 local missing = {}  -- herb item ID = true while its name is not loaded
 local events = CreateFrame("Frame")
 
+-- A node name as the lookup keys it: the client writes some apostrophes
+-- typographic (U+2019) and some straight, and the case of a word can differ.
+local function Key(name)
+    return (name:gsub("\226\128\153", "'"):lower())
+end
+
 local function AddHerb(itemID)
     local name = C_Item.GetItemNameByID(itemID)
     if not name then return false end
-    nodes[name] = { HERBALISM, HERBS[itemID] }
+    nodes[Key(name)] = { HERBALISM, HERBS[itemID] }
     return true
 end
 
 local function Build()
     nodes = {}
     for name, lvl in pairs(ORES) do
-        nodes[EllesmereUI.GameName(name)] = { MINING, lvl }
-        nodes[name] = { MINING, lvl }
+        nodes[Key(EllesmereUI.GameName(name))] = { MINING, lvl }
+        nodes[Key(name)] = { MINING, lvl }
     end
     for name, itemID in pairs(HERB_NODES) do
-        nodes[EllesmereUI.GameName(name)] = { HERBALISM, HERBS[itemID] }
+        nodes[Key(EllesmereUI.GameName(name))] = { HERBALISM, HERBS[itemID] }
     end
     for itemID in pairs(HERBS) do
         if not AddHerb(itemID) then
@@ -119,7 +128,7 @@ local function OnObjectTooltip(tooltip, data)
     local title = lines and lines[1] and lines[1].leftText
     if not title or issecretvalue(title) then return end
     if not nodes then Build() end
-    local node = nodes[title]
+    local node = nodes[Key(title)]
     if not node then return end
     local skillName = C_Spell.GetSpellName(node[1] == MINING and MINING_SPELL or HERBALISM_SPELL)
     if not skillName then return end
@@ -130,6 +139,37 @@ local function OnObjectTooltip(tooltip, data)
             fs:SetText(("%s (%d)"):format(text, node[2]))
             local skill = Skill(node[1])
             if skill and skill >= node[2] then fs:SetTextColor(OddsColor(skill, node[2])) end
+            tooltip:Show()
+            return
+        end
+    end
+end
+
+-- The skill a skinnable creature of that level needs.
+local function SkinningNeed(level)
+    if level <= 10 then return 1 end
+    if level <= 20 then return (level - 10) * 10 end
+    return level * 5
+end
+
+local function OnUnitTooltip(tooltip)
+    if tooltip ~= GameTooltip or not (F.Enabled() and F.Get("skinning")) then return end
+    local _, unit = tooltip:GetUnit()
+    if not unit or issecretvalue(unit) then return end
+    local level = UnitLevel(unit)
+    if issecretvalue(level) or level < 1 then return end
+    for i = 2, tooltip:NumLines() do
+        local fs = _G["GameTooltipTextLeft" .. i]
+        local text = fs and fs:GetText()
+        if text and not issecretvalue(text) and text == UNIT_SKINNABLE_LEATHER then
+            local need = SkinningNeed(level)
+            fs:SetText(("%s (%d)"):format(text, need))
+            local skill = Skill(SKINNING)
+            if skill and skill >= need then
+                fs:SetTextColor(OddsColor(skill, need))
+            else
+                fs:SetTextColor(1, 0.125, 0.125)
+            end
             tooltip:Show()
             return
         end
@@ -155,6 +195,7 @@ local function Apply()
     -- Nothing to load where the names came in with the module's TOC.
     EllesmereUI.LoadGameNames()
     TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Object, OnObjectTooltip)
+    TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, OnUnitTooltip)
 end
 
 -- Options-page entry points.

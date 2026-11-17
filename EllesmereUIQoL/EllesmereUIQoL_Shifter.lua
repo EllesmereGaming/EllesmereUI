@@ -253,6 +253,51 @@ local function PointFrac(p)
     return x, y
 end
 
+-- A window kept shown but anchored fully off screen, or shrunk below any
+-- Shifter zoom (SCALE_MIN), is hidden on purpose by other code: leave it be.
+local PARK_LIMIT = 10000
+local HIDDEN_SCALE = 0.05
+
+local function IsParked(frame)
+    local p, rel, rp, x, y = frame:GetPoint(1)
+    if not p or type(x) ~= "number" or type(y) ~= "number" then return false end
+    if issecretvalue(x) or issecretvalue(y) then return false end
+    if x >= PARK_LIMIT or x <= -PARK_LIMIT or y >= PARK_LIMIT or y <= -PARK_LIMIT then
+        return true
+    end
+    -- Only a UIParent anchor maps to a screen position without a layout walk.
+    if rel == nil then rel = frame:GetParent() end
+    if rel ~= UIParent then return false end
+    local es, ues = frame:GetEffectiveScale() or 1, UIParent:GetEffectiveScale() or 1
+    local sw, sh = (UIParent:GetWidth() or 0) * ues, (UIParent:GetHeight() or 0) * ues
+    if sw <= 0 or sh <= 0 then return false end
+    local w, h = (frame:GetWidth() or 0) * es, (frame:GetHeight() or 0) * es
+    local rx, ry = PointFrac(rp or p)
+    local px, py = PointFrac(p)
+    local left = rx * sw + x * es - px * w
+    local bottom = ry * sh + y * es - py * h
+    return left >= sw or left + w <= 0 or bottom >= sh or bottom + h <= 0
+end
+
+local function IsHiddenByScale(frame)
+    local s = frame:GetScale()
+    return type(s) == "number" and s < HIDDEN_SCALE
+end
+
+-- Tracks park edges on a foreign SetPoint and drops our screen clamp while
+-- parked (it would pull the window back). Returns parked, justReturned.
+local function SyncParkState(frame)
+    local ffd = GetFFD(frame)
+    local parked = IsParked(frame)
+    local was = ffd._shParked or false
+    if parked == was then return parked, false end
+    ffd._shParked = parked
+    if not Secured(frame) then
+        frame:SetClampedToScreen(not parked)
+    end
+    return parked, not parked
+end
+
 -- Whether a window placed at its saved position would overlap CharacterFrame
 -- (screen-absolute units, so Shifter scaling on either frame is accounted for).
 local function SavedPosOverlaps(frame, pos, cf)
@@ -279,6 +324,7 @@ end
 
 local function ApplyPosition(frame, name)
     if InCombatLockdown() and Secured(frame) then return end
+    if GetFFD(frame)._shParked then return end
     local pos = tempPos[frame] or GetSavedPos(name)
     if not pos or not pos.point then return end
     local ffd = GetFFD(frame)
@@ -334,6 +380,7 @@ end
 local function ApplyScale(frame, name)
     if InCombatLockdown() and Secured(frame) then return end
     local ffd = GetFFD(frame)
+    if ffd._shParked or IsHiddenByScale(frame) then return end
     local target = tempScale[frame] or GetSavedScale(name)
     if target then
         if ffd._shOrigScale == nil then ffd._shOrigScale = frame:GetScale() end
@@ -630,9 +677,11 @@ local function HookFrame(frame, name)
     -- SetPoint'd by insecure code (it taints them); they drag via the secure
     -- cursor-delta path above. SetMovable is only needed for StartMoving, so they
     -- skip it entirely.
+    ffd._shParked = IsParked(frame)
     if not Secured(frame) then
         frame:SetMovable(true)
-        frame:SetClampedToScreen(true)
+        -- No clamp on a parked window: it would pull it back into view.
+        frame:SetClampedToScreen(not ffd._shParked)
     end
 
     local dragging  -- non-protected only: "save" | "temp" | nil
@@ -734,6 +783,7 @@ local function HookFrame(frame, name)
             -- through the SecureSetPoint branch below; their strata/Raise
             -- touches are skipped in the OnShow/OnHide hooks (insecure writes
             -- taint a protected tree -- the PVEFrame SetMovable incident).
+            if ffd._shParked then return false end
             local cf = _G.CharacterFrame
             if not (cf and cf:IsShown() and (tempPos[cf] or GetSavedPos("CharacterFrame"))) then return false end
             local own = tempPos[frame] or GetSavedPos(name)
@@ -832,7 +882,7 @@ local function HookFrame(frame, name)
         end)
         frame:HookScript("OnShow", function()
             if not IsEnabled() then return end
-            if Secured(frame) then return end
+            if Secured(frame) or ffd._shParked then return end
             local cf = _G.CharacterFrame
             if cf and cf:IsShown() and (tempPos[cf] or GetSavedPos("CharacterFrame")) then
                 if liftStrata then frame:SetFrameStrata("DIALOG") end
@@ -842,10 +892,15 @@ local function HookFrame(frame, name)
     end
 
     hooksecurefunc(frame, "SetPoint", function()
-        if not IsEnabled() then return end
         if ffd._shIgnoreSP then return end
+        -- Ahead of the enable gate: our clamp outlives a mid-session disable.
+        local parked, returned = SyncParkState(frame)
+        if parked then return end
+        if not IsEnabled() then return end
         if secureDrag.frame == frame then return end  -- don't fight an active drag
         if InCombatLockdown() and Secured(frame) then return end
+        -- Back on screen: scale was left alone while parked, restore it first.
+        if returned then ApplyScale(frame, name) end
         if DockToCharacterFrame and ShouldDock() then
             DockToCharacterFrame()
             return

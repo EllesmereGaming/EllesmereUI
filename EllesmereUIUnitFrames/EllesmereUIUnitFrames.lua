@@ -2576,7 +2576,11 @@ local FOREVER_CLASS_POWER = {
 }
 
 local function ClassPowerEntry(playerClass)
-    if EllesmereUI.IS_FOREVER == true then return FOREVER_CLASS_POWER[playerClass] end
+    if EllesmereUI.IS_FOREVER == true then
+        -- Druid: no combo points until Cat Form is learned, so no empty row.
+        if EllesmereUI.ForeverDruidLacksCat() then return nil end
+        return FOREVER_CLASS_POWER[playerClass]
+    end
     return CLASS_POWER_TYPES[playerClass]
 end
 

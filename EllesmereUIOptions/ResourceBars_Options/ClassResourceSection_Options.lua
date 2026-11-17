@@ -89,7 +89,9 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 
     local _, h
     local function cfg() return ctx.cfg() end
-    local function classOff() local c = cfg(); return not (c and c.enabled) end
+    -- Forever druid without Cat Form: no combo points yet, so the section reads off.
+    local CatLocked = EllesmereUI.ForeverDruidLacksCat
+    local function classOff() local c = cfg(); return CatLocked() or not (c and c.enabled) end
 
     local hdr
     hdr, h = W:SectionHeader(parent, "CLASS RESOURCE BAR", y);  y = y - h
@@ -203,7 +205,9 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
     local classEnableRow
     classEnableRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Show Class Resource",
-          getValue = function() local c = cfg(); return c and c.enabled end,
+          disabled = CatLocked,
+          disabledTooltip = "Learn Cat Form to use combo points.", rawTooltip = true,
+          getValue = function() local c = cfg(); return not CatLocked() and c and c.enabled end,
           -- Rows below Row 1 are hidden while off, so the flip must force the full rebuild
           setValue = EllesmereUI.DependentSetValue(
               function() local c = cfg(); return c and c.enabled end,

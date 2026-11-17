@@ -11510,6 +11510,7 @@ L["unknown"] = "알 수 없음"
 L["pick a saved instance"] = "저장된 인스턴스를 선택하세요"
 L["nothing saved for %1$s"] = "%1$s 대상으로 저장된 구성 없음"
 L["Spec %s"] = "전문화: %s"
+L["Primary"] = "주 특성"
 L["Skipped %d talent loadout(s) that belong to other specializations."] = "다른 전문화에 속한 특성 구성 %d개를 건너뛰었습니다."
 L["DON'T MOVE - CHANGING TALENTS"] = "이동 금지 - 특성 변경 중"
 L["Wait until the loadout finishes."] = "특성 구성 적용이 완료될 때까지 기다리세요."
@@ -11547,6 +11548,7 @@ L["The selected talent loadout belongs to another specialization."] = "선택한
 L["Talent loadouts are not available yet."] = "특성 구성 기능을 아직 사용할 수 없습니다."
 L["The assigned talent loadout was not found for your current specialization."] = "현재 전문화에서 지정된 특성 구성을 찾을 수 없습니다."
 L["Talent swap held: a talent change is in progress."] = "특성 교체 보류: 특성 변경이 진행 중입니다."
+L["Talent swap held: you are moving or casting."] = "특성 교체 보류: 이동 중이거나 시전 중입니다."
 L["Talent swap held: you have unsaved talent changes."] = "특성 교체 보류: 저장하지 않은 특성 변경 사항이 있습니다."
 L["Talent loadout %s is already active."] = "특성 구성 '%s'이(가) 이미 활성화되어 있습니다."
 L["Talent swap skipped: another loadout has the same name. Rename one, then use Check Now."] = "특성 교체 건너뜀: 이름이 동일한 특성 구성이 있습니다. 이름을 변경한 뒤 '지금 확인'을 사용하세요."
@@ -14247,3 +14249,19 @@ L["Riptide is now one of the Core Healing Buffs, all three ranks, on by default.
 L["Missing Buffs (and AuraBuff Reminders' Raid Buffs) no longer remind you of Arcane Intellect on a member whose Elixir of Greater Intellect is stronger than the rank you can cast."] = "누락된 강화 효과(및 강화 효과 알림의 공격대 강화 효과)에서 파티원에게 적용된 상급 지능의 비약 효과가 자신이 시전할 수 있는 신비한 지능 등급보다 높을 때 더 이상 알림을 표시하지 않습니다."
 L["Pinging the health or power bar of the EllesmereUI player frame now calls out your health or mana, as on Blizzard's player frame. The portrait still pings your name."] = "이제 블리자드 기본 플레이어 프레임과 동일하게 EllesmereUI 플레이어 프레임의 생명력 바나 자원 바에 핑을 찍으면 자신의 생명력이나 마나 상태를 알립니다. 초상화에 핑을 찍으면 기존처럼 캐릭터 이름을 알립니다."
 L["German, Spanish and Traditional Chinese translations updated, and the Export Profile and Import Profile popups now show their title and hint in your language."] = "독일어, 스페인어 및 중국어 번체 번역을 업데이트했으며, 프로필 내보내기 및 프로필 가져오기 팝업의 제목과 안내 문구가 설정된 언어로 표시됩니다."
+
+-- ============================================================================
+-- v9.8.8 패치 노트 (Patch Notes v9.8.8)
+-- ============================================================================
+-- 주요 기능 (Features)
+L["Rested Indicator on the Portrait"] = "초상화에 휴식 표시기 표시"
+L["A new Anchor choice in the Rested Indicator's settings puts the ZZZ or the animated icon on your portrait instead of the health bar"] = "휴식 표시기의 새 기준점 옵션으로 ZZZ 또는 움직이는 아이콘을 생명력 바 대신 초상화에 표시할 수 있습니다"
+
+-- 수정 사항 (Fixes)
+L["The inspect window's Talents and Transmog buttons are now translated."] = "살펴보기 창의 '특성' 및 '형상변환' 버튼이 이제 설정된 언어로 표시됩니다."
+L["ForeverAuras is no longer listed as incompatible with the Cooldown Manager."] = "ForeverAuras가 재사용 대기시간 관리자와 호환되지 않는 애드온 목록에서 제외되었습니다."
+L["Micro Menu buttons are now clickable across the bar's whole height and on their Guild and Friends counts, not only on the icon itself."] = "이제 게임 메뉴 버튼은 아이콘뿐 아니라 바 높이 전체와 길드 및 친구 인원수 표시 영역에서도 클릭할 수 있습니다."
+L["An elite or rare mob that is also a quest mob now shows both its elite/rare mark and its quest icon, side by side; before, the quest icon replaced the mark."] = "정예 또는 희귀 몬스터가 퀘스트 대상이기도 하면 이제 정예 또는 희귀 표시와 퀘스트 아이콘이 나란히 표시됩니다. 이전에는 퀘스트 아이콘이 정예 또는 희귀 표시를 대신했습니다."
+L["The raid marker on friendly nameplates now follows the X and Y offsets of its position, as it already did on enemy nameplates."] = "이제 우호적 이름표의 공격대 징표에도 적대적 이름표와 마찬가지로 설정한 X 및 Y 위치 오프셋이 적용됩니다."
+L["The Target Distance text, the Combat, Potion Ready, Unspent Talents and Group Death alerts, the Durability Warning and the Rested Indicator now follow your profile, with their settings and positions, instead of being shared by every profile."] = "이제 대상 거리 글자, 전투, 물약 준비 완료, 미사용 특성 및 파티 사망 알림, 내구도 경고와 휴식 표시기의 설정과 위치가 모든 프로필에 공유되지 않고 현재 프로필에 따라 적용됩니다."
+L["Korean and Traditional Chinese translations updated."] = "한국어 및 중국어 번체 번역을 업데이트했습니다."

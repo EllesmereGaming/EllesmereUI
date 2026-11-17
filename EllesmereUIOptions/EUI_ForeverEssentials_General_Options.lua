@@ -247,7 +247,8 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         EllesmereUI.RegisterWidgetRefresh(cwRefresh)
     end
 
-    _, h = W:DualRow(parent, y,
+    local rewardRow
+    rewardRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Most Valuable Quest Reward",
           tooltip = "Among a quest's reward choices, a money bag marks the one that sells for most, its count included.",
           getValue = function() return QR.Get("enabled") end,
@@ -261,8 +262,25 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
           setValue = function(v)
               GS.Cfg().enabled = v
               GS.Apply()
+              EllesmereUI:RefreshPage()  -- the cog's disabled state
           end }
     );  y = y - h
+    do
+        EllesmereUI.BuildInlineCog(rewardRow._rightRegion, {
+            title = "Gathering Skill in Tooltips",
+            rows = {
+                { type = "toggle", label = "Skinning",
+                  tooltip = "Also adds the skill a skinnable corpse needs to its tooltip.",
+                  get = function() return GS.Get("skinning") end,
+                  set = function(v)
+                      GS.Cfg().skinning = v
+                      GS.Apply()
+                  end },
+            },
+            disabled = function() return not GS.Get("enabled") end,
+            disabledTooltip = "Gathering Skill in Tooltips",
+        })
+    end
 
     -- Auto Summon Pet | Favorites per Character
     -- (EllesmereUIForeverEssentials_PetSummon.lua), while the Pet Journal exists.
@@ -644,6 +662,14 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
                 }
                 _, h = W:DualRow(parent, y, offL, offR);  y = y - h
             end
+
+            _, h = W:DualRow(parent, y,
+                { type = "slider", text = "Opacity",
+                  min = 5, max = 100, step = 1, isPercent = false,
+                  getValue = function() return AF.Get("opacity") end,
+                  setValue = function(v) AFSet("opacity", v) end },
+                BLANK()
+            );  y = y - h
         end
     end
 

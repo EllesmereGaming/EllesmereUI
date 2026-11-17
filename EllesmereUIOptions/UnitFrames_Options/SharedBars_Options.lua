@@ -2625,7 +2625,10 @@ function ns.UFO_BuildClassResourceSection(parent, y, ctx)
     -- style builds a saved "blizzard" as modern, and a rogue under the
     -- EllesmereUI look reads its own style (ns.UF_ForeverCPStyle, nil
     -- elsewhere). Display and gating only; writes and syncs keep the saved value.
+    -- Forever druid without Cat Form: nothing builds, so the row reads None.
+    local CatLocked = EllesmereUI.ForeverDruidLacksCat
     local function SCPStyle()
+        if CatLocked() then return "none" end
         local v = SValSupported("classPowerStyle", "none")
         if ns.UF_ForeverCPStyle then v = ns.UF_ForeverCPStyle(v) end
         return v
@@ -2634,6 +2637,8 @@ function ns.UFO_BuildClassResourceSection(parent, y, ctx)
     -- Row 1: Enable Class Resource + Class Colors (with inline swatch)
     sharedClassResRow, h = W:DualRow(parent, y,
         { type="dropdown", text="Enable Class Resource", values=classPowerStyleValues, order=classPowerStyleOrder,
+          disabled=CatLocked,
+          disabledTooltip="Learn Cat Form to use combo points.", rawTooltip=true,
           -- Forever ships no class resource bar that can be re-parented: the
           -- per-class globals the Blizzard style adopts are all Mainline-only.
           -- Under the WoW Forever style the entry is the combo point arc
