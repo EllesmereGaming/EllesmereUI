@@ -1,9 +1,9 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 -- EllesmereUIQoL_SelfCombatText.lua
--- Self combat text (damage taken, heals received, avoids, combat enter/leave)
--- drawn above the player frame in place of Blizzard's WorldFrame-pinned
--- scrolling text.
+-- Self combat text (damage taken, heals received, avoids, power gains, combat
+-- enter/leave) drawn above the player frame in place of Blizzard's
+-- WorldFrame-pinned scrolling text.
 --
 -- Blizzard's CombatText frame is only hidden, never written to: its OnEvent
 -- bails while hidden. Event data from C_CombatText.GetCurrentEventInfo is
@@ -21,6 +21,7 @@ local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
 -- WoW Forever: no number under 10,000 abbreviates (EllesmereUI_NumberFormat.lua)
 local AbbreviateNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateNumbers) or AbbreviateNumbers
+local issecretvalue = issecretvalue or function() return false end
 
 local POOL_SIZE  = 12
 local FADE_FRAC  = 0.3   -- fade over the last 30% of the scroll
@@ -39,11 +40,12 @@ local DEFAULTS = {
     outline = "OUTLINE",   -- NONE | OUTLINE | THICKOUTLINE
     shadow = false,
     abbreviate = false,
-    damage = true, heal = true, avoid = true, combat = true,
+    damage = true, heal = true, avoid = true, combat = true, power = false,
     damageColor = { r = 1,   g = 0.1, b = 0.1 },
     healColor   = { r = 0.1, g = 1,   b = 0.1 },
     avoidColor  = { r = 1,   g = 1,   b = 1   },
     combatColor = { r = 1,   g = 0.1, b = 0.1 },
+    powerColor  = { r = 0.1, g = 0.1, b = 1   },
 }
 
 -- type -> isCrit
@@ -60,6 +62,7 @@ local AVOID = {
     "MISS", "DODGE", "PARRY", "EVADE", "IMMUNE", "DEFLECT", "REFLECT", "RESIST", "BLOCK", "ABSORB",
 }
 local avoidLabel = {}
+local ENERGIZE = { ENERGIZE = true, PERIODIC_ENERGIZE = true }
 
 -- Fountain arc: quarter circle of radius 1, x toward the side, y along the scroll
 local ARC = { { 0.134, 0.5 }, { 0.5, 0.866 }, { 1, 1 } }
@@ -121,8 +124,10 @@ local function ReadSettings()
     S.dy = Get("direction") == "down" and -S.rise or S.rise
     S.stagger, S.abbreviate = Get("stagger"), Get("abbreviate")
     S.damage, S.heal, S.avoid, S.combat = Get("damage"), Get("heal"), Get("avoid"), Get("combat")
+    S.power = Get("power")
     S.damageColor, S.healColor = Get("damageColor"), Get("healColor")
     S.avoidColor, S.combatColor = Get("avoidColor"), Get("combatColor")
+    S.powerColor = Get("powerColor")
 end
 
 -------------------------------------------------------------------------------
@@ -269,7 +274,8 @@ local function ClearLane(lane, h)
 end
 
 -- Round-robin pool: a burst past POOL_SIZE restarts the oldest message.
-local function Emit(fmt, value, c, crit)
+-- `label` is an optional, never secret, second format argument.
+local function Emit(fmt, value, c, crit, label)
     nextIdx = nextIdx % POOL_SIZE + 1
     local fs = pool[nextIdx]
     fs.ag:Stop()
@@ -298,7 +304,11 @@ local function Emit(fmt, value, c, crit)
         fs:SetFont(S.font, crit and S.critSize or S.size, S.flags)
     end
     fs:SetTextColor(c.r, c.g, c.b)
-    fs:SetFormattedText(fmt, value)
+    if label then
+        fs:SetFormattedText(fmt, value, label)
+    else
+        fs:SetFormattedText(fmt, value)
+    end
     fs:SetAlpha(1)
     fs:Show()
     fs.ag:Play()
@@ -312,6 +322,23 @@ end
 
 local function SetUnit()
     C_CombatText.SetActiveUnit(UnitHasVehicleUI("player") and "vehicle" or "player")
+end
+
+-- A power token's localized name (MANA -> "Mana"); nil when the token is secret
+-- or names no string, and the gain then shows without one.
+local function PowerLabel(token)
+    if issecretvalue(token) or type(token) ~= "string" then return nil end
+    local name = _G[token]
+    if type(name) == "string" then return name end
+end
+
+-- data = amount, arg3 = power token. A known amount of zero or less is no gain;
+-- a secret one cannot be compared, so it always shows.
+local function EmitPower()
+    local amount, token = C_CombatText.GetCurrentEventInfo()
+    if not issecretvalue(amount) and not ((amount and tonumber(amount) or 0) > 0) then return end
+    local label = PowerLabel(token)
+    Emit(label and "+%s %s" or "+%s", FormatAmount(amount), S.powerColor, false, label)
 end
 
 local function OnEvent(_, event, arg1, arg2)
@@ -332,7 +359,11 @@ local function OnEvent(_, event, arg1, arg2)
             return
         end
         local label = S.avoid and avoidLabel[arg1]
-        if label then Emit("%s", label, S.avoidColor, false) end
+        if label then
+            Emit("%s", label, S.avoidColor, false)
+        elseif S.power and ENERGIZE[arg1] then
+            EmitPower()
+        end
     elseif event == "PLAYER_REGEN_DISABLED" then
         Emit("%s", _G.ENTERING_COMBAT or "+Combat", S.combatColor, false)
     elseif event == "PLAYER_REGEN_ENABLED" then
@@ -351,7 +382,7 @@ end
 
 -- Registers only the events the enabled categories need.
 local function UpdateEvents()
-    if S.damage or S.heal or S.avoid then
+    if S.damage or S.heal or S.avoid or S.power then
         ev:RegisterEvent("COMBAT_TEXT_UPDATE")
         ev:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
         ev:RegisterUnitEvent("UNIT_EXITING_VEHICLE", "player")
