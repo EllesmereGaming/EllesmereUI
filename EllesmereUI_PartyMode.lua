@@ -541,12 +541,9 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
     elseif event == "PVP_MATCH_COMPLETE" then
         local winner = ...
         if not EllesmereUIDB then return end
-        -- Determine if the player's faction won
-        local playerFaction = UnitFactionGroup("player")
-        local playerWon = false
-        if playerFaction == "Horde" and winner == 0 then playerWon = true end
-        if playerFaction == "Alliance" and winner == 1 then playerWon = true end
-        if not playerWon then return end
+        -- winner is a team index; compare it to the player's team, not faction
+        local myTeam = GetBattlefieldArenaFaction and GetBattlefieldArenaFaction()
+        if myTeam == nil or winner ~= myTeam then return end
         -- Check which type of rated PvP
         local triggered = false
         if C_PvP and C_PvP.IsRatedBattleground and C_PvP.IsRatedBattleground() and EllesmereUIDB.partyModeTriggerRatedBG then
