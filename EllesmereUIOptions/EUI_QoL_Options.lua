@@ -375,6 +375,12 @@ local function BuildSelfCombatTextSection(parent, y)
     sctSwatch(sctRow3._leftRegion, "avoid", "avoidColor", "Show Avoidance")
     sctSwatch(sctRow3._rightRegion, "combat", "combatColor", "Show Combat Enter/Leave")
 
+    local sctRow4
+    sctRow4, h = W:DualRow(parent, y,
+        sctToggle("Show Power Gains", "power"),
+        EllesmereUI.BlankRowCfg());  y = y - h
+    sctSwatch(sctRow4._leftRegion, "power", "powerColor", "Show Power Gains")
+
     return y
 end
 
