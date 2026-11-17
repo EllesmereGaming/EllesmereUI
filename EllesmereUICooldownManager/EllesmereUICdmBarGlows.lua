@@ -592,21 +592,45 @@ end
 -- replaced ability and a spell change rebind them. The CDM event frame
 -- (EUI_CDM_Events.lua) already receives those events and calls
 -- ns.QueueBarGlowRebind while ns._barGlowRebindOn is set; bursts fold into one
--- pass after the secure action-bar state settles. No events of our own, no
--- frame until first needed.
+-- pass on the next frame. No events of our own, no frame until first needed.
+--
+-- A page swap with Action Bars loaded rebinds from the bars' own page edge
+-- instead (their "state-page" write, after _onstate-page has moved the
+-- buttons): the page events fire before the state driver applies the page, so
+-- a scan queued from them can still read the old one. The edge covers forms,
+-- stances, stealth, vehicle, override and custom paging alike. The hooks go in
+-- the first time an ability glow arms the rebind.
 local rebindFlush
-local rebindFrames
+local REBIND_EDGE_BARS = {
+    "EABBar_MainBar", "EABBar_Bar2", "EABBar_Bar3", "EABBar_Bar4",
+    "EABBar_Bar5", "EABBar_Bar6", "EABBar_Bar7", "EABBar_Bar8",
+}
+local REBIND_PAGE_EVENTS = {
+    ACTIONBAR_PAGE_CHANGED = true, UPDATE_BONUS_ACTIONBAR = true, UPDATE_SHAPESHIFT_FORM = true,
+}
+local rebindEdgeHooked = {}
+local function OnRebindBarAttributeChanged(_, name)
+    -- Runs inside the state driver's secure pass: only queue the rebind.
+    if name == "state-page" and ns._barGlowRebindOn then rebindFlush:Show() end
+end
+local function HookRebindPageEdges()
+    for i = 1, #REBIND_EDGE_BARS do
+        local barName = REBIND_EDGE_BARS[i]
+        if not rebindEdgeHooked[barName] then
+            local f = _G[barName]
+            if f then
+                rebindEdgeHooked[barName] = true
+                f:HookScript("OnAttributeChanged", OnRebindBarAttributeChanged)
+            end
+        end
+    end
+end
 local function SyncRebindEvents(on)
     ns._barGlowRebindOn = on or nil
     if on and not rebindFlush then
-        rebindFrames = 0
         rebindFlush = ns.TakeShell()
         rebindFlush:Hide()
         rebindFlush:SetScript("OnUpdate", function(self)
-            if rebindFrames > 0 then
-                rebindFrames = rebindFrames - 1
-                return
-            end
             self:Hide()
             local bg = _cachedBG
             if not bg or not bg.enabled then return end
@@ -615,8 +639,8 @@ local function SyncRebindEvents(on)
         end)
     elseif not on and rebindFlush then
         rebindFlush:Hide()
-        rebindFrames = 0
     end
+    if on then HookRebindPageEdges() end
 end
 
 -- A slot change only matters when the slot holds, or held at the last scan, an ability
@@ -630,11 +654,12 @@ function ns.QueueBarGlowRebind(event, slot)
         local was = slotBase[slot]
         slotBase[slot] = now
         if not ((now and glowedAbilities[now]) or (was and glowedAbilities[was])) then return end
+    elseif REBIND_PAGE_EVENTS[event] then
+        -- The page edge rebinds once the page is applied; the event only does
+        -- it without Action Bars. A bar built since arming is hooked here.
+        HookRebindPageEdges()
+        if rebindEdgeHooked.EABBar_MainBar then return end
     end
-    -- Secure action-bar paging can update the button attributes after the
-    -- event that announces the page change. Wait through two frames so the
-    -- scan binds against the new stance/form contents, not the old page.
-    rebindFrames = 2
     rebindFlush:Show()
 end
 
