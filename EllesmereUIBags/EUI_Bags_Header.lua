@@ -458,7 +458,7 @@ local function CreateHeader()
 
             if #items == 0 then return false end
 
-            EUI_CategoryManager:ClassifyAll(items)
+            EUI_CategoryManager:ClassifyAll(items, true)
             local cats = EUI_CategoryManager:GetCategories()
             local sectionOrder = {}
             local ord = 0

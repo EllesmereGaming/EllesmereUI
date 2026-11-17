@@ -674,6 +674,17 @@ initFrame:SetScript("OnEvent", function(self)
                   end }
             ); y = y - h
 
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Categorize Reagent Bag Items",
+                  tooltip="Show reagent bag items in their item categories in All Items.",
+                  getValue=function() return db.profile.bagCategorizeReagents == true end,
+                  setValue=function(v)
+                      db.profile.bagCategorizeReagents = v
+                      if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                  end },
+                EllesmereUI.BlankRowCfg()
+            ); y = y - h
+
             if anyGrid then
                 ---------------------------------------------------------------------------
                 --  DISPLAY (GRID / COMPACT)
