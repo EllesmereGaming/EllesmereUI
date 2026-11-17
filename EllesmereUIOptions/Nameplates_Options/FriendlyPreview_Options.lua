@@ -63,6 +63,10 @@ local function NewSample()
     local bg = s.health:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0.12, 0.12, 0.12, 1)
+    -- Read as a plate by the live stock-style builders (PaintBar): the bar's
+    -- background, and the unit whose level the level art shows.
+    s.healthBG = bg
+    s.unit = "player"
     s.border = NewFrame("Frame", nil, s.health)
     s.border:SetAllPoints()
     s.hpText = s.health:CreateFontString(nil, "OVERLAY")
@@ -110,8 +114,9 @@ end
 -- texture, the enemy plates' Basic or custom border, the percent text and the
 -- name's size and lift (mirrors the friendly plate pool's build with its
 -- plate:ApplyBorder, FriendlyFrame:UpdateHealth and the anchors of
--- FriendlyFrame:UpdateSubText). The stock styles' plate art and Corner Radius
--- are not drawn. guild: a guild line sits between the name and the bar.
+-- FriendlyFrame:UpdateSubText). Under a stock style the live builders draw
+-- its art on the sample; Corner Radius is not drawn. guild: a guild line sits
+-- between the name and the bar.
 -- Returns the plate's height.
 local function PaintBar(s, DBVal, guild)
     local w, h = ns.GetFriendlyHealthBarWidth(), ns.GetFriendlyHealthBarHeight()
@@ -138,6 +143,20 @@ local function PaintBar(s, DBVal, guild)
         EllesmereUI.ApplyBorderStyle(bf, ns.NP_BorderSize(), r, g, b, 1, "solid")
     else
         EllesmereUI.ApplyBorderStyle(bf, 0)
+    end
+    -- The stock styles (Global Settings > Style, latched for the session as on
+    -- the live plates, where both border tests above read false): the art the
+    -- friendly plate's ApplyHealthBarTexture, ApplyBorder and selection pass
+    -- give it, through the same builders.
+    local style = ns.NP_Style()
+    if style == "blizzard" then
+        ns.NP_ApplyBlizzBarArt(s)
+        ns.NP_ApplyBlizzSelection(s, false)
+        s.hpText:SetDrawLayer("OVERLAY", 7)
+        -- WoW Forever: the level box right of the bar.
+        if ns.NP_Forever() then ns.NP_ApplyForeverLevelBox(s, h) end
+    elseif style == "classic" then
+        ns.NP_ApplyClassicHealthArt(s, h)
     end
     ns.SetFSFont(s.hpText, 10, "OUTLINE, SLUG")
     s.hpText:SetText(DBVal("friendlyHideHealthText") and "" or "100%")
