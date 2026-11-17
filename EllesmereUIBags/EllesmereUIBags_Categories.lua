@@ -898,8 +898,13 @@ end
 function CategoryManager:AddToGroup(catIndex, groupName)
     local cats = self:GetCategories()
     if not cats[catIndex] or not groupName then return end
+    -- A hand-named or built-in group keeps its name; the new member takes the flag
+    local custom = self:IsGroupNameCustom(groupName)
     cats[catIndex].groupName = groupName
-    self:RegenerateGroupName(groupName)
+    cats[catIndex].groupNameCustom = custom or nil
+    if not custom then
+        self:RegenerateGroupName(groupName)
+    end
     self:SaveState()
 end
 

@@ -806,7 +806,7 @@ function EUI_Bags:RefreshInventory()
     local showRecent = BP().bagShowRecentItems ~= false
     if recentCatIdx and EUI_Bags._recentItems and showRecent then
         for _, data in ipairs(tempItems) do
-            if not data._pinnedOnly and data.info and data.info.itemID and EUI_Bags._recentItems[data.info.itemID] then
+            if not data._pinnedOnly and EUI_Bags.IsRecentEntry(data) then
                 recentCount = recentCount + 1
             end
         end
@@ -863,7 +863,7 @@ function EUI_Bags:RefreshInventory()
         if offlineUp then
             show = false  -- the offline panel covers these
         elseif isRecentView then
-            show = data.info and data.info.itemID and EUI_Bags._recentItems and EUI_Bags._recentItems[data.info.itemID]
+            show = EUI_Bags._recentItems and EUI_Bags.IsRecentEntry(data)
         elseif isPinnedView then
             show = data.info and data.info.itemID and pinnedSet and IsItemPinned(pinnedSet, data.itemLink, data.info.itemID)
         elseif reagentView then
@@ -890,7 +890,7 @@ function EUI_Bags:RefreshInventory()
         -- then). An item whose link has not loaded is not offered either and stays
         -- unstamped (_vg nil): it is not drawn, as in All Items.
         local keepPin = view.keepPinned and showPinned and pinnedSet or nil
-        local keepRec = view.keepRecent and showRecent and EUI_Bags._recentItems or nil
+        local keepRec = view.keepRecent and showRecent and EUI_Bags._recentItems ~= nil
         local junkCat = EUI_CategoryManager:GetCategories()[EUI_CategoryManager._junkCatIdx or 0]
         local junkSection = not (junkCat and EUI_CategoryManager:IsCategoryOff(junkCat, BP().bagDisabledCategories))
         for _, data in ipairs(displayItems) do
@@ -905,7 +905,7 @@ function EUI_Bags:RefreshInventory()
                     or EUI_CategoryManager:ClassifyView(view, link, itemID, data.bag, data.slot, quality)
                 data._vgPin = keepPin and itemID and IsItemPinned(keepPin, link, itemID) or nil
                 data._vgOnly = data._vgPin and data._pinnedOnly or nil
-                data._vgRec = keepRec and itemID and not data._pinnedOnly and keepRec[itemID] and true or nil
+                data._vgRec = keepRec and not data._pinnedOnly and EUI_Bags.IsRecentEntry(data) or nil
             else
                 data._vg, data._vgJunk, data._vgPin, data._vgOnly, data._vgRec = nil, nil, nil, nil, nil
             end

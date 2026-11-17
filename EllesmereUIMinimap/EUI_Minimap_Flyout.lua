@@ -135,7 +135,7 @@ end
 
 local function GetMinimapButtonLabel(btn)
     local name = btn:GetName() or ""
-    return name:gsub("^LibDBIcon10_", ""):gsub("^Lib_GPI_Minimap_", ""):gsub("MinimapButton$", ""):gsub("_MinimapButton$", "")
+    return name:gsub("^LibDBIcon10_", ""):gsub("^Lib_GPI_Minimap_", ""):gsub("_MinimapButton$", ""):gsub("MinimapButton$", "")
 end
 
 local function CollectFlyoutButtons()

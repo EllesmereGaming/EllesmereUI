@@ -560,7 +560,11 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="toggle", label="New Items Only",
                           tooltip="Only lists items you were not already carrying. Gear, mail and trades always list.",
                           get=function() return db.profile.bagRecentNewOnly == true end,
-                          set=function(v) db.profile.bagRecentNewOnly = v end },
+                          set=function(v)
+                              db.profile.bagRecentNewOnly = v
+                              if v and _G.EUI_Bags and _G.EUI_Bags.SeedRecentCopies then _G.EUI_Bags.SeedRecentCopies() end
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
                     },
                 })
             end

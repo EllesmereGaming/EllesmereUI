@@ -515,7 +515,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
                 -- the id > 0 filter needs the value, so a secret id goes in whole.
                 if spID and (IsSecret(spID) or spID > 0) then spIcon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spID) end
                 if not spIcon then spIcon = 135274 end
-                b.spellIcon:SetTexture(spIcon); b.spellIcon:Show()
+                b.spellIcon:SetTexture(spIcon); b.spellIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92); b.spellIcon:Show()
                 b.fill:ClearAllPoints(); b.fill:SetPoint("TOPLEFT", b.spellIcon, "TOPRIGHT", 0, 0); b.fill:SetPoint("BOTTOMRIGHT", b.row, "BOTTOMRIGHT", 0, 0)
                 -- HP fill: plain numbers keep the Lua-computed fraction; secret
                 -- ones go to the StatusBar whole, which divides engine-side.
@@ -666,13 +666,13 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
                     local ok, spIcon = pcall(getTex, spID)
                     if ok and type(spIcon) ~= "nil" then
                         hasIcon = true
-                        b.spellIcon:SetTexture(spIcon); b.spellIcon:Show()
+                        b.spellIcon:SetTexture(spIcon); b.spellIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92); b.spellIcon:Show()
                     end
                 else
                     local spIcon = getTex(spID)
                     if spIcon then
                         hasIcon = true
-                        b.spellIcon:SetTexture(spIcon); b.spellIcon:Show()
+                        b.spellIcon:SetTexture(spIcon); b.spellIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92); b.spellIcon:Show()
                     end
                 end
             end

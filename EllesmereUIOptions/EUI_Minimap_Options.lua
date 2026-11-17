@@ -702,7 +702,7 @@ initFrame:SetScript("OnEvent", function(self)
                 for _, btn in ipairs(btns) do
                     local name = btn:GetName()
                     if name and vis[btn] ~= false then
-                        local label = name:gsub("^LibDBIcon10_", ""):gsub("^Lib_GPI_Minimap_", ""):gsub("MinimapButton$", ""):gsub("_MinimapButton$", "")
+                        local label = name:gsub("^LibDBIcon10_", ""):gsub("^Lib_GPI_Minimap_", ""):gsub("_MinimapButton$", ""):gsub("MinimapButton$", "")
                         items[#items + 1] = { key = name, label = label }
                     end
                 end

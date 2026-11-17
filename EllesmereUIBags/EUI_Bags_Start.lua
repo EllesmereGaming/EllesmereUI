@@ -636,6 +636,78 @@ local function StartAddon()
     local _knownItemCounts = {} -- itemID -> highest carried count (bags + worn gear) since the last bank/mail resync
     local _snapshotReady = false
 
+    -- New Items Only, items that do not stack: each copy is told apart by its
+    -- item GUID, so only the copies picked up since the listing show.
+    EUI_Bags._recentCopies = {}     -- itemID -> set of GUIDs picked up since listed (none: every copy)
+    local _knownItemGUIDs = {}      -- itemID -> set of carried GUIDs, false if a copy had none or max stack unknown
+    local _noGUIDs = {}
+    local _maxStack = {}            -- itemID -> max stack size (static item data)
+    local GetItemGUID, DoesItemExist = C_Item.GetItemGUID, C_Item.DoesItemExist
+    local _guidLoc = ItemLocation:CreateEmpty()
+    -- The single-item slots of the last tally (bag, false for a worn slot; slot;
+    -- itemID), reused every pass. GUIDs are read from them only when needed.
+    local _oneBag, _oneSlot, _oneItem, _oneN = {}, {}, {}, 0
+    -- The counts of the last pass while New Items Only is on (nil: none since
+    -- the snapshot). At the mailbox the known counts keep their peak.
+    local _lastCounts
+
+    local function MaxStack(itemID)
+        local n = _maxStack[itemID]
+        if n == nil then
+            n = C_Item.GetItemMaxStackSizeByID(itemID) -- nil while the item is not cached
+            _maxStack[itemID] = n
+        end
+        return n
+    end
+
+    -- GUID of the i-th single-item slot, nil if it has none
+    local function GUIDAt(i)
+        local bag = _oneBag[i]
+        if bag then _guidLoc:SetBagAndSlot(bag, _oneSlot[i]) else _guidLoc:SetEquipmentSlot(_oneSlot[i]) end
+        local guid = GetItemGUID(_guidLoc)
+        if guid ~= "" then return guid end
+    end
+
+    -- The GUID sets of the carried copies (last tally) of the items in want
+    -- (itemID -> true), in one walk over the single-item slots: itemID -> set,
+    -- false if a copy has no GUID.
+    local function ReadGUIDs(want)
+        local sets = {}
+        for i = 1, _oneN do
+            local id = _oneItem[i]
+            if want[id] and sets[id] ~= false then
+                local guid = GUIDAt(i)
+                if guid then
+                    local set = sets[id]
+                    if not set then set = {}; sets[id] = set end
+                    set[guid] = true
+                else
+                    sets[id] = false
+                end
+            end
+        end
+        return sets
+    end
+
+    -- Known GUIDs of every item that does not stack, from the last tally
+    local function SeedGUIDs()
+        wipe(_knownItemGUIDs)
+        for i = 1, _oneN do
+            local id = _oneItem[i]
+            local set = _knownItemGUIDs[id]
+            if set ~= false then
+                local maxStack = MaxStack(id)
+                local guid = maxStack == 1 and GUIDAt(i)
+                if maxStack == nil or (maxStack == 1 and not guid) then
+                    _knownItemGUIDs[id] = false
+                elseif guid then
+                    if not set then set = {}; _knownItemGUIDs[id] = set end
+                    set[guid] = true
+                end
+            end
+        end
+    end
+
     -- Both are interaction state, not frame visibility -- a third-party bank/mail
     -- addon can hide the stock frame, but the server-tracked interaction stays
     -- accurate. Bank/warband bank contents are only queryable while physically
@@ -660,8 +732,10 @@ local function StartAddon()
     -- gear and profession gear, 31-35 the equipped bags; a worn stack (a thrown
     -- weapon stack on WoW Forever) counts by its size. The ammo slot (0) is
     -- skipped: it names a type whose ammo is already counted in the bags.
-    local function TallyItemCounts()
+    -- track: also note the single-item slots (_oneBag, _oneSlot, _oneItem).
+    local function TallyItemCounts(track)
         local counts, order = {}, {}
+        local n = 0
         for bag = 0, 5 do
             local numSlots = C_Container.GetContainerNumSlots(bag)
             for slot = 1, numSlots do
@@ -669,6 +743,10 @@ local function StartAddon()
                 if info and info.itemID then
                     if not counts[info.itemID] then order[#order + 1] = info.itemID end
                     counts[info.itemID] = (counts[info.itemID] or 0) + (info.stackCount or 0)
+                    if track and info.stackCount == 1 then
+                        n = n + 1
+                        _oneBag[n], _oneSlot[n], _oneItem[n] = bag, slot, info.itemID
+                    end
                 end
             end
         end
@@ -676,15 +754,59 @@ local function StartAddon()
             local itemID = GetInventoryItemID("player", slot)
             if itemID then
                 if not counts[itemID] then order[#order + 1] = itemID end
-                counts[itemID] = (counts[itemID] or 0) + (GetInventoryItemCount("player", slot) or 1)
+                local c = GetInventoryItemCount("player", slot) or 1
+                counts[itemID] = (counts[itemID] or 0) + c
+                if track and c == 1 then
+                    n = n + 1
+                    _oneBag[n], _oneSlot[n], _oneItem[n] = false, slot, itemID
+                end
             end
         end
+        _oneN = n
         return counts, order
     end
 
     local function SnapshotKnownIDs()
-        _knownItemCounts = TallyItemCounts()
+        local track = BP().bagRecentNewOnly
+        _knownItemCounts = TallyItemCounts(track)
+        if track then SeedGUIDs() else wipe(_knownItemGUIDs) end
+        _lastCounts = nil
         _snapshotReady = true
+    end
+
+    -- Turning New Items Only on: the copies carried now are known, not new.
+    function EUI_Bags.SeedRecentCopies()
+        if not _snapshotReady or BankOpen() or not BP().bagRecentNewOnly then return end
+        TallyItemCounts(true)
+        SeedGUIDs()
+    end
+
+    -- The GUID set a flagged item lists, nil for every copy. cur (this pass) is
+    -- a set only while New Items Only is on and only for an item that does not
+    -- stack: it lists the copies new since they were last read, added to those it
+    -- already lists. Unknown GUIDs, or no new one, fall back to every copy.
+    local function PickedUpCopies(itemID, listed, cur, known)
+        if not cur then return nil end
+        local old = _knownItemGUIDs[itemID]
+        if old == nil and known == 0 then old = _noGUIDs end
+        if not old then return nil end
+        local set = EUI_Bags._recentCopies[itemID]
+        if listed and not set then return nil end
+        set = set or {}
+        for guid in pairs(cur) do
+            if not old[guid] then set[guid] = true end
+        end
+        if next(set) == nil then return nil end
+        return set
+    end
+
+    -- Whether cur holds a GUID the known set lacks
+    local function HasNewGUID(cur, old)
+        if not (cur and old) then return false end
+        for guid in pairs(cur) do
+            if not old[guid] then return true end
+        end
+        return false
     end
 
     -- A rise flags a new pickup; a drop (sold/used/deleted) lowers the known
@@ -703,31 +825,82 @@ local function StartAddon()
     local function DetectNewItems()
         if not _snapshotReady or BankOpen() then return end
         local atMail = MailOpen()
-        local counts, order = TallyItemCounts()
+        local track = BP().bagRecentNewOnly
+        local counts, order = TallyItemCounts(track)
+        -- GUIDs known from an earlier on-period would go stale while off
+        if not track and next(_knownItemGUIDs) then wipe(_knownItemGUIDs) end
+        -- A trade's items stay locked in the bags until it completes; then a copy
+        -- can arrive as another leaves, so the count holds. In the passes within
+        -- TRADE_GRACE after the window closes, the GUIDs of every item that does
+        -- not stack are read (TRADE_CLOSED queues one, whatever the event order).
+        -- Elsewhere GUIDs are read only for an item whose count changed since the
+        -- last pass, or whose known GUIDs are not a set (max stack was unknown, or
+        -- the option came on without the setter), so they heal on any pass. A new
+        -- GUID in a pass that does not raise the count is an arrival at the
+        -- mailbox (drops are ignored there, so a copy sent and another taken bring
+        -- the count back to its known peak), in a trade and right after one.
+        local swaps = track and TradeJustClosed()
+        local last = _lastCounts
+        local want, sets
+        if track then
+            for _, itemID in ipairs(order) do
+                local prev = last and (last[itemID] or 0) or (_knownItemCounts[itemID] or 0)
+                if MaxStack(itemID) == 1 and (swaps or counts[itemID] ~= prev
+                    or type(_knownItemGUIDs[itemID]) ~= "table") then
+                    want = want or {}
+                    want[itemID] = true
+                end
+            end
+            if want then sets = ReadGUIDs(want) end
+        end
         for _, itemID in ipairs(order) do
             local count = counts[itemID]
             local known = _knownItemCounts[itemID] or 0
+            -- the item's GUID set: nil if it stacks or was not read, false if a
+            -- copy has no GUID or its max stack is not known yet
+            local cur
+            if want and want[itemID] then
+                cur = sets[itemID]
+                if cur == nil then cur = {} end
+            elseif track and count ~= known and MaxStack(itemID) == nil then
+                cur = false
+            end
+            local swapped = (swaps or atMail or _openItemPanels.trade) and count <= known and HasNewGUID(cur, _knownItemGUIDs[itemID])
             -- New Items Only: more of a stackable item already carried does not
-            -- flag. Gear (max stack 1) and mail or trade arrivals still do.
-            if count > known and (not BP().bagRecentNewOnly or known == 0 or atMail
+            -- flag. Mail or trade arrivals still do, and so does an item that does
+            -- not stack (max stack 1), but only its new copies show.
+            if (count > known or swapped) and (not track or known == 0 or atMail
                 or _openItemPanels.trade or TradeJustClosed()
-                or (C_Item.GetItemMaxStackSizeByID(itemID) or 0) == 1) then
+                or (MaxStack(itemID) or 0) == 1) then
                 -- New, or more of a listed item: either way it is the newest now
                 local recent, ro = EUI_Bags._recentItems, EUI_Bags._recentOrder
-                if recent[itemID] then
+                local listed = recent[itemID] ~= nil
+                if listed then
                     for i = #ro, 1, -1 do
                         if ro[i] == itemID then table.remove(ro, i); break end
                     end
                 end
+                EUI_Bags._recentCopies[itemID] = PickedUpCopies(itemID, listed, cur, known)
                 EUI_Bags._recentSeq = EUI_Bags._recentSeq + 1
                 recent[itemID] = EUI_Bags._recentSeq
                 ro[#ro + 1] = itemID
                 while #ro > RECENT_MAX do
-                    recent[table.remove(ro, 1)] = nil
+                    local gone = table.remove(ro, 1)
+                    recent[gone] = nil
+                    EUI_Bags._recentCopies[gone] = nil
                 end
             end
             if not atMail or count > known then
                 _knownItemCounts[itemID] = count
+            end
+            if cur ~= nil then
+                local old = _knownItemGUIDs[itemID]
+                if atMail and old and cur then
+                    -- drops are ignored at the mailbox: a sent copy stays known
+                    for guid in pairs(cur) do old[guid] = true end
+                elseif not atMail or count > known or not old then
+                    _knownItemGUIDs[itemID] = cur
+                end
             end
         end
         -- Items gone entirely (sold/used/deleted) no longer appear in `counts`;
@@ -740,9 +913,11 @@ local function StartAddon()
             for itemID in pairs(_knownItemCounts) do
                 if not counts[itemID] then
                     _knownItemCounts[itemID] = nil
+                    _knownItemGUIDs[itemID] = nil
                 end
             end
         end
+        _lastCounts = track and counts or nil
     end
 
     -- "Clear" link on the Recent Items headers. Only the tracked set is dropped --
@@ -751,7 +926,22 @@ local function StartAddon()
     function EUI_Bags:ClearRecentItems()
         wipe(EUI_Bags._recentItems)
         wipe(EUI_Bags._recentOrder)
+        wipe(EUI_Bags._recentCopies)
         if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
+    end
+
+    -- Whether a view entry (one bag slot) belongs under Recent Items: its item is
+    -- listed and, if only some copies are, the slot holds one of them.
+    function EUI_Bags.IsRecentEntry(data)
+        local itemID = data.info and data.info.itemID
+        if not (itemID and EUI_Bags._recentItems[itemID]) then return false end
+        local set = EUI_Bags._recentCopies[itemID]
+        if not (set and data.bag and data.slot and BP().bagRecentNewOnly) then return true end
+        _guidLoc:SetBagAndSlot(data.bag, data.slot)
+        if not DoesItemExist(_guidLoc) then return true end
+        local guid = GetItemGUID(_guidLoc)
+        if not guid or guid == "" then return true end
+        return set[guid] == true
     end
 
     C_Timer.After(1, function() SnapshotKnownIDs() end)
@@ -1031,6 +1221,12 @@ local function StartAddon()
         if panel then
             if event == "TRADE_CLOSED" and BP().bagRecentNewOnly == true then
                 tradeClosedAt = GetTime()
+                -- The pass that looks for swapped copies runs even when the
+                -- trade's BAG_UPDATE came before this event.
+                if EUI_Bags.refreshEnabled ~= false and not _detectQueued then
+                    _detectQueued = true
+                    C_Timer.After(0, _DetectFlush)
+                end
             end
             -- Tracked even while bags are hidden: the panel that opens them (OpenAllBags) can fire in either order with this event.
             if SetItemPanelOpen(panel[1], panel[2]) and EUI_Bags:IsVisible() then
