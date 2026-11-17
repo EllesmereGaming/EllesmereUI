@@ -5,6 +5,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUICdmBarGlowConditions.lua). A glow entry on the page reads:
 --
 --    When (icon) Fingers of Frost is [Active v]  | And [(icon) Brain Freeze v] is [Missing v]  [toggle]
+--    Health         [Ignore v]                   | Health %        [slider]
 --    At Stacks      (gear) [toggle]              | Glow Type       [Pixel Glow v]
 --    Only In Combat [toggle]                     | Hero Talent     [Any v]
 --    Glow Color     ...                          | (icon) [Duplicate] [Remove]
@@ -465,6 +466,44 @@ function ns.BuildBarGlowCombatRow(W, parent, y, entry, onChange)
           setValue = function(v)
               entry.heroTree = (v ~= "any") and tonumber(v) or nil
               if onChange then onChange() end
+          end })
+    return y - h
+end
+
+-- Health [Ignore / Below / Above] | Health % (entry.healthBelow or
+-- entry.healthAbove, never both). The slider only re-evaluates the glows, not
+-- the whole Cooldown Manager, on each drag step. Returns the new y.
+function ns.BuildBarGlowHealthRow(W, parent, y, entry, onChange)
+    local _, h = W:DualRow(parent, y,
+        { type = "dropdown", text = "Health",
+          values = { disabled = "Ignore", below = "Below", above = "Above" },
+          order = { "disabled", "below", "above" },
+          tooltip = "Only glow while your health is below or above the selected percentage.",
+          getValue = function()
+              if tonumber(entry.healthAbove) then return "above" end
+              if tonumber(entry.healthBelow) then return "below" end
+              return "disabled"
+          end,
+          setValue = function(v)
+              local pct = tonumber(entry.healthBelow) or tonumber(entry.healthAbove) or 35
+              entry.healthBelow = v == "below" and pct or nil
+              entry.healthAbove = v == "above" and pct or nil
+              if onChange then onChange() end
+              EllesmereUI:RefreshPage()
+          end },
+        { type = "slider", text = "Health %",
+          min = 1, max = 100, step = 1,
+          disabled = function()
+              return not (tonumber(entry.healthBelow) or tonumber(entry.healthAbove))
+          end,
+          disabledTooltip = "Choose Below or Above first",
+          getValue = function()
+              return tonumber(entry.healthBelow) or tonumber(entry.healthAbove) or 35
+          end,
+          setValue = function(v)
+              if tonumber(entry.healthAbove) then entry.healthAbove = v
+              else entry.healthBelow = v end
+              if ns.RequestBarGlowUpdate then ns.RequestBarGlowUpdate() end
           end })
     return y - h
 end
