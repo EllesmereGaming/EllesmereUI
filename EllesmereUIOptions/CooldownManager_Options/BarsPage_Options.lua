@@ -3674,15 +3674,19 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
               ns.BuildAllCDMBars(); Refresh()
           end }
     _, h = W:DualRow(parent, y, strataCfg, edgeCfg);  y = y - h
+    -- Default Glow Type is global like the combat gate, and closes the section.
     if EllesmereUI.IS_FOREVER then
         _, h = W:DualRow(parent, y, glowCombatCfg, trinketCfg);  y = y - h
+        _, h = W:DualRow(parent, y, env.DefaultGlowTypeCfg(), EllesmereUI.BlankRowCfg());  y = y - h
     else
-        _, h = W:DualRow(parent, y, glowCombatCfg, EllesmereUI.BlankRowCfg());  y = y - h
+        _, h = W:DualRow(parent, y, glowCombatCfg, env.DefaultGlowTypeCfg());  y = y - h
     end
     else
     _, h = W:DualRow(parent, y, strataCfg, glowCombatCfg);  y = y - h
     if EllesmereUI.IS_FOREVER then
-        _, h = W:DualRow(parent, y, trinketCfg, EllesmereUI.BlankRowCfg());  y = y - h
+        _, h = W:DualRow(parent, y, trinketCfg, env.DefaultGlowTypeCfg());  y = y - h
+    else
+        _, h = W:DualRow(parent, y, env.DefaultGlowTypeCfg(), EllesmereUI.BlankRowCfg());  y = y - h
     end
     end
 

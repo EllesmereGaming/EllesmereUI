@@ -258,6 +258,8 @@ _procState.GetButtonSpellID = function(btn)
     end
     return nil
 end
+-- The Swing Timer swipe (EUI_ActionBars_ForeverSwingSweep.lua) reads it too.
+ns.AB_ButtonSpellID = _procState.GetButtonSpellID
 
 -- Proc glow via SPELL_ACTIVATION_OVERLAY_GLOW_SHOW/HIDE events.
 -- Loops all buttons to find matches by spellID.

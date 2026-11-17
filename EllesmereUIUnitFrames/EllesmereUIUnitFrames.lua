@@ -975,6 +975,7 @@ local defaults = {
             happinessAlign = "right",
             happinessX = 0,
             happinessY = 0,
+            happinessFeed = false,
             healthReverseFill = false,
             healthVerticalFill = false,
             smoothBars = false,

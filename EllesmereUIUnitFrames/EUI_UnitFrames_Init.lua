@@ -247,18 +247,19 @@ local function InitializeFrames()
                 -- Places the text, and the animated icon once built, at the cog's X/Y
                 -- offsets (and the icon at its Size). The icon's spot depends on the
                 -- frame's art: the stock layout pass runs this again when that changes
-                -- (ns.UF_RestFollowArt). On the portrait, the text leaves the bar clip
-                -- and both sit above the portrait (a detached one is raised over the
-                -- frame); the passes that show, hide or re-level the portrait run
-                -- this again through _restFollowPortrait.
+                -- (ns.UF_RestFollowArt). Both sit outside the bar clip, above the border
+                -- or the portrait; portrait passes re-run this via _restFollowPortrait.
                 pf._restPlace = function()
                     local bd = RestPortrait()
                     local host = bd or pf.Health
                     local holder = pf._restHolder
-                    if holder:GetParent() ~= host then holder:SetParent(host) end
+                    -- On the bar: parented to the frame so the bar clip cannot cut it off.
+                    local parent = bd or pf
+                    if holder:GetParent() ~= parent then holder:SetParent(parent) end
                     holder:ClearAllPoints()
                     holder:SetAllPoints(host)
-                    holder:SetFrameLevel(host:GetFrameLevel() + (bd and 10 or 5))
+                    -- +11: above the frame border (frame level + 10).
+                    holder:SetFrameLevel(bd and (bd:GetFrameLevel() + 10) or (pf:GetFrameLevel() + 11))
                     PlaceRest(pf._restText, host)
                     local a = pf._restAnim
                     if a then
@@ -281,7 +282,7 @@ local function InitializeFrames()
                             tex:SetPoint("CENTER", a, "CENTER")
                             tex:SetSize(30 * k, 30 * k)
                         else
-                            a:SetFrameLevel((bd and bd:GetFrameLevel() or clipLevel) + 10)
+                            a:SetFrameLevel(bd and (bd:GetFrameLevel() + 10) or (clipLevel + 11))
                             a:SetSize(size, size)
                             PlaceRest(a, host)
                             tex:ClearAllPoints()

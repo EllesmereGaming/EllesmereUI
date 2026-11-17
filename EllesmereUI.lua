@@ -1480,6 +1480,8 @@ function EllesmereUI.BuildFullName(charName, realmName)
     -- Character names hold no hyphen, so the first one splits name from realm.
     local base, suffix = charName:match("^([^%-]+)%-(.+)$")
     base = base or charName
+    -- Forever is realmless: the server only finds "Name Surname", never "-Realm".
+    if EllesmereUI.IS_FOREVER then return base end
 
     if type(realmName) == "string" and not (issecretvalue and issecretvalue(realmName)) then
         local realm = (realmName:gsub("%s+", ""))

@@ -17,6 +17,7 @@ local GetItemInfoInstant = C_Item.GetItemInfoInstant
 local EUI = EllesmereUI
 
 local BP, GetFont, SetBagFont = I.BP, I.GetFont, I.SetBagFont
+local GetItemMergeKey = I.GetItemMergeKey
 
 -- Shared state: one copy per file. A write goes through the Set<Name>
 -- function of ns._bagsInternals, which hands the value to every copy.
@@ -909,14 +910,13 @@ do
         local info = ops.info(bag, slot)
         if not info or info.isLocked or info.itemID ~= d._itemID or not info.stackCount or n >= info.stackCount then return end
         -- Session unmerge mark, written BEFORE the split so the refresh it
-        -- triggers already renders the pieces apart. Same link form the slot
-        -- tables key on; bags and reagent window only (bank items never merge here).
+        -- triggers already renders the pieces apart (bank items never merge here).
         if d._window == EUI_Bags or d._window == EUI_BagsReagent then
-            local link = C_Container.GetContainerItemLink(bag, slot)
-            if link then
+            local key = GetItemMergeKey(C_Container.GetContainerItemLink(bag, slot))
+            if key then
                 local set = EUI_Bags._unmergedLinks
                 if not set then set = {}; EUI_Bags._unmergedLinks = set end
-                set[link] = true
+                set[key] = true
             end
         end
         if auto or d._placeOnce then

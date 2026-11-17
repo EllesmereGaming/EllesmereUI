@@ -215,7 +215,14 @@ function ERF:OnEnable()
                 ns._paintGen = (ns._paintGen or 0) + 1
                 ns.ReloadPartyFrames()
             end)
-            C_Timer.After(0, RegisterWithUnlockMode)
+            C_Timer.After(0, function()
+                RegisterWithUnlockMode()
+                -- A slow drain registers after the login saved-position pass.
+                local pos = db.profile.partyUnlockPos
+                if pos and EllesmereUI.ApplyCenterPosition then
+                    EllesmereUI.ApplyCenterPosition("RF_PartyFrames", pos)
+                end
+            end)
         end
         drain()
     end)

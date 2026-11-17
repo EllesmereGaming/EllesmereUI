@@ -903,8 +903,9 @@ end
 -- allItems (All Items view: honour Hide in All Items), pinned (pinned set:
 -- duplicate pinned items into a Pinned section at the top), slotView ("one" =
 -- OneBag, "multi" = MultiBag: bag sections in slot order like the grid),
--- recent (recent itemID set: Recent section in slot views), recentOnly (the
--- Recent Items tab: every item in that one section, newest first), emptySlots
+-- recent (non-nil: a Recent section, EUI_Bags.IsRecentEntry), recentOnly (the
+-- Recent Items tab: every item in that one section, newest first), reagentView
+-- (the Reagent Bag tab's category index for categorized reagents), emptySlots
 -- (slot views: empty slots as rows; nil while searching).
 function ns.RenderListView(items, opts)
     local child = EUI_Bags._scrollChild
@@ -957,7 +958,21 @@ function ns.RenderListView(items, opts)
         if slotView == "one" and bag ~= 5 and not (special and special[bag]) then return "main" end
         return bag
     end
-    local pinnedSet, recentSet = opts.pinned, opts.recent
+    local pinnedSet, recentOn = opts.pinned, opts.recent ~= nil
+    -- New Items Only may list only some copies of an item: the Recent section
+    -- is then picked from the unmerged items and merged on its own. In a view
+    -- Refresh has marked them (_vgRec). Slot views merge nothing.
+    local recentItems
+    if recentOn and not slotView and BP().bagRecentNewOnly and next(EUI_Bags._recentCopies) then
+        recentItems = {}
+        for _, d in ipairs(items) do
+            if d.info and d.itemLink and not d._pinnedOnly
+                and (view and d._vgRec or not view and EUI_Bags.IsRecentEntry(d)) then
+                recentItems[#recentItems + 1] = d
+            end
+        end
+        recentItems = ns.MergeDuplicates(recentItems)
+    end
     if not slotView then items = ns.MergeDuplicates(items) end
     -- Group Gear by Slot: the gear categories' sub-sections are equip slots,
     -- in place of Split by Type
@@ -972,11 +987,14 @@ function ns.RenderListView(items, opts)
             if pinnedSet and (not view or d._vgPin) and ns.IsItemPinned(pinnedSet, d.itemLink, d.info.itemID) then
                 Add("pinned", "", d)
             end
-            if recentSet and (not view or d._vgRec) and recentSet[d.info.itemID] and not d._pinnedOnly then
+            if recentOn and not recentItems and (not view or d._vgRec) and not d._pinnedOnly
+                and EUI_Bags.IsRecentEntry(d) then
                 Add("recent", "", d)
             end
             if opts.recentOnly then
                 Add("recent", "", d)
+            elseif opts.reagentView then
+                Add(opts.reagentView, "", d)
             elseif slotView then
                 Add(BagKey(d.bag), "", d)
             elseif view then
@@ -1004,6 +1022,12 @@ function ns.RenderListView(items, opts)
                     Add(key, d._lvSub, d)
                 end
             end
+        end
+    end
+    if recentItems then
+        for _, d in ipairs(recentItems) do
+            StampItem(d) -- a merged copy counts only the listed copies
+            Add("recent", "", d)
         end
     end
     if slotView and opts.emptySlots then

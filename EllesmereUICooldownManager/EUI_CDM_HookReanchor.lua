@@ -2289,6 +2289,8 @@ local function CollectAndReanchor()
     -- WoW Forever: buff icons Blizzard draws without a timer
     -- (EUI_CDM_ForeverLinkedAura.lua).
     if ns.CDM_LinkedAuraPlaced then ns.CDM_LinkedAuraPlaced() end
+    -- Buff stacks on cooldown icons (EUI_CDM_CdBuffStacks.lua).
+    if ns.CDM_CdBuffStacksPlaced then ns.CDM_CdBuffStacksPlaced() end
     -- An override's range tint follows its spell onto the frame Blizzard
     -- gave it this time (EUI_CDM_Rotation.lua).
     if ns.ReapplyOverrideRanges then ns.ReapplyOverrideRanges() end
@@ -2460,6 +2462,8 @@ local function CollectAndReanchor()
         for bk in pairs(ns._missingFlipBars) do ns.QueueShiftLayout(bk) end
         wipe(ns._missingFlipBars)
     end
+    -- WoW Forever: the Swing Timer swipe follows the icons this pass placed.
+    if ns.CDM_SwingSweepSync then ns.CDM_SwingSweepSync() end
 end
 
 -- Also Show Below (EllesmereUICdmHooks.lua): a deadline or the buff ticker

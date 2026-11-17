@@ -1336,7 +1336,8 @@ local function BuildBarWindow()
 
         content:EnableMouseWheel(true)
         content:SetScript("OnMouseWheel", function(_, delta)
-            local maxS = max(0, #_history - (frame._visSlots or 1))
+            -- Rows stop at Max Bars, so the scroll range does too.
+            local maxS = max(0, min(#_history, DB().maxBars or 5) - (frame._visSlots or 1))
             _barScroll = max(0, min(_barScroll - delta, maxS))
             RefreshBarWindow()
         end)

@@ -726,7 +726,7 @@ local function MMBuildSocialTip()
                 ns.Tip_AddClickable(left, fi.area or "", function(mouseButton)
                     local n = fname
                     if not n then return end
-                    if not n:find("%-") then n = n .. "-" .. GetRealmName():gsub("%s+", "") end
+                    if not n:find("%-") then n = EllesmereUI.BuildFullName(n, GetRealmName()) or n end
                     if mouseButton == "RightButton" then
                         MMOpenWhisper(n, nil)
                     elseif mouseButton == "LeftButton" and IsShiftKeyDown() then
