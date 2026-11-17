@@ -1063,6 +1063,9 @@ local function InitializeFrames()
 
         -- Helper: resolve which texture file + coords to use
         local function ApplyCombatTexture()
+            -- Re-read by unit key: a profile switch (RepointAllDBs) swaps
+            -- db.profile, so the table captured at setup would go stale.
+            ps = db.profile[ciUnit] or ps
             local style = ps.combatIndicatorStyle or ciDefStyle
             if style == "none" then combat:Hide(); return end
 
@@ -1150,6 +1153,7 @@ local function InitializeFrames()
         end
         local combatFrame = pf._combatEventFrame
         combatFrame:SetScript("OnEvent", function()
+            ps = db.profile[ciUnit] or ps
             local style = ps.combatIndicatorStyle or ciDefStyle
             if style ~= "none" and UnitAffectingCombat(ciUnit) then
                 ApplyCombatTexture()
@@ -1220,6 +1224,10 @@ local function InitializeFrames()
             uf._leaderSettings = settings
 
             local function ApplyLeaderIndicator()
+                -- Re-read by unit key: a profile switch (RepointAllDBs) swaps
+                -- db.profile, so the table captured at setup would go stale.
+                settings = db.profile[uf._euiBaseUnit] or settings
+                uf._leaderSettings = settings
                 local sz  = settings.leaderIndicatorSize or 16
                 local pos = settings.leaderIndicatorPosition or "topleft"
                 local ox  = settings.leaderIndicatorX or 0
@@ -1357,6 +1365,10 @@ local function InitializeFrames()
             uf._eliteSettings = settings
 
             local function ApplyEliteIndicator()
+                -- Re-read by unit key: a profile switch (RepointAllDBs) swaps
+                -- db.profile, so the table captured at setup would go stale.
+                settings = db.profile[uf._euiBaseUnit] or settings
+                uf._eliteSettings = settings
                 local sz  = settings.eliteIndicatorSize or 16
                 local pos = settings.eliteIndicatorPosition or "topleft"
                 local ox  = settings.eliteIndicatorX or 0
