@@ -303,13 +303,17 @@ local function Paint()
     PaintCooldowns()
 end
 
--- AIM's report: the line and page now on show. A line of its own ends a search.
+local Refresh -- forward
+
+-- AIM's report: the line and page now on show. A line of its own ends a search,
+-- and the lists a search read (every rank and passive) are read again.
 local function Painted(_, shown, page)
     if shown > 0 then
         line = shown
         if query then
             query = nil
             book.search:SetText("")
+            C_Timer.After(0, Refresh)
         end
     end
     pages[shown] = page
@@ -360,7 +364,7 @@ local function Push()
 end
 
 -- Rereads the spellbook and repaints; waits out combat.
-local function Refresh()
+Refresh = function()
     if not book then return end
     if InCombatLockdown() then
         EllesmereUI.CombatQueue.Defer(QUEUE_KEY, Refresh)
