@@ -665,20 +665,25 @@ local function StartAddon()
         if guid ~= "" then return guid end
     end
 
-    -- The GUID set of an item's carried copies (last tally): nil if it stacks,
-    -- false if a copy has no GUID or its max stack is not known yet.
-    local function ReadGUIDs(itemID)
-        local maxStack = MaxStack(itemID)
-        if maxStack ~= 1 then return maxStack == nil and false or nil end
-        local set = {}
+    -- The GUID sets of the carried copies (last tally) of the items in want
+    -- (itemID -> true), in one walk over the single-item slots: itemID -> set,
+    -- false if a copy has no GUID.
+    local function ReadGUIDs(want)
+        local sets = {}
         for i = 1, _oneN do
-            if _oneItem[i] == itemID then
+            local id = _oneItem[i]
+            if want[id] and sets[id] ~= false then
                 local guid = GUIDAt(i)
-                if not guid then return false end
-                set[guid] = true
+                if guid then
+                    local set = sets[id]
+                    if not set then set = {}; sets[id] = set end
+                    set[guid] = true
+                else
+                    sets[id] = false
+                end
             end
         end
-        return set
+        return sets
     end
 
     -- Known GUIDs of every item that does not stack, from the last tally
@@ -772,7 +777,7 @@ local function StartAddon()
         SeedGUIDs()
     end
 
-    -- The GUID set a flagged item lists, nil for every copy. cur (ReadGUIDs) is
+    -- The GUID set a flagged item lists, nil for every copy. cur (this pass) is
     -- a set only while New Items Only is on and only for an item that does not
     -- stack: it lists the copies new since they were last read, added to those it
     -- already lists. Unknown GUIDs, or no new one, fall back to every copy.
@@ -820,24 +825,42 @@ local function StartAddon()
         local counts, order = TallyItemCounts(track)
         -- GUIDs known from an earlier on-period would go stale while off
         if not track and next(_knownItemGUIDs) then wipe(_knownItemGUIDs) end
-        -- At the mailbox and in a trade a copy can arrive as another leaves, so
-        -- the count holds: there the GUIDs of every item that does not stack are
-        -- read. Elsewhere only those of an item whose count changed.
-        local swaps = track and (atMail or _openItemPanels.trade or TradeJustClosed())
+        -- Right after a trade a copy can arrive as another leaves, so the count
+        -- holds: in that pass the GUIDs of every item that does not stack are
+        -- read. Elsewhere only those of an item whose count changed, or whose
+        -- known GUIDs are not a set (max stack was unknown, or the option came on
+        -- without the setter), so they heal on any pass. A trade's items stay
+        -- locked in the bags until it completes, so no swap lands while its
+        -- window is open; TRADE_CLOSED queues the pass that finds it.
+        local swaps = track and TradeJustClosed()
+        local want, sets
+        if track then
+            for _, itemID in ipairs(order) do
+                if MaxStack(itemID) == 1 and (swaps or counts[itemID] ~= (_knownItemCounts[itemID] or 0)
+                    or type(_knownItemGUIDs[itemID]) ~= "table") then
+                    want = want or {}
+                    want[itemID] = true
+                end
+            end
+            if want then sets = ReadGUIDs(want) end
+        end
         for _, itemID in ipairs(order) do
             local count = counts[itemID]
             local known = _knownItemCounts[itemID] or 0
+            -- the item's GUID set: nil if it stacks or was not read, false if a
+            -- copy has no GUID or its max stack is not known yet
             local cur
-            -- also while the known GUIDs are not a set (max stack was unknown, or
-            -- the option came on without the setter), so they heal on any pass
-            if track and (count ~= known or swaps or type(_knownItemGUIDs[itemID]) ~= "table") then
-                cur = ReadGUIDs(itemID)
+            if want and want[itemID] then
+                cur = sets[itemID]
+                if cur == nil then cur = {} end
+            elseif track and count ~= known and MaxStack(itemID) == nil then
+                cur = false
             end
             local swapped = swaps and count <= known and HasNewGUID(cur, _knownItemGUIDs[itemID])
             -- New Items Only: more of a stackable item already carried does not
             -- flag. Mail or trade arrivals still do, and so does an item that does
             -- not stack (max stack 1), but only its new copies show.
-            if (count > known or swapped) and (not BP().bagRecentNewOnly or known == 0 or atMail
+            if (count > known or swapped) and (not track or known == 0 or atMail
                 or _openItemPanels.trade or TradeJustClosed()
                 or (MaxStack(itemID) or 0) == 1) then
                 -- New, or more of a listed item: either way it is the newest now
@@ -1188,6 +1211,12 @@ local function StartAddon()
         if panel then
             if event == "TRADE_CLOSED" and BP().bagRecentNewOnly == true then
                 tradeClosedAt = GetTime()
+                -- The pass that looks for swapped copies runs even when the
+                -- trade's BAG_UPDATE came before this event.
+                if EUI_Bags.refreshEnabled ~= false and not _detectQueued then
+                    _detectQueued = true
+                    C_Timer.After(0, _DetectFlush)
+                end
             end
             -- Tracked even while bags are hidden: the panel that opens them (OpenAllBags) can fire in either order with this event.
             if SetItemPanelOpen(panel[1], panel[2]) and EUI_Bags:IsVisible() then
