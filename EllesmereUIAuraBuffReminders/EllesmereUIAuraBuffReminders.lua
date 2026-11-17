@@ -383,8 +383,8 @@ function EABR.CurrentDifficultyCat()
         if d == 205 then return "d_follower" end
     elseif it == "raid" then
         if IsMythicRaidDiff(d) then return "r_mythic" end
-        if d == 15 or d == 6 then return "r_heroic" end
-        if d == 14 or d == 3 or d == 4 or d == 5 then return "r_normal" end
+        if d == 15 or d == 5 or d == 6 then return "r_heroic" end
+        if d == 14 or d == 3 or d == 4 then return "r_normal" end
         if d == 17 or d == 7 then return "r_lfr" end
         if d == 33 then return "d_timewalking" end
         -- WoW Forever raids report the legacy 40- and 20-player ids; they feed
