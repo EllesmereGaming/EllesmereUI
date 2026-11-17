@@ -1408,6 +1408,30 @@ initFrame:SetScript("OnEvent", function(self)
                         local removeAIdx = aIdx
                         y = ns.BuildBarGlowWhenRow(W, parent, y, entry, Refresh, cdmSid)
 
+                        -- WoW Forever: late in the Main Hand swing
+                        -- (EllesmereUICdmBarGlowSwing.lua; absent elsewhere).
+                        if ns.BarGlowSwingPass then
+                            _, h = W:DualRow(parent, y,
+                                { type = "toggle", text = "Glow Late in Swing",
+                                  tooltip = "Only glow during the last seconds of your main hand swing, and not while this attack is already queued for it.",
+                                  getValue = function() return tonumber(entry.swingWindow) ~= nil end,
+                                  setValue = function(v)
+                                      entry.swingWindow = v and 0.5 or nil
+                                      Refresh()
+                                      EllesmereUI:RefreshPage()
+                                  end },
+                                { type = "slider", text = "Seconds Before Swing",
+                                  min = 0.1, max = 2, step = 0.1,
+                                  disabled = function() return not tonumber(entry.swingWindow) end,
+                                  disabledTooltip = "Glow Late in Swing",
+                                  getValue = function() return tonumber(entry.swingWindow) or 0.5 end,
+                                  setValue = function(v)
+                                      entry.swingWindow = math.floor(v * 10 + 0.5) / 10
+                                      Refresh()
+                                  end })
+                            y = y - h
+                        end
+
                         -- Helper: resolve current glow color and restart preview if active
                         local pvKey = assignKey .. "_" .. aIdx
                         local function RefreshPreviewGlow()

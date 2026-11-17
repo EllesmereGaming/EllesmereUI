@@ -505,6 +505,7 @@ local function BindOverlays(bg)
     local stackSids
     local glowSids = {}  -- every assigned glow's spellID, for AnyTargetAura
     local anyHero, anyUsable, anySpellKey
+    local swingWindows  -- { [seconds] = true }, the swing windows bound entries use
     local abilityButtons  -- ScanActionButtons(), built on the first ability key
     wipe(glowedAbilities)
 
@@ -565,6 +566,11 @@ local function BindOverlays(bg)
                         local csid = type(cond) == "table" and tonumber(cond.spellID)
                         if csid and csid > 0 then glowSids[csid] = true end
                         if entry.heroTree and not EllesmereUI.IS_FOREVER then anyHero = true end
+                        local swingWindow = tonumber(entry.swingWindow)
+                        if swingWindow and swingWindow > 0 then
+                            swingWindows = swingWindows or {}
+                            swingWindows[swingWindow] = true
+                        end
                         if entry.mode == "USABLE" then anyUsable = true end
                         local sid = entry.stackEnabled and entry.spellID
                         if sid and sid > 0 then
@@ -585,7 +591,7 @@ local function BindOverlays(bg)
             lastStates[key] = nil
         end
     end
-    return stackSids, glowSids, anyHero, anyUsable, anySpellKey
+    return stackSids, glowSids, anyHero, anyUsable, anySpellKey, swingWindows
 end
 
 -- Ability-keyed glows follow the bars: a stance or form change, a moved or
@@ -638,6 +644,7 @@ local function SetupOverlays()
         ns._barGlowStackSids = nil
         ns._barGlowAnyHero = nil
         SyncUsableEvents(false)
+        if ns.BarGlowSwingSync then ns.BarGlowSwingSync(nil) end
         SyncRebindEvents(false)
         ns._bgWantTargetAuras = false
         if ns.SetBarGlowTargetAuras then ns.SetBarGlowTargetAuras(false) end
@@ -650,12 +657,14 @@ local function SetupOverlays()
     -- applications at all (EUI_CDM_HookViewers.lua): the set of spellIDs
     -- stack-gated entries name, nil when there are none. Only frames resolving
     -- to one of these ids pay the applications read; no gated entry = no reads.
-    local stackSids, glowSids, anyHero, anyUsable, anySpellKey = BindOverlays(bg)
+    local stackSids, glowSids, anyHero, anyUsable, anySpellKey, swingWindows = BindOverlays(bg)
     ns._barGlowStackSids = stackSids
     -- A hero-talent-gated glow exists: talent changes re-run the glow pass.
     ns._barGlowAnyHero = anyHero
     -- A Glow When Usable entry exists: its own cooldown / usability edges listen.
     SyncUsableEvents(anyUsable == true)
+    -- WoW Forever: a swing-window entry exists (EllesmereUICdmBarGlowSwing.lua).
+    if ns.BarGlowSwingSync then ns.BarGlowSwingSync(swingWindows) end
     -- An ability-keyed glow exists: bar changes rebind it.
     SyncRebindEvents(anySpellKey == true)
     -- Listen to target auras only while some glow tracks a non-self aura (EllesmereUICdmHooks).
@@ -700,6 +709,10 @@ UpdateOverlayVisuals = function()
             -- Second-buff (And) and hero talent conditions (EllesmereUICdmBarGlowConditions.lua)
             if entry.andMode or entry.heroTree then
                 shouldGlow = ns.BarGlowCombine(entry, shouldGlow, ns._tickBlizzActiveCache)
+            end
+            -- WoW Forever: late in the Main Hand swing (EllesmereUICdmBarGlowSwing.lua)
+            if shouldGlow and entry.swingWindow and ns.BarGlowSwingPass then
+                shouldGlow = ns.BarGlowSwingPass(entry, UsableSpellOf(overlay))
             end
 
             if shouldGlow and onlyInCombat then
