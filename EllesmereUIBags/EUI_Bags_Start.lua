@@ -647,6 +647,9 @@ local function StartAddon()
     -- The single-item slots of the last tally (bag, false for a worn slot; slot;
     -- itemID), reused every pass. GUIDs are read from them only when needed.
     local _oneBag, _oneSlot, _oneItem, _oneN = {}, {}, {}, 0
+    -- The counts of the last pass while New Items Only is on (nil: none since
+    -- the snapshot). At the mailbox the known counts keep their peak.
+    local _lastCounts
 
     local function MaxStack(itemID)
         local n = _maxStack[itemID]
@@ -767,6 +770,7 @@ local function StartAddon()
         local track = BP().bagRecentNewOnly
         _knownItemCounts = TallyItemCounts(track)
         if track then SeedGUIDs() else wipe(_knownItemGUIDs) end
+        _lastCounts = nil
         _snapshotReady = true
     end
 
@@ -827,16 +831,21 @@ local function StartAddon()
         if not track and next(_knownItemGUIDs) then wipe(_knownItemGUIDs) end
         -- Right after a trade a copy can arrive as another leaves, so the count
         -- holds: in that pass the GUIDs of every item that does not stack are
-        -- read. Elsewhere only those of an item whose count changed, or whose
-        -- known GUIDs are not a set (max stack was unknown, or the option came on
-        -- without the setter), so they heal on any pass. A trade's items stay
-        -- locked in the bags until it completes, so no swap lands while its
-        -- window is open; TRADE_CLOSED queues the pass that finds it.
+        -- read. A trade's items stay locked in the bags until it completes, so no
+        -- swap lands while its window is open; TRADE_CLOSED queues the pass that
+        -- finds it. Elsewhere GUIDs are read only for an item whose count changed
+        -- since the last pass, or whose known GUIDs are not a set (max stack was
+        -- unknown, or the option came on without the setter), so they heal on any
+        -- pass. At the mailbox sending and taking are separate passes, but drops
+        -- are ignored there, so a copy sent and another taken bring the count back
+        -- to its known peak: only the GUIDs of that pass show the arrival.
         local swaps = track and TradeJustClosed()
+        local last = _lastCounts
         local want, sets
         if track then
             for _, itemID in ipairs(order) do
-                if MaxStack(itemID) == 1 and (swaps or counts[itemID] ~= (_knownItemCounts[itemID] or 0)
+                local prev = last and (last[itemID] or 0) or (_knownItemCounts[itemID] or 0)
+                if MaxStack(itemID) == 1 and (swaps or counts[itemID] ~= prev
                     or type(_knownItemGUIDs[itemID]) ~= "table") then
                     want = want or {}
                     want[itemID] = true
@@ -856,7 +865,7 @@ local function StartAddon()
             elseif track and count ~= known and MaxStack(itemID) == nil then
                 cur = false
             end
-            local swapped = swaps and count <= known and HasNewGUID(cur, _knownItemGUIDs[itemID])
+            local swapped = (swaps or atMail) and count <= known and HasNewGUID(cur, _knownItemGUIDs[itemID])
             -- New Items Only: more of a stackable item already carried does not
             -- flag. Mail or trade arrivals still do, and so does an item that does
             -- not stack (max stack 1), but only its new copies show.
@@ -908,6 +917,7 @@ local function StartAddon()
                 end
             end
         end
+        _lastCounts = track and counts or nil
     end
 
     -- "Clear" link on the Recent Items headers. Only the tracked set is dropped --
