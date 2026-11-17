@@ -51,7 +51,7 @@ local function GatherOnlineFriends()
             local gameInfo = acct.gameAccountInfo
             if gameInfo and gameInfo.isOnline and gameInfo.clientProgram == "WoW" then
                 local charName = gameInfo.characterName
-                local classFile = gameInfo.className and gameInfo.className:upper():gsub(" ", "")
+                local classFile = EllesmereUI.ClassTokenFromLocalized(gameInfo.className)
                 if gameInfo.classID and C_CreatureInfo and C_CreatureInfo.GetClassInfo then
                     local ci = C_CreatureInfo.GetClassInfo(gameInfo.classID)
                     if ci and ci.classFile then classFile = ci.classFile end
@@ -95,7 +95,7 @@ local function GatherOnlineFriends()
                 friends[#friends + 1] = {
                     name = charName:match("^([^%-]+)") or charName,
                     full = EllesmereUI.BuildFullName(charName) or charName,
-                    class = info.className and info.className:upper():gsub(" ", ""),
+                    class = EllesmereUI.ClassTokenFromLocalized(info.className),
                     zone = info.area or "",
                     level = info.level,
                     note = info.notes,
