@@ -122,8 +122,10 @@ ns.IsVariantOf         = IsVariantOf
 -- one entry (the highest rank known), so a bar lists a spell once, under any
 -- of its ranks: list presence (FindVariantIndex below), the options normalize
 -- pass, the keep/drop pass and the picker's on-bar mark all match ranks by
--- this name. nil off Forever. Names are client spell data, the same all
--- session; a name the client has not loaded yet is not kept.
+-- this name. The key adds the spell's original icon: some locales give two
+-- different spells one name, and their icons tell them apart. nil off
+-- Forever. Names are client spell data, the same all session; a name the
+-- client has not loaded yet is not kept.
 local RankName
 if EllesmereUI.IS_FOREVER then
     local names = {}
@@ -132,6 +134,8 @@ if EllesmereUI.IS_FOREVER then
         local n = names[id]
         if n == nil then
             n = C_Spell.GetSpellName(id)
+            local _, icon = C_Spell.GetSpellTexture(id)
+            n = n and icon and (n .. "|" .. icon)
             if n then names[id] = n end
         end
         return n

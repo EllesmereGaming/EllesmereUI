@@ -684,7 +684,18 @@ initFrame:SetScript("OnEvent", function(self)
                   end }
             ); y = y - h
 
-            _, h = W:DualRow(parent, y,
+            -- Categorize Reagent Bag Items | Reagent Bag Icon
+            local badges = BagsNS.BAG_REAGENT_BADGES
+            local reagentBadgeValues, reagentBadgeOrder = { none = "None" }, badges.order
+            for key, s in pairs(badges.styles) do reagentBadgeValues[key] = s.label end
+            reagentBadgeValues._menuOpts = {
+                iconAtlas = function(key)
+                    local s = badges.styles[key]
+                    return s and s.atlas
+                end,
+            }
+            local reagentBadgeRow
+            reagentBadgeRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Categorize Reagent Bag Items",
                   tooltip="Files reagent bag items under their item categories, in All Items and on the category tabs. The Reagent Bag entry still lists the bag.",
                   getValue=function() return db.profile.bagCategorizeReagents == true end,
@@ -692,8 +703,37 @@ initFrame:SetScript("OnEvent", function(self)
                       db.profile.bagCategorizeReagents = v
                       if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                   end },
-                EllesmereUI.BlankRowCfg()
+                { type="dropdown", text="Reagent Bag Icon",
+                  tooltip="Marks items in the reagent bag with the chosen icon, except in the Reagent Bag sections. While an icon is chosen, Merge Duplicate Items keeps reagent bag stacks apart from stacks in other bags.",
+                  values=reagentBadgeValues, order=reagentBadgeOrder,
+                  getValue=function()
+                      local v = db.profile.bagReagentBadge
+                      return reagentBadgeValues[v] and v or "none"
+                  end,
+                  setValue=function(v)
+                      db.profile.bagReagentBadge = v
+                      if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                      EllesmereUI:RefreshPage()  -- the cog's disabled state
+                  end }
             ); y = y - h
+
+            -- Inline cog on Reagent Bag Icon: the size of the badge
+            EllesmereUI.BuildInlineCog(reagentBadgeRow._rightRegion, {
+                disabled = function()
+                    local v = db.profile.bagReagentBadge
+                    return not (v and badges.styles[v])
+                end,
+                disabledTooltip = "Reagent Bag Icon",
+                title = "Reagent Bag Icon Options",
+                rows = {
+                    { type="slider", label="Size", min=8, max=24, step=1,
+                      get=function() return db.profile.bagReagentBadgeSize or 12 end,
+                      set=function(v)
+                          db.profile.bagReagentBadgeSize = v
+                          if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                      end },
+                },
+            })
 
             if anyGrid then
                 ---------------------------------------------------------------------------
