@@ -86,6 +86,9 @@ local SP, frame, body, rows, shown = nil, nil, nil, {}, {}
 local scrollPx = 0
 local active = false
 local guard = false
+-- blizzard's start a group button sits in its list, which takes no clicks under ours: our button
+-- hands the click over through the secure click action, so the click stays blizzard's own
+local startBtn, startProxy
 local lastClickID, lastClickTime, clickCount = nil, 0, 0
 local selected  -- ours, blizzard's is never touched
 local Paint  -- defined further down
@@ -514,6 +517,7 @@ local function StatusColor(line)
     if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end
     return line[2], line[3], line[4]
 end
+ns.StatusColor = StatusColor
 local LINE_OF = {
     [STATUS.declined_delisted] = LINE_DELISTED,
     [STATUS.applied] = LINE_SIGNED, [STATUS.invited] = LINE_ACCEPTED, [STATUS.inviteaccepted] = LINE_ACCEPTED,
@@ -1766,6 +1770,25 @@ function Paint()  -- forward-declared up top
     else
         empty:SetText("")
     end
+    -- blizzard only offers it with no results at all: here also when your filters leave none
+    ns.PlaceStartGroup(#shown == 0 and not SP.searching and not SP.searchFailed)
+end
+
+-- over the middle of our list, out of combat only (it's secure)
+function ns.PlaceStartGroup(want)
+    if not startProxy or InCombatLockdown() then return end
+    local x, y = frame:GetCenter()
+    if not (want and x and frame:IsVisible()) then
+        startProxy:Hide()
+        return
+    end
+    -- the list's scale, so its text matches the sign up button's
+    startProxy:SetScale(frame:GetEffectiveScale() / UIParent:GetEffectiveScale())
+    local w, h = startBtn:GetSize()
+    startProxy:SetSize(math.max(w or 0, 140), math.max(h or 0, 22))
+    startProxy:ClearAllPoints()
+    startProxy:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
+    startProxy:Show()
 end
 
 -- keep blizzard's list hidden while ours shows
@@ -1888,32 +1911,49 @@ local function Build()
     thumb = frame:CreateTexture(nil, "OVERLAY")
     thumb:SetWidth(3)
     thumb:SetColorTexture(1, 1, 1, 0.3)
-    -- our sign up button over blizzard's
-    local sb = SP.SignUpButton
-    if sb then
-        local stock = not Skinned()
-        signBtn = CreateFrame("Button", nil, SP, stock and "UIPanelButtonTemplate" or nil)
-        signBtn:SetAllPoints(sb)
-        signBtn:SetFrameLevel(sb:GetFrameLevel() + 5)
-        signBtn:SetNormalFontObject("GameFontNormal")
-        signBtn:SetHighlightFontObject("GameFontHighlight")
-        signBtn:SetDisabledFontObject("GameFontDisable")
-        signBtn:SetText(SIGN_UP or "Sign Up")
-        signBtn:SetMotionScriptsWhileDisabled(true)
+    -- our buttons: the skin's look, or blizzard's template with the skin off
+    local stock = not Skinned()
+    local function NewButton(parent, template, text)
+        local b = CreateFrame("Button", nil, parent, (stock and template) and (template .. ",UIPanelButtonTemplate")
+            or stock and "UIPanelButtonTemplate" or template)
+        b:SetNormalFontObject("GameFontNormal")
+        b:SetHighlightFontObject("GameFontHighlight")
+        b:SetDisabledFontObject("GameFontDisable")
+        b:SetText(text)
         local skin = EUI._ModuleNS and EUI._ModuleNS.EllesmereUIBlizzardSkin
         local S = skin and skin.WSkin
         -- stock keeps the template's art
         if not stock and S and S.Button then
-            S.Button(signBtn)
+            S.Button(b)
         elseif not stock then
-            local bg = signBtn:CreateTexture(nil, "BACKGROUND")
+            local bg = b:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints()
             bg:SetColorTexture(0.06, 0.06, 0.06, 0.95)
-            EUI.MakeBorder(signBtn, 0.25, 0.25, 0.25, 1, EUI.PanelPP)
-            local hl = signBtn:CreateTexture(nil, "HIGHLIGHT")
+            EUI.MakeBorder(b, 0.25, 0.25, 0.25, 1, EUI.PanelPP)
+            local hl = b:CreateTexture(nil, "HIGHLIGHT")
             hl:SetAllPoints()
             hl:SetColorTexture(1, 1, 1, 0.1)
         end
+        return b
+    end
+    startBtn = SP.ScrollBox.StartGroupButton or SP.StartGroupButton
+    -- start a group: on UIParent, as a secure button can't sit in frames we show and hide in combat
+    if startBtn then
+        startProxy = NewButton(UIParent, "SecureActionButtonTemplate", START_A_GROUP or "Start a Group")
+        startProxy:Hide()
+        startProxy:SetFrameStrata("HIGH")
+        startProxy:RegisterForClicks("AnyUp", "AnyDown")
+        startProxy:SetAttribute("type", "click")
+        startProxy:SetAttribute("clickbutton", startBtn)
+        frame:HookScript("OnHide", function() ns.PlaceStartGroup(false) end)
+    end
+    -- our sign up button over blizzard's
+    local sb = SP.SignUpButton
+    if sb then
+        signBtn = NewButton(SP, nil, SIGN_UP or "Sign Up")
+        signBtn:SetAllPoints(sb)
+        signBtn:SetFrameLevel(sb:GetFrameLevel() + 5)
+        signBtn:SetMotionScriptsWhileDisabled(true)
         signBtn:SetScript("OnClick", function()
             SendMismatchCancels()
             SignUp(selected)
@@ -1955,6 +1995,10 @@ local function Build()
             -- one group changed; a result can also go secret mid-list
             if type(id) == "number" and not Secret(id) then dirty[id] = true else fullDirty = true end
             flusher:Show()
+        elseif event == "PLAYER_REGEN_DISABLED" then
+            startProxy:Hide()
+        elseif event == "PLAYER_REGEN_ENABLED" then
+            Paint()
         elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
             -- an auto cancel went through
             if cancelSent[id] and newStatus == "cancelled" then
@@ -2005,6 +2049,7 @@ function ns.OwnListRefresh()
         if SP.SearchingSpinner then SP.SearchingSpinner:SetAlpha(a) end  -- its "searching..." sat over our rows
         if signBtn then SP.SignUpButton:SetAlpha(a) end
         guard = false
+        -- it sits in blizzard's faded list: shown at full alpha all the same
         frame:SetShown(active)
         if signBtn then signBtn:SetShown(active) end
         if active then
@@ -2015,6 +2060,11 @@ function ns.OwnListRefresh()
             frame:RegisterEvent("LFG_LIST_AVAILABILITY_UPDATE")
             frame:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATE")
             frame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+            -- the start a group button is secure: out of the way before combat, back after
+            if startProxy then
+                frame:RegisterEvent("PLAYER_REGEN_DISABLED")
+                frame:RegisterEvent("PLAYER_REGEN_ENABLED")
+            end
         else
             frame:UnregisterAllEvents()
             wipe(dirty)
