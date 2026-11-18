@@ -719,6 +719,8 @@ function ns.ApplyCustomBorderStyle(plate, szOverride)
         plate._customBorder = bf
         -- Plates move by sub-pixels: the Pixels styles need their edge fill.
         EllesmereUI.SetBorderEdgeFill(bf, true)
+        -- Snap ignoring the engine's grow-in scale on the Blizzard nameplate.
+        EllesmereUI.SetBorderSnapHost(bf, plate)
     end
     -- Health bars flatten render layers: a BORDER-layer backdrop would be clipped by the
     -- ARTWORK health fill, so lift it onto MEDIUM strata (same escape the plate uses for
@@ -808,6 +810,7 @@ function ns.NP_UpdateCustomBorderWrap(plate)
             lower:SetPoint("BOTTOM", cast, "BOTTOM", 0, 0)
             plate._cbWrapLower = lower
             EUI.SetBorderEdgeFill(lower, true)
+            EUI.SetBorderSnapHost(lower, plate)
         end
         -- Above the cast spell icon, re-set every pass (a strata change on the lifted
         -- cast bar resets its children's levels).

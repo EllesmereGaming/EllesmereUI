@@ -1465,6 +1465,7 @@ do
         secret = setmetatable({}, { __mode = "k" }),         -- borderFrame -> state (8-slice path)
         owners = setmetatable({}, { __mode = "k" }),         -- owner -> fn (RegisterPxReapply)
         edgeFill = setmetatable({}, { __mode = "k" }),       -- borderFrame -> true (SetBorderEdgeFill)
+        snapHost = setmetatable({}, { __mode = "k" }),       -- borderFrame -> host (SetBorderSnapHost)
     }
 
     --- px, step, tex of a *Px value; nil for nil / false / anything else.
@@ -1804,8 +1805,19 @@ do
             -- a rect on half pixels is rasterised with the top-left fill rule, so the top and
             -- left edges read one pixel thicker than the bottom and right. The owner is
             -- already on the grid (PP.Point/PP.Size); this keeps the border there with it.
+            -- A snap host's parent scale is engine-animated (a nameplate grows in from near
+            -- zero): divide it out, or the build moment's scale bakes into offsets and fill.
             local sok, ses = pcall(bdFrame.GetEffectiveScale, bdFrame)
-            if not (sok and ses and ses > 0.01) then ses = UIParent and UIParent:GetEffectiveScale() or 1 end
+            local host = _px.snapHost[borderFrame]
+            if host and sok and PP.IsNum(ses) then
+                local par = host:GetParent()
+                if par and par ~= UIParent then
+                    local pok, ps = pcall(par.GetScale, par)
+                    if pok and PP.IsNum(ps) and ps > 0 then ses = ses / ps end
+                end
+            end
+            -- Still below 0.1 (no host, or the plate itself collapsed): snap at UIParent scale.
+            if not (sok and ses and ses > 0.1) then ses = UIParent and UIParent:GetEffectiveScale() or 1 end
             local offsetX, offsetY
             if EllesmereUI.BorderTextureUsesScaleOffset(textureKey) then
                 local half = EllesmereUI.BorderHalfEdge(textureKey, edgeSize, ses)
@@ -2180,7 +2192,7 @@ do
         -- Same pixel snap as ApplyBorderStyle's backdrop anchors (see there): the
         -- corner pieces carry the outer edges, so their four anchor offsets go on the grid.
         local sok, ses = pcall(owner.GetEffectiveScale, owner)
-        if not (sok and ses and ses > 0.01) then ses = UIParent and UIParent:GetEffectiveScale() or 1 end
+        if not (sok and ses and ses > 0.1) then ses = UIParent and UIParent:GetEffectiveScale() or 1 end
         local PP = EllesmereUI.PP
         if EllesmereUI.BorderTextureUsesScaleOffset(textureKey) then
             local half = EllesmereUI.BorderHalfEdge(textureKey, edgeSize, ses)
@@ -2235,6 +2247,11 @@ do
     --- Opts a border into the Pixels edge fill (see ApplyBorderStyle) from its next apply.
     function EllesmereUI.SetBorderEdgeFill(borderFrame, on)
         _px.edgeFill[borderFrame] = on or nil
+    end
+
+    --- ApplyBorderStyle snaps this border ignoring host's parent's own scale (engine-animated).
+    function EllesmereUI.SetBorderSnapHost(borderFrame, host)
+        _px.snapHost[borderFrame] = host
     end
 
     --- Shows each edge fill strip only while its edge piece draws; call after hiding a piece.
