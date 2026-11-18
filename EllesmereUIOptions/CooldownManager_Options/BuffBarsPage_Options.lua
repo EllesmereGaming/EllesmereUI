@@ -3735,6 +3735,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                     local pos = bd.namePosition or ((bd.showName ~= false) and "left" or "none")
                     local tbb = ns.GetTrackedBuffBars()
                     for _, b in ipairs(tbb.bars or {}) do
+                        EvictTBBTextConflicts(b, "namePosition", pos)
                         b.namePosition = pos
                         b.showName = (pos ~= "none")
                     end
@@ -3820,6 +3821,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                     local pos = bd.timerPosition or (bd.showTimer and "right" or "none")
                     local tbb = ns.GetTrackedBuffBars()
                     for _, b in ipairs(tbb.bars or {}) do
+                        EvictTBBTextConflicts(b, "timerPosition", pos)
                         b.timerPosition = pos
                         b.showTimer = (pos ~= "none")
                     end
@@ -3909,7 +3911,10 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                     local bd = SelectedTBB(); if not bd then return end
                     local pos = bd.stacksPosition or "center"
                     local tbb = ns.GetTrackedBuffBars()
-                    for _, b in ipairs(tbb.bars or {}) do b.stacksPosition = pos end
+                    for _, b in ipairs(tbb.bars or {}) do
+                        EvictTBBTextConflicts(b, "stacksPosition", pos)
+                        b.stacksPosition = pos
+                    end
                     RefreshTBB(); EllesmereUI:RefreshPage()
                 end,
             })
