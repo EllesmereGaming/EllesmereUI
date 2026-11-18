@@ -842,7 +842,8 @@ if EABR.FOREVER then
     -- families, a raid buff becomes castable). Raid Buffs adds its group
     -- events itself (EABR.FvSyncGroupWatch), the two trackers their minimap
     -- event (EABR.FvSyncTrackingEvent), the Action Picker its spellbook event
-    -- (EABR.FvSyncPickerSpellEvents).
+    -- (EABR.FvSyncPickerSpellEvents), Hunter tracking its target events
+    -- (EABR.FvSyncHunterTrackingEvents).
     mainFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
     mainFrame:RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE")
     mainFrame:RegisterEvent("ENCOUNTER_START")
@@ -869,6 +870,19 @@ if EABR.FOREVER then
             mainFrame:RegisterEvent("MINIMAP_UPDATE_TRACKING")
         else
             mainFrame:UnregisterEvent("MINIMAP_UPDATE_TRACKING")
+        end
+    end
+    function EABR.FvSyncHunterTrackingEvents(want)
+        if want == (EABR._fvHunterTrackingEvents or false) then return end
+        EABR._fvHunterTrackingEvents = want
+        if want then
+            mainFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+            mainFrame:RegisterUnitEvent("UNIT_FLAGS", "target")
+            mainFrame:RegisterUnitEvent("UNIT_FACTION", "target")
+        else
+            mainFrame:UnregisterEvent("PLAYER_TARGET_CHANGED")
+            mainFrame:UnregisterEvent("UNIT_FLAGS")
+            mainFrame:UnregisterEvent("UNIT_FACTION")
         end
     end
     -- The Action Picker's choices follow the spellbook: SPELLS_CHANGED is

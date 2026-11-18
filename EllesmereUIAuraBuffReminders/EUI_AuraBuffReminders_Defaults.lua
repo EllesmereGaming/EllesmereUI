@@ -201,6 +201,7 @@ if EABR.FOREVER then
         arcaneCenser = false, -- Arcane Censer reminder; opt-in, in dungeons while a censer is in the bags
         gather = false,     -- gathering tracking reminder; opt-in, it shows while no tracker is up
         gatherClassTrack = true,  -- an active class tracking also hides it
+        hunterTracking = false, -- Hunter: match creature tracking to the current hostile target in combat
         treasure = false,   -- Find Treasure reminder (Dwarf); opt-in, it shows while it is off
         wellFed = false,    -- Well Fed reminder; opt-in, matched by aura name (every food has its own spell ID)
         wellFedShowBelow = 0, -- minutes before the food buff runs out at which it also shows; 0 = off

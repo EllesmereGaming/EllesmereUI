@@ -2149,6 +2149,20 @@ initFrame:SetScript("OnEvent", function(self)
                   end })
             y = BuildForeverGroupSections(parent, y)
 
+            if class == "HUNTER" then
+                _, h = W:SectionHeader(parent, "HUNTER TRACKING", y);  y = y - h
+                _, h = W:DualRow(parent, y,
+                    { type="toggle", text="Match Target in Combat",
+                      tooltip="Shows a visual reminder in combat to use the tracking spell for your current hostile target's creature type.\nOnly tracking spells you know are suggested.\nChoose the named spell from your tracking wheel or use a keybind. This icon is information only.\nHidden target information suppresses the reminder.",
+                      getValue=function() local f = FDB(); return f and f.hunterTracking == true end,
+                      setValue=function(v)
+                          local f = FDB(); if not f then return end; f.hunterTracking = v
+                          RefreshAll()
+                      end },
+                    EllesmereUI.BlankRowCfg()
+                );  y = y - h
+            end
+
             -- No preview header here, so no click-to-scroll mappings to wire.
             return math.abs(y)
         end

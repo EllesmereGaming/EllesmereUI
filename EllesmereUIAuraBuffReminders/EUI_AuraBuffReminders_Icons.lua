@@ -313,9 +313,9 @@ local function GetOrCreateCombatIcon(index)
     return f
 end
 
--- A groupmate's raid buff the player cannot cast is shown to be read, never
--- clicked: its icon lets the left and right click through to whatever is
--- behind, keeps the middle-click dismiss and shows no hover highlight. Click
+-- Receiver raid buffs and Hunter tracking are information-only reminders.
+-- Their icons let the left and right click through to whatever is
+-- behind, keep the middle-click dismiss and show no hover highlight. Click
 -- routing (SetPassThroughButtons) is blocked in combat on every frame, ours
 -- included, so these icons have a pool of their own whose routing is set once,
 -- out of combat. One first built in combat lets every click through (no
@@ -371,7 +371,7 @@ end
 
 local function ShowCombatIcon(m)
     local f
-    if EABR.IsReceiverRaidBuff(m) then
+    if EABR.IsReceiverRaidBuff(m) or m.dismissKey == "forever:huntertracking" then
         receiversShown = receiversShown + 1
         f = GetOrCreateReceiverIcon(receiversShown)
     else

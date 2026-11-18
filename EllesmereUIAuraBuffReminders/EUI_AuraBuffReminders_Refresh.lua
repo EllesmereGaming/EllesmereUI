@@ -332,6 +332,46 @@ function EABR.FvTrackingState()
     return EABR._fvTreasureUp, EABR._fvClassUp
 end
 
+-- Target identity can be secret in combat; classify only a readable creature type.
+function EABR.CollectHunterTracking(missing)
+    local exists = UnitExists("target")
+    if isSecret(exists) or not exists then return end
+    local attackable = UnitCanAttack("player", "target")
+    if isSecret(attackable) or not attackable then return end
+    local dead = UnitIsDeadOrGhost("target")
+    if isSecret(dead) or dead then return end
+    local _, creatureTypeID = UnitCreatureType("target")
+    if isSecret(creatureTypeID) or type(creatureTypeID) ~= "number" then return end
+    local spells = EABR._fvHunterTrackingSpells
+    if not spells then
+        spells = {
+            [1] = 1494,   -- Beast
+            [2] = 19879,  -- Dragonkin
+            [3] = 19878,  -- Demon
+            [4] = 19880,  -- Elemental
+            [5] = 19882,  -- Giant
+            [6] = 19884,  -- Undead
+            [7] = 19883,  -- Humanoid
+        }
+        EABR._fvHunterTrackingSpells = spells
+    end
+    local spellID = spells[creatureTypeID]
+    if not spellID or not Known(spellID) then return end
+    for i = 1, C_Minimap.GetNumTrackingTypes() do
+        local info = C_Minimap.GetTrackingInfo(i)
+        if info and not isSecret(info.spellID) and info.spellID == spellID then
+            if isSecret(info.active) or info.active then return end
+            local e = AcquireEntry()
+            e.mode = "texture"; e.spellID = spellID
+            e.texture = info.texture or Tex(spellID)
+            e.label = info.name or SpellName(spellID)
+            e.cat = "forever"; e.dismissKey = "forever:huntertracking"
+            missing[#missing+1] = e
+            return
+        end
+    end
+end
+
 -- A cast-on-click reminder for a WoW Forever spell (gathering, Find Treasure,
 -- the mage armors, class buffs), labelled with the spell's name unless a
 -- label is given.
@@ -968,9 +1008,9 @@ end
 -- textures carrying the spell for the tooltip, except the Sleeping Bag, the
 -- Arcane Censer, the two trackers, the mage armors, the class buffs, the weapon buffs, the spell
 -- groups and the custom spells the character knows, whose click casts the spell
--- or uses the item; presence goes through PlayerHasAuraByID. The section shows
--- nothing in combat (its Where to Show offers no In Combat entry: always
--- unchecked), and Camp Benefits, the Sleeping Bag, Well Fed, the mage armors,
+-- or uses the item; presence goes through PlayerHasAuraByID. Hunter target
+-- tracking is a visual-only combat reminder; every other reminder here is
+-- out of combat. Camp Benefits, the Sleeping Bag, Well Fed, the mage armors,
 -- the class buffs and the trackers nothing in PvP either. The one-slot id
 -- table, the cached families, the kept minimap answer and the dismiss-key memo
 -- keep the pass allocation-free; the weapon pass reads the game's enchant
@@ -978,10 +1018,14 @@ end
 function EABR.CollectForever(missing, inInstance, inPvP)
     local fo = db.profile.forever
     local shows = fo and not InCombat() and EABR.SectionShows(fo.whereToShow, inInstance)
+    local hunterTracking = fo and fo.hunterTracking == true and GetPlayerClass() == "HUNTER"
+        and InCombat() and EABR.SectionShows(fo.whereToShow, inInstance) or false
+    EABR.FvSyncHunterTrackingEvents(hunterTracking)
+    if hunterTracking then EABR.CollectHunterTracking(missing) end
     -- Class trackers and Find Treasure are read from the minimap, whose event
     -- is listened to only while a reminder that reads it can show.
-    EABR.FvSyncTrackingEvent(shows and not inPvP
-        and ((fo.gather == true and fo.gatherClassTrack ~= false) or fo.treasure == true) or false)
+    EABR.FvSyncTrackingEvent(hunterTracking or (shows and not inPvP
+        and ((fo.gather == true and fo.gatherClassTrack ~= false) or fo.treasure == true)) or false)
     EABR.FvSyncWeaponEvents(shows and fo.weapon == true or false)
     local wantBag = shows and fo.sleepingBag == true and not inPvP
     local sleepBag = wantBag and EABR.FvSleepingBagOwned()
@@ -1383,12 +1427,13 @@ function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
 end
 
 -- WoW Forever: what a pass that shows nothing stands down (the Raid Buffs group
--- watch and the minimap, weapon and bag events); the next pass that can show
+-- watch and the minimap, target, weapon and bag events); the next pass that can show
 -- re-arms them.
 function EABR.FvStandDown(keepSleepProgress)
     EABR.SyncForeverFoodWatch(false)
     EABR.FvSyncGroupWatch(nil, false)
     EABR.FvSyncTrackingEvent(false)
+    EABR.FvSyncHunterTrackingEvents(false)
     EABR.FvSyncWeaponEvents(false)
     EABR.FvSyncBagEvent(false)
     EABR.FvSyncSleepBagWatch(false)
