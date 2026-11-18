@@ -20,7 +20,7 @@ EUI_NS = EUI_NS.__euiCoreNS or EUI_NS  -- standalone builds: the core's own tabl
 do
     -- Modules that should NOT get a sync icon (no per-profile settings; Loadout
     -- Manager and Simple Loot Council keep stores of their own)
-    local SYNC_EXEMPT = { EllesmereUIPartyMode = true, EllesmereUILoadoutManager = true,
+    local SYNC_EXEMPT = { EllesmereUIPartyMode = true,
         EllesmereUISimpleLootCouncil = true }
     EllesmereUI._syncExempt = SYNC_EXEMPT
 

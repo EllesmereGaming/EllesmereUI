@@ -558,8 +558,12 @@ initFrame:SetScript("OnEvent", function(self)
             end
             EllesmereUI.BuildInlineCog(leftRgn, {
                 gap = 9,
-                disabled = ttCursorOff,
-                disabledTooltip = "Anchor to Cursor",
+                -- Reskin Tooltip first: the cursor anchor stands down without it.
+                disabled = function() return ttReskinOff() or ttCursorOff() end,
+                disabledTooltip = function()
+                    if ttReskinOff() then return "Reskin Tooltip" end
+                    return "Anchor to Cursor"
+                end,
                 title = "Cursor Tooltip Position",
                 rows = {
                     { type="dropdown", label="Position",
@@ -738,8 +742,8 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v)
                           if not EllesmereUIDB then EllesmereUIDB = {} end
                           EllesmereUIDB.spellIDModifier = v
-                          -- Modifier choice gates the engine-side combat
-                          -- aura-ID CVar (12.1; no-op on retail).
+                          -- The engine's aura ID line follows the held key: re-sync the
+                          -- CVar and the key watcher.
                           if EllesmereUI.SyncAuraSpellIDCVar then EllesmereUI.SyncAuraSpellIDCVar() end
                       end },
                     { type="toggle", label="Show Icon ID",

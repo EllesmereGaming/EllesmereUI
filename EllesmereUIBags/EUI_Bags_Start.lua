@@ -649,8 +649,9 @@ local function StartAddon()
     -- The single-item slots of the last tally (bag, false for a worn slot; slot;
     -- itemID), reused every pass. GUIDs are read from them only when needed.
     local _oneBag, _oneSlot, _oneItem, _oneN = {}, {}, {}, 0
-    -- The counts of the last pass while New Items Only is on (nil: none since
-    -- the snapshot). At the mailbox the known counts keep their peak.
+    -- The counts of the last pass while copies are tracked (CopiesOn: New Items
+    -- Only or Show Picked-Up Amount; nil: none since the snapshot). At the
+    -- mailbox the known counts keep their peak.
     local _lastCounts
 
     local function CopiesOn(bp)

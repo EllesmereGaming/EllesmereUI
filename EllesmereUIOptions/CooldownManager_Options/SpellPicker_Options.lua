@@ -4572,19 +4572,21 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 -- stack count of the spell's own buff on this cooldown icon, mirrored from
                 -- its item in Blizzard's buff viewers. Eligible: selfAura, no charges, and
                 -- the spell is in Blizzard's buff catalogue (ns.CdBuffStacksEligible).
-                -- Off saves false; unset is on. Runtime in EUI_CDM_CdBuffStacks.lua.
+                -- Off saves false; unset is on. The menu's values are nil (on) and "off":
+                -- MakeSubnavRow reads a false getter as nil, so a false item never shows
+                -- selected. Runtime in EUI_CDM_CdBuffStacks.lua.
                 local bsKey = (type(spellID) == "string" and anchorFrame and anchorFrame._previewSpellID) or spellID
                 if ns.CdBuffStacksEligible and (ns.CdBuffStacksEligible(spellID) or ns.CdBuffStacksEligible(bsKey)) then
                     local BUFF_STACKS_ITEMS = {
-                        { val = true,  label = "Show Buff Stacks",
-                          tooltip = "Shows the stack count of this spell's buff on the icon, e.g. blocks left on Shield Block. The buff must be displayed in Blizzard's Cooldown Manager buffs (icon or bar); it does not have to be on an EUI bar." },
-                        { val = false, label = "Off" },
+                        { val = nil, label = "Show Buff Stacks",
+                          tooltip = "Shows this spell's buff stacks on the icon while Blizzard's Cooldown Manager displays that buff." },
+                        { val = "off", label = "Off" },
                     }
                     MakeSubnavRow("Buff Stacks", BUFF_STACKS_ITEMS,
-                        function() return ss.showBuffStacks ~= false end,
+                        function() return ss.showBuffStacks == false and "off" or nil end,
                         function(v)
                             EnsureSS()
-                            if v then
+                            if v ~= "off" then
                                 SetOwn("showBuffStacks", nil)
                                 -- A bar tier set to Off would turn the cleared key back to false.
                                 if ss.showBuffStacks == false then ss.showBuffStacks = true end
@@ -4597,7 +4599,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         nil,
                         { apply = { keys = { "showBuffStacks" },
                                     write = function(t, v)
-                                        t.showBuffStacks = (v ~= false) and true or false
+                                        t.showBuffStacks = v ~= "off"
                                     end } })
                 end
 

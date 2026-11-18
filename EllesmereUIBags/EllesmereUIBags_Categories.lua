@@ -959,11 +959,16 @@ function CategoryManager:GroupDisplayName(groupName)
     return groupName
 end
 
--- Check if the group name was manually customized by the user.
+-- Check if the group name was manually customized by the user, or is a
+-- member's built-in group (WoW Forever's Adventure Prep comes from
+-- defaultGroupName alone on a profile the default-groups seed never reached).
 function CategoryManager:IsGroupNameCustom(groupName)
     local cats = self:GetCategories()
     for _, cat in ipairs(cats) do
-        if cat.groupName == groupName and cat.groupNameCustom then return true end
+        if cat.groupName == groupName
+            and (cat.groupNameCustom or cat.defaultGroupName == groupName) then
+            return true
+        end
     end
     return false
 end

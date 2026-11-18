@@ -51,7 +51,8 @@ local function GatherOnlineFriends()
             local gameInfo = acct.gameAccountInfo
             if gameInfo and gameInfo.isOnline and gameInfo.clientProgram == "WoW" then
                 local charName = gameInfo.characterName
-                local classFile = EllesmereUI.ClassTokenFromLocalized(gameInfo.className)
+                local classFile = (gameInfo.classFilename ~= "" and gameInfo.classFilename)
+                    or EllesmereUI.ClassTokenFromLocalized(gameInfo.className)
                 if gameInfo.classID and C_CreatureInfo and C_CreatureInfo.GetClassInfo then
                     local ci = C_CreatureInfo.GetClassInfo(gameInfo.classID)
                     if ci and ci.classFile then classFile = ci.classFile end
@@ -508,8 +509,11 @@ function ShowFriendsTooltip(anchor)
             FTTNameFont(row.name, 10)
             row.zone:SetFont(font, 10, "")
 
+            -- The suite's class colours (a custom one included); a class the client
+            -- does not know stays uncoloured.
             local cc = e.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[e.class]
-            local colored = cc and cc:WrapTextInColorCode(e.name) or e.name
+                and EllesmereUI.GetClassColor(e.class)
+            local colored = cc and EllesmereUI.ColorText(e.name, cc.r, cc.g, cc.b) or e.name
             -- BNet friends: show battle tag before the in-game name, e.g. "Bigmacz (Unholyftw)"
             if e.bnetTag then
                 colored = "|cffffd100" .. e.bnetTag .. "|r (" .. colored .. ")"

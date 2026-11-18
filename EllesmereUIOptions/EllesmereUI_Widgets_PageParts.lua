@@ -513,6 +513,48 @@ function EllesmereUI.BuildNoteRow(parent, y, text, opts)
     return y - ROW_H
 end
 
+-- A text link in the accent: the text is the click (a hit rect a little past
+-- it), resting at 0.7 of the accent and full while hovered, and it follows a
+-- live accent change. opts: size (12), color ({ r, g, b } in place of the
+-- accent: the error red { 1, 0.3, 0.3 } for a delete), tip (a hover tooltip),
+-- onEnter / onLeave (run after its own). The caller places it; link.fs is its
+-- text. Returns nil during the search prebuild.
+function EllesmereUI.BuildAccentLink(parent, text, onClick, opts)
+    if EllesmereUI._prebuilding then return end
+    opts = opts or {}
+    local EG, col = EllesmereUI.ELLESMERE_GREEN, opts.color
+    local link = CreateFrame("Button", nil, parent)
+    link:SetFrameLevel(parent:GetFrameLevel() + 2)
+    local fs = EllesmereUI.MakeFont(link, opts.size or 12)
+    fs:SetText(EllesmereUI.L(text))
+    fs:SetPoint("CENTER")
+    link:SetSize(math.ceil(fs:GetStringWidth()) + 2, (opts.size or 12) + 4)
+    link:SetHitRectInsets(-3, -3, -4, -4)
+    link.fs = fs
+    local hot = false
+    local function Paint()
+        local a = hot and 1 or 0.7
+        if col then fs:SetTextColor(col[1], col[2], col[3], a) else fs:SetTextColor(EG.r, EG.g, EG.b, a) end
+    end
+    Paint()
+    link:SetScript("OnEnter", function(self)
+        hot = true; Paint()
+        if opts.tip then EllesmereUI.ShowWidgetTooltip(self, opts.tip) end
+        if opts.onEnter then opts.onEnter(self) end
+    end)
+    link:SetScript("OnLeave", function(self)
+        hot = false; Paint()
+        if opts.tip then EllesmereUI.HideWidgetTooltip() end
+        if opts.onLeave then opts.onLeave(self) end
+    end)
+    link:SetScript("OnClick", function(self)
+        if opts.tip then EllesmereUI.HideWidgetTooltip() end
+        onClick(self)
+    end)
+    EllesmereUI.RegisterWidgetRefresh(Paint)
+    return link
+end
+
 local MC_ARROW_DOWN = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.png"
 local MC_ARROW_UP   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-up3.png"
 local MC_HEADER_H   = 54
@@ -523,7 +565,12 @@ local MC_CARD_GAP   = 14
 -- glyph(hdr, enabled) builds the left glyph, headerDD(hdr) -> dd or nil,
 -- searchDesc: what search indexes (and the header's section name carries) in
 -- place of tile.desc, for a card whose description is live (a count);
--- noSearch: the header is no search entry (a card that holds no settings).
+-- noSearch: the header is no search entry (a card that holds no settings);
+-- onDelete: a trash button left of the arrow that removes the whole card
+-- (the caller confirms), deleteTip its tooltip.
+-- links: in place of the trash, text links left of the arrow
+-- ({ text, onClick, tip, color } each, BuildAccentLink), the last nearest
+-- the arrow, with a divider between them.
 -- A disabled module's card is inert: dimmed header, tag and tooltip only.
 -- Sets tile._hdr and tile._descFS (the header and its description line)
 -- before tile.buildContent runs, for content that updates the header.
@@ -635,6 +682,50 @@ function EllesmereUI.BuildModuleCard(parent, y, W, tile, opts)
             opts.expanded[tile.key] = not opts.expanded[tile.key]
             EllesmereUI:RefreshPage(true)
         end)
+        -- The trash, in the manager tiles' look (Player Aura Bars' sidebar);
+        -- it keeps the header lit while the pointer is on it.
+        if opts.onDelete then
+            local del = CreateFrame("Button", nil, hdr)
+            PP.Size(del, 16, 16)
+            PP.Point(del, "RIGHT", chev, "LEFT", -10, 0)
+            del:SetFrameLevel(hdr:GetFrameLevel() + 2)
+            local delTex = del:CreateTexture(nil, "OVERLAY")
+            delTex:SetAllPoints()
+            EllesmereUI.SetDeleteIcon(delTex)
+            delTex:SetDesaturated(true)
+            delTex:SetVertexColor(0.75, 0.75, 0.75)
+            del:SetAlpha(0.5)
+            del:SetScript("OnEnter", function(self)
+                self:SetAlpha(0.9)
+                ApplyHeaderHover()
+                if opts.deleteTip then EllesmereUI.ShowWidgetTooltip(self, opts.deleteTip) end
+            end)
+            del:SetScript("OnLeave", function(self)
+                self:SetAlpha(0.5)
+                ClearHeaderHover()
+                EllesmereUI.HideWidgetTooltip()
+            end)
+            del:SetScript("OnClick", function()
+                EllesmereUI.HideWidgetTooltip()
+                opts.onDelete()
+            end)
+        elseif opts.links then
+            -- Right to left from the arrow; they keep the header lit too.
+            local prev, gap = chev, 12
+            for i = #opts.links, 1, -1 do
+                local spec = opts.links[i]
+                local link = EllesmereUI.BuildAccentLink(hdr, spec.text, spec.onClick,
+                    { tip = spec.tip, color = spec.color, onEnter = ApplyHeaderHover, onLeave = ClearHeaderHover })
+                PP.Point(link, "RIGHT", prev, "LEFT", -gap, 0)
+                prev, gap = link, 6
+                if i > 1 then
+                    local bar = EllesmereUI.MakeFont(hdr, 12, nil, 1, 1, 1, 0.25)
+                    bar:SetText("|")
+                    PP.Point(bar, "RIGHT", link, "LEFT", -6, 0)
+                    prev = bar
+                end
+            end
+        end
     else
         local tag = EllesmereUI.MakeFont(hdr, 11, nil, 1, 1, 1)
         tag:SetAlpha(0.3)

@@ -7,9 +7,10 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  needs ("Requires Mining (75)") and, when you can gather it, the color of
 --  your chance to raise your skill there, as recipes show it: orange, yellow,
 --  green, grey. The game's red stays when you cannot.
---  skinning (off by default, in the cog): a skinnable corpse's "Skinnable"
---  line gains the skill it needs, in the same colors. The need is worked out
---  from the creature's level (Classic's rule), not read from game data.
+--  Skinning (off by default, in the toggle's cog): a skinnable corpse's
+--  "Skinnable" line gains the skill it needs, in the same colors, red when
+--  you cannot skin it yet. The need is worked out from the creature's level
+--  (Classic's rule), not read from game data.
 --
 --  World object tooltips carry no object ID, so a node is known by its name,
 --  in the client's language whatever the options language. A herb node bears
@@ -56,9 +57,9 @@ local HERB_NODES = {
     ["Mountain Silversage"] = 13465, ["Plaguebloom"] = 13466,
 }
 
--- Localized node name = { skill line, required skill }; built on first use,
--- a herb whose item is not loaded yet added when it loads.
-local nodes, hooked
+-- Localized node name, as Key writes it = { skill line, required skill };
+-- built on first use, a herb whose item is not loaded yet added when it loads.
+local nodes, hooked, unitHooked
 local missing = {}  -- herb item ID = true while its name is not loaded
 local events = CreateFrame("Frame")
 
@@ -139,7 +140,8 @@ local function OnObjectTooltip(tooltip, data)
             fs:SetText(("%s (%d)"):format(text, node[2]))
             local skill = Skill(node[1])
             if skill and skill >= node[2] then fs:SetTextColor(OddsColor(skill, node[2])) end
-            tooltip:Show()
+            -- No Show() here: Blizzard shows the tooltip right after its
+            -- post-calls, from its own secure call.
             return
         end
     end
@@ -156,6 +158,8 @@ local function OnUnitTooltip(tooltip)
     if tooltip ~= GameTooltip or not (F.Enabled() and F.Get("skinning")) then return end
     local _, unit = tooltip:GetUnit()
     if not unit or issecretvalue(unit) then return end
+    -- Only a corpse carries the line: a live unit stops here.
+    if not UnitIsDead(unit) then return end
     local level = UnitLevel(unit)
     if issecretvalue(level) or level < 1 then return end
     for i = 2, tooltip:NumLines() do
@@ -168,20 +172,24 @@ local function OnUnitTooltip(tooltip)
             if skill and skill >= need then
                 fs:SetTextColor(OddsColor(skill, need))
             else
-                fs:SetTextColor(1, 0.125, 0.125)
+                fs:SetTextColor(RED_FONT_COLOR:GetRGB())
             end
-            tooltip:Show()
             return
         end
     end
 end
 
--- The tooltip hook goes in the first time the setting is on; off, it returns
--- at once and no event is registered.
+-- The object tooltip hook goes in the first time the setting is on, the unit
+-- one the first time Skinning is on with it; off, each returns at once and no
+-- event is registered.
 local function Apply()
     if not F.Enabled() then
         events:UnregisterAllEvents()
         return
+    end
+    if F.Get("skinning") and not unitHooked then
+        unitHooked = true
+        TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, OnUnitTooltip)
     end
     -- Herbs that loaded while it was off.
     if nodes and next(missing) then
@@ -195,7 +203,6 @@ local function Apply()
     -- Nothing to load where the names came in with the module's TOC.
     EllesmereUI.LoadGameNames()
     TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Object, OnObjectTooltip)
-    TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, OnUnitTooltip)
 end
 
 -- Options-page entry points.

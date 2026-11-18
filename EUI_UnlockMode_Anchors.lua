@@ -826,13 +826,13 @@ function MatchH.ApplyWidthMatch(sourceKey, targetKey)
             if UM.isUnlocked then
                 local sb = UM.GetBarFrame(sourceKey)
                 local savedAlpha = sb and EllesmereUI._GetFFD(sb).restoreAlpha
-                if sb and not savedAlpha then EllesmereUI._UnlockSetBarAlpha(sb, 0) end
+                if sb and not savedAlpha then EllesmereUI._UnlockBlankBar(sb) end
                 _propagatingMatch = true; EllesmereUI._propagatingMatch = true
                 pcall(sourceElem.setWidth, sourceKey, targetW)
                 _propagatingMatch = false; EllesmereUI._propagatingMatch = false
                 EllesmereUI.RecenterBarAnchor(sourceKey)
                 if sb and not savedAlpha then
-                    C_Timer.After(0, function() EllesmereUI._UnlockSetBarAlpha(sb, 1) end)
+                    C_Timer.After(0, function() EllesmereUI._UnlockUnblankBar(sb) end)
                 end
                 local m = movers[sourceKey]
                 if m then m:SyncSize() end
@@ -916,13 +916,13 @@ function MatchH.ApplyHeightMatch(sourceKey, targetKey)
             if UM.isUnlocked then
                 local sb = UM.GetBarFrame(sourceKey)
                 local savedAlpha = sb and EllesmereUI._GetFFD(sb).restoreAlpha
-                if sb and not savedAlpha then EllesmereUI._UnlockSetBarAlpha(sb, 0) end
+                if sb and not savedAlpha then EllesmereUI._UnlockBlankBar(sb) end
                 _propagatingMatch = true; EllesmereUI._propagatingMatch = true
                 pcall(sourceElem.setHeight, sourceKey, targetH)
                 _propagatingMatch = false; EllesmereUI._propagatingMatch = false
                 EllesmereUI.RecenterBarAnchor(sourceKey)
                 if sb and not savedAlpha then
-                    C_Timer.After(0, function() EllesmereUI._UnlockSetBarAlpha(sb, 1) end)
+                    C_Timer.After(0, function() EllesmereUI._UnlockUnblankBar(sb) end)
                 end
                 local m = movers[sourceKey]
                 if m then m:SyncSize() end

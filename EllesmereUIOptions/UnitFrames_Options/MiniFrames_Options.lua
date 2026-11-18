@@ -1636,7 +1636,8 @@ function ns.UFO_BuildPetOptions(W, parent, y)
                   getValue=function() return P.happinessSize or 20 end,
                   setValue=function(v) P.happinessSize = v; happyApply() end });  yy = yy - hh
 
-            -- Row 2: Position (+ offsets cog) | Click to Feed
+            -- Row 2: Position (+ offsets cog) | blank (odd last slot). A left click on
+            -- the icon feeds the pet (part of the icon, no switch of its own).
             local posRow
             posRow, hh = Ww:DualRow(pp, yy,
                 { type="dropdown", text="Position",
@@ -1644,11 +1645,7 @@ function ns.UFO_BuildPetOptions(W, parent, y)
                   disabled=happyOff, disabledTooltip="Show Happiness",
                   getValue=function() return P.happinessAlign or "right" end,
                   setValue=function(v) P.happinessAlign = v; happyApply() end },
-                { type="toggle", text="Click to Feed",
-                  tooltip="Left-click the happiness icon to open a menu of the food in your bags that your pet will eat, then click a food to feed it. Out of combat only.",
-                  disabled=happyOff, disabledTooltip="Show Happiness",
-                  getValue=function() return P.happinessFeed == true end,
-                  setValue=function(v) P.happinessFeed = v; happyApply() end });  yy = yy - hh
+                EllesmereUI.BlankRowCfg());  yy = yy - hh
             do
                 EllesmereUI.BuildInlineCog(posRow._leftRegion, {
                     disabled = happyOff, disabledTooltip = "Show Happiness",

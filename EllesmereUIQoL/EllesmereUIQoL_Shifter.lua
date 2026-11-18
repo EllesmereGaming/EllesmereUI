@@ -260,8 +260,10 @@ local HIDDEN_SCALE = 0.05
 
 local function IsParked(frame)
     local p, rel, rp, x, y = frame:GetPoint(1)
-    if not p or type(x) ~= "number" or type(y) ~= "number" then return false end
-    if issecretvalue(x) or issecretvalue(y) then return false end
+    -- All five returns read secret while the frame's anchoring is: the offsets
+    -- are tested before anything else is.
+    if type(x) ~= "number" or type(y) ~= "number" then return false end
+    if issecretvalue(x) or issecretvalue(y) or not p then return false end
     if x >= PARK_LIMIT or x <= -PARK_LIMIT or y >= PARK_LIMIT or y <= -PARK_LIMIT then
         return true
     end
@@ -272,6 +274,8 @@ local function IsParked(frame)
     local sw, sh = (UIParent:GetWidth() or 0) * ues, (UIParent:GetHeight() or 0) * ues
     if sw <= 0 or sh <= 0 then return false end
     local w, h = (frame:GetWidth() or 0) * es, (frame:GetHeight() or 0) * es
+    -- A window with no size yet has no rect to lie off screen.
+    if w <= 0 or h <= 0 then return false end
     local rx, ry = PointFrac(rp or p)
     local px, py = PointFrac(p)
     local left = rx * sw + x * es - px * w
@@ -284,8 +288,8 @@ local function IsHiddenByScale(frame)
     return type(s) == "number" and s < HIDDEN_SCALE
 end
 
--- Tracks park edges on a foreign SetPoint and drops our screen clamp while
--- parked (it would pull the window back). Returns parked, justReturned.
+-- Tracks park edges (a foreign SetPoint, each show) and drops our screen clamp
+-- while parked (it would pull the window back). Returns parked, justReturned.
 local function SyncParkState(frame)
     local ffd = GetFFD(frame)
     local parked = IsParked(frame)
@@ -334,6 +338,14 @@ local function ApplyPosition(frame, name)
     else
         frame:ClearAllPoints()
         frame:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
+        ffd._shIgnoreSP = false
+        -- Other code that parks the window from its own SetPoint hook did so
+        -- inside ours, unseen: an anchor that is no longer ours is read (our
+        -- own spot, even off screen, stays clamped).
+        local p, _, rp, x, y = frame:GetPoint(1)
+        if p ~= pos.point or rp ~= pos.relPoint or x ~= pos.x or y ~= pos.y then
+            SyncParkState(frame)
+        end
     end
     ffd._shIgnoreSP = false
 end
@@ -680,7 +692,10 @@ local function HookFrame(frame, name)
     ffd._shParked = IsParked(frame)
     if not Secured(frame) then
         frame:SetMovable(true)
-        -- No clamp on a parked window: it would pull it back into view.
+        -- The clamp the window had before us, handed back while Shifter is off
+        -- (_ShutdownShifter). No clamp on a parked window: it would pull it
+        -- back into view.
+        ffd._shClampWas = frame:IsClampedToScreen() and true or false
         frame:SetClampedToScreen(not ffd._shParked)
     end
 
@@ -750,6 +765,9 @@ local function HookFrame(frame, name)
 
     frame:HookScript("OnShow", function()
         if not IsEnabled() then return end
+        -- A window parked or brought back by anything but a SetPoint (all
+        -- points, a size, a new UI scale) reads right from here on.
+        SyncParkState(frame)
         -- Scale first: stored position offsets are frame-local units, so the
         -- pin only lands right once the final scale is in effect.
         ApplyScale(frame, name)
@@ -892,11 +910,10 @@ local function HookFrame(frame, name)
     end
 
     hooksecurefunc(frame, "SetPoint", function()
+        if not IsEnabled() then return end
         if ffd._shIgnoreSP then return end
-        -- Ahead of the enable gate: our clamp outlives a mid-session disable.
         local parked, returned = SyncParkState(frame)
         if parked then return end
-        if not IsEnabled() then return end
         if secureDrag.frame == frame then return end  -- don't fight an active drag
         if InCombatLockdown() and Secured(frame) then return end
         -- Back on screen: scale was left alone while parked, restore it first.
@@ -1532,6 +1549,14 @@ local function InitShifter()
     -- forbidden popup then freezes the client). Dragging needs a mouse anyway,
     -- so nothing is hooked while that style is on (false on retail).
     if EllesmereUI.PadGamepadUI() then return end
+    -- A re-enable: windows hooked before (HookFrame skips them) read their park
+    -- state again and take Shifter's clamp back.
+    for i = 1, #hookedFrames do
+        local frame = hookedFrames[i].frame
+        local ffd = GetFFD(frame)
+        ffd._shParked = IsParked(frame)
+        if not Secured(frame) then frame:SetClampedToScreen(not ffd._shParked) end
+    end
     for i = 1, #PRELOADED do
         TryHook(PRELOADED[i])
     end
@@ -1584,12 +1609,18 @@ function EllesmereUI._InitShifter()
 end
 
 -- Exposed for the options toggle (mid-session disable). Stops the modifier
--- key listener and parks the wheel overlay; re-enable re-runs InitShifter,
--- which registers the event again. Frame hooks are irreversible and stay
--- installed, but every hook body bails first-line while disabled.
+-- key listener, parks the wheel overlay and hands each window back the screen
+-- clamp it had before it was hooked; re-enable re-runs InitShifter, which
+-- registers the event again and clamps again. Frame hooks are irreversible and
+-- stay installed, but every hook body bails first-line while disabled.
 function EllesmereUI._ShutdownShifter()
     eventFrame:UnregisterEvent("MODIFIER_STATE_CHANGED")
     UpdateWheelOverlay()
+    for i = 1, #hookedFrames do
+        local frame = hookedFrames[i].frame
+        local was = GetFFD(frame)._shClampWas
+        if was ~= nil and not Secured(frame) then frame:SetClampedToScreen(was) end
+    end
 end
 
 -- Exposed for the options reset button (positions AND zoom)

@@ -54,7 +54,8 @@ ns.BarGlowHealthRule = HealthRule
 local function HealthPass(entry)
     local threshold, above = HealthRule(entry)
     if not threshold then return true end
-    local current, maximum = UnitHealth("player"), UnitHealthMax("player")
+    -- Not predicted, as the curve path reads it: both answer alike at the crossing.
+    local current, maximum = UnitHealth("player", false), UnitHealthMax("player")
     -- Secret probe first: any other test on a secret value hard-errors.
     if issecretvalue(current) or issecretvalue(maximum) then return true end
     if not current or not maximum or maximum <= 0 then return false end
@@ -84,7 +85,7 @@ local function HealthCurve(threshold, above)
             else
                 c:AddPoint(0, 1)
                 c:AddPoint(threshold / 100, 0)
-                c:AddPoint(1, 0)
+                if threshold < 100 then c:AddPoint(1, 0) end
             end
             return c
         end)

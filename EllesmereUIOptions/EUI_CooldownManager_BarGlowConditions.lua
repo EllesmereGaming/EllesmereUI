@@ -490,7 +490,8 @@ end
 function ns.BuildBarGlowHealthRow(W, parent, y, entry, onChange)
     local _, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Health",
-          values = { disabled = "Ignore", below = "Below", above = "Above" },
+          -- The At Stacks comparison's words (translated as comparisons, not positions).
+          values = { disabled = "Ignore", below = "Below (<)", above = "Above (>)" },
           order = { "disabled", "below", "above" },
           tooltip = "Only glow while your health is below or above the selected percentage.",
           getValue = function()
@@ -510,7 +511,7 @@ function ns.BuildBarGlowHealthRow(W, parent, y, entry, onChange)
           disabled = function()
               return not (tonumber(entry.healthBelow) or tonumber(entry.healthAbove))
           end,
-          disabledTooltip = "Choose Below or Above first",
+          disabledTooltip = "Health",
           getValue = function()
               return tonumber(entry.healthBelow) or tonumber(entry.healthAbove) or 35
           end,

@@ -752,7 +752,14 @@ local function SyncRebindEvents(on)
             self:Hide()
             local bg = _cachedBG
             if not bg or not bg.enabled then return end
-            BindOverlays(bg)
+            local _, _, _, anyUsable, _, swingWindows, anyHealth = BindOverlays(bg)
+            -- A glow can first land on a button here (or leave the last one): the
+            -- edges that follow bound glows follow this bind too (each returns at
+            -- once when its answer did not change).
+            SyncUsableEvents(anyUsable == true)
+            SyncPowerEvents(next(powerBound) ~= nil)
+            if ns.BarGlowSwingSync then ns.BarGlowSwingSync(swingWindows) end
+            SyncHealthEvents(anyHealth == true)
             if UpdateOverlayVisuals then UpdateOverlayVisuals() end
         end)
     elseif not on and rebindFlush then
@@ -868,7 +875,7 @@ UpdateOverlayVisuals = function(only)
             end
             -- WoW Forever: late in the Main Hand swing (EllesmereUICdmBarGlowSwing.lua)
             if shouldGlow and entry.swingWindow and ns.BarGlowSwingPass then
-                shouldGlow = ns.BarGlowSwingPass(entry, UsableSpellOf(overlay))
+                shouldGlow = ns.BarGlowSwingPass(entry, overlay, UsableSpellOf)
             end
 
             if shouldGlow and onlyInCombat then

@@ -3404,70 +3404,72 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
         parent._ufEliteRow = eliteRow
     end
 
-    -- Row 5c: Faction Indicator (mode + filters cog) | Icon Size (+ position cog).
-    -- Player and target. On the player frame it is a PvP-flagged indicator
-    -- (PvP Flag defaults to Flagged Only there); Opposite Faction and Players
-    -- Only are target-only.
+    -- Row 5c: Faction/PvP Indicator | Icon Size (+ position cog). Player and
+    -- target. The dropdown is a view over the two saved keys, nothing migrated:
+    -- Never = factionIndicatorMode "off"; the other three are factionIndicatorPvP
+    -- ("only" / "dim" / "ignore"), a pick of one turning an off mode on (an
+    -- unset PvP key reads When PvP Flagged on the player, Dim on the target, as
+    -- the runtime defaults do). Target only, in the cog: Opposite Faction Only
+    -- (mode "opposite") and Players Only.
     if optState.selectedUnit == "player" or optState.selectedUnit == "target" then
         local isTarget = optState.selectedUnit == "target"
         local function factionIndOff()
             return SValSupported("factionIndicatorMode", "off") == "off"
         end
-        local modeValues, modeOrder
-        if isTarget then
-            modeValues = { off = "Off", always = "Always", opposite = "Opposite Faction" }
-            modeOrder = { "off", "always", "opposite" }
-        else
-            modeValues = { off = "Off", always = "On" }
-            modeOrder = { "off", "always" }
-        end
+        local pvpDefault = isTarget and "dim" or "only"
+        local showValues = { off = "Never", only = "When PvP Flagged", dim = "Always (Dim Unflagged)", ignore = "Always" }
+        local showOrder = { "off", "only", "dim", "ignore" }
         local factionRow
         factionRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Faction Indicator", values=modeValues, order=modeOrder,
+            { type="dropdown", text="Faction/PvP Indicator", values=showValues, order=showOrder,
               getValue=function()
-                  local v = SValSupported("factionIndicatorMode", "off")
-                  if not isTarget and v == "opposite" then v = "always" end
-                  return v
+                  -- Both keys are read every time (the Spec Overrides marks).
+                  local mode = SValSupported("factionIndicatorMode", "off")
+                  local pvp = SValSupported("factionIndicatorPvP", pvpDefault)
+                  if mode == "off" then return "off" end
+                  if pvp == "only" or pvp == "dim" then return pvp end
+                  return "ignore" -- the runtime draws any other value undimmed
               end,
               setValue=function(v)
-                  SSetSupported("factionIndicatorMode", v)
+                  if v == "off" then
+                      SSetSupported("factionIndicatorMode", "off")
+                  else
+                      -- An on mode (Opposite Faction Only included) is kept.
+                      if factionIndOff() then SDB().factionIndicatorMode = "always" end
+                      SSetSupported("factionIndicatorPvP", v)
+                  end
                   EllesmereUI:RefreshPage()
               end },
             { type="slider", text="Faction Icon Size", min=8, max=48, step=1,
-              disabled=factionIndOff, disabledTooltip="Faction Indicator",
+              disabled=factionIndOff, disabledTooltip="Faction/PvP Indicator",
               getValue=function() return SValSupported("factionIndicatorSize", 18) end,
               setValue=function(v) SSetSupported("factionIndicatorSize", v) end });  y = y - h
         SApplySupport(factionRow._leftRegion, "factionIndicatorMode")
         SApplySupport(factionRow._rightRegion, "factionIndicatorSize")
-        do
-            local pvpValues = { dim = "Dim Unflagged", only = "Flagged Only", ignore = "Ignore" }
-            local pvpOrder = { "dim", "only", "ignore" }
-            local pvpDefault = isTarget and "dim" or "only"
-            local rows = {
-                { type="dropdown", label="PvP Flag", values=pvpValues, order=pvpOrder,
-                  get=function() return SValSupported("factionIndicatorPvP", pvpDefault) end,
-                  set=function(v) SSetSupported("factionIndicatorPvP", v) end },
-            }
-            if isTarget then
-                rows[#rows + 1] = { type="toggle", label="Players Only",
-                  tooltip="Hide the faction badge on faction NPCs such as guards.",
-                  get=function() return SValSupported("factionIndicatorPlayersOnly", false) == true end,
-                  set=function(v) SSetSupported("factionIndicatorPlayersOnly", v) end }
-            end
-            EllesmereUI.BuildInlineCog(factionRow._leftRegion, { disabled = factionIndOff, disabledTooltip = "Faction Indicator",
-                title = "Faction Indicator",
-                rows = rows,
+        if isTarget then
+            EllesmereUI.BuildInlineCog(factionRow._leftRegion, { disabled = factionIndOff, disabledTooltip = "Faction/PvP Indicator",
+                title = "Faction/PvP Indicator",
+                rows = {
+                    { type="toggle", label="Opposite Faction Only",
+                      tooltip="Show the badge only on units of the other faction.",
+                      get=function() return SValSupported("factionIndicatorMode", "off") == "opposite" end,
+                      set=function(v) SSetSupported("factionIndicatorMode", v and "opposite" or "always") end },
+                    { type="toggle", label="Players Only",
+                      tooltip="Hide the faction badge on faction NPCs such as guards.",
+                      get=function() return SValSupported("factionIndicatorPlayersOnly", false) == true end,
+                      set=function(v) SSetSupported("factionIndicatorPlayersOnly", v) end },
+                },
             })
         end
         do
             local factionPosValues = { ["topleft"]="Top Left", ["topright"]="Top Right", ["bottomleft"]="Bottom Left", ["bottomright"]="Bottom Right", ["portrait"]="Portrait" }
             local factionPosOrder = { "topleft", "topright", "bottomleft", "bottomright", "portrait" }
-            EllesmereUI.BuildInlineCog(factionRow._rightRegion, { disabled = factionIndOff, disabledTooltip = "Faction Indicator",
-                title = "Faction Indicator Settings",
+            EllesmereUI.BuildInlineCog(factionRow._rightRegion, { disabled = factionIndOff, disabledTooltip = "Faction/PvP Indicator",
+                title = "Faction/PvP Indicator Settings",
                 rows = {
                     { type="dropdown", label="Icon Style",
                       values=EllesmereUI.FACTION_ART_LABELS, order=EllesmereUI.FACTION_ART_ORDER,
-                      get=function() return SValSupported("factionIndicatorStyle", "pvp") end,
+                      get=function() return SValSupported("factionIndicatorStyle", "crest") end,
                       set=function(v) SSetSupported("factionIndicatorStyle", v) end },
                     { type="dropdown", label="Position", values=factionPosValues, order=factionPosOrder,
                       get=function() return SValSupported("factionIndicatorPosition", "topright") end,
@@ -3481,14 +3483,57 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
                 },
             })
         end
-        -- Size only: the player's mode list (Off/On) differs from the target's
-        -- (with Opposite Faction), so the mode has no clean cross-frame copy.
+        -- Size only: the dropdown is two keys with per-frame defaults, and
+        -- Opposite Faction Only is the target's alone.
         if not EllesmereUI._prebuilding then
             BuildLeaderSync(factionRow._rightRegion, "factionIndicatorSize", 18,
                 "Apply Faction Icon Size to all Frames")
         end
-        ns._ufAddPvEye(factionRow._leftRegion, "faction", "faction indicator")
+        ns._ufAddPvEye(factionRow._leftRegion, "faction", "faction/PvP indicator")
         parent._ufFactionRow = factionRow
+
+        -- Row 5d (player only: the countdown is the player's own): PvP Flagged
+        -- Timer, the side of the badge its text sits on | Timer Text Size (+ X/Y
+        -- cog). Off by default (None); needs the indicator.
+        if not isTarget then
+            local function timerOff()
+                return factionIndOff() or SValSupported("factionIndicatorTimer", "none") == "none"
+            end
+            local function timerTip()
+                return factionIndOff() and "Faction/PvP Indicator" or "PvP Flagged Timer"
+            end
+            local timerRow
+            timerRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="PvP Flagged Timer",
+                  tooltip="Time left before your PvP flag drops, beside the Faction/PvP Indicator.",
+                  values={ none = "None", left = "Left", right = "Right", top = "Top", bottom = "Bottom" },
+                  order={ "none", "left", "right", "top", "bottom" },
+                  disabled=factionIndOff, disabledTooltip="Faction/PvP Indicator",
+                  getValue=function() return SValSupported("factionIndicatorTimer", "none") end,
+                  setValue=function(v)
+                      SSetSupported("factionIndicatorTimer", v)
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="slider", text="Timer Text Size", min=6, max=40, step=1,
+                  disabled=timerOff, disabledTooltip=timerTip,
+                  getValue=function() return SValSupported("factionIndicatorTimerSize", 12) end,
+                  setValue=function(v) SSetSupported("factionIndicatorTimerSize", v) end });  y = y - h
+            SApplySupport(timerRow._leftRegion, "factionIndicatorTimer")
+            SApplySupport(timerRow._rightRegion, "factionIndicatorTimerSize")
+            EllesmereUI.BuildInlineCog(timerRow._rightRegion, { disabled = timerOff, disabledTooltip = timerTip,
+                title = "PvP Flagged Timer Settings",
+                rows = {
+                    { type="slider", label="X Offset", min=-200, max=200, step=1,
+                      get=function() return SValSupported("factionIndicatorTimerX", 0) end,
+                      set=function(v) SSetSupported("factionIndicatorTimerX", v) end },
+                    { type="slider", label="Y Offset", min=-200, max=200, step=1,
+                      get=function() return SValSupported("factionIndicatorTimerY", 0) end,
+                      set=function(v) SSetSupported("factionIndicatorTimerY", v) end },
+                },
+            })
+            ns._ufAddPvEye(timerRow._leftRegion, "pvpTimer", "PvP flagged timer")
+            parent._ufPvpTimerRow = timerRow
+        end
     end
 
     -- Row 6: Rested Indicator | blank (player only): Quality of Life's EXTRAS

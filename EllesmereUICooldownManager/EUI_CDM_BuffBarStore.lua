@@ -454,14 +454,20 @@ function ns.AddBarToAllSpecs(srcIdx)
     local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     if not sp then return 0 end
 
-    local srcKey = ns.TBBBroadcastKey(srcBar)
+    -- Wider than RemoveBarFromAllSpecs' match on purpose: a custom bar is not copied into a spec
+    -- that already tracks its spell from Blizzard's list (that spec would show two bars for one
+    -- buff), while Remove takes only bars carrying this bar's broadcast key, so that spec's own
+    -- bar survives a later Remove.
     local function HasSameBar(bars)
         for _, b in ipairs(bars) do
             -- A cooldown-tracking bar is never the same bar as a buff bar for the same spell: track types must match first.
-            -- A Blizzard CDM bar for the same spell has no broadcast key, so it never counts as this bar.
-            if (b.trackType or "buff") == (srcBar.trackType or "buff")
-               and ns.TBBBroadcastKey(b) == srcKey then
-                return true
+            if (b.trackType or "buff") == (srcBar.trackType or "buff") then
+                if srcBar.popularKey and srcBar.popularKey ~= "" then
+                    if b.popularKey == srcBar.popularKey then return true end
+                elseif (not b.popularKey or b.popularKey == "")
+                       and b.spellID and b.spellID == srcBar.spellID then
+                    return true
+                end
             end
         end
         return false

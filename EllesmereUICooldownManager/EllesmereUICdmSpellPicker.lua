@@ -1657,6 +1657,8 @@ local _cdmSpellCacheDirty = true
 
 function ns.MarkCDMSpellCacheDirty()
     _cdmSpellCacheDirty = true
+    -- Buff Stacks' eligibility (EUI_CDM_CdBuffStacks.lua, loaded later).
+    if ns.CdBuffStacksInvalidate then ns.CdBuffStacksInvalidate() end
 end
 
 local function RebuildCDMSpellCaches()

@@ -43,6 +43,12 @@ local function EnsureFocusKickBar()
         if bars[existingIdx].suppressGCD == nil then
             bars[existingIdx].suppressGCD = true
         end
+        -- The per-class interrupt picks' table exists before any pick, so a first
+        -- pick made inside a Spec or Conditional Override session is banked into
+        -- that group like any other field (ns.SetFocusKickPick).
+        if type(bars[existingIdx].focusKickInterruptByClass) ~= "table" then
+            bars[existingIdx].focusKickInterruptByClass = {}
+        end
         if existingIdx == targetIdx or existingIdx == targetIdx - 1 then
             -- Already in the right spot relative to "buffs"
             return
@@ -91,7 +97,8 @@ local function EnsureFocusKickBar()
         focusKickUseTarget = false,
         -- FocusKick-specific: focus-cast sound trigger
         focusCastSoundKey = "none",
-        focusKickInterruptSpellID = nil,
+        focusKickInterruptSpellID = nil,  -- read only: the pick per class lives below
+        focusKickInterruptByClass = {},   -- class token (or "<CLASS>:HEALER") = spell id, "any" or 0
         -- Sound-only mode: play on every tracked-unit cast, no interrupt or
         -- cooldown gate, so the bar can stay empty (no icon, kick stays on CDM).
         focusCastSoundAnyCast = false,
@@ -934,8 +941,8 @@ function ns.RefreshFocusKickProxies()
         end
         -- The cast SOUND has a weaker requirement than the rest of the family: its handler needs a
         -- configured sound plus an interrupt id for the readiness check, and the bar's assigned
-        -- spells are only the FALLBACK source for that id -- an explicit focusKickInterruptSpellID
-        -- satisfies it alone. Gating the sound on hasContent made a legitimate setup impossible: the focus-cast sound WITHOUT the kick icon.
+        -- spells are only the FALLBACK source for that id -- the class's own pick
+        -- (ns.GetFocusKickPick) satisfies it alone. Gating the sound on hasContent made a legitimate setup impossible: the focus-cast sound WITHOUT the kick icon.
         local sk = bd.focusCastSoundKey
         if sk and sk ~= "none" then
             local pick, anyCast = ns.GetFocusKickPick(bd)

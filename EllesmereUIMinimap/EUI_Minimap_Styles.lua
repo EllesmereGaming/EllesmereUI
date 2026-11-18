@@ -171,8 +171,15 @@ EBS._MapCrop = function(p, mapSize)
     return 0
 end
 
--- Map pins place edge icons on the full square canvas, so a crop hides the
--- top/bottom ones; pull any point inside the cropped strip onto the shown edge.
+-- Other addons' map pins place edge icons on the full square canvas, so a crop
+-- (Rectangular, or a WoW Forever square with its title bar) hides the top and
+-- bottom ones. While a crop is on, every unprotected child of the map gets a
+-- SetPoint post-hook that pulls a single CENTER-to-map-centre point lying past
+-- 0.45 x map size - crop (the inset edge pins keep from the sides) onto that
+-- line, radially; a pin within that inset of the shown edge moves onto it too.
+-- Blizzard's zoom hover area is never hooked, a frame protected by then is
+-- never moved, and nothing moves on a map another addon has resized (a
+-- farming HUD), whose pins are not on the canvas the crop was worked out for.
 do
     local half, edgeY = 0, nil   -- edgeY nil = no crop, hooks idle
     local hooked, busy, lastCount = {}, false, -1
@@ -190,8 +197,9 @@ do
         -- Offsets are in the pin's own scale; compare them in map units.
         local s = pin:GetEffectiveScale() / Minimap:GetEffectiveScale()
         local ay = math.abs(y) * s
-        -- Points outside the canvas (ring buttons) or inside the shown map stay.
+        -- Points outside the canvas (ring buttons) or inside the inset line stay.
         if ay <= edgeY or ay > half or math.abs(x) * s > half then return end
+        if math.abs(Minimap:GetHeight() - 2 * half) > 1 or pin:IsProtected() then return end
         local k = edgeY / ay
         busy = true
         pin:SetPoint("CENTER", Minimap, "CENTER", x * k, y * k)
@@ -202,8 +210,9 @@ do
         local n = Minimap:GetNumChildren()
         if n == lastCount then return end
         lastCount = n
+        local zoomArea = Minimap.ZoomHitArea
         for _, child in ipairs({ Minimap:GetChildren() }) do
-            if not hooked[child] and not child:IsProtected() then
+            if not hooked[child] and child ~= zoomArea and not child:IsProtected() then
                 hooked[child] = true
                 hooksecurefunc(child, "SetPoint", Clamp)
                 Clamp(child)

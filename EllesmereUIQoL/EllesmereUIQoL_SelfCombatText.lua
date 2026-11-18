@@ -21,7 +21,7 @@ local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
 -- WoW Forever: no number under 10,000 abbreviates (EllesmereUI_NumberFormat.lua)
 local AbbreviateNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateNumbers) or AbbreviateNumbers
-local issecretvalue = issecretvalue or function() return false end
+local IsSecret, PlainString, IsZeroValue = EllesmereUI.IsSecret, EllesmereUI.PlainString, EllesmereUI.IsZeroValue
 
 local POOL_SIZE  = 12
 local FADE_FRAC  = 0.3   -- fade over the last 30% of the scroll
@@ -327,16 +327,21 @@ end
 -- A power token's localized name (MANA -> "Mana"); nil when the token is secret
 -- or names no string, and the gain then shows without one.
 local function PowerLabel(token)
-    if issecretvalue(token) or type(token) ~= "string" then return nil end
-    local name = _G[token]
+    token = PlainString(token)
+    local name = token and _G[token]
     if type(name) == "string" then return name end
 end
 
--- data = amount, arg3 = power token. A known amount of zero or less is no gain;
--- a secret one cannot be compared, so it always shows.
+-- data = amount, arg3 = power token. A plain amount of zero or less is no gain.
+-- A secret one is never compared: IsZeroValue tells a zero (a gain at a full
+-- resource) without reading it, and any other secret gain shows.
 local function EmitPower()
     local amount, token = C_CombatText.GetCurrentEventInfo()
-    if not issecretvalue(amount) and not ((amount and tonumber(amount) or 0) > 0) then return end
+    if IsSecret(amount) then
+        if IsZeroValue(amount) then return end
+    elseif not ((amount and tonumber(amount) or 0) > 0) then
+        return
+    end
     local label = PowerLabel(token)
     Emit(label and "+%s %s" or "+%s", FormatAmount(amount), S.powerColor, false, label)
 end
