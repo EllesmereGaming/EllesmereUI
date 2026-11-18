@@ -3536,11 +3536,15 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
         end
     end
 
-    -- Row 6: Rested Indicator | blank (player only): Quality of Life's EXTRAS
-    -- row mirrored, the same per-profile settings (EllesmereUI.RestedIndicatorCfg).
+    -- Row 6: Rested Indicator | Self Ping Only (player only). Rested mirrors
+    -- Quality of Life's EXTRAS row (EllesmereUI.RestedIndicatorCfg).
     if optState.selectedUnit == "player" then
         local restRow
-        restRow, h = W:DualRow(parent, y, EllesmereUI.RestedIndicatorCfg(), EllesmereUI.BlankRowCfg())
+        restRow, h = W:DualRow(parent, y, EllesmereUI.RestedIndicatorCfg(),
+            { type="toggle", text="Self Ping Only",
+              tooltip="Pinging anywhere on the player frame pings you, as the portrait does, instead of calling out your health.",
+              getValue=function() return db.profile.player.pingSelfOnly == true end,
+              setValue=function(v) db.profile.player.pingSelfOnly = v end })
         y = y - h
         EllesmereUI.BuildRestedIndicatorCog(restRow._leftRegion)
     end

@@ -371,6 +371,7 @@ local defaults = {
             btbClassIconLocation = "left",
             btbClassIconX = 0,
             btbClassIconY = 0,
+            pingSelfOnly = false,
             showPortrait = true,
             portraitStyle = "attached",
             portraitMode = "2d",
