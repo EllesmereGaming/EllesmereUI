@@ -70,6 +70,7 @@ local INSTANCE_TYPE_ORDER = {
     { key = "scenario", label = "Scenario" },
     { key = "arena", label = "Arena" },
     { key = "pvp", label = "Battleground / PvP" },
+    { key = "riding", label = "Riding" },
 }
 
 -- Chat lines name a type the way the settings page does ("Mythic+ Keystone"),
@@ -691,7 +692,9 @@ local function DeferRequest(request, message, combat, waitReason, quiet)
     local silent = quiet and not (request.announcedWait or request.announcedCombat)
     -- Queue In Combat off drops a swap that comes due in combat, but not one
     -- waiting out a restriction: an encounter usually ends in combat.
-    if combat and not ReadDB().queueInCombat and request.waitReason ~= "restricted" then
+    -- The swap back out of the Riding set always waits: a dismount in combat
+    -- would otherwise leave it on.
+    if combat and not ReadDB().queueInCombat and request.waitReason ~= "restricted" and not request.fromRiding then
         if not silent then
             if request.kind == "gear" then
                 Notify(request, EllesmereUI.L("Gear swap skipped: you are in combat."))
@@ -1351,11 +1354,72 @@ end
 -- Where a resolved assignment came from, for the swap's chat line:
 -- "Nerub-ar Palace", "Nerub-ar Palace, Heroic" or "Mythic+ Keystone default".
 local function SourceLabel(ctx, source, key)
+    if source == "dismount" then return EllesmereUI.L("dismounted") end
     if source == "type" then return EllesmereUI.Lf("%s default", TypeLabel(key)) end
     if source == "difficulty" then
         return ctx.name .. ", " .. DifficultyName(AssignmentDifficulty(ctx.difficultyID))
     end
     return ctx.name
+end
+
+-- Whether equipping this set would change anything (reads the worn flag).
+local function GearNeedsSwap(setName)
+    if not setName then return false end
+    local setID, _, isEquipped = GetSetInfoByName(strtrim(tostring(setName)))
+    return not (setID and isEquipped)
+end
+
+-- Riding (WoW Forever only): a gear set worn while mounted in the open world
+-- (riding trinkets and the like). It outranks the Open World default for as long as you are
+-- mounted; on dismount that default comes back, or with none assigned the set
+-- that was worn when the Riding set went on.
+local ridingOn, ridingReturn
+
+local function RidingSet()
+    local db = ReadDB()
+    local specID = GetCurrentSpecID()
+    return (PickType(db, specID and db.specDefaults[specID] or nil, "typeDefaults", "riding"))
+end
+
+-- The Riding set, when it applies here and now. Notes the set it replaces.
+local function RidingSetNow(ctx)
+    if not IS_FOREVER or ctx.inInstance or not IsMounted() then return nil end
+    local riding = RidingSet()
+    if not riding then return nil end
+    if not ridingOn and GearNeedsSwap(riding) then
+        ridingReturn = nil
+        local wanted = strtrim(tostring(riding)):lower()
+        for _, setID in ipairs(GetEquipmentSetIDs() or NO_ENTRIES) do
+            local name, _, _, isEquipped = C_EquipmentSet.GetEquipmentSetInfo(setID)
+            if name and isEquipped and name:lower() ~= wanted then ridingReturn = name break end
+        end
+    end
+    ridingOn = true
+    return riding
+end
+
+-- Mounting and dismounting move the gear channel only: a talent request in
+-- flight is left alone.
+local function OnMountChanged()
+    local db = ReadDB()
+    if not (db.enabled and db.gearEnabled) or KeystoneRunning() then return end
+    local ctx = GetCurrentInstanceContext()
+    if ctx.inInstance then
+        ridingOn, ridingReturn = nil, nil
+        return
+    end
+    local setName, source, key = RidingSetNow(ctx), "type", "riding"
+    if not setName then
+        if not ridingOn or IsMounted() then return end
+        setName, source, key = GetAssignedSetForContext(ctx)
+        if not setName then setName, source, key = ridingReturn, "dismount", nil end
+        ridingOn, ridingReturn = nil, nil
+    end
+    if setName and GearNeedsSwap(setName) then
+        local request = BeginRequest("gear", setName, SourceLabel(ctx, source, key), false)
+        request.fromRiding = not ridingOn
+        TryEquipSet(request)
+    end
 end
 
 -- gearOnly: a recheck after a WoW Forever spec group switch. It applies the
@@ -1380,6 +1444,11 @@ local function CheckAndSwap(manual, gearOnly)
     if IS_FOREVER and talentStored then
         local target = SpecGroupOf(GetTalentLoadoutFromStored(talentStored))
         gearAfterSwitch = target ~= nil and target ~= ActiveSpecGroup()
+    end
+    -- Mounted in the open world, the Riding set stands in for the place's gear.
+    if (manual or db.gearEnabled) and not gearAfterSwitch then
+        local riding = RidingSetNow(ctx)
+        if riding then setName, gearSource, gearKey = riding, "type", "riding" end
     end
     if not setName and not talentStored then
         -- Automatic checks stay silent (most places have nothing assigned,
@@ -1507,6 +1576,7 @@ local function SaveSlot(key, isType)
         changed = true
     end
     local talent = SelectedTalent()
+    if isType and key == "riding" then talent = nil end -- Riding is gear only
     if talent and TalentExists(talent) then
         local stored = StoreTalentLoadout(talent)
         if scopeID and stored.specID and tonumber(stored.specID) ~= tonumber(scopeID) then
@@ -1710,6 +1780,8 @@ EVENT_HANDLERS.PLAYER_REGEN_DISABLED = function()
     end
 end
 
+EVENT_HANDLERS.PLAYER_MOUNT_DISPLAY_CHANGED = OnMountChanged
+
 EVENT_HANDLERS.PLAYER_STOPPED_MOVING = function()
     ResumeRequests("availability")
 end
@@ -1834,6 +1906,7 @@ UpdateRequestEvents = function()
     SetEventState("PLAYER_ENTERING_WORLD", context)
     SetEventState("ZONE_CHANGED_NEW_AREA", context)
     SetEventState("CHALLENGE_MODE_START", context)
+    SetEventState("PLAYER_MOUNT_DISPLAY_CHANGED", IS_FOREVER and AutomationLive())
     SetEventState("PLAYER_SPECIALIZATION_CHANGED", context, true)
     -- Catalogs: a request on that channel, or the open page.
     SetEventState("EQUIPMENT_SETS_CHANGED", gear or pageShown)

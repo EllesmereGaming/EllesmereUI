@@ -1963,6 +1963,7 @@ can't use \
 cancel
 click to edit
 contributors
+dismounted
 e.g. 12345
 e.g. 30
 e.g. hasBL and hasBR and healer > 0
