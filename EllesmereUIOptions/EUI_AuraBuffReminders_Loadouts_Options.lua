@@ -633,7 +633,7 @@ function ns._BuildLoadoutPage(_, parent, yOffset)
         end
         local acts = {}
         for k in pairs(pend.acts) do acts[k] = true end
-        local ok, why = LM.AddLoadout(GearPick(), talent, acts)
+        local ok, why, bucket = LM.AddLoadout(GearPick(), talent, acts)
         if not ok then
             if why == "noacts" then
                 CardPulse(actDD)
@@ -648,15 +648,15 @@ function ns._BuildLoadoutPage(_, parent, yOffset)
         end
         wipe(pend.acts)
         pend.gear, pend.talentKey = nil, nil
-        local bucket = LM.BucketKey()
+        -- The card it went to opens (WoW Forever: its talents' spec group).
         if bucket ~= nil then cardOpen[bucket] = true end
         Refresh(true)
     end)
     y = y - 38
 
     ---------------------------------------------------------------------------
-    --  The loadouts: one card per spec (WoW Forever: one for the character),
-    --  your spec first and open
+    --  The loadouts: one card per spec (WoW Forever: per spec group, and one
+    --  for the character holding Riding), your spec open and, on retail, first
     ---------------------------------------------------------------------------
     _, h = W:Spacer(parent, y, 15); y = y - h
     _, h = W:SectionHeader(parent, "LOADOUTS", y); y = y - h
@@ -720,10 +720,9 @@ function ns._BuildLoadoutPage(_, parent, yOffset)
             ordered[#ordered + 1] = key
         end
     end
-    Take(current)
-    if not FOREVER then
-        for _, spec in ipairs(LM.GetSpecList()) do Take(spec.id) end
-    end
+    -- WoW Forever keeps Primary above Secondary, whichever is active.
+    if not FOREVER then Take(current) end
+    for _, spec in ipairs(LM.GetSpecList()) do Take(spec.id) end
     for key in pairs(buckets) do Take(key) end
 
     if #ordered == 0 then
@@ -744,7 +743,9 @@ function ns._BuildLoadoutPage(_, parent, yOffset)
         local list = buckets[key]
         local display, specIcon, class = nil, nil, playerClass
         if FOREVER then
-            display = LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[playerClass] or tostring(playerClass)
+            -- A spec group's card carries its name; the Riding card the class.
+            display = key ~= 0 and LM.SpecName(key)
+                or LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[playerClass] or tostring(playerClass)
         else
             local _, specName, _, icon, _, classFile, className
             if GetSpecializationInfoByID then
