@@ -1374,6 +1374,10 @@ local function AnchorNPContainer(container, kind, plate, slotVal)
         if container._npbSplit then
             container:SetAuraGroupLayout("np2", gLayout)
         end
+        -- So does its plain remainder group (always declared on the buff row).
+        if kind == "buffs" then
+            container:SetAuraGroupLayout("npnb", gLayout)
+        end
         -- NPF record groups share the row's element sizing.
         if container._npfGroups then
             for gkey in pairs(container._npfGroups) do
