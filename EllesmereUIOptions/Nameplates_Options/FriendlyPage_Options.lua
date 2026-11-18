@@ -262,12 +262,12 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     --  Name Only target highlights: one toggle + colour per entity
     --  (EUI_Nameplates_AlliedColors.lua holds the list and the resolution).
     --  Players here, off the Name Color row whose colour they override; the
-    --  NPC and pet entries on the NPC name size row below, in their section.
+    --  NPC entries on the NPC name size row below, in their section.
     ---------------------------------------------------------------
     local ALLIED = ns.NAME_ONLY_TARGETS
     -- The pet entries answer to their own nameplate toggle (a pet shows no plate
     -- without it) as well as to their section's master toggle.
-    local PET_ENTRY = { PET_MINION_FRIENDLY = true, PET_MINION_NPC_FRIENDLY = true, PET_MINION_HOSTILE = true }
+    local PET_ENTRY = { PET_MINION_FRIENDLY = true }
     -- Whether the pet nameplates this palette paints are off. Every pet row
     -- colours a plate EllesmereUI names itself, and those are friendly plates:
     -- Show Friendly Pet Nameplates is what brings them up. An attackable pet's
@@ -905,10 +905,9 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
           getValue=function() return DBVal("showFriendlyPets") == true end,
           setValue=function(v)
             DB().showFriendlyPets = v
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", v and 1 or 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", v and 1 or 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", v and 1 or 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", v and 1 or 0, "EllesmereUINameplates")
+            -- The pet and minion CVars are this toggle's own: nothing else
+            -- writes them (see ns.ApplyPetCVars).
+            if ns.ApplyPetCVars then ns.ApplyPetCVars("friendly") end
             if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
             EllesmereUI:RefreshPage()
             ns.NPO_FriendlyPreviewUpdate()
@@ -935,6 +934,25 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
             rawTooltip = true,
         })
     end
+
+    -- Away/busy: Blizzard's own nameplates print no AFK or DND tag, so showing
+    -- one here is a choice of its own. It rides the name in either style, so it
+    -- takes a row of its own; as the player section's final row it may leave the
+    -- right slot empty.
+    local statusTagCfg =
+        { type="toggle", text="Show AFK/DND Tag",
+          tooltip="Adds Blizzard's <AFK> or <DND> tag to a player's name when they set it, in both friendly styles.\n\nBlizzard's own nameplates show no such tag.",
+          disabled=friendlyPlayersOff, disabledTooltip=STYLE_REQ, rawTooltip=true,
+          getValue=function() return DBVal("friendlyShowStatusTag") == true end,
+          setValue=function(v)
+            DB().friendlyShowStatusTag = v and true or false
+            -- Arms or drops the flags listener, then repaints the names.
+            if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
+            if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+            ns.NPO_FriendlyPreviewUpdate()
+          end }
+    SearchWords(statusTagCfg.text, "FRIENDLY PLAYERS", statusTagCfg.tooltip, "Away", "Busy")
+    _, h = W:DualRow(parent, y, statusTagCfg, EllesmereUI.BlankRowCfg());  y = y - h
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -1207,10 +1225,10 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
         sections = {
             { title = "Friendly & Neutral Units", rows = RowsForSec(2,
                 "Style Friendly & Neutral Units", "nameOnlyStyleFriendlyNPCs",
-                "Colors friendly and neutral NPCs by what they are to you.\n\nA pet's own row wins while it is on; with it off the pet takes its owner's color.\n\nOff leaves them in their base color.") },
+                "Colors friendly and neutral NPCs by what they are to you.\n\nOff leaves them in their base color.") },
             { title = "Opposing Faction Units", rows = RowsForSec(3,
                 "Style Opposing Faction Units", "nameOnlyStyleHostileNPCs",
-                "Colors opposing faction NPCs you cannot attack yet (unfriendly), and their pets, by what they are to you. An attackable NPC's plate is the enemy nameplates' own.\n\nOff leaves them in their reaction color.") },
+                "Colors opposing faction NPCs you cannot attack yet (unfriendly) by what they are to you. An attackable NPC's plate is the enemy nameplates' own.\n\nOff leaves them in their reaction color.") },
         },
         footer = {
             buttonText = "Set NPC Colors to Default",

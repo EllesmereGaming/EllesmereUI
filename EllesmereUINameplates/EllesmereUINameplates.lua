@@ -332,8 +332,6 @@ local defaults = {
     nameOnlyCustomColor_FRIENDLY_PLAYER_UNFLAGGED = { r = 0.467, g = 0.533, b = 1.00 },
     nameOnlyCustomEnabled_FRIENDLY_PLAYER_PVP = false,
     nameOnlyCustomColor_FRIENDLY_PLAYER_PVP = { r = 0.00, g = 1.00, b = 0.00 },
-    nameOnlyCustomEnabled_FRIENDLY_NPC_CIVILIAN = false,
-    nameOnlyCustomColor_FRIENDLY_NPC_CIVILIAN = { r = 0.00, g = 1.00, b = 0.00 },
     nameOnlyCustomEnabled_FRIENDLY_NPC_STANDARD = false,
     nameOnlyCustomColor_FRIENDLY_NPC_STANDARD = { r = 0.00, g = 1.00, b = 0.00 },
     nameOnlyCustomEnabled_FRIENDLY_NPC_ESCORT = false,
@@ -344,17 +342,13 @@ local defaults = {
     nameOnlyCustomColor_HOSTILE_NPC_STANDARD = { r = 0.949, g = 0.549, b = 0.098 },
     nameOnlyCustomEnabled_PET_MINION_FRIENDLY = false,
     nameOnlyCustomColor_PET_MINION_FRIENDLY = { r = 0.467, g = 0.533, b = 1.00 },
-    nameOnlyCustomEnabled_PET_MINION_NPC_FRIENDLY = false,
-    nameOnlyCustomColor_PET_MINION_NPC_FRIENDLY = { r = 0.00, g = 1.00, b = 0.00 },
-    nameOnlyCustomEnabled_PET_MINION_HOSTILE = false,
-    nameOnlyCustomColor_PET_MINION_HOSTILE = { r = 0.949, g = 0.549, b = 0.098 },
     friendlyNPCColor = { r = 0, g = 1, b = 0 },
     friendlyNPCNameColor = { r = 0, g = 1, b = 0 },
     friendlyNPCTitleColor = { r = 0, g = 1, b = 0, a = 0.7 },
-    -- The subtitle under a friendly NPC's name takes the name's colour by
-    -- default, so the two lines agree until the user asks otherwise; the swatch
-    -- above keeps the alpha either way.
-    friendlyNPCTitleMatchNameColor = true,
+    -- The subtitle under a friendly NPC's name keeps its own swatch by default;
+    -- Match NPC Name Color is the opt-in that makes the line follow the name
+    -- above it. The swatch's alpha sets the line apart either way.
+    friendlyNPCTitleMatchNameColor = false,
     friendlyNPCNameSize = 13,
     friendlyPetNameSize = 13,
     friendlyNPCTitleSize = 10,
@@ -374,11 +368,14 @@ local defaults = {
     friendlyShowLevel = false,
     friendlyLevelDiffColor = false,
     friendlyGroupBrackets = false,
+    -- Show AFK/DND Tag: Blizzard's own nameplates print no away or busy tag, so
+    -- one here is a choice of its own and off until asked.
+    friendlyShowStatusTag = false,
     -- Show Enemy Pet Nameplates has no default either: nil means the user never
-    -- chose, and the nameplates init then takes the enemy pet and minion setting
-    -- the client already has, the way Show Friendly Pet Nameplates does above.
-    -- The one toggle writes nameplateShowEnemyPets, nameplateShowEnemyMinions and
-    -- UnitNameEnemyMinionName together.
+    -- chose, and the nameplates init then takes the enemy pet setting the client
+    -- already has, the way Show Friendly Pet Nameplates does above. The toggle
+    -- writes nameplateShowEnemyPets, nameplateShowEnemyMinions and
+    -- UnitNameEnemyMinionName together (ns.ApplyPetCVars), and nothing else does.
     -- Blizzard's nameplateSize CVar (1 Small .. 5 Huge), applied on load; 3 = Large, the old forced value.
     nameplateSize = 3,
     font = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF",

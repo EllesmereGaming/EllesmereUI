@@ -171,17 +171,29 @@ local function BuildCogPopup(opts)
         if popupRowsMade then return popupRows end
         popupRowsMade = true
         if not allRows then return nil end
+        local function Notified(fn)
+            return function(...)
+                local f = popupOwner or opts.captureRegion
+                local snap = EllesmereUI._SOAttribution(f)
+                fn(...)
+                EllesmereUI._NotifySettingWrite(f, snap)
+            end
+        end
         for _, row in ipairs(allRows) do
+            local wrapped
             if row.set then
-                local _s = row.set
-                local function NotifyingSet(...)
-                    local f = popupOwner or opts.captureRegion
-                    local snap = EllesmereUI._SOAttribution(f)
-                    _s(...)
-                    EllesmereUI._NotifySettingWrite(f, snap)
-                end
+                wrapped = { set = Notified(row.set) }
+            elseif row.type == "togglecolor" then
+                -- A toggle + swatch row writes through setToggle and setColor,
+                -- so the plain set wrapper above never saw it and its writes
+                -- reached no Spec Overrides capture.
+                wrapped = {}
+                if row.setToggle then wrapped.setToggle = Notified(row.setToggle) end
+                if row.setColor then wrapped.setColor = Notified(row.setColor) end
+            end
+            if wrapped then
                 popupRows = popupRows or {}
-                popupRows[row] = setmetatable({ set = NotifyingSet }, { __index = row })
+                popupRows[row] = setmetatable(wrapped, { __index = row })
             end
         end
         return popupRows

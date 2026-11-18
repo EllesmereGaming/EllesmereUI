@@ -6,7 +6,7 @@ if not ns then return end
 -------------------------------------------------------------------------------
 --  Nameplates\EUI_Nameplates_AlliedColors.lua
 --  The colour of an allied (friendly or neutral) unit's name: which entity it
---  is to you (friend, guild, group, civilian, pet, ...) and the override for
+--  is to you (friend, guild, group, standard NPC, pet, ...) and the override for
 --  that entity.
 --
 --  One catalog (ns.NAME_ONLY_TARGETS) drives both sides: this file resolves a
@@ -18,9 +18,8 @@ if not ns then return end
 --  reads.
 --
 --  An entry's toggle only ever colours: off means "no entry paints this unit",
---  never "paint something else". A pet is the one case with a second step: its own
---  row first, then the colour of the unit that controls it (flagged/unflagged for
---  a player's pet, its own section for an NPC's).
+--  never "paint something else". A player's pet is the one case with a second
+--  step: its own row first, then the colour its owner's flag state takes.
 --
 --  Read by EllesmereUINameplatesFriendly.lua (the name-only text and the NPC
 --  overlay) and by the Friendly options page.
@@ -29,7 +28,7 @@ if not ns then return end
 local UnitExists, UnitIsPlayer = UnitExists, UnitIsPlayer
 local UnitReaction = UnitReaction
 local UnitGUID, UnitPlayerControlled = UnitGUID, UnitPlayerControlled
-local UnitIsTapDenied, UnitIsCivilian = UnitIsTapDenied, UnitIsCivilian
+local UnitIsTapDenied = UnitIsTapDenied
 local UnitPlayerOrPetInParty = UnitPlayerOrPetInParty
 local UnitPlayerOrPetInRaid = UnitPlayerOrPetInRaid
 local GetTime = GetTime
@@ -150,13 +149,8 @@ ns.NAME_ONLY_TARGETS = {
       defColor = { r = 0.467, g = 0.533, b = 1.00 } },
 
     -- Section 2: Friendly & Neutral Units
-    { key = "FRIENDLY_NPC_CIVILIAN", label = "Civilian NPCs", sec = 2,
-      tip = "Friendly civilian NPCs (vendors, quest givers, citizens).\n\nWhen disabled, uses the NPC Name Color swatch.",
-      on = "nameOnlyCustomEnabled_FRIENDLY_NPC_CIVILIAN",
-      col = "nameOnlyCustomColor_FRIENDLY_NPC_CIVILIAN",
-      defColor = { r = 0.00, g = 1.00, b = 0.00 } },
     { key = "FRIENDLY_NPC_STANDARD", label = "Standard NPCs", sec = 2,
-      tip = "Standard friendly NPCs (guards, non-civilians).\n\nWhen disabled, uses the NPC Name Color swatch.",
+      tip = "Standard friendly NPCs (guards, citizens, vendors).\n\nWhen disabled, uses the NPC Name Color swatch.",
       on = "nameOnlyCustomEnabled_FRIENDLY_NPC_STANDARD",
       col = "nameOnlyCustomColor_FRIENDLY_NPC_STANDARD",
       defColor = { r = 0.00, g = 1.00, b = 0.00 } },
@@ -170,22 +164,12 @@ ns.NAME_ONLY_TARGETS = {
       on = "nameOnlyCustomEnabled_NEUTRAL_NPC_PASSIVE",
       col = "nameOnlyCustomColor_NEUTRAL_NPC_PASSIVE",
       defColor = { r = 1.00, g = 1.00, b = 0.00 } },
-    { key = "PET_MINION_NPC_FRIENDLY", label = "Friendly/Neutral NPC Pets & Minions", sec = 2,
-      tip = "Highlights the pets and minions of friendly and neutral NPCs.\n\nWhen disabled, uses the owner's color: the NPC row its reaction belongs to, else the reaction color.",
-      on = "nameOnlyCustomEnabled_PET_MINION_NPC_FRIENDLY",
-      col = "nameOnlyCustomColor_PET_MINION_NPC_FRIENDLY",
-      defColor = { r = 0.00, g = 1.00, b = 0.00 } },
 
     -- Section 3: Opposing Faction Units
     { key = "HOSTILE_NPC_STANDARD", label = "Opposing Faction NPCs", sec = 3,
       tip = "Opposing faction and unfriendly NPCs.\n\nWhen disabled, uses reaction orange.",
       on = "nameOnlyCustomEnabled_HOSTILE_NPC_STANDARD",
       col = "nameOnlyCustomColor_HOSTILE_NPC_STANDARD",
-      defColor = { r = 0.949, g = 0.549, b = 0.098 } },
-    { key = "PET_MINION_HOSTILE", label = "Opposing NPC Pets & Minions", sec = 3,
-      tip = "Highlights the pets and minions of opposing faction NPCs.\n\nWhen disabled, uses the owner's color: the Opposing Faction NPCs swatch, else the reaction color, tapped grey included.",
-      on = "nameOnlyCustomEnabled_PET_MINION_HOSTILE",
-      col = "nameOnlyCustomColor_PET_MINION_HOSTILE",
       defColor = { r = 0.949, g = 0.549, b = 0.098 } },
 }
 
@@ -240,10 +224,9 @@ function Allied.GetNPCTitle(unit)
     return text
 end
 
--- Pet or minion: a player's (UnitPlayerControlled) or an NPC guardian, which
--- its subtitle names. The subtitle is cached by GUID (a tooltip build), so the
--- test stays a string find; it is skipped entirely while pet nameplates are
--- off, so a player who never shows pets pays nothing.
+-- The NPC subtitle, cached by GUID: the tooltip build is the expensive part, and
+-- every plate that draws the line (the name-only overlay, the health bar plate)
+-- reads the same answer.
 local titleByGUID = {}
 local titleCount = 0
 local function CachedNPCTitle(unit)
@@ -264,17 +247,13 @@ end
 -- reads the same answer.
 function Allied.GetCachedNPCTitle(unit) return CachedNPCTitle(unit) end
 
+-- Pet or minion: a unit a player controls -- a player's pet, minion or vehicle.
+-- An NPC's guardian has no flag of its own in either client's API, and its
+-- tooltip subtitle is English words that read titles like "Battle Pet Trainer"
+-- as pets, so a non-player unit stays an NPC here and takes its section's colour.
 function Allied.IsPet(unit)
     if not unit or not UnitExists(unit) or UnitIsPlayer(unit) then return false end
-    if UnitPlayerControlled(unit) then return true end
-    local fp = FP()
-    if not (fp and (fp.showFriendlyPets == true or fp.showEnemyPets == true)) then return false end
-    local title = CachedNPCTitle(unit)
-    if not title then return false end
-    local t = title:lower()
-    return t:find("pet", 1, true) ~= nil
-        or t:find("minion", 1, true) ~= nil
-        or t:find("guardian", 1, true) ~= nil
+    return UnitPlayerControlled(unit) and true or false
 end
 
 -------------------------------------------------------------------------------
@@ -315,7 +294,7 @@ end
 
 -- A non-player's override, from the section its reaction belongs to: tapped
 -- grey, then the opposing section for a negative reaction, then the friendly and
--- neutral one (an escort in combat, a civilian, a plain NPC, a neutral).
+-- neutral one (an escort in combat, a plain NPC, a neutral).
 local function NPCColor(unit, fp)
     local reaction = UnitReaction(unit, "player")
     if not reaction then return nil end
@@ -333,25 +312,17 @@ local function NPCColor(unit, fp)
             local r, g, b = ColorOf(fp, "FRIENDLY_NPC_ESCORT")
             if r then return r, g, b end
         end
-        if UnitIsCivilian and UnitIsCivilian(unit) then return ColorOf(fp, "FRIENDLY_NPC_CIVILIAN") end
         return ColorOf(fp, "FRIENDLY_NPC_STANDARD")
     end
     return ColorOf(fp, "NEUTRAL_NPC_PASSIVE")
 end
 
 -- The catalog key of a pet's own row, or nil while its section's master toggle
--- is off: a colour under an off master could never paint.
-local function PetKey(unit, fp)
-    if UnitPlayerControlled(unit) then
-        if fp.nameOnlyStylePlayerRelationships ~= true then return nil end
-        return "PET_MINION_FRIENDLY"
-    end
-    if IsOpposing(unit) then
-        if fp.nameOnlyStyleHostileNPCs ~= true then return nil end
-        return "PET_MINION_HOSTILE"
-    end
-    if fp.nameOnlyStyleFriendlyNPCs ~= true then return nil end
-    return "PET_MINION_NPC_FRIENDLY"
+-- is off: a colour under an off master could never paint. Only a player's pet
+-- reaches here (Allied.IsPet), so its row is the player relationships' one.
+local function PetKey(fp)
+    if fp.nameOnlyStylePlayerRelationships ~= true then return nil end
+    return "PET_MINION_FRIENDLY"
 end
 
 -- The colour a player shows for its flag state, i.e. exactly what the owner's own
@@ -372,11 +343,11 @@ end
 
 -- A pet's override, in the order the palette reads: its own row first when that
 -- row is on; otherwise the colour of the unit that controls it. A player's pet
--- takes the colour its owner's flag state takes (FlaggedColor); an NPC's pet takes
--- its owner's section colour (NPCColor), and the reaction base in GetNameColor
--- when nothing resolves.
+-- takes the colour its owner's flag state takes (FlaggedColor); anything else it
+-- would have reached is an unfriendly pet outside the enemy nameplates' own, and
+-- the NPC section answers for that one.
 local function PetColor(unit, fp)
-    local key = PetKey(unit, fp)
+    local key = PetKey(fp)
     if key then
         local r, g, b = ColorOf(fp, key)
         if r then return r, g, b end
@@ -414,11 +385,11 @@ end
 --  Options preview
 -------------------------------------------------------------------------------
 -- Each entry's eye previews it on one of the two samples at the top of the
--- Friendly Plates page: the players' entries on the player sample, the NPCs' and
--- their pets' on the NPC sample, which becomes a pet for a pet entry. With no eye
--- on, a sample paints the plain unit in the colour the page passes it. The eye
--- previews the entry's colour whatever its toggle says, so a swatch can be
--- picked against a plate before the entry is switched on.
+-- Friendly Plates page: the players' entries (a player's pet included) on the
+-- player sample, the NPCs' on the NPC sample. With no eye on, a sample paints the
+-- plain unit in the colour the page passes it. The eye previews the entry's
+-- colour whatever its toggle says, so a swatch can be picked against a plate
+-- before the entry is switched on.
 local PREVIEW_ENTRY = {
     FRIENDLY_PLAYER_FRIEND    = { sample = "player" },
     FRIENDLY_PLAYER_RECENT    = { sample = "player" },
@@ -427,13 +398,10 @@ local PREVIEW_ENTRY = {
     FRIENDLY_PLAYER_UNFLAGGED = { sample = "player" },
     FRIENDLY_PLAYER_PVP       = { sample = "player" },
     PET_MINION_FRIENDLY       = { sample = "player", pet = true },
-    FRIENDLY_NPC_CIVILIAN     = { sample = "npc" },
     FRIENDLY_NPC_STANDARD     = { sample = "npc" },
     FRIENDLY_NPC_ESCORT       = { sample = "npc" },
     NEUTRAL_NPC_PASSIVE       = { sample = "npc" },
-    PET_MINION_NPC_FRIENDLY   = { sample = "npc", pet = true },
     HOSTILE_NPC_STANDARD      = { sample = "npc" },
-    PET_MINION_HOSTILE        = { sample = "npc", pet = true },
 }
 
 -- Which sample an entry previews on ("player" / "npc"), and whether that sample

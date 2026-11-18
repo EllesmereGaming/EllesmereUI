@@ -361,21 +361,7 @@ local function SetupAuraCVars()
         end
         EllesmereUI.SetCVar("nameplateShowFriendlyNPCs", showNPCs and 1 or 0, "EllesmereUINameplates")
         EllesmereUI.SetCVar("nameplateShowFriendlyNpcs", showNPCs and 1 or 0, "EllesmereUINameplates")
-        -- Friendly pets: EUI owns these CVars, so the toggle is written either
-        -- way. nil reads as off, and the enable pass seeds the profile from the
-        -- client's own pet and minion setting first, so an untouched profile
-        -- keeps the pet plates it already had.
-        local showPets = (db.showFriendlyPets == true)
-        EllesmereUI.SetCVar("nameplateShowFriendlyPlayerMinions", showPets and 1 or 0, "EllesmereUINameplates")
-        EllesmereUI.SetCVar("nameplateShowFriendlyMinions", showPets and 1 or 0, "EllesmereUINameplates")
-        EllesmereUI.SetCVar("nameplateShowFriendlyPets", showPets and 1 or 0, "EllesmereUINameplates")
-        EllesmereUI.SetCVar("UnitNameFriendlyMinionName", showPets and 1 or 0, "EllesmereUINameplates")
-        -- Enemy pets and minions: one switch, written either way, and seeded from
-        -- the client's own setting at enable while the option is unchosen.
-        local showEnemyPets = (db.showEnemyPets == true)
-        EllesmereUI.SetCVar("nameplateShowEnemyPets", showEnemyPets and 1 or 0, "EllesmereUINameplates")
-        EllesmereUI.SetCVar("nameplateShowEnemyMinions", showEnemyPets and 1 or 0, "EllesmereUINameplates")
-        EllesmereUI.SetCVar("UnitNameEnemyMinionName", showEnemyPets and 1 or 0, "EllesmereUINameplates")
+        EllesmereUI.SetCVar("nameplateShowEnemyPets", (db.showEnemyPets == true) and 1 or 0, "EllesmereUINameplates")
         if showPlayers then
             EllesmereUI.SetCVar("ShowClassColorInFriendlyNameplate", (db.classColorFriendly ~= false) and 1 or 0, "EllesmereUINameplates")
         end
@@ -460,6 +446,36 @@ local function SetupAuraCVars()
         end)
     end
     ns.ApplyNamePlateClickArea = ApplyNamePlateClickArea
+end
+
+--- Pet and minion nameplate CVars: the two pet toggles' own, never the login or
+--- zone-in pass. Those CVars default ON in the client, and EUI never owned the
+--- minion ones, so writing them on every login (or 0 in every instance) hid
+--- minion plates for nearly everyone. A toggle click and a profile apply are
+--- explicit, and an unchosen toggle (nil) is never written. kind: "friendly",
+--- "enemy", or nil for both.
+function ns.ApplyPetCVars(kind)
+    -- Nameplate CVars are protected in combat: run the write when it ends.
+    -- Deferred without kind, so a click on each toggle in one fight still
+    -- writes both sides once.
+    if InCombatLockdown() then
+        ns.CombatQueue.Defer("ApplyPetCVars", function() ns.ApplyPetCVars() end)
+        return
+    end
+    local db = p or defaults
+    if kind ~= "enemy" and db.showFriendlyPets ~= nil then
+        local v = db.showFriendlyPets == true and 1 or 0
+        EllesmereUI.SetCVar("nameplateShowFriendlyPlayerMinions", v, "EllesmereUINameplates")
+        EllesmereUI.SetCVar("nameplateShowFriendlyMinions", v, "EllesmereUINameplates")
+        EllesmereUI.SetCVar("nameplateShowFriendlyPets", v, "EllesmereUINameplates")
+        EllesmereUI.SetCVar("UnitNameFriendlyMinionName", v, "EllesmereUINameplates")
+    end
+    if kind ~= "friendly" and db.showEnemyPets ~= nil then
+        local v = db.showEnemyPets == true and 1 or 0
+        EllesmereUI.SetCVar("nameplateShowEnemyPets", v, "EllesmereUINameplates")
+        EllesmereUI.SetCVar("nameplateShowEnemyMinions", v, "EllesmereUINameplates")
+        EllesmereUI.SetCVar("UnitNameEnemyMinionName", v, "EllesmereUINameplates")
+    end
 end
 
 I.NotifyCastEnded, I.NotifyCastStarted = NotifyCastEnded, NotifyCastStarted

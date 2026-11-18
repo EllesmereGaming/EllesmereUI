@@ -98,6 +98,15 @@ local function IsFriendlyNPCShownForUnit(unit)
     if not IsFriendlyNPCEnabled() then return false end
     if not unit or not UnitExists(unit) then return false end
 
+    -- WoW Forever names NPCs by force (nameplateForceShowUnitName, its default),
+    -- so Blizzard's own frame is the one that knows whether this NPC is named at
+    -- all. #3069's fix: without it the friendly NPC plates vanished there.
+    if GetCVarBool("nameplateForceShowUnitName") then
+        local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
+        local uf = nameplate and nameplate.UnitFrame
+        if uf and not uf:IsForbidden() then return uf:ShouldShowName() end
+    end
+
     -- If targeted or mouseovered, always show
     if UnitIsUnit(unit, "target") or UnitIsUnit(unit, "mouseover") then
         return true
@@ -564,7 +573,9 @@ end
 -- lines are font families (AcquireOverlay's first font is one), so every font
 -- write here goes through SetFontFamily too.
 local function ApplyOverlayStyle(overlay, unit)
-    local font, outline, shadow = GetFont(), "OUTLINE", GetNPUseShadow()
+    -- The user's own nameplate outline choice, as the plates that Blizzard and
+    -- EUI draw take it; the overlay is no place to force one.
+    local font, outline, shadow = GetFont(), ns.GetNPOutline(), GetNPUseShadow()
     EllesmereUI.SetFontFamily(overlay.name, font, GetOverlayNameSize(overlay), outline, shadow)
     local nr, ng, nb = ns.Allied.GetNameColor(unit)
     overlay.name:SetTextColor(nr, ng, nb)
@@ -1132,6 +1143,14 @@ local function GetTitledName(unit)
     return titled
 end
 
+-- Show AFK/DND Tag: Blizzard's own nameplates print no away or busy tag, so one
+-- here is ours to give, and off unless the user asks for it. Read by the compose
+-- paths below and by the event pass that arms the flags listener.
+local function ShowStatusTag()
+    local fp = FP()
+    return fp ~= nil and fp.friendlyShowStatusTag == true
+end
+
 -- Blizzard's own away/busy tag, as its tooltip and unit frames print it
 -- (localized, angle brackets included). Returns " <AFK>" / " <DND>", or nil.
 -- UnitIsAFK / UnitIsDND can hand back a secret value under combat taint, and a
@@ -1140,6 +1159,7 @@ end
 local AFK_TAG = CHAT_FLAG_AFK or "<AFK>"
 local DND_TAG = CHAT_FLAG_DND or "<DND>"
 local function PlayerStatusTag(unit)
+    if not ShowStatusTag() then return nil end
     if not (unit and UnitIsAFK) then return nil end
     local afk = UnitIsAFK(unit)
     if issecretvalue and issecretvalue(afk) then return nil end
@@ -1245,7 +1265,7 @@ do
         titledCount[mode] = titledCount[mode] + 1
         return s
     end
-    local aFormat, aNpcFormat, aMode, aBrackets, aMatch, aLevel, aDiff, aGroupBrackets, aNameEsc, stamped
+    local aFormat, aNpcFormat, aMode, aBrackets, aMatch, aLevel, aDiff, aGroupBrackets, aNameEsc, aStatusTag, stamped
     StampFriendlyNames = function()
         local fp = FP()
         if not fp then return end
@@ -1257,6 +1277,7 @@ do
         aMatch = fp.friendlyBelowNameMatchNameColor == true
         aLevel, aDiff = fp.friendlyShowLevel == true, fp.friendlyLevelDiffColor == true
         aGroupBrackets = fp.friendlyGroupBrackets == true
+        aStatusTag = fp.friendlyShowStatusTag == true
         aNameEsc = NameEsc.Get()
     end
     -- The Name Format options rows and every settings re-read (ns.RefreshAllSettings:
@@ -1272,6 +1293,7 @@ do
             and (fp.friendlyShowLevel == true) == aLevel
             and (fp.friendlyLevelDiffColor == true) == aDiff
             and (fp.friendlyGroupBrackets == true) == aGroupBrackets
+            and (fp.friendlyShowStatusTag == true) == aStatusTag
             and NameEsc.Get() == aNameEsc then
             return
         end
@@ -1428,8 +1450,8 @@ local function UpdateNameOnlyText(nameFS)
         want = FormatFriendlyName(unit, want, ModeHasTitle(mode))
     end
     -- Blizzard's away/busy tag, on the name itself so it takes the name's colour
-    -- and rides inside the group brackets. The stock plate shows it too; without
-    -- it an AFK player's nameplate looks exactly like a live one.
+    -- and rides inside the group brackets. Off unless Show AFK/DND Tag asks for
+    -- it (PlayerStatusTag answers nil then).
     if isPlayer then
         local tag = PlayerStatusTag(unit)
         if tag then want = want .. tag end
@@ -1472,7 +1494,9 @@ local function UpdateNameOnlyText(nameFS)
     local st = nameFSText[nameFS]
     if st and st.name == want and st.guild == guildKey then return end
     if not st then st = {}; nameFSText[nameFS] = st end
-    st.name, st.guild = want, guildKey
+    -- st.grp is the roster watcher's record of the bracket this name wears: a
+    -- player who leaves the group has a different (nil) kind and is recomposed.
+    st.name, st.guild, st.grp = want, guildKey, gKind
 
     _titledNameGuard = true
     nameFS:SetMaxLines(1)
@@ -1484,8 +1508,8 @@ end
 
 -- Whether this plate's name can differ from the plain name Blizzard writes:
 -- a subtitle, a name format, a level, brackets, a name colour, a target
--- highlight, or Blizzard's away/busy tag. Cheapest test first; the hook asks
--- this on every SetText.
+-- highlight, or the away/busy tag while Show AFK/DND Tag is on. Cheapest test
+-- first; the hook asks this on every SetText.
 local function NeedsNameOnlyTextUpdate(unit)
     if GetBelowNameMode() ~= "none" or FriendlyNameFormat() or ShowFriendlyLevel() or ShowFriendlyGroupBrackets() then
         return true
@@ -1536,13 +1560,29 @@ local function AttachNameOnlyText(nameFS, unit)
             UpdateNameOnlyText(self)
         end)
     end
+    -- Late unit data (a PvP flag, a faction flip) arrives as the unit's own
+    -- events, and the plate's UnitFrame is their only listener: the recompose
+    -- rides its OnEvent instead of a timer retry on the add.
+    local np = C_NamePlate.GetNamePlateForUnit(unit)
+    local uf = np and np.UnitFrame
+    if uf and not uf._euiNameOnlyEvents and not uf:IsForbidden() then
+        uf._euiNameOnlyEvents = true
+        uf:HookScript("OnEvent", function(self, event)
+            if event ~= "UNIT_FACTION" then return end
+            local fs = self.name
+            local u = fs and nameFSUnits[fs]
+            if not u then return end
+            nameFSText[fs] = nil
+            UpdateNameOnlyText(fs)
+        end)
+    end
     UpdateNameOnlyText(nameFS)
 end
 
--- A unit's flags changed (PLAYER_FLAGS_CHANGED / UNIT_FLAGS): the away or busy
--- tag is part of the name we compose, so that unit's plates redraw -- in either
--- friendly style, Name Only included. The event names the token the client tracks
--- ("target", "party1") while our plates are keyed by their nameplate token, and
+-- A unit's away or busy flag changed (PLAYER_FLAGS_CHANGED): the tag is part of
+-- the name we compose, so that unit's plates redraw -- in either friendly style,
+-- Name Only included. The event names the token the client tracks ("target",
+-- "party1") while our plates are keyed by their nameplate token, and
 -- GetNamePlateForUnit bridges the two in one call rather than a GUID scan. Cheap
 -- by construction: the name-only side dedupes on the composed string and a bar
 -- plate compares the tag before running its name pass, so a flag that changes
@@ -1881,22 +1921,6 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
             -- highlights, all composed onto this same FontString.
             if NeedsNameOnlyTextUpdate(unit) then
                 AttachNameOnlyText(nameplate.UnitFrame.name, unit)
-                -- Deferred retries: when units spawn at distance, unit data (guild, PvP, friends list)
-                -- may take a short moment to sync from the server. Re-check so initial colors
-                -- resolve to overrides without waiting for a click/target.
-                local fs = nameplate.UnitFrame.name
-                C_Timer.After(0.1, function()
-                    if nameFSUnits[fs] == unit and UnitExists(unit) then
-                        nameFSText[fs] = nil
-                        UpdateNameOnlyText(fs)
-                    end
-                end)
-                C_Timer.After(0.3, function()
-                    if nameFSUnits[fs] == unit and UnitExists(unit) then
-                        nameFSText[fs] = nil
-                        UpdateNameOnlyText(fs)
-                    end
-                end)
             end
         end
     end
@@ -2453,12 +2477,14 @@ local UnregisterFriendlyManager -- forward declaration
 
 -------------------------------------------------------------------------------
 --  Away / busy tag events
---  PLAYER_FLAGS_CHANGED and UNIT_FLAGS are armed in BOTH friendly styles, since
---  the tag rides either style's name. This is a frame of its own because the
---  health-bar manager above is only registered in that style, while Name Only
---  composes the name through Blizzard's own FontString. Armed from
---  ns.UpdateFriendlyNameplateSystem, so it costs nothing while friendly names
---  are off.
+--  PLAYER_FLAGS_CHANGED is armed in BOTH friendly styles, since the tag rides
+--  either style's name, and only while Show AFK/DND Tag is on: the tag is the
+--  one reader, so nothing here is registered while it is off. This is a frame
+--  of its own because the health-bar manager above is only registered in that
+--  style, while Name Only composes the name through Blizzard's own FontString.
+--  Armed from ns.UpdateFriendlyNameplateSystem. A global UNIT_FLAGS is not
+--  needed (and is far too broad): the client reports a player's flag with
+--  PLAYER_FLAGS_CHANGED.
 -------------------------------------------------------------------------------
 local statusManager = CreateFrame("Frame")
 local statusManagerArmed = false
@@ -2469,7 +2495,6 @@ local function ArmStatusTagEvents(on)
     statusManagerArmed = on
     if on then
         statusManager:RegisterEvent("PLAYER_FLAGS_CHANGED")
-        statusManager:RegisterEvent("UNIT_FLAGS")
     else
         statusManager:UnregisterAllEvents()
     end
@@ -2985,6 +3010,58 @@ end
 -------------------------------------------------------------------------------
 --  System enable / disable  (called from toggle setValue and on login)
 -------------------------------------------------------------------------------
+-- The bootstrap frame below; the pass arms two of its events only while they
+-- can paint (see TargetEventsWanted / GuildLineInUse).
+local initFrame
+
+-- The guild line under a friendly name: the Name Only text and the health bar
+-- plate both draw it, so the roster event that fills it in late is armed while
+-- either style can show it.
+local function GuildLineInUse()
+    if not ModeHasGuild(GetBelowNameMode()) then return false end
+    return IsNameOnlyMode() or IsFriendlyEnabled()
+end
+
+-- The target and mouseover events answer the NPC overlay (a hovered or targeted
+-- NPC is one Blizzard names) and the away/busy tag: armed only while one of
+-- them can paint, never for everyone.
+local function TargetEventsWanted()
+    return ns.FriendlyOverlayActive() or ShowStatusTag()
+end
+
+-- Arms the three event surfaces this file owns beyond the plate managers: the
+-- away/busy flags listener, and the bootstrap frame's target/hover and roster
+-- events. Compares and profile reads while nothing changes, so any settings
+-- pass (option, profile, override) can call it.
+local targetEventsArmed, guildEventArmed = false, false
+function ns.RefreshFriendlyTagWatch()
+    local fp = FP()
+    local shown = fp ~= nil and fp.showFriendlyPlayers ~= false
+    ArmStatusTagEvents(shown and (IsNameOnlyMode() or IsFriendlyEnabled()) and ShowStatusTag())
+    if not initFrame then return end
+    local targets = TargetEventsWanted()
+    if targets ~= targetEventsArmed then
+        targetEventsArmed = targets
+        if targets then
+            initFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+            initFrame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
+        else
+            initFrame:UnregisterEvent("PLAYER_TARGET_CHANGED")
+            initFrame:UnregisterEvent("UPDATE_MOUSEOVER_UNIT")
+        end
+    end
+    -- The guild line resolves when the roster arrives, not on the plate add.
+    local guild = GuildLineInUse()
+    if guild ~= guildEventArmed then
+        guildEventArmed = guild
+        if guild then
+            initFrame:RegisterEvent("GUILD_ROSTER_UPDATE")
+        else
+            initFrame:UnregisterEvent("GUILD_ROSTER_UPDATE")
+        end
+    end
+end
+
 function ns.UpdateFriendlyNameplateSystem()
     local shouldEnable = IsFriendlyEnabled()       -- health-bar mode
     local nameOnly     = IsNameOnlyMode()           -- name-only mode
@@ -3003,13 +3080,13 @@ function ns.UpdateFriendlyNameplateSystem()
     -- Friendly player CVars are only touched when the user has EUI managing friendly
     -- player nameplates. When disabled we leave those CVars alone so Blizzard's own
     -- Nameplate settings own them. Friendly NPC CVars are always managed because they
-    -- have their own EUI toggle.
+    -- have their own EUI toggle. The pet and minion CVars are NOT written here: the
+    -- client defaults them on, so writing them on every login or zone-in would hide
+    -- minion plates for nearly everyone. They follow the two pet toggles instead
+    -- (ns.ApplyPetCVars).
     if not InCombatLockdown() then
         local fp = FP()
         local euiManagesPlayers = fp and (fp.showFriendlyPlayers ~= false)
-        -- EUI owns the pet CVars, so the toggle is written in every branch below,
-        -- off included: Blizzard's own default shows friendly pets.
-        local showPets = fp and (fp.showFriendlyPets == true)
         local _, iType = GetInstanceInfo()
         local inInstance = (iType == "party" or iType == "raid" or iType == "scenario" or iType == "arena" or iType == "pvp")
         if IsInFollowerDungeon() then
@@ -3022,12 +3099,6 @@ function ns.UpdateFriendlyNameplateSystem()
             end
             pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNPCs", 0, "EllesmereUINameplates")
             pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNpcs", 0, "EllesmereUINameplates")
-            -- Pets cannot be styled here, so their plates are hidden whatever
-            -- the toggle says.
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", 0, "EllesmereUINameplates")
         elseif inInstance then
             -- NPC plates only: force off in instances since our frame
             -- suppression doesn't work on protected nameplate frames.
@@ -3046,12 +3117,6 @@ function ns.UpdateFriendlyNameplateSystem()
             end
             pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNPCs", 0, "EllesmereUINameplates")
             pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNpcs", 0, "EllesmereUINameplates")
-            -- Pets: as in the follower-dungeon branch, hidden because they
-            -- cannot be styled here.
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", 0, "EllesmereUINameplates")
-            pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", 0, "EllesmereUINameplates")
         else
             -- Restore user's preferred friendly CVar state
             if fp then
@@ -3065,12 +3130,6 @@ function ns.UpdateFriendlyNameplateSystem()
                 end
                 pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNPCs", showNPCs and 1 or 0, "EllesmereUINameplates")
                 pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNpcs", showNPCs and 1 or 0, "EllesmereUINameplates")
-                -- Pets: written from the toggle in every case, so a profile that
-                -- never touched the option still gets the default's silence.
-                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPlayerMinions", showPets and 1 or 0, "EllesmereUINameplates")
-                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyMinions", showPets and 1 or 0, "EllesmereUINameplates")
-                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyPets", showPets and 1 or 0, "EllesmereUINameplates")
-                pcall(EllesmereUI.SetCVar, "UnitNameFriendlyMinionName", showPets and 1 or 0, "EllesmereUINameplates")
             end
         end
     else
@@ -3142,8 +3201,9 @@ function ns.UpdateFriendlyNameplateSystem()
     local showFriendly = _fp and _fp.showFriendlyPlayers ~= false
     -- Away / busy: the tag rides the name in either style, so these events are
     -- armed whenever friendly player names are ours to write -- Name Only
-    -- included, where the health-bar manager above stays unregistered.
-    ArmStatusTagEvents((nameOnly or shouldEnable) and showFriendly)
+    -- included, where the health-bar manager above stays unregistered -- and
+    -- only while something reads them (see ns.RefreshFriendlyTagWatch).
+    ns.RefreshFriendlyTagWatch()
     -- Class-colour CVar for the friendly player names Blizzard draws: every name
     -- in name-only mode, the protected instance plates in full-plate mode. A
     -- combat skip is caught by the visibility retry above.
@@ -3227,19 +3287,28 @@ local function RecentTrackingOn()
         and fp.nameOnlyCustomEnabled_FRIENDLY_PLAYER_RECENT == true
 end
 
-local initFrame = CreateFrame("Frame")
+initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 initFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 initFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-initFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
-initFrame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 initFrame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_TARGET_CHANGED" or event == "UPDATE_MOUSEOVER_UNIT" then
         OnTargetChangedNPCOverlays()
         -- The client reports a player's away/busy flag for the units it tracks,
         -- so a target or hover is the moment a stranger's plate can catch up.
-        RefreshStatusTags(event == "UPDATE_MOUSEOVER_UNIT" and "mouseover" or "target")
+        if ShowStatusTag() then
+            RefreshStatusTags(event == "UPDATE_MOUSEOVER_UNIT" and "mouseover" or "target")
+        end
+        return
+    end
+    if event == "GUILD_ROSTER_UPDATE" then
+        -- A guild name arrives with the roster: recompose the names and the
+        -- guild lines that just gained one.
+        if GuildLineInUse() then
+            SweepPlayerSubText()
+            for _, plate in pairs(friendlyPlates) do plate:UpdateName() end
+        end
         return
     end
     if event == "GROUP_ROSTER_UPDATE" then

@@ -178,6 +178,9 @@ do
     -- Expose for calling from OnEnable (login time)
     ns._ApplySpecPresetFromDB = ApplySpecPresetFromDB
     _G._ENP_RefreshAllSettings = function() if ns.RefreshAllSettings then ns.RefreshAllSettings() end end
+    -- A profile apply is an explicit choice, so the pet toggles re-assert
+    -- their CVars there (nobody else writes them: see ns.ApplyPetCVars).
+    _G._ENP_ApplyPetCVars = function() if ns.ApplyPetCVars then ns.ApplyPetCVars() end end
 end
 
 local npAddon = ENP
