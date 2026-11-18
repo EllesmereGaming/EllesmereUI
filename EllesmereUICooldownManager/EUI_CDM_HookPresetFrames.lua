@@ -591,6 +591,10 @@ local function GetOrCreatePlaceholderFrame(barKey, spellID, iconID, identKey)
         end)
         f:SetScript("OnLeave", GameTooltip_Hide)
         _placeholderFrames[fkey] = f
+        -- A new icon starts in full colour: the buff ticker draws Desaturate
+        -- Off CD on it once the placement that made it has decorated it.
+        ns._btDirty = true
+        if ns.ArmBuffTicker then ns.ArmBuffTicker() end
     end
     -- Re-assert on reuse: a pooled frame outlives a talent swap, so the id it
     -- was created with can name the pre-talent spell (its tooltip would still

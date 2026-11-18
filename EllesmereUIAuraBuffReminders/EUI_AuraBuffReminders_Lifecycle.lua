@@ -545,7 +545,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
     if e == "PLAYER_LOGOUT" then
         local startedAt = EABR._fvSleepStartedAt
         if startedAt and db and EABR._fvSleepProfile == db.profile
-            and db.profile.forever.sleepingBagShowProgress == true then
+            and db.profile.forever.sleepingBagShowProgress ~= false then
             local saved = EllesmereUI.CharData("sleepingBagProgress", true)
             if saved then
                 saved.startedAt = startedAt
@@ -668,7 +668,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
                 EllesmereUI.ForgetCharField(guid, "sleepingBagProgress")
                 local fo = db and db.profile.forever
                 -- Resume only a confirmed session from a UI reload. A fresh login discards it.
-                if arg2 and fo and fo.sleepingBag == true and fo.sleepingBagShowProgress == true
+                if arg2 and fo and fo.sleepingBag == true and fo.sleepingBagShowProgress ~= false
                     and db.profile.display.remindersEnabled ~= false and not InCombat()
                     and type(saved) == "table" and type(saved.startedAt) == "number"
                     and saved.startedAt >= 0 and saved.startedAt <= GetTime()

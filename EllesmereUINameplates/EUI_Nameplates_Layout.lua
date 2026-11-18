@@ -1517,6 +1517,8 @@ function ns.ApplyCastIconBorder(plate)
         bf:SetAllPoints(icon)
         bf:EnableMouse(false)
         plate._castIconBorder = bf
+        -- Built as the plate spawns: snap at the nameplate's settled scale.
+        EllesmereUI.SetBorderSnapHost(bf, plate)
     end
     local tex = p.customBorderTexture or defaults.customBorderTexture
     local sz = p.customBorderSize or defaults.customBorderSize

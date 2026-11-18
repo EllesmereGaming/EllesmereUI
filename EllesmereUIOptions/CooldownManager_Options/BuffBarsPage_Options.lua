@@ -3523,9 +3523,10 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
 
         -- When a text element claims a position, evict any other text already there so
         -- labels never overlap. Compares EFFECTIVE (rendered) positions: name text never
-        -- renders on vertical bars, so its stored slot must not evict anything there.
+        -- renders on vertical bars, so its stored slot neither evicts nor is evicted there.
         local function EvictTBBTextConflicts(bd, changedKey, newPos)
             if newPos == "none" then return end
+            if changedKey == "namePosition" and bd.verticalOrientation then return end
             local function resolvePos(key)
                 if key == "namePosition" and bd.verticalOrientation then return "none" end
                 local v = bd[key]

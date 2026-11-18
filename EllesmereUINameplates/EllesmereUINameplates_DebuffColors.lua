@@ -353,7 +353,7 @@ local function Engaged(unit)
         for i = #engagers, n + 1, -1 do engagers[i] = nil end
     end
     for i = 1, #engagers do
-        if type(UnitThreatSituation(engagers[i], unit)) ~= "nil" then return true end
+        if type((UnitThreatSituation(engagers[i], unit))) ~= "nil" then return true end
     end
     return false
 end

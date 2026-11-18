@@ -676,7 +676,7 @@ end
 -- Whether a unit is in your party or raid. The raid index reads secret where the
 -- unit's identity is withheld, so only its type is asked.
 local function InMyGroup(unit)
-    return UnitInParty(unit) or type(UnitInRaid(unit)) == "number"
+    return UnitInParty(unit) or type((UnitInRaid(unit))) == "number"
 end
 
 -- Paints one full plate's bar and name. Players: the bar takes the class colour

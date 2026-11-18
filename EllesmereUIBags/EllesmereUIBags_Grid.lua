@@ -310,8 +310,10 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         local quality = data.info.quality or 1
         PaintJunkState(btn, data.info, junkOn and EUI_CategoryManager:IsJunk(data.info.itemID, quality))
         if badgeStyle or btn._reagentBadge then
-            -- The OneBag / MultiBag bag sections (interactiveEmpties) hold bag 5 only in their Reagent Bag section
-            PaintReagentBadge(btn, badgeStyle and data.bag == 5 and not (reagentSection or interactiveEmpties))
+            -- The OneBag / MultiBag bag sections (interactiveEmpties) hold bag 5 only in their Reagent Bag section.
+            -- A Recent Items picked-up entry (_recentGained) stands for every stack of its item, in any bag: no badge.
+            PaintReagentBadge(btn, badgeStyle and data.bag == 5 and not data._recentGained
+                and not (reagentSection or interactiveEmpties))
         end
 
         -- Search misses, and a pinned item in a OneBag / MultiBag bag section

@@ -26,6 +26,8 @@ local EnsurePalette, MAX_PALETTES, MAX_SLOTS = I.EnsurePalette, I.MAX_PALETTES, 
 local PA, ReadPalette, SelectColor, CycleNext = I.PA, I.ReadPalette, I.SelectColor, I.CycleNext
 local WORLD_MARKER_ENGINE, Rez, SlotCooldown = I.WORLD_MARKER_ENGINE, I.Rez, I.SlotCooldown
 local SlotCount, SlotDisplay, SlotUsability = I.SlotCount, I.SlotDisplay, I.SlotUsability
+-- Does this cell carry a tint a live menu re-reads on events (RefreshTints)?
+local HasTint = I.SlotHasTint
 local UsableSlots, ApplyIconCrop = I.UsableSlots, I.ApplyIconCrop
 local ApplySlotVisual, PaletteView = I.ApplySlotVisual, I.PaletteView
 local RefreshFonts, secureButtons = I.RefreshFonts, I.secureButtons
@@ -63,11 +65,6 @@ local function HasLiveIcon(slot)
     return slot.kind == "macro" or slot.kind == "dynamicrez"
 end
 
--- Does this cell carry a tint a live menu re-reads on events (RefreshTints)?
-local function HasTint(slot)
-    return slot ~= nil and slot.kind ~= "palette"
-end
-
 local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLabel,
                          iconSize, showUsability)
     w.isPlaceholder = placeholder
@@ -76,7 +73,9 @@ local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLa
     -- while a palette is up, but a hold lasts a fraction of a second and a tint
     -- that changed under a settled hand would read as a flicker rather than as
     -- information. Discrete state changes are the exception (RefreshTints):
-    -- combat, a flight path, a doorway for mounts. ApplySlotVisual colours it.
+    -- combat, a flight path, a doorway for mounts. Such a re-read takes the
+    -- whole answer as it stands, range and resources included. ApplySlotVisual
+    -- colours it.
     w.usability = (showUsability and not placeholder) and SlotUsability(slot) or nil
 
     local icon, name = SlotDisplay(slot)
