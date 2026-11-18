@@ -14,7 +14,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  entry.andMode = "and" | nil (its buff and state grey out while off); the
 --  second buff and its state are entry.conditions[1]. Each glow starts with a
 --  collapse bar (collapsed: buff icon + name only, entry.collapsed); Duplicate
---  inserts a full copy right below.
+--  inserts a full copy right below. A Glow When Usable glow reads Require
+--  Resource [toggle] where At Stacks is (entry.requirePower).
 --  Frames are built with the page; nothing exists until it is opened.
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUICooldownManager"]
@@ -435,6 +436,19 @@ function ns.BarGlowCombatCfg(entry, onChange)
         setValue = function(v)
             entry.onlyInCombat = v or nil
             if onChange then onChange() end
+        end }
+end
+
+-- The Require Resource toggle's row config (entry.requirePower): a Glow When
+-- Usable glow also waits for the ability's resource. It takes the half At
+-- Stacks has for a buff glow.
+function ns.BarGlowResourceCfg(entry)
+    return { type = "toggle", text = "Require Resource",
+        tooltip = "Only glow while the ability also has the rage, energy, mana or other resource it costs.",
+        getValue = function() return entry.requirePower == true end,
+        setValue = function(v)
+            entry.requirePower = v or nil
+            if ns.RequestBarGlowUpdate then ns.RequestBarGlowUpdate() end
         end }
 end
 
