@@ -245,30 +245,36 @@ local function OnPaletteUpdate(_, elapsed)
     liveView:AdvanceSlam(now)
 end
 
--- The mount tint's events (see PaletteView:RefreshMountTints), registered only
--- while a live menu holding a mount entry is up: the Mount Journal's own
--- usability signal, the minimap's switch between its indoor and outdoor zoom
--- (a doorway), and combat starting and ending. The frame is made the first
--- time such a menu opens; ns.Open and ns.Close, every close's path, sync it.
-local mountWatch
-local MOUNT_WATCH_EVENTS = { "MOUNT_JOURNAL_USABILITY_CHANGED", "MINIMAP_UPDATE_ZOOM",
-                             "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED" }
-local function SyncMountWatch(on)
-    if on and not mountWatch then
-        mountWatch = CreateFrame("Frame")
-        mountWatch:SetScript("OnEvent", function()
+-- The tint's events (see PaletteView:RefreshTints), registered only while a
+-- live tinted menu is up; ns.Open and ns.Close sync it. CONTROL_LOST/GAINED
+-- bracket a flight path; the first two are the mount area (journal, doorway).
+-- Landing clears the taxi flag after CONTROL_GAINED, so UNIT_FLAGS catches it.
+local tintWatch
+local TINT_WATCH_EVENTS = { "MOUNT_JOURNAL_USABILITY_CHANGED", "MINIMAP_UPDATE_ZOOM",
+                            "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
+                            "PLAYER_CONTROL_LOST", "PLAYER_CONTROL_GAINED",
+                            "PLAYER_MOUNT_DISPLAY_CHANGED" }
+local function SyncTintWatch(on)
+    if on and not tintWatch then
+        tintWatch = CreateFrame("Frame")
+        tintWatch:SetScript("OnEvent", function()
             if liveView and liveView:GetFrame():IsShown() then
-                liveView:RefreshMountTints()
+                liveView:RefreshTints()
             end
         end)
     end
-    if not mountWatch then return end
-    for i = 1, #MOUNT_WATCH_EVENTS do
+    if not tintWatch then return end
+    for i = 1, #TINT_WATCH_EVENTS do
         if on then
-            mountWatch:RegisterEvent(MOUNT_WATCH_EVENTS[i])
+            tintWatch:RegisterEvent(TINT_WATCH_EVENTS[i])
         else
-            mountWatch:UnregisterEvent(MOUNT_WATCH_EVENTS[i])
+            tintWatch:UnregisterEvent(TINT_WATCH_EVENTS[i])
         end
+    end
+    if on then
+        tintWatch:RegisterUnitEvent("UNIT_FLAGS", "player")
+    else
+        tintWatch:UnregisterEvent("UNIT_FLAGS")
     end
 end
 
@@ -355,7 +361,7 @@ function ns.Open(paletteIndex)
     UpdatePaletteAlpha()
     palette:SetScript("OnUpdate", OnPaletteUpdate)
     palette:Show()
-    SyncMountWatch(liveView:HasMountCells())
+    SyncTintWatch(liveView:HasTintCells())
 end
 
 -- ESCAPE belongs to the game menu again. The release snippet drops this binding
@@ -390,7 +396,7 @@ function ns.Close()
     end
     palette:SetScript("OnUpdate", nil)
     palette:Hide()
-    SyncMountWatch(false)
+    SyncTintWatch(false)
     ReleaseSecureState(liveView:GetPaletteIndex())
     ReleaseEscape()
     -- Both, always together. fanVisual left behind at the strip's last centre

@@ -1181,6 +1181,8 @@ local function SlotUsability(slot)
         -- indoors or in combat -- the test the last-mount entry falls back to
         -- before a mount is tracked, or when the journal answers nothing (its
         -- getter may return nothing).
+        -- The journal still answers usable on a flight path, so ask the taxi.
+        if UnitOnTaxi("player") then return "UNUSABLE" end
         if k == "randommount" then
             return (IsIndoors() or InCombatLockdown()) and "UNUSABLE" or nil
         end
