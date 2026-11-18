@@ -196,7 +196,7 @@ local function CreateHeader()
     -- inheriting the first one's callbacks: EndDragDrop can unlock the button
     -- mid-run, and a stale callback clearing the live chain's OnEvent would
     -- strand it with refreshEnabled false (bags frozen until reload).
-    local consolidateFrame, retryFrame
+    local consolidateFrame, retryFrame, routeFrame
     local function LockSort()
         sortLocked = true
         ApplySortEnabled()
@@ -277,6 +277,7 @@ local function CreateHeader()
             C_Timer.After(SORT_STUCK_AFTER, function()
                 if f._runToken ~= token or f._wait ~= wait then return end
                 StopWaiting(consolidateFrame)
+                StopWaiting(routeFrame)
                 StopWaiting(retryFrame)
                 FinishSort()
             end)
@@ -609,13 +610,77 @@ local function CreateHeader()
             WaitSettled(retryFrame, runToken, bagMin, bagMax, NextRound)
         end
 
-        local function RunSort()
-            RunRetryLoop(0, 4, function()
-                if C_Container.GetContainerNumSlots(5) > 0 then
-                    RunRetryLoop(5, 5, FinishSort)
-                else
-                    FinishSort()
+        -- Moves crafting reagents from the main bags into the reagent bag's
+        -- free slots, as Blizzard's sort does. Special bags are left alone.
+        -- refused: itemIDs the reagent bag turned away this run, skipped from then on.
+        local function RouteReagentsOnce(refused)
+            if InCombatLockdown() then return false end
+            local free = {}
+            for slot = 1, C_Container.GetContainerNumSlots(5) do
+                if not C_Container.GetContainerItemInfo(5, slot) then free[#free + 1] = slot end
+            end
+            if #free == 0 then return false end
+            local special = ns.SpecialBags()
+            local nextFree, moved = 1, false
+            for bag = 0, 4 do
+                if not (special and special[bag]) then
+                    for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                        if nextFree > #free then return moved end
+                        local info = C_Container.GetContainerItemInfo(bag, slot)
+                        -- Uncached item data reads nil: the item stays put this pass.
+                        if info and info.itemID and not info.isLocked and not refused[info.itemID]
+                           and select(17, C_Item.GetItemInfo(info.itemID)) then
+                            C_Container.PickupContainerItem(bag, slot)
+                            C_Container.PickupContainerItem(5, free[nextFree])
+                            -- Still on the cursor: refused, so no bag update will come for it.
+                            if CursorHasItem() then
+                                ClearCursor()
+                                refused[info.itemID] = true
+                            else
+                                nextFree = nextFree + 1
+                                moved = true
+                            end
+                        end
+                    end
                 end
+            end
+            return moved
+        end
+
+        local function RouteReagents(onDone)
+            -- A WoW Forever special bag can sit in the fifth slot; it refuses most reagents.
+            local family = EllesmereUI.IS_FOREVER and select(2, C_Container.GetContainerNumFreeSlots(5))
+            local refused = {}
+            if C_Container.GetContainerNumSlots(5) == 0 or (family and family ~= 0)
+               or not RouteReagentsOnce(refused) then
+                onDone()
+                return
+            end
+            local passes = 1
+            if not routeFrame then routeFrame = CreateFrame("Frame") end
+            local runToken = {}
+            routeFrame._runToken = runToken
+            local function NextPass()
+                passes = passes + 1
+                if passes <= 3 and RouteReagentsOnce(refused) then
+                    WaitSettled(routeFrame, runToken, 0, 5, NextPass)
+                else
+                    routeFrame:SetScript("OnEvent", nil)
+                    onDone()
+                end
+            end
+            WaitSettled(routeFrame, runToken, 0, 5, NextPass)
+        end
+
+        local function RunSort()
+            RouteReagents(function()
+                RunRetryLoop(0, 4, function()
+                    if C_Container.GetContainerNumSlots(5) > 0 then
+                        RunRetryLoop(5, 5, FinishSort)
+                    else
+                        FinishSort()
+                    end
+                end)
             end)
         end
 
@@ -633,6 +698,7 @@ local function CreateHeader()
                 return
             end
             StopWaiting(consolidateFrame)
+            StopWaiting(routeFrame)
             StopWaiting(retryFrame)
             FinishSort(true)
         end)
