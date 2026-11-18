@@ -1637,6 +1637,7 @@ do
         e.foreverGroup = nil
         e.spellRank = nil
         e.foreverFood = nil
+        e.fvExtra = nil
         return e
     end
 
