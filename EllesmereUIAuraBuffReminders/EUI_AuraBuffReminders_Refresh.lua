@@ -1294,13 +1294,8 @@ end
 -- member of that class is in range (informational, no click; never a talent
 -- buff). Out of combat the pass also picks the provider's cast
 -- (EABR.SyncProviderCastSpell binds it), and every pass syncs the group watch
--- to what it read. One button casts the provider's buffs, so a class that
--- provides two (a priest with Divine Spirit) shows one provider reminder at a
--- time: the first of its buffs in list order that is missing and not
--- dismissed, with the button bound to its cast; with none showing, the button
--- stays bound to the first buff it provides. Under lockdown the binding
--- cannot change, so only the buff the button casts shows there; another waits
--- for the end of combat.
+-- to what it read. Out of combat each missing own buff gets its own secure icon
+-- (fvExtra past the first); under lockdown only the provider button's buff shows.
 function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
     local rb = db.profile.raidBuffs
     local watch = EABR._fvWatchFams
@@ -1326,7 +1321,7 @@ function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
                 local doReceiver = not iCast and not buff.talent and groupClasses and groupClasses[buff.class]
                     and EABR.PlayerBenefitsFromBuff(buff)
                 if (iCast or doReceiver) and EABR.FvReadable(fam, restricted) then
-                    local isMissing, have, total, first
+                    local isMissing, have, total, first, extraCast, extraUnit
                     if iCast and othersMissing and grouped then
                         have, total, first = EABR.FvCoverage(fam, buff.benefit, covered)
                         covered = true
@@ -1339,9 +1334,12 @@ function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
                         -- Under lockdown: the spell the button casts, a rank or
                         -- group version of the one buff that may show.
                         local bound = lockdown and EABR._providerCastSpell
-                        isMissing = isMissing and not provided and not _dismissedUntilLoad[buff.dismissKey]
+                        isMissing = isMissing and not (provided and lockdown)
+                            and not _dismissedUntilLoad[buff.dismissKey]
                             and not (bound and not (tContains(fam.single, bound) or tContains(fam.group, bound)))
-                        if isMissing then
+                        if isMissing and provided then
+                            extraCast, extraUnit = EABR.FvPickCast(buff, first)
+                        elseif isMissing then
                             provided = true
                             if not lockdown then
                                 castSpell, castUnit = EABR.FvPickCast(buff, first)
@@ -1361,7 +1359,11 @@ function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
                             -- The provider button casts it; in combat it keeps
                             -- the cast bound before the pull.
                             e.mode = "spell"
-                            e.spellID = castSpell or EABR._providerCastSpell
+                            if extraCast then
+                                e.spellID, e.unit, e.fvExtra = extraCast, extraUnit, true
+                            else
+                                e.spellID = castSpell or EABR._providerCastSpell
+                            end
                         else
                             e.mode = "texture"
                             e.spellID = buff.castSpell
@@ -1701,7 +1703,7 @@ local function Refresh()
                     -- pooled icon instead -- visual-only, like every other
                     -- combat entry. The button resumes ownership at the OOC
                     -- refresh.
-                    if m.cat == "raidbuff" and m.mode == "spell" and not useCursor
+                    if m.cat == "raidbuff" and m.mode == "spell" and not m.fvExtra and not useCursor
                        and (EABR._providerCastVisible or EABR._providerCastCombatReserved) then
                         providerEntry = m
                     else
@@ -1769,7 +1771,7 @@ local function Refresh()
         for _, m in ipairs(missing) do
             local dk = m.dismissKey or (m.data and m.data.key and (m.cat .. ":" .. m.data.key)) or nil
             if not dk or not _dismissedUntilLoad[dk] then
-                if m.cat == "raidbuff" and m.mode == "spell" and not useCursor then
+                if m.cat == "raidbuff" and m.mode == "spell" and not m.fvExtra and not useCursor then
                     providerEntry = m
                 elseif useCursor and IsImportantBuff(m) then
                     cursorIdx = cursorIdx + 1

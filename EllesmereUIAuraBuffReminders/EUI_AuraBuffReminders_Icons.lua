@@ -1656,6 +1656,7 @@ do
         e.foreverGroup = nil
         e.spellRank = nil
         e.foreverFood = nil
+        e.fvExtra = nil
         e.stackText = nil
         return e
     end
