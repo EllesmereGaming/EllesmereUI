@@ -23,6 +23,7 @@ local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 EABR.FOREVER = EllesmereUI.IS_FOREVER == true
 EABR.CAMP_BENEFITS = 1229741
 EABR.SLEEPING_BAG_BUFF = 429959
+EABR.SLEEPING_BAG_TRACKING = 1331671
 EABR.SLEEPING_BAG_ITEM = 211527
 EABR.SLEEPING_BAG_STACKS = 3
 -- The Arcane Censer (not used up) gives Magical Awareness for 2 hours, which
