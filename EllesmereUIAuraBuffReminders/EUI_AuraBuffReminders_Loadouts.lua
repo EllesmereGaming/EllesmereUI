@@ -106,8 +106,8 @@ local pageShown = false
 -- "loadouts" field (EllesmereUI.CharData; never exported): { [bucket] = {
 -- { gear = set name, talent = stored loadout, acts = { [activity] = true } },
 -- ... } }. A bucket is a retail spec ID, or on WoW Forever a spec group
--- (-1, -2) with the Riding loadout in bucket 0, worn in either group. Reading
--- never creates the field.
+-- (-1, -2), with bucket 0 shared by both groups. Reading never creates the
+-- field.
 local function Store(create) return EllesmereUI.CharData("loadouts", create) end
 
 -- The account-wide GENERAL settings. Reading never creates the table; a
@@ -239,33 +239,23 @@ end
 -- Specializations and buckets
 -- A loadout belongs to the spec it was added on: its bucket is the spec ID on
 -- retail (nil before the character has a spec). On WoW Forever it is the spec
--- group of its talents, or with gear alone the group it was added on; the
--- Riding loadout is no group's and sits in the shared bucket.
+-- group of its talents, or with gear alone the group it was added on. Bucket
+-- 0 there is shared: it holds Riding and the loadouts saved before spec
+-- groups had their own (9.8.9), and applies in either group wherever that
+-- group holds nothing of its own.
 -- -----------------------------------------------------------------------------
 
 local SHARED_BUCKET = 0
 local RIDING_ONLY = { riding = true }
 local function BucketKey() return GetCurrentSpecID() end
-local function BucketOf(act)
-    if IS_FOREVER and act == "riding" then return SHARED_BUCKET end
-    return BucketKey()
-end
 -- WoW Forever: the bucket of a stored talent pick (its spec group), or nil.
 local function TalentBucket(talent)
     local id = IS_FOREVER and type(talent) == "table" and tonumber(talent.configID)
     return (id and id < 0) and id or nil
 end
 
--- WoW Forever kept every loadout in bucket 0 until spec groups had their own
--- (2026-11-18). Once the groups can be counted, a loadout with talents goes
--- to their group and one with gear alone to every group, so both keep
--- swapping as they did, and bucket 0 keeps only Riding.
-local SplitSharedBucket
-local sharedSplit = not IS_FOREVER
-
 -- A bucket's loadouts, read only (an empty stand-in for none).
 local function BucketList(key)
-    if not sharedSplit then SplitSharedBucket() end
     local store = key ~= nil and Store(false)
     local list = store and store[key]
     return type(list) == "table" and list or NO_ENTRIES
@@ -904,26 +894,31 @@ local function ActivityFor(ctx)
     return nil
 end
 
--- The loadout the current bucket holds for an activity, or nil.
-local function LoadoutFor(act)
-    if not act then return nil end
-    local list = BucketList(BucketOf(act))
+-- The loadout a bucket holds for an activity, or nil.
+local function HeldIn(key, act)
+    local list = BucketList(key)
     for i = 1, #list do
         local lo = list[i]
         if type(lo.acts) == "table" and lo.acts[act] then return lo end
     end
 end
+-- The loadout that applies to an activity: the current bucket's, or on WoW
+-- Forever the shared bucket's where the spec group holds none.
+local function LoadoutFor(act)
+    if not act then return nil end
+    local lo = HeldIn(BucketKey(), act)
+    if not lo and IS_FOREVER then lo = HeldIn(SHARED_BUCKET, act) end
+    return lo
+end
 -- WoW Forever: the other spec group's loadout that brings its talents to an
--- activity this group holds nothing for (entering switches to that group).
+-- activity neither this group nor the shared bucket holds (entering switches
+-- to that group).
 local function SwitchingLoadoutFor(act)
     if not (IS_FOREVER and act) or act == "riding" or LoadoutFor(act) then return nil end
     local own = BucketKey()
     for group = 1, SpecGroupCount() do
-        local list = -group ~= own and BucketList(-group) or NO_ENTRIES
-        for i = 1, #list do
-            local lo = list[i]
-            if lo.talent and type(lo.acts) == "table" and lo.acts[act] then return lo end
-        end
+        local lo = -group ~= own and HeldIn(-group, act)
+        if lo and lo.talent then return lo end
     end
 end
 
@@ -1663,7 +1658,7 @@ local function AddLoadout(gear, talent, acts)
     if key == nil then return false, "nospec" end
     if not Store(true) then return false, "nochar" end
     -- WoW Forever: Riding is the gear set alone, in the shared bucket; the
-    -- other activities go to the spec group.
+    -- other activities go to the spec group, above anything shared.
     if IS_FOREVER and acts.riding then
         AddToBucket(SHARED_BUCKET, gear, nil, RIDING_ONLY)
         local rest
@@ -1676,32 +1671,6 @@ local function AddLoadout(gear, talent, acts)
     AddToBucket(key, gear, talent, acts)
     return true, nil, key
 end
-SplitSharedBucket = function()
-    local store = Store(false)
-    local old = store and store[SHARED_BUCKET]
-    if type(old) ~= "table" then sharedSplit = store ~= nil; return end
-    local groups = SpecGroupCount()
-    if groups < 1 then return end
-    sharedSplit = true
-    store[SHARED_BUCKET] = nil
-    for i = 1, #old do
-        local lo = old[i]
-        local rest
-        for act in pairs(type(lo.acts) == "table" and lo.acts or NO_ENTRIES) do
-            if act ~= "riding" then rest = rest or {}; rest[act] = true end
-        end
-        local own = TalentBucket(lo.talent)
-        if rest and own then
-            AddToBucket(own, lo.gear, lo.talent, rest)
-        elseif rest then
-            for group = 1, groups do AddToBucket(-group, lo.gear, lo.talent, rest) end
-        end
-        if lo.gear and type(lo.acts) == "table" and lo.acts.riding then
-            AddToBucket(SHARED_BUCKET, lo.gear, nil, RIDING_ONLY)
-        end
-    end
-end
-
 -- Deletes one loadout of a bucket, or the whole bucket (index nil); a bucket
 -- left empty goes.
 local function DeleteLoadouts(key, index)
@@ -2040,12 +2009,22 @@ function API.ActivityLabel(key) return ActivityLabel(key) end
 function API.ActivityOrder() return ACTIVITY_ORDER end
 -- Every bucket's loadouts, read only: { [bucket] = { loadout, ... } }.
 function API.Buckets()
-    if not sharedSplit then SplitSharedBucket() end
     local store = Store(false)
     return type(store) == "table" and store or NO_ENTRIES
 end
 -- The current bucket's loadout holding an activity, or nil.
-function API.HolderOf(act) return LoadoutFor(act) end
+-- The loadout adding would take an activity from: the one holding it in the
+-- bucket the new loadout lands in. talentKey: the picked talents' configID
+-- (WoW Forever files a loadout under its talents' spec group).
+function API.HolderOf(act, talentKey)
+    if not act then return nil end
+    local key = BucketKey()
+    if IS_FOREVER then
+        local id = tonumber(talentKey)
+        key = act == "riding" and SHARED_BUCKET or (id and id < 0 and id) or key
+    end
+    return HeldIn(key, act)
+end
 function API.GearMissing(name) return GearMissing(name) end
 function API.TalentMissing(stored) return TalentMissing(stored) end
 

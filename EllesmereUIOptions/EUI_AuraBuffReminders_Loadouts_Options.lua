@@ -556,10 +556,11 @@ function ns._BuildLoadoutPage(_, parent, yOffset)
     local actDD = BuildActivityChecklist(addRow, DD_W, level, {
         get = function(key) return pend.acts[key] == true end,
         set = function(key, on) pend.acts[key] = on or nil end,
-        -- Dimmed while another loadout of your spec holds it; adding moves it.
-        dim = function(key) return LM.HolderOf(key) ~= nil end,
+        -- Dimmed while a loadout holds it where this one lands (your spec; on
+        -- WoW Forever the picked talents' spec group); adding moves it.
+        dim = function(key) return LM.HolderOf(key, pend.talentKey) ~= nil end,
         dimTooltip = function(key)
-            local lo = LM.HolderOf(key)
+            local lo = LM.HolderOf(key, pend.talentKey)
             if not lo then return nil end
             return EllesmereUI.Lf("Used by %s. Adding moves it to the new loadout.", LoadoutName(lo))
         end,
@@ -656,7 +657,8 @@ function ns._BuildLoadoutPage(_, parent, yOffset)
 
     ---------------------------------------------------------------------------
     --  The loadouts: one card per spec (WoW Forever: per spec group, and one
-    --  for the character holding Riding), your spec open and, on retail, first
+    --  for the character holding what both groups share), your spec open and,
+    --  on retail, first
     ---------------------------------------------------------------------------
     _, h = W:Spacer(parent, y, 15); y = y - h
     _, h = W:SectionHeader(parent, "LOADOUTS", y); y = y - h
@@ -743,7 +745,7 @@ function ns._BuildLoadoutPage(_, parent, yOffset)
         local list = buckets[key]
         local display, specIcon, class = nil, nil, playerClass
         if FOREVER then
-            -- A spec group's card carries its name; the Riding card the class.
+            -- A spec group's card carries its name; the shared card the class.
             display = key ~= 0 and LM.SpecName(key)
                 or LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[playerClass] or tostring(playerClass)
         else
