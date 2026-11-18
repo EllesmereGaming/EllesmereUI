@@ -730,9 +730,9 @@ local function FormatEnemyForcesText(enemyObj, formatId, compact)
         return format("%d/%d (%d left)%s", RoundToInt(rawCurrent), RoundToInt(rawTotal), RoundToInt(remaining), suffix)
     elseif formatId == "REMAINING" then
         if compact then
-            return format("%d left", RoundToInt(remaining))
+            return EllesmereUI.Lf("%d left", RoundToInt(remaining))
         end
-        return format("%d remaining%s", RoundToInt(remaining), suffix)
+        return EllesmereUI.Lf("%d remaining", RoundToInt(remaining)) .. suffix
     end
 
     return format("%.2f%%%s", percent, suffix)
