@@ -783,7 +783,9 @@ local function UpdateUnitFrameKickTick(castbar)
     castbar.kickPositioner:SetValue(castDuration:GetElapsedDuration())
     castbar.kickMarker:SetValue(interruptCD:GetRemainingDuration())
     castbar.kickTick:SetColorTexture(1, 1, 1, 1)
-    if isChannel and not isEmpowered then
+    -- A reverse-filled cast bar mirrors the time axis: casts then run right to left.
+    local drainsLeft = (isChannel and not isEmpowered) ~= (castbar:GetReverseFill() and true or false)
+    if drainsLeft then
         castbar.kickPositioner:SetFillStyle(Enum.StatusBarFillStyle.Reverse)
         castbar.kickMarker:SetFillStyle(Enum.StatusBarFillStyle.Reverse)
         -- LOAD-BEARING: SetFillStyle resets the inner fill to snap-ON and the global
