@@ -1984,6 +1984,9 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                       get=function() return BD().desaturateInactiveBuffs ~= false end,
                       set=function(v)
                           BD().desaturateInactiveBuffs = v
+                          -- Applied by the dirty-gated buff ticker.
+                          ns._btDirty = true
+                          if ns.ArmBuffTicker then ns.ArmBuffTicker() end
                       end },
                 },
             })
