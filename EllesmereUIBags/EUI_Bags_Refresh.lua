@@ -625,9 +625,12 @@ function EUI_Bags:RefreshInventory()
         local numSlots = C_Container.GetContainerNumSlots(bag)
         local restricted = special and special[bag]
         if bag == 5 and EllesmereUI.IS_FOREVER then
-            -- A special bag in the fifth slot stays out of the header count too.
+            -- The fifth slot is the reagent bag slot, so a bag that takes
+            -- materials counts there, a profession bag included. Only one that
+            -- holds nothing but arrows (1), bullets (2) or soul shards (4)
+            -- stays out, as a special bag in slots 1-4 does.
             local _, family = C_Container.GetContainerNumFreeSlots(bag)
-            restricted = family and family ~= 0
+            restricted = family == 1 or family == 2 or family == 4
         end
         if bag == 5 and not restricted then
             reagentTotal = numSlots
