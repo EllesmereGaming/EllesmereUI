@@ -2877,7 +2877,8 @@ local function BuildNameplatePreview(parent, parentW, mode)
             local function addAuraSide(slotVal, count, sz, h, sp, xOff, yOff)
                 if slotVal ~= "left" and slotVal ~= "right" then return end
                 local y = yOff + h / 2 - barH / 2
-                add(slotVal, y, h, sideOff + ns.NP_ClassicSide(slotVal) + FullPush(slotVal, y, h)
+                -- Less the side aura gap the row starts at, as live.
+                add(slotVal, y, h, ns.NP_ClassicSide(slotVal) + FullPush(slotVal, y, h)
                     + (count - 1) * sp + sz + ((slotVal == "left") and -xOff or xOff))
             end
             addAuraSide(debuffSlotVal, PV_CONST.DEBUFF_COUNT, debuffSz, debuffH, debuffSpacing, debuffXOff, debuffYOff)
@@ -2910,12 +2911,12 @@ local function BuildNameplatePreview(parent, parentW, mode)
             -- the arrow centred on the bar, as live.
             local chainEnd = optState._pvChain.sideEnd
             if chainEnd.left then
-                arrows.left:SetPoint("RIGHT", chainEnd.left.frame, "BOTTOMLEFT", -8, barH / 2 - chainEnd.left.y)
+                arrows.left:SetPoint("RIGHT", chainEnd.left.frame, "BOTTOMLEFT", sideOff - 8, barH / 2 - chainEnd.left.y)
             else
                 arrows.left:SetPoint("RIGHT", health, "LEFT", -(leftExtent + 8), 0)
             end
             if chainEnd.right then
-                arrows.right:SetPoint("LEFT", chainEnd.right.frame, "BOTTOMRIGHT", 8, barH / 2 - chainEnd.right.y)
+                arrows.right:SetPoint("LEFT", chainEnd.right.frame, "BOTTOMRIGHT", 8 - sideOff, barH / 2 - chainEnd.right.y)
             else
                 arrows.right:SetPoint("LEFT", health, "RIGHT", rightExtent + 8, 0)
             end
