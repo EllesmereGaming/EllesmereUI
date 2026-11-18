@@ -31,8 +31,8 @@ local _openItemPanels = I._openItemPanels
 -- New Items Only: a trade's items can land just after its window closes, and
 -- the game ties no event to that delivery. So a rise within this many seconds
 -- of a trade window's close still counts as a trade arrival. The stamp is set
--- at TRADE_CLOSED while the option is on and runs out by itself (a cancelled
--- trade's too).
+-- at TRADE_CLOSED while New Items Only or Show Picked-Up Amount is on and runs
+-- out by itself (a cancelled trade's too).
 local TRADE_GRACE = 2
 local tradeClosedAt
 local function TradeJustClosed()
@@ -633,11 +633,13 @@ local function StartAddon()
     EUI_Bags._recentItems = {}      -- itemID -> pickup number (higher = newer; ns.RecentCompare sorts by it)
     EUI_Bags._recentOrder = {}      -- ordered list of itemIDs (oldest first)
     EUI_Bags._recentSeq = 0         -- last pickup number handed out
+    EUI_Bags._recentGained = {}     -- itemID -> amount picked up since listed (bagRecentShowGained, stackables only)
     local _knownItemCounts = {} -- itemID -> highest carried count (bags + worn gear) since the last bank/mail resync
     local _snapshotReady = false
 
-    -- New Items Only, items that do not stack: each copy is told apart by its
-    -- item GUID, so only the copies picked up since the listing show.
+    -- New Items Only or Show Picked-Up Amount, items that do not stack: each copy
+    -- is told apart by its item GUID, so only the copies picked up since the
+    -- listing show.
     EUI_Bags._recentCopies = {}     -- itemID -> set of GUIDs picked up since listed (none: every copy)
     local _knownItemGUIDs = {}      -- itemID -> set of carried GUIDs, false if a copy had none or max stack unknown
     local _noGUIDs = {}
@@ -650,6 +652,10 @@ local function StartAddon()
     -- The counts of the last pass while New Items Only is on (nil: none since
     -- the snapshot). At the mailbox the known counts keep their peak.
     local _lastCounts
+
+    local function CopiesOn(bp)
+        return bp.bagRecentNewOnly or bp.bagRecentShowGained
+    end
 
     local function MaxStack(itemID)
         local n = _maxStack[itemID]
@@ -771,22 +777,23 @@ local function StartAddon()
     end
 
     local function SnapshotKnownIDs()
-        local track = BP().bagRecentNewOnly
+        local track = CopiesOn(BP())
         _knownItemCounts = TallyItemCounts(track)
         if track then SeedGUIDs() else wipe(_knownItemGUIDs) end
         _lastCounts = nil
         _snapshotReady = true
     end
 
-    -- Turning New Items Only on: the copies carried now are known, not new.
+    -- Turning New Items Only or Show Picked-Up Amount on: the copies carried now
+    -- are known, not new.
     function EUI_Bags.SeedRecentCopies()
-        if not _snapshotReady or BankOpen() or not BP().bagRecentNewOnly then return end
+        if not _snapshotReady or BankOpen() or not CopiesOn(BP()) then return end
         TallyItemCounts(true)
         SeedGUIDs()
     end
 
     -- The GUID set a flagged item lists, nil for every copy. cur (this pass) is
-    -- a set only while New Items Only is on and only for an item that does not
+    -- a set only while CopiesOn() is true and only for an item that does not
     -- stack: it lists the copies new since they were last read, added to those it
     -- already lists. Unknown GUIDs, or no new one, fall back to every copy.
     local function PickedUpCopies(itemID, listed, cur, known)
@@ -829,7 +836,10 @@ local function StartAddon()
     local function DetectNewItems()
         if not _snapshotReady or BankOpen() then return end
         local atMail = MailOpen()
-        local track = BP().bagRecentNewOnly
+        local bp = BP()
+        local track = CopiesOn(bp)
+        -- Sums stop while Show Picked-Up Amount is off (also after a profile switch)
+        if not bp.bagRecentShowGained and next(EUI_Bags._recentGained) then wipe(EUI_Bags._recentGained) end
         local counts, order = TallyItemCounts(track)
         -- GUIDs known from an earlier on-period would go stale while off
         if not track and next(_knownItemGUIDs) then wipe(_knownItemGUIDs) end
@@ -873,7 +883,7 @@ local function StartAddon()
             -- New Items Only: more of a stackable item already carried does not
             -- flag. Mail or trade arrivals still do, and so does an item that does
             -- not stack (max stack 1), but only its new copies show.
-            if (count > known or swapped) and (not track or known == 0 or atMail
+            if (count > known or swapped) and (not bp.bagRecentNewOnly or known == 0 or atMail
                 or _openItemPanels.trade or TradeJustClosed()
                 or (MaxStack(itemID) or 0) == 1) then
                 -- New, or more of a listed item: either way it is the newest now
@@ -892,7 +902,15 @@ local function StartAddon()
                     local gone = table.remove(ro, 1)
                     recent[gone] = nil
                     EUI_Bags._recentCopies[gone] = nil
+                    EUI_Bags._recentGained[gone] = nil
                 end
+            end
+            -- Picked-up amount of a listed stackable: summed since it was listed,
+            -- a fresh sum once none were carried.
+            if count > known and EUI_Bags._recentItems[itemID] and bp.bagRecentShowGained
+                and (MaxStack(itemID) or 1) > 1 then
+                local gained = EUI_Bags._recentGained[itemID]
+                EUI_Bags._recentGained[itemID] = (known == 0 or gained == nil) and (count - known) or (gained + count - known)
             end
             if not atMail or count > known then
                 _knownItemCounts[itemID] = count
@@ -905,6 +923,13 @@ local function StartAddon()
                 elseif not atMail or count > known or not old then
                     _knownItemGUIDs[itemID] = cur
                 end
+            end
+        end
+        -- A picked-up amount never exceeds what is carried (used, sold, banked).
+        for itemID, gained in pairs(EUI_Bags._recentGained) do
+            local carried = counts[itemID] or 0
+            if gained > carried then
+                EUI_Bags._recentGained[itemID] = carried > 0 and carried or nil
             end
         end
         -- Items gone entirely (sold/used/deleted) no longer appear in `counts`;
@@ -931,6 +956,7 @@ local function StartAddon()
         wipe(EUI_Bags._recentItems)
         wipe(EUI_Bags._recentOrder)
         wipe(EUI_Bags._recentCopies)
+        wipe(EUI_Bags._recentGained)
         if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
     end
 
@@ -940,7 +966,7 @@ local function StartAddon()
         local itemID = data.info and data.info.itemID
         if not (itemID and EUI_Bags._recentItems[itemID]) then return false end
         local set = EUI_Bags._recentCopies[itemID]
-        if not (set and data.bag and data.slot and BP().bagRecentNewOnly) then return true end
+        if not (set and data.bag and data.slot and CopiesOn(BP())) then return true end
         _guidLoc:SetBagAndSlot(data.bag, data.slot)
         if not DoesItemExist(_guidLoc) then return true end
         local guid = GetItemGUID(_guidLoc)
@@ -1223,7 +1249,7 @@ local function StartAddon()
         end
         local panel = ITEM_PANEL_EVENTS[event]
         if panel then
-            if event == "TRADE_CLOSED" and BP().bagRecentNewOnly == true then
+            if event == "TRADE_CLOSED" and CopiesOn(BP()) then
                 tradeClosedAt = GetTime()
                 -- The pass that looks for swapped copies runs even when the
                 -- trade's BAG_UPDATE came before this event.
@@ -1392,6 +1418,7 @@ function ns.RecentCompare(a, b)
 end
 ns.VisualSortCompare = VisualSortCompare
 ns.MergeDuplicates = MergeDuplicates
+ns.RecentGainedItems = I.RecentGainedItems
 ns.ApplySavedOrder = ApplySavedOrder
 ns.BuildExpansionBuckets = BuildExpansionBuckets
 ns.BuildSlotBuckets = BuildSlotBuckets

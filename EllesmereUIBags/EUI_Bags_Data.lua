@@ -96,15 +96,17 @@ end
 local _openItemPanels = {}
 local _anyItemPanelOpen = false
 I.anyItemPanelOpenSetters[#I.anyItemPanelOpenSetters + 1] = function(v) _anyItemPanelOpen = v end
--- Returns true when the aggregate state flipped and the bags' view merges, so
--- the caller can refresh. A view that does not merge paints the same either
--- way: its painted state just follows, so neither this nor OnShow repaints.
+-- Returns true when the aggregate state flipped and the bags' view merges
+-- (Merge Duplicates, or Recent Items showing picked-up amounts), so the caller
+-- can refresh. A view that does not merge paints the same either way: its
+-- painted state just follows, so neither this nor OnShow repaints.
 local function SetItemPanelOpen(key, open)
     _openItemPanels[key] = open or nil
     local any = next(_openItemPanels) ~= nil
     if any == _anyItemPanelOpen then return false end
     SetAnyItemPanelOpen(any)
-    local merges = BP().bagMergeDuplicates ~= false
+    local bp = BP()
+    local merges = bp.bagMergeDuplicates ~= false or bp.bagRecentShowGained == true
     if not merges then SetPaintedPanelOpen(any) end
     return merges
 end
@@ -489,6 +491,65 @@ local function MergeDuplicates(items)
     return out
 end
 
+-- Recent Items "Show Picked-Up Amount" (bagRecentShowGained): a post-pass over
+-- an already built Recent list, merged or not. All entries of an item with a
+-- picked-up sum (EUI_Bags._recentGained) become one pooled, display-only proxy
+-- at the position of the first, carrying the sum in _mergedCount, capped by
+-- the amount those entries carry. The proxy copies the smallest stack (ties:
+-- lower bag, then slot), so a click or drag on it moves the least. Same
+-- contract as MergeDuplicates: input tables are never modified, the result
+-- dies with the render pass, and while an item panel is open the list stays
+-- as it is (a proxy showing x1 would hand over the whole real stack).
+local function RecentGainedItems(items)
+    if BP().bagRecentShowGained ~= true then return items end
+    SetPaintedPanelOpen(_anyItemPanelOpen)
+    if _anyItemPanelOpen then return items end
+    -- Split marks keep a link's real stacks apart, keyed as in MergeDuplicates.
+    local unmerged = EUI_Bags._unmergedLinks
+    EUI_Bags._paintedUnmerged = (unmerged ~= nil and next(unmerged) ~= nil) or nil
+    if not EUI_Bags._paintedUnmerged then unmerged = nil end
+    local gained = EUI_Bags._recentGained
+    if not gained or next(gained) == nil then return items end
+    -- First pass: the carried amount and the representative slot per item.
+    local carried, best = {}, {}
+    for _, d in ipairs(items) do
+        local id = d.info and d.info.itemID
+        if id and gained[id] and not (unmerged and unmerged[GetItemMergeKey(d.itemLink) or false]) then
+            carried[id] = (carried[id] or 0) + (d._mergedCount or d.info.stackCount or 1)
+            local b = best[id]
+            local n = d.info.stackCount or 1
+            local bn = b and (b.info.stackCount or 1)
+            if not b or n < bn or (n == bn and (d.bag < b.bag or (d.bag == b.bag and d.slot < b.slot))) then
+                best[id] = d
+            end
+        end
+    end
+    if next(carried) == nil then return items end
+    -- Second pass: the proxy replaces the first entry, the others drop out.
+    local out = {}
+    for _, d in ipairs(items) do
+        local id = d.info and d.info.itemID
+        local c = id and carried[id]
+        if c and not (unmerged and unmerged[GetItemMergeKey(d.itemLink) or false]) then
+            local src = best[id]
+            if src then
+                best[id] = nil
+                local proxy = AcquireSlotTable()
+                for k, v in pairs(src) do proxy[k] = v end
+                local g = gained[id]
+                proxy._mergedCount = g < c and g or c
+                -- The "+N" count (EUI_Bags_Shared.lua)
+                proxy._recentGained = true
+                proxy._recentCarried = c
+                out[#out + 1] = proxy
+            end
+        else
+            out[#out + 1] = d
+        end
+    end
+    return out
+end
+
 -- Saved visual order per category/group in BP().bagVisualOrder, keyed by category index
 -- (number) or group name (string): an ordered list of "bag:slot" strings; missing items append to the end.
 local function GetVisualOrder()
@@ -725,6 +786,7 @@ I.GetItemMergeKey = GetItemMergeKey
 I.IsArmoryGearCategory, I.IsGearOnlyGroup = IsArmoryGearCategory, IsGearOnlyGroup
 I.itemSlots, I.MergeDuplicates = itemSlots, MergeDuplicates
 I.PreCacheSortFields, I.reagentSlots = PreCacheSortFields, reagentSlots
+I.RecentGainedItems = RecentGainedItems
 I.RegisterPawnIntegration = RegisterPawnIntegration
 I.ReleaseAllSlotTables, I.ResortAfterGroupChange = ReleaseAllSlotTables, ResortAfterGroupChange
 I.SaveCategoryOrder, I.selectedCategoryIndex = SaveCategoryOrder, selectedCategoryIndex
