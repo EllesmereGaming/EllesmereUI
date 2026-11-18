@@ -196,11 +196,10 @@ end
 -- Color, Match NPC Name Color). sizeKey is the row that sizes it. Returns the
 -- height it adds.
 local function PaintNameLine(s, DBVal, text, sizeKey, nameR, nameG, nameB, petLine)
-    local showKey  = petLine and "showPetOwnerName" or "showNPCTitles"
     local colorKey = petLine and "friendlyPetOwnerColor" or "friendlyNPCTitleColor"
     local matchKey = petLine and "friendlyPetOwnerMatchNameColor" or "friendlyNPCTitleMatchNameColor"
-    -- Both lines default on: each switch saves only when turned off.
-    if DBVal(showKey) == false then
+    -- A pet's owner line always shows; an NPC's subtitle saves only when turned off.
+    if not petLine and DBVal("showNPCTitles") == false then
         s.sub:SetText("")
         return 0
     end
@@ -335,15 +334,15 @@ local function PaintNPC(s, DBVal, nameOnly, marked, key)
         s.name:SetTextColor(c.r, c.g, c.b)
         s.name:SetText(EllesmereUI.ShortName(name, DBVal("friendlyNPCNameFormat")))
         if titled then
-            -- NPC Title Color, or the name's own colour on Match NPC Name Color.
-            local tr, tg, tb = c.r, c.g, c.b
-            if DBVal("friendlyNPCTitleMatchNameColor") ~= true then
-                local t = DBVal("friendlyNPCTitleColor") or c
-                tr, tg, tb = t.r, t.g, t.b
+            -- NPC Title Color at its own alpha, or the name's colour on Match.
+            local t = DBVal("friendlyNPCTitleColor") or c
+            local tr, tg, tb = t.r, t.g, t.b
+            if DBVal("friendlyNPCTitleMatchNameColor") == true then
+                tr, tg, tb = c.r, c.g, c.b
             end
             ns.SetFSFont(s.sub, DBVal("friendlyNPCTitleSize"), "OUTLINE, SLUG")
             s.sub:SetText("<" .. EllesmereUI.L("Merchant") .. ">")
-            s.sub:SetTextColor(tr, tg, tb)
+            s.sub:SetTextColor(tr, tg, tb, t.a or 1)
         else
             s.sub:SetText("")
         end

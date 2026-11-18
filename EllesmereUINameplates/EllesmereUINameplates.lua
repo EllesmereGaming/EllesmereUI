@@ -351,17 +351,17 @@ local defaults = {
     friendlyNPCColor = { r = 0, g = 1, b = 0 },
     friendlyNPCNameColor = { r = 0, g = 1, b = 0 },
     friendlyNPCTitleColor = { r = 0, g = 1, b = 0, a = 0.7 },
-    -- The subtitle under a friendly NPC's name takes the name's colour instead of
-    -- the swatch above; the swatch keeps the alpha.
-    friendlyNPCTitleMatchNameColor = false,
+    -- The subtitle under a friendly NPC's name takes the name's colour by
+    -- default, so the two lines agree until the user asks otherwise; the swatch
+    -- above keeps the alpha either way.
+    friendlyNPCTitleMatchNameColor = true,
     friendlyNPCNameSize = 13,
     friendlyPetNameSize = 13,
     friendlyNPCTitleSize = 10,
     friendlyPetTitleSize = 10,
     -- A pet's owner line has settings of its own, so a pet never depends on what
-    -- the friendly NPCs are configured to show. It is on by default, with the name
-    -- in Blizzard's own white and the softer alpha a subtitle takes.
-    showPetOwnerName = true,
+    -- the friendly NPCs are configured to show. It always shows its owner, with
+    -- the name in Blizzard's own white and the softer alpha a subtitle takes.
     friendlyPetOwnerColor = { r = 1, g = 1, b = 1, a = 0.7 },
     friendlyPetOwnerMatchNameColor = false,
     friendlyNameTextSize = 12,

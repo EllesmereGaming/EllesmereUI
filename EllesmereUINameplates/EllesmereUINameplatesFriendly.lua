@@ -118,13 +118,8 @@ local function ShowNPCTitles()
     return fp and (fp.showNPCTitles ~= false)
 end
 
--- A pet's owner line answers its own switch, so the pet never depends on what
--- the friendly NPCs are set to show. Blizzard puts no owner line under a pet, so
--- this is ours to give: on unless the user turns it off.
-local function ShowPetOwnerName()
-    local fp = FP()
-    return fp and (fp.showPetOwnerName ~= false)
-end
+-- A pet's owner line always shows: Blizzard puts no owner line under a pet, so
+-- this is ours to give, and it is the whole point of the pet's subtitle row.
 
 -- The subtitle, the pet test and the group roster the entity colours read live
 -- together, in EUI_Nameplates_AlliedColors.lua.
@@ -571,7 +566,8 @@ end
 local function ApplyOverlayStyle(overlay, unit)
     local font, outline, shadow = GetFont(), "OUTLINE", GetNPUseShadow()
     EllesmereUI.SetFontFamily(overlay.name, font, GetOverlayNameSize(overlay), outline, shadow)
-    overlay.name:SetTextColor(ns.Allied.GetNameColor(unit))
+    local nr, ng, nb = ns.Allied.GetNameColor(unit)
+    overlay.name:SetTextColor(nr, ng, nb)
     if overlay.name.SetSnapToPixelGrid then
         overlay.name:SetSnapToPixelGrid(false)
     end
@@ -580,11 +576,12 @@ local function ApplyOverlayStyle(overlay, unit)
     end
     EllesmereUI.SetFontFamily(overlay.title, font, GetNPCTitleSize(overlay), outline, shadow)
     -- A pet's owner line takes its own colour (or the pet's name colour when it is
-    -- set to match); an NPC's subtitle takes the NPC Title Color pair.
+    -- set to match); an NPC's subtitle takes the NPC Title Color pair, or the name
+    -- colour above it when it is set to match.
     if overlay.isPet then
         overlay.title:SetTextColor(ns.Allied.GetPetOwnerColor(unit))
     else
-        overlay.title:SetTextColor(ns.Allied.GetTitleColor(unit))
+        overlay.title:SetTextColor(ns.Allied.GetTitleColor(unit, nr, ng, nb))
     end
 end
 
@@ -598,9 +595,9 @@ local function FormatNPCName(name)
 end
 
 -- The line under the overlay's name: an NPC's subtitle (Show NPC Titles) or a
--- pet's owner (Show Owner Name). null-safe on the unit's own kind.
+-- pet's owner, which always shows. null-safe on the unit's own kind.
 local function SetOverlayTitle(overlay, unit)
-    local show = overlay.isPet and ShowPetOwnerName() or ShowNPCTitles()
+    local show = overlay.isPet or ShowNPCTitles()
     if show and unit then
         local titleText = GetCachedNPCTitle(unit)
         if titleText then
@@ -2244,7 +2241,9 @@ function FriendlyFrame:UpdateSubText()
             size = GetPlateNPCTitleSize()
             SetPlateSubTextFont(self.subText1, size)
             self.subText1:SetText("<" .. title .. ">")
-            self.subText1:SetTextColor(ns.Allied.GetTitleColor(unit))
+            -- Match takes this plate's own name colour, which is the bar & name
+            -- colour, so the two lines agree in the health bar style too.
+            self.subText1:SetTextColor(ns.Allied.GetTitleColor(unit, GetFriendlyNPCColor()))
             lines = 1
         elseif self._subOff == 4 then
             return   -- no subtitle to draw: nothing to do

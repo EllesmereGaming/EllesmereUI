@@ -860,27 +860,12 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
         if nameOnlyOff() then return NAMEONLY_REQ end
         return PET_PLATES_REQ
     end
-    -- The owner line answers its own switches (showPetOwnerName and the two colour
-    -- keys), never the NPC subtitle's, so a pet shows exactly what its own cog says.
-    local function petOwnerLineOff() return petOverlayOff() or DBVal("showPetOwnerName") == false end
-    local function petOwnerLineTip()
-        return petOverlayOff() and petOverlayTip() or "Show Owner Name"
-    end
-
-    local petOwnerNameRow =
-        { type="toggle", label="Show Owner Name",
-          tooltip="Shows the owner's name under a friendly pet's name.\n\nBlizzard shows no owner line, so this adds one; it is on by default.",
-          disabled=petOverlayOff, disabledTooltip=petOverlayTip, rawTooltip=true,
-          get=function() return DBVal("showPetOwnerName") ~= false end,
-          set=function(v)
-            DB().showPetOwnerName = v and true or false
-            if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
-            ns.NPO_FriendlyPreviewUpdate()
-          end }
+    -- The owner line always shows its owner, so its three settings answer only to
+    -- the pet nameplates themselves, never to the NPC subtitle's switches.
     local petOwnerMatchNameRow =
         { type="toggle", label="Match Pet Name Color",
           tooltip="Colors the owner's name to match the pet's name color.\n\nWhen disabled, the owner line uses the Owner Text Color swatch.",
-          disabled=petOwnerLineOff, disabledTooltip=petOwnerLineTip, rawTooltip=true,
+          disabled=petOverlayOff, disabledTooltip=petOverlayTip, rawTooltip=true,
           get=function() return DBVal("friendlyPetOwnerMatchNameColor") == true end,
           set=function(v)
             DB().friendlyPetOwnerMatchNameColor = v and true or false
@@ -890,7 +875,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     local petOwnerColorRow =
         { type="colorpicker", label="Owner Text Color", hasAlpha=true,
           tooltip="Color of the owner's name under a friendly pet's name.\n\nWith Match Pet Name Color on, the pet's name color is used and only this swatch's transparency applies.",
-          disabled=petOwnerLineOff, disabledTooltip=petOwnerLineTip, rawTooltip=true,
+          disabled=petOverlayOff, disabledTooltip=petOverlayTip, rawTooltip=true,
           get=function()
             local c = DBVal("friendlyPetOwnerColor") or defaults.friendlyPetOwnerColor
             return c.r, c.g, c.b, c.a
@@ -903,7 +888,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     local petTitleSizeRow =
         { type="slider", label="Owner Text Size", min=6, max=30, step=1,
           tooltip="Size of the line under a friendly pet's name, where its owner is named.",
-          disabled=petOwnerLineOff, disabledTooltip=petOwnerLineTip, rawTooltip=true,
+          disabled=petOverlayOff, disabledTooltip=petOverlayTip, rawTooltip=true,
           get=function() return DBVal("friendlyPetTitleSize") or defaults.friendlyPetTitleSize end,
           set=function(v)
             DB().friendlyPetTitleSize = v
@@ -911,8 +896,8 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
             ns.NPO_FriendlyPreviewUpdate()
           end }
     SearchWords("Show Friendly Pet Nameplates", "FRIENDLY PLAYERS", "Friendly Pet Name Size",
-        "Owner Text Size", petOwnerNameRow.label, petOwnerNameRow.tooltip,
-        petOwnerColorRow.label, petOwnerMatchNameRow.label, petTitleSizeRow.tooltip)
+        "Owner Text Size", petOwnerColorRow.label, petOwnerMatchNameRow.label,
+        petTitleSizeRow.tooltip)
     local petSizeRow
     petSizeRow, h = W:DualRow(parent, y,
         { type="toggle", text="Show Friendly Pet Nameplates",
@@ -939,11 +924,12 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
           end });  y = y - h
 
     -- The pet's subtitle settings ride the pet nameplate toggle's cog, as the NPC
-    -- rows' do: the owner line's switch, its colour and its match, then its size.
+    -- rows' do: the owner line's colour and its match, then its size. The line
+    -- itself always shows.
     do
         EllesmereUI.BuildInlineCog(petSizeRow._leftRegion, {
             title = "Pet Subtitle Settings",
-            rows = { petOwnerNameRow, petOwnerColorRow, petOwnerMatchNameRow, petTitleSizeRow },
+            rows = { petOwnerColorRow, petOwnerMatchNameRow, petTitleSizeRow },
             disabled = petOverlayOff,
             disabledTooltip = petOverlayTip,
             rawTooltip = true,
@@ -1162,6 +1148,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
           set=function(v)
             DB().friendlyNPCTitleMatchNameColor = v and true or false
             if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
+            if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
             ns.NPO_FriendlyPreviewUpdate()
           end }
     local npcColorRow
@@ -1177,6 +1164,10 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
                 setValue = function(r, g, b)
                     DB().friendlyNPCNameColor = { r = r, g = g, b = b }
                     if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
+                    -- The health bar style paints its name and bar from this too,
+                    -- and its subtitle follows the name while Match is on.
+                    if ns.RefreshFriendlyColors then ns.RefreshFriendlyColors() end
+                    if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
                     ns.NPO_FriendlyPreviewUpdate()
                 end },
           } },
@@ -1191,6 +1182,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
                 setValue = function(r, g, b, a)
                     DB().friendlyNPCTitleColor = { r = r, g = g, b = b, a = a or 1 }
                     if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
+                    if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
                     ns.NPO_FriendlyPreviewUpdate()
                 end },
           } });  y = y - h

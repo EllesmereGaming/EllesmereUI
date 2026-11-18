@@ -512,20 +512,18 @@ function Allied.GetPetOwnerColor(unit)
 end
 
 -- The subtitle under the overlay's name: the name's own colour when Match NPC
--- Name Color is on (a pet's owner line then matches the pet, as a player's
--- guild line matches the player), else the Title Color swatch's. The configured
--- alpha is what sets it apart from the name above it either way, and a neutral
--- unit takes the same reaction yellow its name does.
-function Allied.GetTitleColor(unit)
+-- Name Color is on, else the Title Color swatch's. Callers pass the colour the
+-- name actually takes on their own plate (the overlay's GetNameColor, the health
+-- bar plate's bar & name colour), so Match matches the line above it in either
+-- friendly style. The configured alpha is what sets the subtitle apart.
+function Allied.GetTitleColor(unit, nameR, nameG, nameB)
     local fp = FP()
     local c = (fp and fp.friendlyNPCTitleColor) or (ns.defaults and ns.defaults.friendlyNPCTitleColor)
     local alpha = (c and c.a) or 1
     if fp and fp.friendlyNPCTitleMatchNameColor == true then
+        if nameR then return nameR, nameG, nameB, alpha end
         local r, g, b = Allied.GetNameColor(unit)
         return r, g, b, alpha
-    end
-    if UnitReaction(unit, "player") == 4 then
-        return 1.00, 1.00, 0.00, alpha
     end
     if c then return c.r, c.g, c.b, alpha end
     return 0.00, 1.00, 0.00, alpha
