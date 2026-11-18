@@ -105,8 +105,9 @@ local pageShown = false
 -- The loadouts are this character's own, in the character roster's
 -- "loadouts" field (EllesmereUI.CharData; never exported): { [bucket] = {
 -- { gear = set name, talent = stored loadout, acts = { [activity] = true } },
--- ... } }. A bucket is a retail spec ID; WoW Forever's one bucket is 0 (its
--- talents are a spec group). Reading never creates the field.
+-- ... } }. A bucket is a retail spec ID, or on WoW Forever a spec group
+-- (-1, -2), with bucket 0 shared by both groups. Reading never creates the
+-- field.
 local function Store(create) return EllesmereUI.CharData("loadouts", create) end
 
 -- The account-wide GENERAL settings. Reading never creates the table; a
@@ -237,12 +238,20 @@ end
 -- -----------------------------------------------------------------------------
 -- Specializations and buckets
 -- A loadout belongs to the spec it was added on: its bucket is the spec ID on
--- retail (nil before the character has a spec), 0 on WoW Forever.
+-- retail (nil before the character has a spec). On WoW Forever it is the spec
+-- group of its talents, or with gear alone the group it was added on. Bucket
+-- 0 there is shared: it holds Riding and the loadouts saved before spec
+-- groups had their own (9.8.9), and applies in either group wherever that
+-- group holds nothing of its own.
 -- -----------------------------------------------------------------------------
 
-local function BucketKey()
-    if IS_FOREVER then return 0 end
-    return GetCurrentSpecID()
+local SHARED_BUCKET = 0
+local RIDING_ONLY = { riding = true }
+local function BucketKey() return GetCurrentSpecID() end
+-- WoW Forever: the bucket of a stored talent pick (its spec group), or nil.
+local function TalentBucket(talent)
+    local id = IS_FOREVER and type(talent) == "table" and tonumber(talent.configID)
+    return (id and id < 0) and id or nil
 end
 
 -- A bucket's loadouts, read only (an empty stand-in for none).
@@ -885,13 +894,31 @@ local function ActivityFor(ctx)
     return nil
 end
 
--- The loadout the current bucket holds for an activity, or nil.
-local function LoadoutFor(act)
-    if not act then return nil end
-    local list = BucketList(BucketKey())
+-- The loadout a bucket holds for an activity, or nil.
+local function HeldIn(key, act)
+    local list = BucketList(key)
     for i = 1, #list do
         local lo = list[i]
         if type(lo.acts) == "table" and lo.acts[act] then return lo end
+    end
+end
+-- The loadout that applies to an activity: the current bucket's, or on WoW
+-- Forever the shared bucket's where the spec group holds none.
+local function LoadoutFor(act)
+    if not act then return nil end
+    local lo = HeldIn(BucketKey(), act)
+    if not lo and IS_FOREVER then lo = HeldIn(SHARED_BUCKET, act) end
+    return lo
+end
+-- WoW Forever: the other spec group's loadout that brings its talents to an
+-- activity neither this group nor the shared bucket holds (entering switches
+-- to that group).
+local function SwitchingLoadoutFor(act)
+    if not (IS_FOREVER and act) or act == "riding" or LoadoutFor(act) then return nil end
+    local own = BucketKey()
+    for group = 1, SpecGroupCount() do
+        local lo = -group ~= own and HeldIn(-group, act)
+        if lo and lo.talent then return lo end
     end
 end
 
@@ -908,8 +935,8 @@ end
 local function GetAssignedTalentForContext(ctx)
     if ctx.inInstance and not ctx.instanceID then return nil, "missing-instance-id" end
     local act = ActivityFor(ctx)
-    local lo = LoadoutFor(act)
-    if lo and lo.talent and TalentMatchesSpec(lo.talent, GetCurrentSpecID()) then return lo.talent, "activity", act end
+    local lo = LoadoutFor(act) or SwitchingLoadoutFor(act)
+    if lo and lo.talent and TalentMatchesSpec(lo.talent, GetCurrentSpecID()) then return lo.talent, "activity", act, lo.gear end
     return nil, "unassigned"
 end
 
@@ -1150,7 +1177,7 @@ local function TryActivateSpecGroup(request)
     request.commitCastGUID, request.commitFailed, request.casting = nil, nil, nil
     request.commitCastSucceeded, request.commitSignal = nil, nil
     UpdateRequestEvents()
-    ownSwitch = { group = group, confirmed = request.confirmed }
+    ownSwitch = { group = group, confirmed = request.confirmed, gear = request.gear }
     local okCall = pcall(C_SpecializationInfo.SetActiveSpecGroup, group)
     request.callingLoad = nil
     if not RequestIsCurrent(request) then return end
@@ -1356,7 +1383,7 @@ local ridingOn, ridingReturn
 
 -- The gear set of the loadout that holds Riding (gear only).
 local function RidingSet()
-    local list = BucketList(BucketKey())
+    local list = BucketList(SHARED_BUCKET)
     for i = 1, #list do
         local lo = list[i]
         if type(lo.acts) == "table" and lo.acts.riding and lo.gear then return lo.gear end
@@ -1431,7 +1458,7 @@ end
 -- switch you made yourself is never undone). confirmed: Ask Before Swap's Yes
 -- (or the Yes that started this spec group switch).
 local CheckAndSwap
-CheckAndSwap = function(gearOnly, confirmed)
+CheckAndSwap = function(gearOnly, confirmed, carried)
     if not Gen("enabled") then return end
     if KeystoneRunning() then return end -- gear and talents are locked mid-key
     -- This check expresses new intent, including the absence of an assignment.
@@ -1439,9 +1466,11 @@ CheckAndSwap = function(gearOnly, confirmed)
     CancelRequests()
 
     local ctx = GetCurrentInstanceContext()
-    local setName, gearSource, gearKey, talentStored, talentSource, talentKey
+    local setName, gearSource, gearKey, talentStored, talentSource, talentKey, talentGear
     if Gen("gearEnabled") then setName, gearSource, gearKey = GetAssignedSetForContext(ctx) end
-    if Gen("talentEnabled") and not gearOnly then talentStored, talentSource, talentKey = GetAssignedTalentForContext(ctx) end
+    if Gen("talentEnabled") and not gearOnly then
+        talentStored, talentSource, talentKey, talentGear = GetAssignedTalentForContext(ctx)
+    end
     -- WoW Forever: after a spec group switch, a loadout's gear follows only
     -- while its talents are that group (or it has none): a loadout of the other
     -- group waits for its own switch, so a group you picked yourself keeps its gear.
@@ -1449,6 +1478,11 @@ CheckAndSwap = function(gearOnly, confirmed)
         local stored = GetAssignedTalentForContext(ctx)
         local group = stored and SpecGroupOf(GetTalentLoadoutFromStored(stored))
         if group and group ~= ActiveSpecGroup() then setName = nil end
+    end
+    -- The loadout that switched the group brings its own gear set, whatever
+    -- the new group holds for this place.
+    if gearOnly and carried and Gen("gearEnabled") then
+        setName, gearSource, gearKey = carried[1], "activity", carried[2]
     end
     -- WoW Forever: a talent assignment that switches spec groups brings the
     -- target group's gear: no gear is equipped now, and the group change
@@ -1478,7 +1512,7 @@ CheckAndSwap = function(gearOnly, confirmed)
             ShowSwapPrompt(where, gearAsk, talentAsk, function()
                 -- Still where (and on the spec) you were asked.
                 if key ~= BuildAutoInstanceKey(GetCurrentInstanceContext()) then return end
-                CheckAndSwap(gearOnly, true)
+                CheckAndSwap(gearOnly, true, carried)
             end)
             return
         end
@@ -1491,6 +1525,7 @@ CheckAndSwap = function(gearOnly, confirmed)
         local request = BeginRequest("talent", StoreTalentLoadout(NormalizeTalentStored(talentStored)),
             SourceLabel(ctx, talentSource, talentKey))
         request.confirmed = confirmed
+        request.gear = gearAfterSwitch and talentGear and { talentGear, talentKey } or nil
         TryLoadTalentLoadout(request)
     end
 end
@@ -1504,7 +1539,7 @@ local function RunAutoCheck()
     local opts = autoCheckOpts or NO_ENTRIES
     if autoCheckQueuedSerial ~= autoCheckSerial or not AutomationLive() then return end
     if autoCheckKey ~= BuildAutoInstanceKey(GetCurrentInstanceContext()) then return end
-    CheckAndSwap(opts.gearOnly, opts.confirmed)
+    CheckAndSwap(opts.gearOnly, opts.confirmed, opts.gear)
 end
 
 local function QueueAutoCheck(opts)
@@ -1592,14 +1627,8 @@ end
 -- false and why: "empty" (no gear and no talents), "noacts", "ridinggear"
 -- (Riding needs a gear set), "nospec" or "nochar" (the character's data is
 -- not readable yet).
-local function AddLoadout(gear, talent, acts)
-    if gear == nil and talent == nil then return false, "empty" end
-    if type(acts) ~= "table" or not next(acts) then return false, "noacts" end
-    if acts.riding and not gear then return false, "ridinggear" end
-    local key = BucketKey()
-    if key == nil then return false, "nospec" end
+local function AddToBucket(key, gear, talent, acts)
     local store = Store(true)
-    if not store then return false, "nochar" end
     local list = store[key]
     if type(list) ~= "table" then
         list = {}
@@ -1621,9 +1650,28 @@ local function AddLoadout(gear, talent, acts)
         list[#list + 1] = target
     end
     for act in pairs(acts) do target.acts[act] = true end
-    return true
 end
-
+local function AddLoadout(gear, talent, acts)
+    if gear == nil and talent == nil then return false, "empty" end
+    if type(acts) ~= "table" or not next(acts) then return false, "noacts" end
+    if acts.riding and not gear then return false, "ridinggear" end
+    local key = TalentBucket(talent) or BucketKey()
+    if key == nil then return false, "nospec" end
+    if not Store(true) then return false, "nochar" end
+    -- WoW Forever: Riding is the gear set alone, in the shared bucket; the
+    -- other activities go to the spec group, above anything shared.
+    if IS_FOREVER and acts.riding then
+        AddToBucket(SHARED_BUCKET, gear, nil, RIDING_ONLY)
+        local rest
+        for act in pairs(acts) do
+            if act ~= "riding" then rest = rest or {}; rest[act] = true end
+        end
+        if not rest then return true, nil, SHARED_BUCKET end
+        acts = rest
+    end
+    AddToBucket(key, gear, talent, acts)
+    return true, nil, key
+end
 -- Deletes one loadout of a bucket, or the whole bucket (index nil); a bucket
 -- left empty goes.
 local function DeleteLoadouts(key, index)
@@ -1723,7 +1771,7 @@ local function OnSpecChanged()
     if own then
         -- Its gear follows, without another switch.
         lastPlaceKey = BuildPlaceKey(ctx)
-        QueueAutoCheck({ gearOnly = true, confirmed = own.confirmed })
+        QueueAutoCheck({ gearOnly = true, confirmed = own.confirmed, gear = own.gear })
     elseif AutomationLive() and Gen("specSwap") and (ctx.inInstance or IS_FOREVER) then
         -- Re-run the swap for the new spec; it covers this place too. On
         -- WoW Forever a group you switched to yourself is never switched
@@ -1966,7 +2014,18 @@ function API.Buckets()
     return type(store) == "table" and store or NO_ENTRIES
 end
 -- The current bucket's loadout holding an activity, or nil.
-function API.HolderOf(act) return LoadoutFor(act) end
+-- The loadout adding would take an activity from: the one holding it in the
+-- bucket the new loadout lands in. talentKey: the picked talents' configID
+-- (WoW Forever files a loadout under its talents' spec group).
+function API.HolderOf(act, talentKey)
+    if not act then return nil end
+    local key = BucketKey()
+    if IS_FOREVER then
+        local id = tonumber(talentKey)
+        key = act == "riding" and SHARED_BUCKET or (id and id < 0 and id) or key
+    end
+    return HeldIn(key, act)
+end
 function API.GearMissing(name) return GearMissing(name) end
 function API.TalentMissing(stored) return TalentMissing(stored) end
 
@@ -2040,9 +2099,9 @@ local function Edited()
     UpdateRequestEvents()
 end
 function API.AddLoadout(gear, talent, acts)
-    local ok, why = AddLoadout(gear, talent, acts)
+    local ok, why, key = AddLoadout(gear, talent, acts)
     if ok then Edited() end
-    return ok, why
+    return ok, why, key
 end
 function API.DeleteLoadout(key, index)
     local ok = DeleteLoadouts(key, index)
