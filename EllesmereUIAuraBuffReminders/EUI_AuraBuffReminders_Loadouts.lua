@@ -1136,10 +1136,11 @@ local function TryActivateSpecGroup(request)
     -- The switch is a cast: it waits while you move (one that cannot start is
     -- never retried, and the next cast would be taken for it) and for any cast
     -- in progress to end. A restricted speed counts as standing still; the
-    -- cast name can read secret: only its type is tested.
+    -- cast name can read secret: only its type is tested. The parentheses keep
+    -- one value: with no cast, WoW Forever returns none at all and type() errors.
     local speed = GetUnitSpeed("player")
     if (not issecretvalue(speed) and (speed or 0) > 0)
-        or type(UnitCastingInfo("player")) ~= "nil" or type(UnitChannelInfo("player")) ~= "nil" then
+        or type((UnitCastingInfo("player"))) ~= "nil" or type((UnitChannelInfo("player"))) ~= "nil" then
         DeferRequest(request, EllesmereUI.L("Talent swap held: you are moving or casting."), false, "availability")
         return
     end
