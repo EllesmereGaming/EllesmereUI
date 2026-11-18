@@ -1132,6 +1132,25 @@ local function GetTitledName(unit)
     return titled
 end
 
+-- Blizzard's own away/busy tag, as its tooltip and unit frames print it
+-- (localized, angle brackets included). Returns " <AFK>" / " <DND>", or nil.
+-- UnitIsAFK / UnitIsDND can hand back a secret value under combat taint, and a
+-- secret cannot be branched on, so the tag is left off there rather than being
+-- compared -- the honest answer is that this client will not say.
+local AFK_TAG = CHAT_FLAG_AFK or "<AFK>"
+local DND_TAG = CHAT_FLAG_DND or "<DND>"
+local function PlayerStatusTag(unit)
+    if not (unit and UnitIsAFK) then return nil end
+    local afk = UnitIsAFK(unit)
+    if issecretvalue and issecretvalue(afk) then return nil end
+    if afk then return " " .. AFK_TAG end
+    if not UnitIsDND then return nil end
+    local dnd = UnitIsDND(unit)
+    if issecretvalue and issecretvalue(dnd) then return nil end
+    if dnd then return " " .. DND_TAG end
+    return nil
+end
+
 -- Name Color in Name Only mode. Blizzard colours its own name text: the class
 -- colour by its CVar, else a colour of its own. A Custom pick is written as a
 -- colour escape round the name, which outranks that colour; nil while the pick
@@ -1408,6 +1427,13 @@ local function UpdateNameOnlyText(nameFS)
     if isPlayer and FriendlyNameFormat() then
         want = FormatFriendlyName(unit, want, ModeHasTitle(mode))
     end
+    -- Blizzard's away/busy tag, on the name itself so it takes the name's colour
+    -- and rides inside the group brackets. The stock plate shows it too; without
+    -- it an AFK player's nameplate looks exactly like a live one.
+    if isPlayer then
+        local tag = PlayerStatusTag(unit)
+        if tag then want = want .. tag end
+    end
     -- The name's colour: a target highlight (friend, guild, group, ...) first,
     -- else Name Color's Custom pick. Round the name, inside the group brackets,
     -- which keep their own colours.
@@ -1457,8 +1483,9 @@ local function UpdateNameOnlyText(nameFS)
 end
 
 -- Whether this plate's name can differ from the plain name Blizzard writes:
--- a subtitle, a name format, a level, brackets, a name colour, or a target
--- highlight. Cheapest test first; the hook asks this on every SetText.
+-- a subtitle, a name format, a level, brackets, a name colour, a target
+-- highlight, or Blizzard's away/busy tag. Cheapest test first; the hook asks
+-- this on every SetText.
 local function NeedsNameOnlyTextUpdate(unit)
     if GetBelowNameMode() ~= "none" or FriendlyNameFormat() or ShowFriendlyLevel() or ShowFriendlyGroupBrackets() then
         return true
@@ -1466,7 +1493,11 @@ local function NeedsNameOnlyTextUpdate(unit)
     local fp = FP()
     if not fp then return false end
     if NameEsc.Get() then return true end
-    return unit ~= nil and UnitIsPlayer(unit) and ns.Allied.HasPlayerOverride(fp)
+    if not (unit ~= nil and UnitIsPlayer(unit)) then return false end
+    -- An away or busy player's name carries the tag, which only we write: on an
+    -- otherwise untouched plate that is the one reason to compose at all.
+    if PlayerStatusTag(unit) then return true end
+    return ns.Allied.HasPlayerOverride(fp)
 end
 
 -- Register a plate's name FontString and (once) hook its SetText so our
@@ -1506,6 +1537,53 @@ local function AttachNameOnlyText(nameFS, unit)
         end)
     end
     UpdateNameOnlyText(nameFS)
+end
+
+-- A unit's flags changed (PLAYER_FLAGS_CHANGED / UNIT_FLAGS): the away or busy
+-- tag is part of the name we compose, so that unit's plates redraw -- in either
+-- friendly style, Name Only included. The event names the token the client tracks
+-- ("target", "party1") while our plates are keyed by their nameplate token, and
+-- GetNamePlateForUnit bridges the two in one call rather than a GUID scan. Cheap
+-- by construction: the name-only side dedupes on the composed string and a bar
+-- plate compares the tag before running its name pass, so a flag that changes
+-- nothing visible costs one compare.
+local function RefreshStatusTags(eventUnit)
+    if not eventUnit then return end
+    local np = C_NamePlate and C_NamePlate.GetNamePlateForUnit and C_NamePlate.GetNamePlateForUnit(eventUnit)
+    local token = (np and GetNamePlateUnitToken(np)) or eventUnit
+    if not token then return end
+    local swept
+    for nameFS, u in pairs(nameFSUnits) do
+        if u == token or u == eventUnit then
+            swept = swept or {}
+            swept[#swept + 1] = nameFS
+        end
+    end
+    if swept then
+        for i = 1, #swept do
+            local nameFS = swept[i]
+            nameFSText[nameFS] = nil
+            UpdateNameOnlyText(nameFS)
+        end
+    elseif IsNameOnlyMode() then
+        -- A plate we were not composing (nothing on it needed us) is attached now,
+        -- because its name carries the tag: that is what makes the marker appear
+        -- on an otherwise untouched plate without a reload or a target change.
+        local pending = ns.pendingUnits
+        local plate = pending and pending[token]
+        local uf = plate and plate.UnitFrame
+        if uf and uf.name and UnitIsPlayer(token) and not UnitCanAttack("player", token)
+            and NeedsNameOnlyTextUpdate(token) then
+            nameFSText[uf.name] = nil
+            AttachNameOnlyText(uf.name, token)
+        end
+    end
+    for u, bar in pairs(friendlyPlates) do
+        if (u == token or u == eventUnit) and bar.unit
+            and PlayerStatusTag(bar.unit) ~= bar._statusTag then
+            bar:UpdateName()
+        end
+    end
 end
 
 -- Sweep all visible friendly player plates and recompose their name text per the
@@ -2096,6 +2174,8 @@ function FriendlyFrame:SetUnit(unit, nameplate)
 
     self:RegisterUnitEvent("UNIT_HEALTH", unit)
     self:RegisterUnitEvent("UNIT_NAME_UPDATE", unit)
+    -- (AFK / DND needs no registration here: ArmStatusTagEvents' frame redraws the
+    -- name for both friendly styles from one place.)
 
     PaintFriendlyColors(self, unit, FP())
 
@@ -2129,6 +2209,8 @@ function FriendlyFrame:ClearUnit()
     end
     -- Restore Blizzard UF before clearing our reference
     if self.unit then RestoreBlizzardUF(self.unit) end
+    -- The tag belonged to the unit leaving, so the next occupant recomputes it.
+    self._statusTag = nil
     -- Its faction badge lives on the nameplate, not on this frame.
     ns.NP_FriendlyFactionHide(self)
     self.unit = nil
@@ -2196,6 +2278,14 @@ function FriendlyFrame:UpdateName()
     if unitName and not isPlayer and not UnitIsPlayer(unit) then
         unitName = FormatNPCName(unitName)
     end
+    -- Blizzard's away/busy tag, on the same text and colour as the name. A secret
+    -- name cannot be concatenated, so it is left without one.
+    local tag
+    if unitName and UnitIsPlayer(unit) and not (issecretvalue and issecretvalue(unitName)) then
+        tag = PlayerStatusTag(unit)
+        if tag then unitName = unitName .. tag end
+    end
+    self._statusTag = tag
     local gKind = (showGroup and isPlayer) and GetUnitGroupBracketKind(unit) or nil
     self._grpKind = gKind
     local bOpen  = (gKind == "party" and PARTY_BRACKET_OPEN)  or (gKind == "raid" and RAID_BRACKET_OPEN)  or ""
@@ -2362,6 +2452,34 @@ local RegisterFriendlyManager   -- forward declaration
 local UnregisterFriendlyManager -- forward declaration
 
 -------------------------------------------------------------------------------
+--  Away / busy tag events
+--  PLAYER_FLAGS_CHANGED and UNIT_FLAGS are armed in BOTH friendly styles, since
+--  the tag rides either style's name. This is a frame of its own because the
+--  health-bar manager above is only registered in that style, while Name Only
+--  composes the name through Blizzard's own FontString. Armed from
+--  ns.UpdateFriendlyNameplateSystem, so it costs nothing while friendly names
+--  are off.
+-------------------------------------------------------------------------------
+local statusManager = CreateFrame("Frame")
+local statusManagerArmed = false
+
+local function ArmStatusTagEvents(on)
+    on = on and true or false
+    if on == statusManagerArmed then return end
+    statusManagerArmed = on
+    if on then
+        statusManager:RegisterEvent("PLAYER_FLAGS_CHANGED")
+        statusManager:RegisterEvent("UNIT_FLAGS")
+    else
+        statusManager:UnregisterAllEvents()
+    end
+end
+
+statusManager:SetScript("OnEvent", function(_, _, unit)
+    RefreshStatusTags(unit)
+end)
+
+-------------------------------------------------------------------------------
 --  Add / Remove helpers
 -------------------------------------------------------------------------------
 local function ClearAllFriendlyPlates()
@@ -2435,6 +2553,7 @@ function ns.RemoveFriendlyPlateNoRestore(unit)
     -- Promoted to an enemy plate, which draws its own faction badge.
     ns.NP_FriendlyFactionHide(plate)
     plate.unit = nil
+    plate._statusTag = nil
     plate.nameplate = nil
     plate.glow:Hide()
     if ns.HideHoverEffect then ns.HideHoverEffect(plate) else plate.highlight:Hide() end
@@ -2455,6 +2574,8 @@ function RegisterFriendlyManager()
     if friendlyManagerRegistered then return end
     friendlyManager:RegisterEvent("PLAYER_TARGET_CHANGED")
     friendlyManager:RegisterEvent("RAID_TARGET_UPDATE")
+    -- Someone went away or busy: ns.ArmStatusTagEvents' frame owns those events
+    -- in both friendly styles, so the name text is redrawn there.
     friendlyManagerRegistered = true
 end
 
@@ -2464,7 +2585,7 @@ function UnregisterFriendlyManager()
     friendlyManagerRegistered = false
 end
 
-friendlyManager:SetScript("OnEvent", function(self, event)
+friendlyManager:SetScript("OnEvent", function(self, event, unit)
     if event == "PLAYER_TARGET_CHANGED" then
         -- PERF: only update old + new target instead of iterating all
         local oldTarget = _cachedFriendlyTargetPlate
@@ -3019,6 +3140,10 @@ function ns.UpdateFriendlyNameplateSystem()
     -- Name-only font override: apply when name-only AND friendly plates are shown
     local _fp = FP()
     local showFriendly = _fp and _fp.showFriendlyPlayers ~= false
+    -- Away / busy: the tag rides the name in either style, so these events are
+    -- armed whenever friendly player names are ours to write -- Name Only
+    -- included, where the health-bar manager above stays unregistered.
+    ArmStatusTagEvents((nameOnly or shouldEnable) and showFriendly)
     -- Class-colour CVar for the friendly player names Blizzard draws: every name
     -- in name-only mode, the protected instance plates in full-plate mode. A
     -- combat skip is caught by the visibility retry above.
@@ -3112,6 +3237,9 @@ initFrame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 initFrame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_TARGET_CHANGED" or event == "UPDATE_MOUSEOVER_UNIT" then
         OnTargetChangedNPCOverlays()
+        -- The client reports a player's away/busy flag for the units it tracks,
+        -- so a target or hover is the moment a stranger's plate can catch up.
+        RefreshStatusTags(event == "UPDATE_MOUSEOVER_UNIT" and "mouseover" or "target")
         return
     end
     if event == "GROUP_ROSTER_UPDATE" then
