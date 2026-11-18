@@ -2098,21 +2098,41 @@ end
 -- repaints the names whose bracket changed and the bars whose tint changed, and
 -- leaves every other plate alone. The event is registered only while one of the
 -- two can show: `armed` is 1 for the brackets plus 2 for the tint.
+-- The tint also follows the member's PvP flag (lighter blue off, lighter green on),
+-- and the flag moves without a roster change: while the tint can show, UNIT_FACTION
+-- marks the tinted plate it names, and the same next-frame pass repaints it. A pass
+-- with only such marks repaints the marked plates alone; the whole roster is read
+-- again only after a roster event.
 do
     local groupEv, armed
+    local rosterDirty = false
+    local factionDirty = {}
     local function Flush(self)
         self:Hide()
         local brackets, tint = armed == 1 or armed == 3, armed >= 2
         local fp = tint and FP()
+        if not rosterDirty then
+            if tint then
+                for unit in pairs(factionDirty) do
+                    local plate = friendlyPlates[unit]
+                    if plate then PaintFriendlyColors(plate, unit, fp) end
+                end
+            end
+            wipe(factionDirty)
+            return
+        end
+        rosterDirty = false
         for unit, plate in pairs(friendlyPlates) do
             if brackets then
                 local kind = UnitIsPlayer(unit) and GetUnitGroupBracketKind(unit) or nil
                 if kind ~= plate._grpKind then plate:UpdateName() end
             end
-            if tint and ((UnitIsPlayer(unit) and InMyGroup(unit)) and true or false) ~= (plate._grpTint == true) then
+            if tint and (factionDirty[unit]
+                or ((UnitIsPlayer(unit) and InMyGroup(unit)) and true or false) ~= (plate._grpTint == true)) then
                 PaintFriendlyColors(plate, unit, fp)
             end
         end
+        wipe(factionDirty)
         if not brackets then return end
         local pending = ns.pendingUnits
         if not pending then return end
@@ -2137,16 +2157,37 @@ do
         if want == 0 then
             groupEv:UnregisterAllEvents()
             groupEv:Hide()
+            rosterDirty = false
+            wipe(factionDirty)
             return
         end
-        -- already listening: a pass that is waiting for its frame runs with the new set
-        if was ~= 0 then return end
         if not groupEv then
             groupEv = CreateFrame("Frame")
             groupEv:Hide()
-            groupEv:SetScript("OnEvent", function(self) self:Show() end)
+            groupEv:SetScript("OnEvent", function(self, event, unit)
+                if event == "UNIT_FACTION" then
+                    -- only a tinted full plate can go stale
+                    local plate = unit and friendlyPlates[unit]
+                    if not (plate and plate._grpTint) then return end
+                    factionDirty[unit] = true
+                else
+                    rosterDirty = true
+                end
+                self:Show()
+            end)
             groupEv:SetScript("OnUpdate", Flush)
         end
+        -- the PvP flag event follows the tint alone, registered or dropped only when that changes
+        if (want >= 2) ~= (was >= 2) then
+            if want >= 2 then
+                groupEv:RegisterEvent("UNIT_FACTION")
+            else
+                groupEv:UnregisterEvent("UNIT_FACTION")
+                wipe(factionDirty)
+            end
+        end
+        -- already listening: a pass that is waiting for its frame runs with the new set
+        if was ~= 0 then return end
         groupEv:RegisterEvent("GROUP_ROSTER_UPDATE")
     end
 end

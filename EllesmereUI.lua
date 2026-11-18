@@ -739,7 +739,6 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIBags",              display = "Bags",                 search_name = "EllesmereUI Bags"                    },
     { folder = "EllesmereUIDataBars",          display = "DataBars",             search_name = "EllesmereUI DataBars"                },
     { folder = "EllesmereUIQuickdraw",         display = "Quickdraw",            search_name = "EllesmereUI Quickdraw"               },
-    { folder = "EllesmereUILoadoutManager",    display = "Loadout Manager",      search_name = "EllesmereUI Loadout Manager"         },
     { folder = "EllesmereUIGroupFinder",       display = "Group Finder",         search_name = "EllesmereUI Group Finder Premade Groups" },
     { folder = "EllesmereUIPartyMode",         display = "Party Mode",           search_name = "EllesmereUI Party Mode",             alwaysLoaded = true },
     { folder = "EllesmereUISimpleLootCouncil", display = "Simple Loot Council",  search_name = "EllesmereUI Simple Loot Council Loot Council" },
@@ -772,7 +771,6 @@ EllesmereUI.ADDON_GROUPS = {
             "EllesmereUIMythicTimer",
             "EllesmereUIDamageMeters",
             "EllesmereUIAuraBuffReminders",
-            "EllesmereUILoadoutManager",
             "EllesmereUISimpleLootCouncil",
         },
     },
@@ -850,16 +848,19 @@ EllesmereUI.FOREVER_ONLY_ADDONS = {
 -- Modules held back from the current release on every client: they leave the
 -- same lists and the packager does not ship their folder (.pkgmeta ignore);
 -- the tester zip ships every folder as the tree stands, held back or not
--- (owner 2026-10-20). The Loadout Manager never loads (its TOC is LoadOnDemand
--- and nothing loads it); a Group Finder listed here would stop at the top of
--- each runtime file. To ship one, drop it here, drop its TOC's LoadOnDemand
--- hold line and restore its .pkgmeta move-folders line. Simple Loot Council
--- is held back too (listed here, with the hold line in both its TOCs, and
--- .pkgmeta ignoring it); to switch it on locally for the guild's raid tests,
--- drop it here and drop the hold line from both TOCs.
+-- (owner 2026-10-20). A Group Finder listed here would stop at the top of
+-- each runtime file. To hold one back, list it here, give
+-- its TOC a LoadOnDemand hold line and swap its .pkgmeta move-folders line
+-- for an ignore line; to ship it, undo all three. Simple Loot Council is
+-- held back (listed here, with the hold line in both its TOCs, and .pkgmeta
+-- ignoring it); to switch it on locally for the guild's raid tests, drop it
+-- here and drop the hold line from both TOCs.
+-- The Loadout Manager is no module any more (2026-11-17: a tab of AuraBuff
+-- Reminders); it stays listed so a copy of its old folder left in an AddOns
+-- folder by a tester build stays inert (its runtime returns on this list).
 EllesmereUI.HELD_BACK_ADDONS = {
-    EllesmereUILoadoutManager = true,
     EllesmereUISimpleLootCouncil = true,
+    EllesmereUILoadoutManager = true,
 }
 -- The set the running client leaves out.
 do
@@ -1471,6 +1472,8 @@ end
 
 -- "Name-Realm" whisper/invite target. With realmName it builds (realm wins,
 -- spaces stripped); with a finished name alone it only collapses a stacked realm.
+-- WoW Forever gets the bare full name ("Name Surname", any "-Realm" dropped):
+-- names are unique per region there, and Blizzard's own invites pass no realm.
 function EllesmereUI.BuildFullName(charName, realmName)
     -- type()/issecretvalue() before any comparison: `== ""` on a secret throws.
     if type(charName) ~= "string" then return nil end
@@ -1480,6 +1483,8 @@ function EllesmereUI.BuildFullName(charName, realmName)
     -- Character names hold no hyphen, so the first one splits name from realm.
     local base, suffix = charName:match("^([^%-]+)%-(.+)$")
     base = base or charName
+    -- Forever is realmless: the server only finds "Name Surname", never "-Realm".
+    if EllesmereUI.IS_FOREVER then return base end
 
     if type(realmName) == "string" and not (issecretvalue and issecretvalue(realmName)) then
         local realm = (realmName:gsub("%s+", ""))
@@ -3533,7 +3538,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.8.8"
+EllesmereUI.VERSION = "9.8.9"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -4753,12 +4758,27 @@ initFrame:SetScript("OnEvent", function(self, event)
         -- there -- under aura restrictions the tooltip's id is a SECRET value -- but the
         -- engine-side tooltipShowAuraSpellIDs CVar (68824+) formats the ID itself and works under
         -- full secrecy, including the forbidden container tooltips. The CVar is session-only, so
-        -- it re-asserts every login and on toggle edits. Modifier-gated configs skip it: the engine renders always-on, which would override the user's hold-a-modifier preference (their combat aura IDs stay unavailable -- inherent trade).
+        -- it re-asserts every login and on toggle edits. Modifier-gated configs hold it on
+        -- only while the key is down (synced from the key watcher below, which listens only
+        -- while Spell ID is on with a modifier: every setting edit and zone-in comes here).
+        local spellIDKeyWatcher -- built below
         function EllesmereUI.SyncAuraSpellIDCVar()
-            local db = EllesmereUIDB
             local on = EllesmereUI.SpellIDOn()
-                and (db.spellIDModifier or "none") == "none"
-            pcall(EllesmereUI.SetCVar, "tooltipShowAuraSpellIDs", on and "1" or "0")
+            if spellIDKeyWatcher then
+                local mod = (EllesmereUIDB and EllesmereUIDB.spellIDModifier) or "none"
+                local watch = on and mod ~= "none" or false
+                if watch ~= spellIDKeyWatcher._on then
+                    spellIDKeyWatcher._on = watch
+                    if watch then
+                        spellIDKeyWatcher:RegisterEvent("MODIFIER_STATE_CHANGED")
+                    else
+                        spellIDKeyWatcher:UnregisterEvent("MODIFIER_STATE_CHANGED")
+                    end
+                end
+            end
+            local want = (on and IsSpellIDModifierHeld()) and "1" or "0"
+            if GetCVar("tooltipShowAuraSpellIDs") == want then return end
+            pcall(EllesmereUI.SetCVar, "tooltipShowAuraSpellIDs", want)
         end
         do
             -- PLAYER_ENTERING_WORLD, not PLAYER_LOGIN: the engine settles its
@@ -4811,13 +4831,9 @@ initFrame:SetScript("OnEvent", function(self, event)
             if not IsSpellIDModifierHeld() then return end
             if not data or not data.id then return end
             if _isSecret and _isSecret(data.id) then return end
-            -- 12.1 no-modifier configs render aura IDs engine-side via the tooltipShowAuraSpellIDs
-            -- CVar (see SyncAuraSpellIDCVar); adding the Lua line too would show the ID twice on aura tooltips.
-            if Enum.TooltipDataType
-                and data.type == Enum.TooltipDataType.UnitAura
-                and (EllesmereUIDB.spellIDModifier or "none") == "none" then
-                return
-            end
+            -- Aura IDs are rendered engine-side by the tooltipShowAuraSpellIDs CVar (see
+            -- SyncAuraSpellIDCVar), which also reaches the forbidden aura-container tooltips.
+            if Enum.TooltipDataType and data.type == Enum.TooltipDataType.UnitAura then return end
             if not tooltip or not tooltip.GetName then return end
             local ok, name = pcall(tooltip.GetName, tooltip)
             if not ok or not name then return end
@@ -4915,26 +4931,21 @@ initFrame:SetScript("OnEvent", function(self, event)
         end
         TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ItemIdMaxStackHook)
 
-        -- Live toggle: when a selected modifier is pressed/released while a tooltip is hovered,
-        -- re-process the shown GameTooltip so the ID and Max Stack lines appear/disappear without
-        -- re-hovering. RefreshData re-runs the post-calls above (which then add or skip their
-        -- lines per their own modifier checks). Only fires when a feature is on and its chosen modifier actually changed.
+        -- Spell ID on Tooltip with a modifier: a press or release of that key sets the engine's
+        -- aura ID CVar (SyncAuraSpellIDCVar), and the aura tooltips show or drop the line on
+        -- their own update. Never refresh GameTooltip from here: RefreshData is no secure
+        -- delegate, so from our code it rebuilds the tooltip under our taint (Blizzard's
+        -- TooltipDataHandler; the SetX accessors are the delegates). Other tooltip lines
+        -- follow the key at the next hover.
         local function KeyMatchesModifier(key, mod)
             return (mod == "shift"   and (key == "LSHIFT" or key == "RSHIFT"))
                 or (mod == "control" and (key == "LCTRL"  or key == "RCTRL"))
                 or (mod == "alt"     and (key == "LALT"   or key == "RALT"))
         end
-        local modWatcher = CreateFrame("Frame")
-        modWatcher:RegisterEvent("MODIFIER_STATE_CHANGED")
-        modWatcher:SetScript("OnEvent", function(_, key)
-            local db = EllesmereUIDB
-            if not db then return end
-            local relevant =
-                (EllesmereUI.SpellIDOn() and KeyMatchesModifier(key, db.spellIDModifier or "none"))
-                or (db.showItemMaxStacks and KeyMatchesModifier(key, db.itemStackModifier or "none"))
-            if not relevant then return end
-            if GameTooltip and GameTooltip:IsShown() and GameTooltip.RefreshData then
-                GameTooltip:RefreshData()
+        spellIDKeyWatcher = CreateFrame("Frame")
+        spellIDKeyWatcher:SetScript("OnEvent", function(_, _, key)
+            if KeyMatchesModifier(key, (EllesmereUIDB and EllesmereUIDB.spellIDModifier) or "none") then
+                EllesmereUI.SyncAuraSpellIDCVar()
             end
         end)
     end

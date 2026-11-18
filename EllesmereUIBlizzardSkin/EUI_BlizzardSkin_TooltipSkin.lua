@@ -1157,6 +1157,13 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         _ttDataInited = true
         -- Clear the recorded identity on hide so a late inspect result can never append to a closed/switched tooltip. HookScript (never SetScript) keeps the secure OnHide handler intact.
         _GameTooltip:HookScript("OnHide", function() _tipShownGUID = nil end)
+        -- A fading tooltip no longer shows its unit either. Blizzard's own unit
+        -- frames fade it with its info kept (UnitFrame_OnLeave), where the
+        -- primary-info test in _onInspectReady cannot tell; and the dwell drops
+        -- a request for a unit the cursor has left.
+        if _GameTooltip.FadeOut then
+            hooksecurefunc(_GameTooltip, "FadeOut", function() _tipShownGUID = nil end)
+        end
         -- Item level inspect pacing starts at login, so the request history from other
         -- addons is already being tracked before the first hover.
         if not EllesmereUIDB or EllesmereUIDB.tooltipItemLevel ~= false then _insp.Activate() end
@@ -1397,14 +1404,9 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         local eb = popup.editBox or (popup.GetName and _G[popup:GetName() .. "EditBox"])
         if eb and not GetFFD(eb).skinned then
             GetFFD(eb).skinned = true
-            local regions = { eb:GetRegions() }
-            for j = 1, #regions do
-                local r = regions[j]
-                if r and r:IsObjectType("Texture") then
-                    r:SetTexture(nil)
-                    if r.SetAtlas then r:SetAtlas("") end
-                end
-            end
+            -- Never strip this box's Texture regions: the template declares none, so they
+            -- are the engine's own (its blinking caret among them), and SetTexture(nil)
+            -- erases them for the session.
             -- Midnight edit boxes carry their art on a NineSlice child.
             if eb.NineSlice and eb.NineSlice.SetAlpha then
                 eb.NineSlice:SetAlpha(0)

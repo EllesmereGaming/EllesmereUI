@@ -6,15 +6,16 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 
 local ADDON_NAME = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI._Pool and EllesmereUI.RAID_PREP_IDS and EllesmereUI.CharData and EllesmereUI.CharEntry and EllesmereUI.ForeverFamilyAura) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (its per-character data is in the parent's roster: CharData, CharEntry; the WoW Forever Raid Buffs read a member's buffs through its ForeverFamilyAura)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI._Pool and EllesmereUI.RAID_PREP_IDS and EllesmereUI.CharData and EllesmereUI.CharEntry and EllesmereUI.ForeverFamilyAura and EllesmereUI.IsInDungeon and EllesmereUI.SplitTalentReminders and EllesmereUI.NewCombatQueue and EllesmereUI.ForeverTalentTrees and EllesmereUI.ForgetCharField and EllesmereUI.CharGUID) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (its per-character data is in the parent's roster: CharData, CharEntry; the WoW Forever Raid Buffs read a member's buffs through its ForeverFamilyAura; the Arcane Censer reminder shows only where IsInDungeon says; the Loadout Manager queues swaps through NewCombatQueue, names WoW Forever's spec groups through ForeverTalentTrees and keeps its loadouts in the roster: ForgetCharField, CharGUID)
 EllesmereUI._ModuleNS[ADDON_NAME] = select(2, ...)  -- LOD options files read this module ns via the registry
 
 local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 
 -- WoW Forever runs a reduced module: the Raid Buffs section over that client's
 -- own buffs (EABR.CollectForeverRaidBuffs) and one Forever-only section (the
--- Camp Benefits campfire buff, the Sleeping Bag's Well-Rested buff, gathering
--- tracking, Find Treasure and custom spell IDs) collected by
+-- Camp Benefits campfire buff, the Sleeping Bag's Well-Rested buff, the Arcane
+-- Censer's Magical Awareness, gathering tracking, Find Treasure and custom
+-- spell IDs) collected by
 -- EABR.CollectForever, with every other retail collector, its events and its
 -- options sections off. Both values live on EABR, where every split file reads
 -- them; retail reads FOREVER as false at each gate and nothing else changes
@@ -24,6 +25,10 @@ EABR.CAMP_BENEFITS = 1229741
 EABR.SLEEPING_BAG_BUFF = 429959
 EABR.SLEEPING_BAG_ITEM = 211527
 EABR.SLEEPING_BAG_STACKS = 3
+-- The Arcane Censer (not used up) gives Magical Awareness for 2 hours, which
+-- lets certain casters and powerful enemies drop Motes of Unstable Magic.
+EABR.ARCANE_CENSER_ITEM = 275730
+EABR.ARCANE_CENSER_BUFF = 1297774
 -- WoW Forever gathering trackers, in cast preference order: Find Herbs, Find
 -- Minerals. Both are self-buffs there and share one slot with the class
 -- trackers. Find Treasure (Dwarf) is no aura and stacks with any of them.
@@ -146,7 +151,7 @@ local DEFAULT_GLOW_COLOR = {r=1, g=0.776, b=0.376}
 local DEFAULT_TEXT_COLOR = {r=1, g=1, b=1}
 
 -- Per-profile fixups; runs at the read path since profile swaps skip OnInitialize. (1) Scale outside
--- [0.5, 3.0] (UI range) is corruption -> reset to 1.0, every call. (2) glowColorMode: one-time migration
+-- [0.5, 3.0] (the Icon Size slider's 20 to 120 px) is corruption -> reset to 1.0, every call. (2) glowColorMode: one-time migration
 -- per profile, never alters the stored color.
 local function EnsureGlowModeMigrated(p)
     if not p then return end
@@ -383,8 +388,8 @@ function EABR.CurrentDifficultyCat()
         if d == 205 then return "d_follower" end
     elseif it == "raid" then
         if IsMythicRaidDiff(d) then return "r_mythic" end
-        if d == 15 or d == 6 then return "r_heroic" end
-        if d == 14 or d == 3 or d == 4 or d == 5 then return "r_normal" end
+        if d == 15 or d == 5 or d == 6 then return "r_heroic" end
+        if d == 14 or d == 3 or d == 4 then return "r_normal" end
         if d == 17 or d == 7 then return "r_lfr" end
         if d == 33 then return "d_timewalking" end
         -- WoW Forever raids report the legacy 40- and 20-player ids; they feed

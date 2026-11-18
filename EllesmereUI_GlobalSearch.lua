@@ -425,7 +425,8 @@ local function BuildModuleAliases()
         -- Without the "+", and the module's former name.
         EllesmereUIBlizzardSkin    = { "blizzard skins", "blizz ui enhanced" },
         EllesmereUIQuickdraw       = { "radial", "wheel", "ring menu", "palette", "grid", "arc", "fan", "action wheel", "action palette", "action menu" },
-        EllesmereUILoadoutManager  = { "gear swap", "talent swap", "equipment manager", "loadouts" },
+        -- Its Loadout Manager tab (a module of its own until 2026-11-17).
+        EllesmereUIAuraBuffReminders = { "gear swap", "talent swap", "equipment manager", "loadouts", "loadout manager" },
         -- The module's former name.
         EllesmereUIRaidFrames      = { "raid frames" },
     }

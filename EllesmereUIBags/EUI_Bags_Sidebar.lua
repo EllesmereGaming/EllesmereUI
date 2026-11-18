@@ -1122,8 +1122,9 @@ end
 
 -- The icons of the items a category holds now, each once, added to lead
 -- (seen: the icons it holds already). Pinned Items and Recent Items hold the
--- pinned and the recent items, the Item Set Gear anchor its set children's
--- items too; the bags' last refresh says where every other item is filed.
+-- pinned and the recent items, the Reagent Bag the reagent bag's (bag 5), the
+-- Item Set Gear anchor its set children's items too; the bags' last refresh
+-- says where every other item is filed.
 local function AddItemIcons(lead, seen, idx, cat)
     local pinned = cat.isPinned and PinnedItems()
     local recent = cat.isRecent and EUI_Bags._recentItems
@@ -1138,7 +1139,11 @@ local function AddItemIcons(lead, seen, idx, cat)
                 if cat.isPinned then
                     held = pinned and IsItemPinned(pinned, C_Container.GetContainerItemLink(bag, slot), info.itemID)
                 elseif cat.isRecent then
-                    held = recent and recent[info.itemID]
+                    held = recent and EUI_Bags.IsRecentEntry({ bag = bag, slot = slot, info = info })
+                elseif cat.isReagentBag then
+                    -- the bag's own items, also while Categorize Reagent Bag Items
+                    -- files them under their item categories
+                    held = bag == 5
                 else
                     local ci = _slotCategories[bag * 1000 + slot]
                     held = ci == idx or (withSets and ci and cats[ci] and cats[ci].isEquipSet)
@@ -1385,9 +1390,10 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                 end
             end
 
-            -- Equip-set children don't render standalone in All Items (they fold
-            -- into their anchor's section), so hide/show doesn't apply to them.
-            if not cat.noMove and not cat.isEquipSet then
+            -- Equip-set children fold into their anchor in All Items. With
+            -- categorized reagents, the bag's items use their item sections.
+            if not cat.noMove and not cat.isEquipSet
+                and not (cat.isReagentBag and BP().bagCategorizeReagents == true) then
                 local catKey = cat._defaultName
                 local catHidden = hiddenSet[catKey]
                 rootDescription:CreateButton(catHidden and EllesmereUI.L("Show in All Items") or EllesmereUI.L("Hide in All Items"), function()

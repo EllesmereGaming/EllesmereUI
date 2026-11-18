@@ -415,15 +415,34 @@ function EllesmereUI._UnlockSetBarAlpha(frame, a)
     if note then note(frame, a) end
 end
 
+-- Blank a bar frame for one frame around a resize or a re-sync, then give it
+-- back the alpha it had: an element faded by its own setting keeps its fade (an
+-- alpha that cannot be read comes back as 1). A second blank before the
+-- restore keeps the first alpha.
+local blankedAlpha = setmetatable({}, { __mode = "k" })
+function EllesmereUI._UnlockBlankBar(frame)
+    if not blankedAlpha[frame] then
+        local a = frame:GetAlpha()
+        blankedAlpha[frame] = (type(a) == "number" and not issecretvalue(a)) and a or 1
+    end
+    EllesmereUI._UnlockSetBarAlpha(frame, 0)
+end
+function EllesmereUI._UnlockUnblankBar(frame)
+    local a = blankedAlpha[frame]
+    if not a then return end
+    blankedAlpha[frame] = nil
+    EllesmereUI._UnlockSetBarAlpha(frame, a)
+end
+
 -- DeferMoverSync: sync now (no blink) and again next frame to catch layout-engine
 -- flush moves; hides the bar frame meanwhile to prevent a visual jump.
 local function DeferMoverSync(m, syncFn, barFrame)
     if not m then return end
-    if barFrame then EllesmereUI._UnlockSetBarAlpha(barFrame, 0) end
+    if barFrame then EllesmereUI._UnlockBlankBar(barFrame) end
     syncFn(m)
     C_Timer.After(0, function()
         if m then syncFn(m) end
-        if barFrame then EllesmereUI._UnlockSetBarAlpha(barFrame, 1) end
+        if barFrame then EllesmereUI._UnlockUnblankBar(barFrame) end
     end)
 end
 

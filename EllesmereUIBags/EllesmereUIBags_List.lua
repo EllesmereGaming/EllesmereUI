@@ -803,7 +803,15 @@ local function RenderRow(btn, data, cols, rowW, x, y, stripe, dim)
                     local tc = data._giTrackColor
                     if tc then fs:SetTextColor(tc.r, tc.g, tc.b) end
                 elseif id == "count" then
-                    text = data._lvCount > 1 and data._lvCount or ""
+                    -- Recent Items picked-up proxy: "OLD+N" with a green "+N",
+                    -- or "+N" in green when nothing was carried before
+                    if data._recentGained then
+                        local full, short = ns.RecentGainedText(data._lvCount, data._recentCarried)
+                        text = full or short
+                        if not full then fs:SetTextColor(GREEN_FONT_COLOR:GetRGB()) end
+                    else
+                        text = data._lvCount > 1 and data._lvCount or ""
+                    end
                 elseif id == "sell" then
                     text = data._lvSell > 0 and C_CurrencyInfo.GetCoinTextureString(data._lvSell) or ""
                 end
@@ -903,8 +911,9 @@ end
 -- allItems (All Items view: honour Hide in All Items), pinned (pinned set:
 -- duplicate pinned items into a Pinned section at the top), slotView ("one" =
 -- OneBag, "multi" = MultiBag: bag sections in slot order like the grid),
--- recent (recent itemID set: Recent section in slot views), recentOnly (the
--- Recent Items tab: every item in that one section, newest first), emptySlots
+-- recent (non-nil: a Recent section, EUI_Bags.IsRecentEntry), recentOnly (the
+-- Recent Items tab: every item in that one section, newest first), reagentView
+-- (the Reagent Bag tab's category index for categorized reagents), emptySlots
 -- (slot views: empty slots as rows; nil while searching).
 function ns.RenderListView(items, opts)
     local child = EUI_Bags._scrollChild
@@ -957,12 +966,33 @@ function ns.RenderListView(items, opts)
         if slotView == "one" and bag ~= 5 and not (special and special[bag]) then return "main" end
         return bag
     end
-    local pinnedSet, recentSet = opts.pinned, opts.recent
-    if not slotView then items = ns.MergeDuplicates(items) end
+    local pinnedSet, recentOn = opts.pinned, opts.recent ~= nil
+    -- The Recent section is built apart, from the unmerged items, when only some
+    -- copies of an item list (New Items Only, Show Picked-Up Amount) or picked-up
+    -- amounts show: picked, ns.RecentGainedItems, merged, as in the grid. In a
+    -- view Refresh has marked the picks (_vgRec). Slot views merge nothing.
+    local gainedOn = BP().bagRecentShowGained == true
+    local recentItems
+    if (gainedOn and (recentOn or opts.recentOnly))
+        or (recentOn and not slotView and BP().bagRecentNewOnly and next(EUI_Bags._recentCopies)) then
+        recentItems = {}
+        for _, d in ipairs(items) do
+            if d.info and d.itemLink and (opts.recentOnly or not d._pinnedOnly
+                and (view and d._vgRec or not view and EUI_Bags.IsRecentEntry(d))) then
+                recentItems[#recentItems + 1] = d
+            end
+        end
+        if gainedOn then recentItems = ns.RecentGainedItems(recentItems) end
+        if not slotView then recentItems = ns.MergeDuplicates(recentItems) end
+    end
+    -- The Recent Items tab with its own Recent list: the main loop would add
+    -- nothing there (no Pinned or Recent sections on that tab)
+    local mainLoop = not (opts.recentOnly and recentItems and not pinnedSet)
+    if mainLoop and not slotView then items = ns.MergeDuplicates(items) end
     -- Group Gear by Slot: the gear categories' sub-sections are equip slots,
     -- in place of Split by Type
     local gearSlots = not slotView and ns.ArmorySlotGroupingEnabled()
-    for _, d in ipairs(items) do
+    for _, d in ipairs(mainLoop and items or _emptyP) do
         local ci = d.categoryIndex
         local cat = ci and cats[ci]
         if d.info and d.itemLink then
@@ -972,11 +1002,20 @@ function ns.RenderListView(items, opts)
             if pinnedSet and (not view or d._vgPin) and ns.IsItemPinned(pinnedSet, d.itemLink, d.info.itemID) then
                 Add("pinned", "", d)
             end
-            if recentSet and (not view or d._vgRec) and recentSet[d.info.itemID] and not d._pinnedOnly then
+            if recentOn and not recentItems and (not view or d._vgRec) and not d._pinnedOnly
+                and EUI_Bags.IsRecentEntry(d) then
                 Add("recent", "", d)
             end
             if opts.recentOnly then
-                Add("recent", "", d)
+                if not recentItems then Add("recent", "", d) end
+            elseif opts.reagentView then
+                -- the bag's own tab with categorized reagents: one section, its Split
+                -- by Type sub-sections and junk routed as in a category's section
+                if junkOn and cat and cat.isJunk or (not junkOn and d._lvQuality == 0) then
+                    Add("junk", "", d)
+                else
+                    Add(opts.reagentView, d._lvSub, d)
+                end
             elseif slotView then
                 Add(BagKey(d.bag), "", d)
             elseif view then
@@ -1004,6 +1043,13 @@ function ns.RenderListView(items, opts)
                     Add(key, d._lvSub, d)
                 end
             end
+        end
+    end
+    if recentItems then
+        for _, d in ipairs(recentItems) do
+            -- copies show other counts, and a pick may be merged away in the main list
+            StampItem(d)
+            Add("recent", "", d)
         end
     end
     if slotView and opts.emptySlots then

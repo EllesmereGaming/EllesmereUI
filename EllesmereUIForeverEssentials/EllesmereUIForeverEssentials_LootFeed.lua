@@ -1274,8 +1274,9 @@ local function Apply()
         SyncClock()
         return
     end
-    CreateAnchor()
-    UpdateSummary() -- hidden while the feed was off
+    -- A first build paints the summary in ApplyStyle; a kept anchor repaints it,
+    -- since turning the feed off hid it.
+    if anchor then UpdateSummary() else CreateAnchor() end
     if not events then
         events = CreateFrame("Frame")
         events:SetScript("OnEvent", OnEvent)

@@ -218,6 +218,27 @@ initFrame:SetScript("OnEvent", function(self)
         return labels, order
     end
 
+    -- Default Glow Type (profile-wide): the glow type a new Bar Glow entry starts
+    -- with. Shown on the Bar Glows page only; saved entries keep theirs.
+    local function DefaultBarGlowStyle()
+        local p = DB()
+        local v = p and p.cdmBars and tonumber(p.cdmBars.defaultBarGlowStyle)
+        if v and ns.GLOW_STYLES and ns.GLOW_STYLES[v] then return v end
+        return 1
+    end
+    local function DefaultGlowTypeCfg()
+        local labels, order = GetGlowStyleValues()
+        return { type = "dropdown", text = "Default Glow Type",
+                 values = labels, order = order,
+                 tooltip = "The glow type a new Bar Glow starts with. Glows you already made keep their own.",
+                 getValue = DefaultBarGlowStyle,
+                 setValue = function(v)
+                     local p = DB()
+                     if not p or not p.cdmBars then return end
+                     p.cdmBars.defaultBarGlowStyle = tonumber(v) or 1
+                 end }
+    end
+
     ---------------------------------------------------------------------------
     --  Glow sites for Global Settings > Glows: per-bar Pandemic Glow, Buff Glow
     --  and Pixel Glow parameters, Tracked Buff Bars (active spec) and Rotation
@@ -707,7 +728,7 @@ initFrame:SetScript("OnEvent", function(self)
                     assignedSet[sp.spellID] = true
                     local newEntry = {
                         spellID = sp.spellID,
-                        glowStyle = 1,
+                        glowStyle = DefaultBarGlowStyle(),
                         mode = sp.usable and "USABLE" or "ACTIVE",
                         onlyInCombat = false,
                     }
@@ -1354,6 +1375,9 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:Spacer(parent, y, 8);  y = y - h
 
+        parent._showRowDivider = true
+        _, h = W:DualRow(parent, y, DefaultGlowTypeCfg(), EllesmereUI.BlankRowCfg());  y = y - h
+
         -- A selected slot that is (now) non-glowable shows no glow settings (the header tip stays).
         if curBtn and type(curBar) == "string" then
             local cdmIcons = ns.cdmBarIcons and ns.cdmBarIcons[curBar]
@@ -1408,6 +1432,37 @@ initFrame:SetScript("OnEvent", function(self)
                         local removeAIdx = aIdx
                         y = ns.BuildBarGlowWhenRow(W, parent, y, entry, Refresh, cdmSid)
 
+                        -- WoW Forever: late in the Main Hand swing
+                        -- (EllesmereUICdmBarGlowSwing.lua; absent elsewhere).
+                        if ns.BarGlowSwingPass then
+                            _, h = W:DualRow(parent, y,
+                                { type = "toggle", text = "Glow Late in Swing",
+                                  tooltip = "Only glow during the last seconds of your main hand swing, and not while this attack is already queued for it.",
+                                  getValue = function() return tonumber(entry.swingWindow) ~= nil end,
+                                  setValue = function(v)
+                                      entry.swingWindow = v and 0.5 or nil
+                                      -- The glow pass alone (SetupOverlays re-syncs the
+                                      -- windows): never a full CDM rebuild.
+                                      ns.RequestBarGlowUpdate()
+                                      EllesmereUI:RefreshPage()
+                                  end },
+                                { type = "slider", text = "Seconds Before Swing",
+                                  min = 0.1, max = 2, step = 0.1,
+                                  disabled = function() return not tonumber(entry.swingWindow) end,
+                                  disabledTooltip = "Glow Late in Swing",
+                                  getValue = function() return tonumber(entry.swingWindow) or 0.5 end,
+                                  setValue = function(v)
+                                      entry.swingWindow = math.floor(v * 10 + 0.5) / 10
+                                      -- Writes on every drag step: the glow pass only.
+                                      ns.RequestBarGlowUpdate()
+                                  end })
+                            y = y - h
+                        end
+
+                        -- Health below / above a percentage
+                        -- (EUI_CooldownManager_BarGlowConditions.lua)
+                        y = ns.BuildBarGlowHealthRow(W, parent, y, entry, Refresh)
+
                         -- Helper: resolve current glow color and restart preview if active
                         local pvKey = assignKey .. "_" .. aIdx
                         local function RefreshPreviewGlow()
@@ -1433,12 +1488,15 @@ initFrame:SetScript("OnEvent", function(self)
                         -- Glow Type so every row stays filled. Same operator set and same
                         -- fail-open bias as the per-icon Glow at Stacks feature (Stack Text
                         -- and Glows cog): an unknown/secret application count never blocks
-                        -- the glow.
+                        -- the glow. A Glow When Usable glow has no stacks: that half
+                        -- holds Require Resource (EUI_CooldownManager_BarGlowConditions.lua).
+                        local usable = entry.mode == "USABLE"
                         local stackRow
                         stackRow, h = W:DualRow(parent, y,
+                            usable and ns.BarGlowResourceCfg(entry) or
                             { type = "toggle", text = "At Stacks",
                               tooltip = "Only glow once the buff's stack count matches the comparison set via the gear.",
-                              disabled = function() return entry.mode == "MISSING" or entry.mode == "USABLE" end,
+                              disabled = function() return entry.mode == "MISSING" end,
                               disabledTooltip = "Only available for a buff in Active mode",
                               getValue = function() return entry.stackEnabled == true end,
                               setValue = function(v)
@@ -1463,14 +1521,13 @@ initFrame:SetScript("OnEvent", function(self)
                               end,
                             }
                         );  y = y - h
-                        do
+                        if not usable then
                             local rgn = stackRow._leftRegion
                             EllesmereUI.BuildInlineCog(rgn, {
                                 title = "At Stacks",
-                                disabled = function() return entry.mode == "MISSING" or entry.mode == "USABLE" or not entry.stackEnabled end,
+                                disabled = function() return entry.mode == "MISSING" or not entry.stackEnabled end,
                                 disabledTooltip = function()
                                     if entry.mode == "MISSING" then return "This option is not available in Buff Missing mode" end
-                                    if entry.mode == "USABLE" then return "This option is not available in Glow When Usable mode" end
                                     return "At Stacks"
                                 end,
                                 frameStrata = "FULLSCREEN_DIALOG", frameLevel = 350,

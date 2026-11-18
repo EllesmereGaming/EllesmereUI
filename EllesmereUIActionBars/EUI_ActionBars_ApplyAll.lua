@@ -97,6 +97,8 @@ local function ApplyAll()
     EAB:RefreshMouseover()
     EAB:RefreshProcGlows()
     EAB:ApplyRangeColoring()
+    -- WoW Forever: the Swing Timer swipe (EUI_ActionBars_ForeverSwingSweep.lua).
+    if ns.AB_SwingSweepApply then ns.AB_SwingSweepApply() end
 
     -- A full apply that ran DURING combat skipped every `not inCombat` step
     -- above; the REGEN_ENABLED re-run (gated on this flag) converges them.

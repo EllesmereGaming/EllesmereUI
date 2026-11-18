@@ -127,7 +127,7 @@ local function RegisterUnlockElements()
             group = "AuraBuff Reminders",
             order = 600,
             noAnchorTarget = true,  -- icon count changes dynamically with auras
-            -- Icon size is driven solely by the Scale slider. No drag-resize: row width is count-dependent, so restoring a stored width under a different count would corrupt the persisted scale (matches External Defensives).
+            -- Icon size is driven solely by the Icon Size slider. No drag-resize: row width is count-dependent, so restoring a stored width under a different count would corrupt the persisted scale (matches External Defensives).
             noResize = true,
             getFrame = function() return iconAnchor end,
             getSize = function()

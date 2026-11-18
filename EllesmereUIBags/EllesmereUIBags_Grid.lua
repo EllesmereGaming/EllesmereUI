@@ -39,6 +39,7 @@ local PreCacheSortFields = ns.PreCacheSortFields
 local VisualSortCompare = ns.VisualSortCompare
 local RecentCompare = ns.RecentCompare
 local MergeDuplicates = ns.MergeDuplicates
+local RecentGainedItems = ns.RecentGainedItems
 local ApplySavedOrder = ns.ApplySavedOrder
 -- Junk Marker state, read once per RenderGridView pass for every RenderButton
 local junkOn = false
@@ -167,6 +168,28 @@ local function PaintJunkState(btn, info, markerJunk)
     PaintJunkCoin(btn, markerJunk and (p.bagShowJunkCoin == true or EUI_Bags._junkMode) or false)
 end
 
+-- Stack count. A Recent Items picked-up proxy shows "OLD+N" with a green "+N"
+-- when that fits the button, else "+N" in green, also for 1. _recentGainedN
+-- marks a pooled button whose count color the next entry resets.
+local function SetSlotCount(btn, data)
+    local fs = btn.Count
+    if btn._recentGainedN and fs then fs:SetTextColor(1, 1, 1) end
+    local n = data._recentGained and data._mergedCount or nil
+    btn._recentGainedN = n
+    btn:SetItemButtonCount(data.info and (data._mergedCount or data.info.stackCount) or 0)
+    if n and fs then
+        local full, short = ns.RecentGainedText(n, data._recentCarried)
+        fs:Show()
+        if full then
+            fs:SetText(full)
+            fs:SetTextColor(1, 1, 1)
+            if fs:GetStringWidth() <= btn:GetWidth() - 2 then return end
+        end
+        fs:SetText(short)
+        fs:SetTextColor(GREEN_FONT_COLOR:GetRGB())
+    end
+end
+
 -------------------------------------------------------------------------------
 --  RenderButton
 -------------------------------------------------------------------------------
@@ -200,7 +223,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
 
     if not data.info then
         btn:SetItemButtonTexture(nil)
-        btn:SetItemButtonCount(0)
+        SetSlotCount(btn, data)
         SetItemButtonDesaturated(btn, false)
         if btn.icon then btn.icon:Hide() end
         btn._emptyBg:Show()
@@ -234,7 +257,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         btn._emptyBg:Hide()
         if btn.icon then btn.icon:Show() end
         ns.SetSlotIcon(btn, data.info.iconFileID)
-        btn:SetItemButtonCount(data._mergedCount or data.info.stackCount)
+        SetSlotCount(btn, data)
         btn._isMerged = data._mergedCount and true or nil
 
         local quality = data.info.quality or 1
@@ -939,12 +962,13 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
             local recentItems = {}
             if EUI_Bags._recentItems then
                 for _, d in ipairs(tempItems) do
-                    if not d._pinnedOnly and d.info and d.info.itemID and EUI_Bags._recentItems[d.info.itemID] then
+                    if not d._pinnedOnly and EUI_Bags.IsRecentEntry(d) then
                         recentItems[#recentItems + 1] = d
                     end
                 end
             end
             if #recentItems > 0 then
+                recentItems = RecentGainedItems(recentItems)
                 recentItems = MergeDuplicates(recentItems)
                 table.sort(recentItems, RecentCompare)
             end
@@ -1377,11 +1401,12 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                    and (BP().bagShowRecentItems ~= false) then
                     local recentItems = {}
                     for _, data in ipairs(displayItems) do
-                        if not data._pinnedOnly and data.info and data.info.itemID and EUI_Bags._recentItems[data.info.itemID] then
+                        if not data._pinnedOnly and EUI_Bags.IsRecentEntry(data) then
                             recentItems[#recentItems + 1] = data
                         end
                     end
                     if #recentItems > 0 then
+                        recentItems = RecentGainedItems(recentItems)
                         recentItems = MergeDuplicates(recentItems)
                         table.sort(recentItems, RecentCompare)
                     end
@@ -1475,6 +1500,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
         local function RenderViewSection(label, sItems, kind, hint)
             if #sItems > 0 then
                 if kind == "recent" then
+                    sItems = RecentGainedItems(sItems)
                     sItems = MergeDuplicates(sItems)
                     table.sort(sItems, RecentCompare)
                 else
@@ -1696,6 +1722,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                     PreCacheSortFields(displayItems)
                     table.sort(displayItems, VisualSortCompare)
                 end
+                if selCat and selCat.isRecent then displayItems = RecentGainedItems(displayItems) end
                 displayItems = MergeDuplicates(displayItems)
                 if selCat and selCat.isRecent then table.sort(displayItems, RecentCompare) end
             end

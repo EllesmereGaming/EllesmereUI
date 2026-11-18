@@ -628,10 +628,10 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
                 EABR.ReevaluateOwnOtherAuraTracking()
             end)
         else
-            -- The minimap's trackers and the Sleeping Bag are read afresh after
-            -- a loading screen.
+            -- The minimap's trackers, the Sleeping Bag and the Arcane Censer
+            -- are read afresh after a loading screen.
             EABR._fvTrackDirty = true
-            EABR._fvSleepBag = nil
+            EABR._fvSleepBag, EABR._fvCenser = nil, nil
         end
         EABR.ScanEatingState()
         if not InCombatLockdown() then EABR.SyncProviderCastSpell() end
@@ -702,7 +702,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
     -- is intentionally NOT registered: it fires ~1/sec from cooldown ticks, changes nothing reminder-relevant, and would refresh every second and bust the resolved-item cache.
     if e == "BAG_UPDATE_DELAYED" or e == "BAG_UPDATE" then
         InvalidateItemCountCache()
-        EABR._fvSleepBag = nil
+        EABR._fvSleepBag, EABR._fvCenser = nil, nil
     end
 
     -- Equipped-weapon changes alter weapon-enchant resolution (weapon type -> which enchant item/slots show). Item counts are unchanged, so only the resolved cache needs rebuilding.
@@ -852,29 +852,44 @@ if EABR.FOREVER then
             mainFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
         end
     end
-    -- A Cozy Sleeping Bag bought or looted while none is owned and the shared
-    -- bag listener above is off: one item count per bag change until one shows
-    -- up, which wakes the reminder; that listener takes over from there
-    -- (EABR.FvSleepingBagOwned).
-    local sleepWatch
-    function EABR.FvSyncSleepBagWatch(want)
-        if want == (EABR._fvSleepWatch or false) then return end
-        EABR._fvSleepWatch = want
-        if want then
-            if not sleepWatch then
-                sleepWatch = CreateFrame("Frame")
-                sleepWatch:SetScript("OnEvent", function()
-                    if (C_Item.GetItemCount(EABR.SLEEPING_BAG_ITEM) or 0) > 0 then
-                        EABR._fvSleepBag = true
-                        EABR.FvSyncSleepBagWatch(false)
+    -- A Cozy Sleeping Bag or an Arcane Censer bought or looted while none is
+    -- owned and the shared bag listener above is off: one frame, one item
+    -- count per watched item per bag change until it shows up, which marks it
+    -- owned and wakes the reminder; that listener takes over from there
+    -- (EABR.FvSleepingBagOwned, EABR.FvCenserOwned).
+    local arrivalWatch
+    local function SyncArrivalWatch()
+        if EABR._fvSleepWatch or EABR._fvCenserWatch then
+            if not arrivalWatch then
+                arrivalWatch = CreateFrame("Frame")
+                arrivalWatch:SetScript("OnEvent", function()
+                    local came = false
+                    if EABR._fvSleepWatch and (C_Item.GetItemCount(EABR.SLEEPING_BAG_ITEM) or 0) > 0 then
+                        EABR._fvSleepBag, EABR._fvSleepWatch, came = true, false, true
+                    end
+                    if EABR._fvCenserWatch and (C_Item.GetItemCount(EABR.ARCANE_CENSER_ITEM) or 0) > 0 then
+                        EABR._fvCenser, EABR._fvCenserWatch, came = true, false, true
+                    end
+                    if came then
+                        SyncArrivalWatch()
                         RequestRefresh()
                     end
                 end)
             end
-            sleepWatch:RegisterEvent("BAG_UPDATE_DELAYED")
-        elseif sleepWatch then
-            sleepWatch:UnregisterEvent("BAG_UPDATE_DELAYED")
+            arrivalWatch:RegisterEvent("BAG_UPDATE_DELAYED")
+        elseif arrivalWatch then
+            arrivalWatch:UnregisterEvent("BAG_UPDATE_DELAYED")
         end
+    end
+    function EABR.FvSyncSleepBagWatch(want)
+        if want == (EABR._fvSleepWatch or false) then return end
+        EABR._fvSleepWatch = want
+        SyncArrivalWatch()
+    end
+    function EABR.FvSyncCenserWatch(want)
+        if want == (EABR._fvCenserWatch or false) then return end
+        EABR._fvCenserWatch = want
+        SyncArrivalWatch()
     end
 else
 mainFrame:RegisterEvent("ENCOUNTER_START")
@@ -883,6 +898,7 @@ mainFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 mainFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 mainFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 mainFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+mainFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
 mainFrame:RegisterEvent("SPELLS_CHANGED")
 mainFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
 mainFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")

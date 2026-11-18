@@ -560,7 +560,21 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="toggle", label="New Items Only",
                           tooltip="Only lists items you were not already carrying. Gear, mail and trades always list.",
                           get=function() return db.profile.bagRecentNewOnly == true end,
-                          set=function(v) db.profile.bagRecentNewOnly = v end },
+                          set=function(v)
+                              db.profile.bagRecentNewOnly = v
+                              if v and _G.EUI_Bags and _G.EUI_Bags.SeedRecentCopies then _G.EUI_Bags.SeedRecentCopies() end
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
+                        { type="toggle", label="Show Picked-Up Amount",
+                          tooltip="Recent Items shows one entry per item, with the amount you picked up.",
+                          get=function() return db.profile.bagRecentShowGained == true end,
+                          set=function(v)
+                              db.profile.bagRecentShowGained = v
+                              -- Sums stop while off: drop them, so a later switch-on starts clean
+                              if not v and _G.EUI_Bags and _G.EUI_Bags._recentGained then wipe(_G.EUI_Bags._recentGained) end
+                              if v and _G.EUI_Bags and _G.EUI_Bags.SeedRecentCopies then _G.EUI_Bags.SeedRecentCopies() end
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
                     },
                 })
             end
@@ -668,6 +682,17 @@ initFrame:SetScript("OnEvent", function(self)
                       db.profile.bagHideSidebarIconsCollapsed = v and true or false
                       if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                   end }
+            ); y = y - h
+
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Categorize Reagent Bag Items",
+                  tooltip="Files reagent bag items under their item categories, in All Items and on the category tabs. The Reagent Bag entry still lists the bag.",
+                  getValue=function() return db.profile.bagCategorizeReagents == true end,
+                  setValue=function(v)
+                      db.profile.bagCategorizeReagents = v
+                      if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                  end },
+                EllesmereUI.BlankRowCfg()
             ); y = y - h
 
             if anyGrid then

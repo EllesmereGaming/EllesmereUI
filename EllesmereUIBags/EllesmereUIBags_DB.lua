@@ -26,6 +26,7 @@ local BAGS_DEFAULTS = {
         bagShowTrackRank      = false,
         itemlevelUseCustomColor = false,
         bagHideEmptyCategories = true,
+        bagCategorizeReagents = false,
         bagSplitSetGearBySet  = false,
         bagShowSetGearName    = false,
         bagSetNameFontSize    = 9,
@@ -45,6 +46,7 @@ local BAGS_DEFAULTS = {
         bagRecentInOneBag     = false,
         bagShowRecentClear    = false,
         bagRecentNewOnly      = false,   -- Recent Items: only items not carried before (gear, mail, trade always)
+        bagRecentShowGained   = false,   -- Recent Items: one entry per stackable with the amount picked up
         -- Bag Top Bar Icons: the header's Show Bags, Junk Marker, Quick Actions, Sort and Keyring icons
         bagShowBagsIcon       = true,
         bagShowJunkIcon       = true,    -- the Junk Marker: header coin, Junk category, Sell Junk at merchants

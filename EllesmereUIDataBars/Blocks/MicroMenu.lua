@@ -726,7 +726,7 @@ local function MMBuildSocialTip()
                 ns.Tip_AddClickable(left, fi.area or "", function(mouseButton)
                     local n = fname
                     if not n then return end
-                    if not n:find("%-") then n = n .. "-" .. GetRealmName():gsub("%s+", "") end
+                    if not n:find("%-") then n = EllesmereUI.BuildFullName(n, GetRealmName()) or n end
                     if mouseButton == "RightButton" then
                         MMOpenWhisper(n, nil)
                     elseif mouseButton == "LeftButton" and IsShiftKeyDown() then
@@ -742,7 +742,7 @@ local function MMBuildSocialTip()
         ns.Tip_AddLine(L["NO_FRIENDS_ONLINE"], 0.6, 0.6, 0.6)
         return
     end
-    if hidden > 0 then ns.Tip_AddLine(format("...and %d more", hidden), 0.53, 0.53, 0.53) end
+    if hidden > 0 then ns.Tip_AddLine(EllesmereUI.Lf("...and %1$d more", hidden), 0.53, 0.53, 0.53) end
 
     -- Left-click BNet-whispers (reaches them cross-realm/faction), right-click whispers the character directly: distinct actions, distinct labels.
     ns.Tip_AddLine(" ")
@@ -807,7 +807,7 @@ local function MMBuildGuildTip(s)
             end, clr, clg, clb, 1, 1, 1)
         end
     end
-    if hidden > 0 then ns.Tip_AddLine(format("...and %d more", hidden), 0.53, 0.53, 0.53) end
+    if hidden > 0 then ns.Tip_AddLine(EllesmereUI.Lf("...and %1$d more", hidden), 0.53, 0.53, 0.53) end
 
     ns.Tip_AddLine(" ")
     ns.Tip_AddDouble(L["LEFT_CLICK"],       L["WHISPER"], 1, 1, 1, ar, ag, ab)

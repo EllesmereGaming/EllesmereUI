@@ -1399,7 +1399,8 @@ end
 
 local function ProcessTransfer(srcBag, srcSlot)
     local loc = ItemLocation:CreateFromBagAndSlot(srcBag, srcSlot)
-    if not C_Item.DoesItemExist(loc) or C_Item.IsLocked(loc) then
+    if not C_Item.DoesItemExist(loc) then return true end -- slot emptied, discard
+    if C_Item.IsLocked(loc) then
         return false -- still locked, needs re-queue
     end
     local bank = _G.EUI_BankFrame
@@ -2646,7 +2647,8 @@ function EUI_Bank:RefreshBank()
             btn._emptyBg:Show(); ns.PaintSlotBackground(btn._emptyBg, 0.35)
             btn:EnableMouse(true)
             SetInsetBorderColor(btn, 0, 0, 0, 0.3)
-            if btn._fvSlotBorder then ns.SetForeverSlotQuestBorder(btn, false) end
+            if btn._fvSlotBorder then ns.SetForeverSlotQuestBorder(btn, false)
+            else ns.SetInsetBorderThickness(btn, (EUI.PP and EUI.PP.mult) or 1) end
             if btn.Cooldown then btn.Cooldown:Clear() end
             if btn.ItemLevelText then btn.ItemLevelText:SetText("") end
             if btn.BindTypeText then btn.BindTypeText:SetText("") end
@@ -2689,10 +2691,18 @@ function EUI_Bank:RefreshBank()
             end
             if btn.IconBorder then btn.IconBorder:Hide() end
             if btn.NormalTexture then btn.NormalTexture:SetAlpha(0) end
+            -- Quest items: gold border as in the bags, whatever Quality Item Border says
+            local isQuest, isStarter = ns.GetSlotQuestFlags(bagID, slot)
             local qr, qg, qb = ns.QualityBorderColor(quality)
-            SetInsetBorderColor(btn, qr, qg, qb, 1)
             if btn._fvSlotBorder then
-                ns.SetForeverSlotQuestBorder(btn, ns.GetSlotQuestFlags(bagID, slot))
+                SetInsetBorderColor(btn, qr, qg, qb, 1)
+                ns.SetForeverSlotQuestBorder(btn, isQuest, isStarter)
+            else
+                local bpx = (EUI.PP and EUI.PP.mult) or 1
+                local qc = ns.QUEST_BORDER_COLOR
+                ns.SetInsetBorderThickness(btn, isQuest and bpx * 2 or bpx)
+                if isQuest then qr, qg, qb = qc.r, qc.g, qc.b end
+                SetInsetBorderColor(btn, qr, qg, qb, 1)
             end
 
             -- One gear check + one GetItemInfo fetch shared by the bind-type

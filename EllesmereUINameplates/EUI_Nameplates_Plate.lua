@@ -1044,6 +1044,7 @@ function NameplateFrame:SetUnit(unit, nameplate)
                     ns.LayoutCastIcon(self, castH)
                     ns.NP_SetSparkHeight(self, castH)
                     self.kickMarker:SetSize(GetHealthBarWidth(), castH)
+                    self._focusCastSized = true
                 end
             end
             -- Cast target color
@@ -1207,6 +1208,17 @@ function NameplateFrame:ClearUnit()
     self:SetScale(1)
     self._curScale = nil
     ns._scaleAnim[self] = nil
+    -- Focus Cast Height: ApplyAppearance is skipped on recycle, so hand back the normal height.
+    -- Here, once the scale is back to 1 and the cast glows are off: the offsets snap on the
+    -- pixel grid ApplyAppearance used, and no glow art is seated just before it hides.
+    if self._focusCastSized then
+        self._focusCastSized = nil
+        local castH = GetCastBarHeight()
+        ns.LayoutCastBar(self, ns.GetHealthBarWidth(), castH)
+        ns.LayoutCastIcon(self, castH)
+        ns.NP_SetSparkHeight(self, castH)
+        self.kickMarker:SetSize(GetHealthBarWidth(), castH)
+    end
     self:SetParent(UIParent)
     self:ClearAllPoints()
     -- The nameplate keeps its stacking bounds frame: empty it (no points, hidden), so the

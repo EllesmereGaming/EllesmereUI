@@ -3,7 +3,7 @@ if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- no keystones on WoW
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_Keys.lua
 --  /keys slash command: displays party keystone levels in a styled popup.
---  Uses LibKeystone (BigWigs/DBM) for keystone data exchange.
+--  Uses LibKeystone for keystone data exchange.
 -------------------------------------------------------------------------------
 local LibKeystone = LibStub and LibStub("LibKeystone", true)
 
@@ -622,8 +622,8 @@ _G._EUI_RefreshKeystonePopup = RefreshPopupIfOpen
 
 -------------------------------------------------------------------------------
 --  LibKeystone callback
---  Receives keystone data from any player running BigWigs/DBM (or any addon
---  that embeds LibKeystone). No manual comm handling needed.
+--  Receives keystone data from any player running an addon that embeds
+--  LibKeystone. No manual comm handling needed.
 -------------------------------------------------------------------------------
 -- Registered only when the popup feature is enabled: the toggle is
 -- reload-gated (see options), so the load-time flag is authoritative and a

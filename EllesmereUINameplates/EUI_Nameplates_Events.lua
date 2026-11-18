@@ -506,6 +506,9 @@ manager:SetScript("OnEvent", function(self, event, unit)
                 local castH = GetCastBarHeight()
                 if UnitIsUnit(plate.unit, "focus") then
                     castH = math.floor(castH * focusPct / 100 + 0.5)
+                    plate._focusCastSized = true
+                else
+                    plate._focusCastSized = nil
                 end
                 ns.LayoutCastBar(plate, ns.GetHealthBarWidth(), castH)
                 ns.LayoutCastIcon(plate, castH)

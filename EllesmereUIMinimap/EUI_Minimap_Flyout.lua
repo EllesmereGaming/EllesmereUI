@@ -133,10 +133,14 @@ local function IsUngrouped(btn)
     return name and mp.ungroupedButtons[name]
 end
 
+-- An addon button's label: its frame name less the button libraries' prefixes and the
+-- MinimapButton suffix (the "_" form first). Also the options page's Ungroup Minimap
+-- Buttons list (ns.MinimapButtonLabel). A second return is gsub's count: take it alone.
 local function GetMinimapButtonLabel(btn)
     local name = btn:GetName() or ""
-    return name:gsub("^LibDBIcon10_", ""):gsub("^Lib_GPI_Minimap_", ""):gsub("MinimapButton$", ""):gsub("_MinimapButton$", "")
+    return name:gsub("^LibDBIcon10_", ""):gsub("^Lib_GPI_Minimap_", ""):gsub("_MinimapButton$", ""):gsub("MinimapButton$", "")
 end
+ns.MinimapButtonLabel = GetMinimapButtonLabel
 
 local function CollectFlyoutButtons()
     local collected = {}

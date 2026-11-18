@@ -649,9 +649,15 @@ local function BuildNameplatePreview(parent, parentW, mode)
     pf._qi.icon:SetAtlas("Crosshair_Quest_64")
     pf._qi.icon:Hide()
     -- Faction badge preview (Core Positions "Faction" element)
+    -- factionIcon is the badge's square box (the chain and the click overlay place and
+    -- measure it) and draws nothing; its art (factionIcon._art) sits centred on it at
+    -- its own proportions, as live (EllesmereUI.FitFactionArt), shown and hidden with it.
     local factionIcon = pf:CreateTexture(nil, "OVERLAY", nil, -1)  -- under classIcon when stacked
     factionIcon:SetSize(20, 20)
     factionIcon:Hide()
+    factionIcon._art = pf:CreateTexture(nil, "OVERLAY", nil, -1)
+    factionIcon._art:SetPoint("CENTER", factionIcon, "CENTER")
+    factionIcon._art:Hide()
     -- Quest Objective Text sample (Core Positions "Quest Objective Text" element):
     -- a quest mob's progress text in a frame of its own, sized to the text, on the
     -- live element's tier (health + 2). Its placement rides pf._qt (Update fills
@@ -1924,6 +1930,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
         factionIcon:ClearAllPoints()
         if fcPos == "none" then
             factionIcon:Hide()
+            factionIcon._art:Hide()
             if pf._factionOverlay then pf._factionOverlay:Hide() end
         else
             local fcX = DBVal(fcPos .. "SlotXOffset") or 0
@@ -1939,7 +1946,8 @@ local function BuildNameplatePreview(parent, parentW, mode)
             local mine = UnitFactionGroup("player")
             local fac = (mine == "Horde") and "Alliance" or "Horde"
             local fStyle = DBVal("factionStyle") or defaults.factionStyle
-            EllesmereUI.SetFactionArt(factionIcon, fStyle, fac, EllesmereUI.FactionBadgeFor(fStyle, "player"))
+            EllesmereUI.SetFactionArt(factionIcon._art, fStyle, fac, EllesmereUI.FactionBadgeFor(fStyle, "player"))
+            EllesmereUI.FitFactionArt(factionIcon._art, fcSz)
             factionIcon:SetSize(fcSz, fcSz)
             if fcPos == "top" then
                 factionTopExtent = debuffY + fcSz + fcY
@@ -1962,6 +1970,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                 factionIcon:SetPoint("TOP", cast, "BOTTOM", fcX, -2 + fcY)
             end
             factionIcon:Show()
+            factionIcon._art:Show()
             if pf._factionOverlay then pf._factionOverlay:Show() end
         end
 

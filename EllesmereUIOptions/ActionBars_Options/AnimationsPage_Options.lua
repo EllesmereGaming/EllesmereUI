@@ -580,6 +580,20 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
         })
         y = y - h
 
+        -- WoW Forever, a class with on-next-swing attacks: the weapon swing as a
+        -- swipe on their buttons (EUI_ActionBars_ForeverSwingSweep.lua).
+        if ns.AB_SwingSweepApply then
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Show Swing Timer on Attacks",
+                  tooltip="Shows your weapon swing as a cooldown swipe on your on-next-swing attack buttons, starting again on every swing.",
+                  getValue=function() return p.swingTimerSwipe or false end,
+                  setValue=function(v)
+                      p.swingTimerSwipe = v
+                      ns.AB_SwingSweepApply()
+                  end },
+                EllesmereUI.BlankRowCfg());  y = y - h
+        end
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         -------------------------------------------------------------------

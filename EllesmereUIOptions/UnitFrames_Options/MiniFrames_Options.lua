@@ -1636,7 +1636,8 @@ function ns.UFO_BuildPetOptions(W, parent, y)
                   getValue=function() return P.happinessSize or 20 end,
                   setValue=function(v) P.happinessSize = v; happyApply() end });  yy = yy - hh
 
-            -- Row 2: Position (+ offsets cog) | blank (odd last slot)
+            -- Row 2: Position (+ offsets cog) | blank (odd last slot). A left click on
+            -- the icon feeds the pet (part of the icon, no switch of its own).
             local posRow
             posRow, hh = Ww:DualRow(pp, yy,
                 { type="dropdown", text="Position",

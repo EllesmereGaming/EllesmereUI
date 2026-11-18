@@ -755,20 +755,24 @@ function EUI_Bags:RefreshInventory()
     local categoryCounts, totalCount = EUI_CategoryManager:ClassifyAll(tempItems)
 
     -- 2a. Snapshot slot->category mapping for partial refresh
+    local categorizeReagents = BP().bagCategorizeReagents == true
+    local reagentCount = 0
     wipe(_slotCategories)
     for _, data in ipairs(tempItems) do
         if data.categoryIndex and data.bag and data.slot then
             _slotCategories[data.bag * 1000 + data.slot] = data.categoryIndex
+            if categorizeReagents and data.bag == 5 then reagentCount = reagentCount + 1 end
         end
     end
 
-    -- 2b. Compute display-only counts for pinned and recent items
-    local recentCatIdx, pinnedCatIdx
+    -- 2b. Count the Pinned Items, Recent Items and Reagent Bag shortcuts
+    local recentCatIdx, pinnedCatIdx, reagentCatIdx
     do
         local cats = EUI_CategoryManager:GetCategories()
         for i, cat in ipairs(cats) do
             if cat.isRecent then recentCatIdx = i end
             if cat.isPinned then pinnedCatIdx = i end
+            if categorizeReagents and cat.isReagentBag then reagentCatIdx = i end
         end
     end
     local showPinned = BP().bagShowPinnedItems ~= false
@@ -789,7 +793,10 @@ function EUI_Bags:RefreshInventory()
                     -- Keep the category for sorting and gear/stack handling.
                     data._pinnedOnly = true
                     local ci = data.categoryIndex
-                    if ci then categoryCounts[ci] = categoryCounts[ci] - 1 end
+                    if ci then
+                        categoryCounts[ci] = categoryCounts[ci] - 1
+                        if reagentCatIdx and data.bag == 5 then reagentCount = reagentCount - 1 end
+                    end
                 end
             end
         end
@@ -799,12 +806,14 @@ function EUI_Bags:RefreshInventory()
     local showRecent = BP().bagShowRecentItems ~= false
     if recentCatIdx and EUI_Bags._recentItems and showRecent then
         for _, data in ipairs(tempItems) do
-            if not data._pinnedOnly and data.info and data.info.itemID and EUI_Bags._recentItems[data.info.itemID] then
+            if not data._pinnedOnly and EUI_Bags.IsRecentEntry(data) then
                 recentCount = recentCount + 1
             end
         end
         categoryCounts[recentCatIdx] = recentCount
     end
+    -- The Reagent Bag shortcut counts physical slots alongside their item categories.
+    if reagentCatIdx then categoryCounts[reagentCatIdx] = reagentCount end
 
     -- 2c. viewing an alt: the sidebar counts their bags instead
     local altView = ns.OfflineAlt and ns.OfflineAlt()
@@ -822,6 +831,7 @@ function EUI_Bags:RefreshInventory()
     -- 4. Filter items by selected category/group + search
     local isRecentView = recentCatIdx and selectedCategoryIndex == recentCatIdx
     local isPinnedView = pinnedCatIdx and selectedCategoryIndex == pinnedCatIdx
+    local reagentView = not selectedGroupName and selectedCategoryIndex == reagentCatIdx and reagentCatIdx or nil
     local filterSet = nil  -- nil = show all
     do
         local cats = EUI_CategoryManager:GetCategories()
@@ -841,7 +851,7 @@ function EUI_Bags:RefreshInventory()
                 filterSet[mi] = true
                 AddSetChildren(mi)
             end
-        elseif selectedCategoryIndex > 0 and not isRecentView and not isPinnedView then
+        elseif selectedCategoryIndex > 0 and not isRecentView and not isPinnedView and not reagentView then
             filterSet = { [selectedCategoryIndex] = true }
             AddSetChildren(selectedCategoryIndex)
         end
@@ -853,13 +863,15 @@ function EUI_Bags:RefreshInventory()
         if offlineUp then
             show = false  -- the offline panel covers these
         elseif isRecentView then
-            show = data.info and data.info.itemID and EUI_Bags._recentItems and EUI_Bags._recentItems[data.info.itemID]
+            show = EUI_Bags._recentItems and EUI_Bags.IsRecentEntry(data)
         elseif isPinnedView then
             show = data.info and data.info.itemID and pinnedSet and IsItemPinned(pinnedSet, data.itemLink, data.info.itemID)
+        elseif reagentView then
+            show = data.bag == 5 and data.categoryIndex
         elseif filterSet then
             show = data.categoryIndex and filterSet[data.categoryIndex]
         end
-        if data._pinnedOnly and (isRecentView or filterSet) then show = false end
+        if data._pinnedOnly and (isRecentView or reagentView or filterSet) then show = false end
         if show and data.info and data.info.isFiltered then show = false end
         if show then displayItems[#displayItems + 1] = data end
     end
@@ -878,7 +890,7 @@ function EUI_Bags:RefreshInventory()
         -- then). An item whose link has not loaded is not offered either and stays
         -- unstamped (_vg nil): it is not drawn, as in All Items.
         local keepPin = view.keepPinned and showPinned and pinnedSet or nil
-        local keepRec = view.keepRecent and showRecent and EUI_Bags._recentItems or nil
+        local keepRec = view.keepRecent and showRecent and EUI_Bags._recentItems ~= nil
         local junkCat = EUI_CategoryManager:GetCategories()[EUI_CategoryManager._junkCatIdx or 0]
         local junkSection = not (junkCat and EUI_CategoryManager:IsCategoryOff(junkCat, BP().bagDisabledCategories))
         for _, data in ipairs(displayItems) do
@@ -893,7 +905,7 @@ function EUI_Bags:RefreshInventory()
                     or EUI_CategoryManager:ClassifyView(view, link, itemID, data.bag, data.slot, quality)
                 data._vgPin = keepPin and itemID and IsItemPinned(keepPin, link, itemID) or nil
                 data._vgOnly = data._vgPin and data._pinnedOnly or nil
-                data._vgRec = keepRec and itemID and not data._pinnedOnly and keepRec[itemID] and true or nil
+                data._vgRec = keepRec and not data._pinnedOnly and EUI_Bags.IsRecentEntry(data) or nil
             else
                 data._vg, data._vgJunk, data._vgPin, data._vgOnly, data._vgRec = nil, nil, nil, nil, nil
             end
@@ -973,7 +985,7 @@ function EUI_Bags:RefreshInventory()
                 local sizeCats = BP().bagSplitSetGearBySet and EUI_CategoryManager:GetCategories() or nil
                 local hasSetChild = false
                 for i, c in pairs(categoryCounts) do
-                    if c and c > 0 then
+                    if i ~= reagentCatIdx and c and c > 0 then
                         if sizeCats and sizeCats[i] and sizeCats[i].isEquipSet then hasSetChild = true
                         else S = S + 1 end
                     end
@@ -1050,8 +1062,10 @@ function EUI_Bags:RefreshInventory()
     end
 
     -- Both views below paint with the current panel state, merging or not
-    -- (slot views and an unmerged list never reach MergeDuplicates)
+    -- (slot views and an unmerged list never reach MergeDuplicates). The unmerge
+    -- state is set again by whichever merge helper runs in this paint.
     SetPaintedPanelOpen(_anyItemPanelOpen)
+    EUI_Bags._paintedUnmerged = nil
 
     -- no live items laid out under the offline panel (select modes would hit them)
     local liveItems, liveEmpty = tempItems, emptySlots
@@ -1076,6 +1090,7 @@ function EUI_Bags:RefreshInventory()
                 and EUI_Bags._recentItems or nil,
             -- The Recent Items tab: its items in one newest-first section
             recentOnly = isRecentView or nil,
+            reagentView = reagentView,
             -- Empty rows only when nothing is search-filtered out
             emptySlots = (#displayItems == #liveItems) and liveEmpty or nil,
             -- Same rule as the grid's Pinned Items section
