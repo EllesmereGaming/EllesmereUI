@@ -768,6 +768,8 @@ local function BuildColorPickerPopup()
         popup:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x, y)
         EllesmereUI._colorPickerOpen = true
         RefreshSwatchRows()
+        -- Typed hex never moves this cache, so drop it or a same-color reopen keeps the stale text.
+        lastHexR, lastHexG, lastHexB = -1, -1, -1
         popup:Show(); UpdateAllControls()
         -- Controller cursor: into the picker, on OK (its first stop would be the close box).
         if EllesmereUI.PadCursorShown() then EllesmereUI.PadFocus(okBtn) end
