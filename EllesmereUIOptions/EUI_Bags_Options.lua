@@ -566,7 +566,7 @@ initFrame:SetScript("OnEvent", function(self)
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
                         { type="toggle", label="Show Picked-Up Amount",
-                          tooltip="Recent Items shows how many of a stackable item you picked up instead of every stack you carry, and only the new copies of an item that does not stack. While you send mail, or a vendor, trade, auction house, bank or guild bank window is open, the real stacks show.",
+                          tooltip="Recent Items shows one entry per item, with the amount you picked up.",
                           get=function() return db.profile.bagRecentShowGained == true end,
                           set=function(v)
                               db.profile.bagRecentShowGained = v
@@ -686,7 +686,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Categorize Reagent Bag Items",
-                  tooltip="Show reagent bag items in their item categories in All Items.",
+                  tooltip="Files reagent bag items under their item categories, in All Items and on the category tabs. The Reagent Bag entry still lists the bag.",
                   getValue=function() return db.profile.bagCategorizeReagents == true end,
                   setValue=function(v)
                       db.profile.bagCategorizeReagents = v

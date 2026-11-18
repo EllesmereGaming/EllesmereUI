@@ -707,6 +707,54 @@ if EllesmereUI.IS_FOREVER == true then
     }
 end
 
+-- The one lookup of those attacks for the readers that need one (the Swing
+-- Timer swipes on Cooldown Manager icons and on action buttons, the Bar Glows
+-- swing window). Defined on every client (no attack off WoW Forever), so a
+-- module's stale-parent guard can list it.
+--   EllesmereUI.ForeverNextSwingNames() -> the player class's attack names,
+--     nil while a name has not loaded (asked again on the next call), false
+--     for a class with none. The list is shared: never modify it.
+--   EllesmereUI.ForeverNextSwingOf(spellID) -> the swing type the spell rides
+--     (Enum.PlayerSwingType.MainHand) when it is one of those attacks, any rank
+--     (matched by name), else false.
+do
+    local names        -- the list; false = none; nil = not built yet
+    local nameSet = {}
+    local bySid = {}   -- [spellID] = swing type, or false
+    local function Names()
+        if names ~= nil then return names end
+        local _, class = UnitClass("player")
+        local ids = EllesmereUI.FOREVER_NEXT_SWING and EllesmereUI.FOREVER_NEXT_SWING[class]
+        if not ids then
+            names = false
+            return false
+        end
+        local list = {}
+        for i = 1, #ids do
+            local n = EllesmereUI.PlainString(C_Spell.GetSpellName(ids[i]))
+            if not n then return nil end
+            list[i] = n
+        end
+        for i = 1, #list do nameSet[list[i]] = true end
+        names = list
+        return list
+    end
+    EllesmereUI.ForeverNextSwingNames = Names
+    function EllesmereUI.ForeverNextSwingOf(sid)
+        if type(sid) ~= "number" or issecretvalue(sid) or sid <= 0 then return false end
+        local s = bySid[sid]
+        if s ~= nil then return s end
+        local list = Names()
+        if list == false then return false end
+        local n = EllesmereUI.PlainString(C_Spell.GetSpellName(sid))
+        -- A name not loaded yet is asked again on the next call.
+        if not (list and n) then return false end
+        s = nameSet[n] and Enum.PlayerSwingType.MainHand or false
+        bySid[sid] = s
+        return s
+    end
+end
+
 -- SEASON UPDATE: a potion tier a new season adds joins its family below.
 -- Combat consumables: healthstones and potions, one family per Cooldown
 -- Manager preset key, in that module's preset fields. itemID: the family's

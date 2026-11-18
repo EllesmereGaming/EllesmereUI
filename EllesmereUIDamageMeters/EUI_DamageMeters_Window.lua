@@ -169,6 +169,9 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
                     local boxBg = box:CreateTexture(nil, "BACKGROUND")
                     boxBg:SetAllPoints(); boxBg:SetColorTexture(0, 0, 0, 0.4)
                     box:SetAutoFocus(false)
+                    -- A hidden box keeps the keyboard: release it whenever the box hides,
+                    -- the menu closing for combat while the player types included.
+                    box:SetScript("OnHide", box.ClearFocus)
                     box:SetNumeric(true)
                     box:SetMaxLetters(5)
                     row._editBox = box

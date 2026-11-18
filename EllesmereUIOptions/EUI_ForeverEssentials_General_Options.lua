@@ -179,8 +179,8 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     --  GENERAL: Auto Uprank Spells on Bars | Classic Windows (the vanilla
     --  spellbook and talent window as one checkbox dropdown), then Most
     --  Valuable Quest Reward (EllesmereUIForeverEssentials_QuestRewards.lua) |
-    --  Gathering Skill in Tooltips (EllesmereUIForeverEssentials_GatherSkill.lua),
-    --  then Auto Summon Pet | Favorites per
+    --  Gathering Skill in Tooltips (EllesmereUIForeverEssentials_GatherSkill.lua;
+    --  its cog: Skinning), then Auto Summon Pet | Favorites per
     --  Character. Every control reads and writes its feature's own key and
     --  runs that feature's own apply.
     ---------------------------------------------------------------------------
@@ -265,22 +265,20 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               EllesmereUI:RefreshPage()  -- the cog's disabled state
           end }
     );  y = y - h
-    do
-        EllesmereUI.BuildInlineCog(rewardRow._rightRegion, {
-            title = "Gathering Skill in Tooltips",
-            rows = {
-                { type = "toggle", label = "Skinning",
-                  tooltip = "Also adds the skill a skinnable corpse needs to its tooltip.",
-                  get = function() return GS.Get("skinning") end,
-                  set = function(v)
-                      GS.Cfg().skinning = v
-                      GS.Apply()
-                  end },
-            },
-            disabled = function() return not GS.Get("enabled") end,
-            disabledTooltip = "Gathering Skill in Tooltips",
-        })
-    end
+    EllesmereUI.BuildInlineCog(rewardRow._rightRegion, {
+        title = "Gathering Skill in Tooltips",
+        rows = {
+            { type = "toggle", label = "Skinning",
+              tooltip = "Also adds the skill a skinnable corpse needs to its tooltip.",
+              get = function() return GS.Get("skinning") end,
+              set = function(v)
+                  GS.Cfg().skinning = v
+                  GS.Apply()
+              end },
+        },
+        disabled = function() return not GS.Get("enabled") end,
+        disabledTooltip = "Gathering Skill in Tooltips",
+    })
 
     -- Auto Summon Pet | Favorites per Character
     -- (EllesmereUIForeverEssentials_PetSummon.lua), while the Pet Journal exists.

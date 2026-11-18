@@ -3483,7 +3483,7 @@ local function CreateMover(barKey)
                     local val = math.max(1, math.floor(self:GetNumber() + 0.5))
                     local sb = UM.GetBarFrame(barKey)
                     local savedAlpha = sb and EllesmereUI._GetFFD(sb).restoreAlpha
-                    if sb and not savedAlpha then EllesmereUI._UnlockSetBarAlpha(sb, 0) end
+                    if sb and not savedAlpha then EllesmereUI._UnlockBlankBar(sb) end
                     if axis == "Width" then
                         if elem.setWidth then elem.setWidth(barKey, val) end
                         for childKey, targetKey in pairs(MatchH.GetWidthMatchDB() or {}) do
@@ -3499,7 +3499,7 @@ local function CreateMover(barKey)
                     self:ClearFocus()
                     EllesmereUI.RecenterBarAnchor(barKey)
                     if sb and not savedAlpha then
-                        C_Timer.After(0, function() EllesmereUI._UnlockSetBarAlpha(sb, 1) end)
+                        C_Timer.After(0, function() EllesmereUI._UnlockUnblankBar(sb) end)
                     end
                     local bm = movers[barKey]
                     if bm then bm:SyncSize() end

@@ -48,10 +48,11 @@ local function PetHappyUnseen(self)
     return type(a) == "number" and not issecretvalue(a) and a < 0.05
 end
 
--- Click to Feed (pet.happinessFeed): a left click on the icon opens a grid of
--- the bag foods the pet will eat, each a secure button casting Feed Pet on
--- its bag slot. Built on first open; opened, filled and moved out of combat
--- only, and closed as combat starts. Its events live only while it is shown.
+-- Click to Feed, part of the icon whenever it shows (no switch of its own): a
+-- left click on the icon opens a grid of the bag foods the pet will eat, each a
+-- secure button casting Feed Pet on its bag slot. Built on first open; opened,
+-- filled and moved out of combat only, and closed as combat starts. Its events
+-- live only while it is shown.
 local FEED_PET_SPELL_ID = 6991
 local FEED_BTN, FEED_GAP, FEED_PAD, FEED_COLS = 30, 2, 3, 6
 local feedMenu
@@ -140,7 +141,7 @@ local function LayoutFeedMenu()
         b:SetAttribute("target-bag", feedBag[i])
         b:SetAttribute("target-slot", feedSlot[i])
         b._icon:SetTexture(feedIcon[i])
-        b._count:SetFont(font, 10, "OUTLINE")
+        EllesmereUI.ApplyIconTextFont(b._count, font, 10, "unitFrames")
         b._count:SetText(feedCount[i] > 1 and feedCount[i] or "")
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", feedMenu, "TOPLEFT",
@@ -151,7 +152,7 @@ local function LayoutFeedMenu()
     for i = n + 1, #btns do btns[i]:Hide() end
     local empty = feedMenu._empty
     if n == 0 then
-        empty:SetFont(font, 11, "")
+        EllesmereUI.ApplyModuleFont(empty, font, 11, "unitFrames", "")
         empty:Show()
         feedMenu:SetSize(math.ceil(empty:GetStringWidth()) + 16, FEED_BTN)
     else
@@ -220,7 +221,7 @@ local function BuildFeedMenu()
     m._empty = m:CreateFontString(nil, "OVERLAY")
     m._empty:SetPoint("CENTER")
     m._empty:SetTextColor(1, 1, 1, 0.6)
-    m._empty:SetFont(EllesmereUI.GetFontPath("unitFrames") or STANDARD_TEXT_FONT, 11, "")
+    EllesmereUI.ApplyModuleFont(m._empty, EllesmereUI.GetFontPath("unitFrames") or STANDARD_TEXT_FONT, 11, "unitFrames", "")
     m._empty:SetText(EllesmereUI.L("No food your pet will eat"))
     m._btns = {}
     m:SetScript("OnShow", function(self)
@@ -256,7 +257,7 @@ function ns.UF_PetHappinessOnMouseUp(self, button)
 end
 
 -- Hover text, read fresh: state, damage share, loyalty level and trend, diet,
--- and the click hint while Click to Feed is on.
+-- and the click hint.
 function ns.UF_PetHappinessOnEnter(self)
     if PetHappyUnseen(self) then return end
     local happiness, dmg, loyalty = C_PetInfo.GetPetHappiness()
@@ -275,9 +276,7 @@ function ns.UF_PetHappinessOnEnter(self)
     if diet and #diet > 0 then
         text = text .. "\n" .. PET_DIET_TEMPLATE:format(table.concat(diet, PET_FOOD_DELIMIT))
     end
-    if db.profile.pet.happinessFeed then
-        text = text .. "\n|cff9d9d9d" .. EllesmereUI.L("Left-click to feed your pet.") .. "|r"
-    end
+    text = text .. "\n" .. EllesmereUI.COLOR_CODES.DIM .. EllesmereUI.L("Left-click to feed your pet.") .. "|r"
     EllesmereUI.ShowWidgetTooltip(self, text)
 end
 
@@ -315,13 +314,11 @@ function ns.UF_ApplyPetHappiness()
         h:SetScript("OnEnter", ns.UF_PetHappinessOnEnter)
         h:SetScript("OnLeave", ns.UF_PetHappinessOnLeave)
         h:SetScript("OnMouseUp", ns.UF_PetHappinessOnMouseUp)
+        -- Its left click opens the feed grid (Click to Feed is part of the icon).
+        h:SetMouseClickEnabled(true)
         h:Hide()
         pf._petHappy = h
     end
-    -- Clicks pass through unless Click to Feed is on.
-    local feed = s.happinessFeed == true
-    h:SetMouseClickEnabled(feed)
-    if not feed then HideFeedMenu() end
     local sz = s.happinessSize or 20
     local align = s.happinessAlign or "right"
     local x, y = s.happinessX or 0, s.happinessY or 0

@@ -585,7 +585,7 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
         if ns.AB_SwingSweepApply then
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Show Swing Timer on Attacks",
-                  tooltip="Heroic Strike, Cleave, Maul and Raptor Strike show your weapon swing as a cooldown swipe on their buttons, starting again on every swing.",
+                  tooltip="Shows your weapon swing as a cooldown swipe on your on-next-swing attack buttons, starting again on every swing.",
                   getValue=function() return p.swingTimerSwipe or false end,
                   setValue=function(v)
                       p.swingTimerSwipe = v

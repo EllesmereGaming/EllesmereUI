@@ -1947,7 +1947,11 @@ initFrame:SetScript("OnEvent", function(self)
         factionIndicatorPosition    = { player=true, target=true },
         factionIndicatorX           = { player=true, target=true },
         factionIndicatorY           = { player=true, target=true },
-        buffAnchor           = { player=true, target=true, focus=true },
+        factionIndicatorTimer       = { player=true },
+        factionIndicatorTimerSize   = { player=true },
+        factionIndicatorTimerX      = { player=true },
+        factionIndicatorTimerY      = { player=true },
+        buffAnchor          = { player=true, target=true, focus=true },
         buffGrowth           = { player=true, target=true, focus=true },
         maxBuffs             = { player=true, target=true, focus=true },
         showPlayerCastbar    = { player=true },
@@ -2421,6 +2425,9 @@ initFrame:SetScript("OnEvent", function(self)
         if (optState.selectedUnit == "player" or optState.selectedUnit == "target") and parent._ufFactionRow then
             parent._sharedClickTargets.factionIndicator = { section = sharedAddHeader, target = parent._ufFactionRow, slotSide = "left" }
         end
+        if optState.selectedUnit == "player" and parent._ufPvpTimerRow then
+            parent._sharedClickTargets.pvpTimer = { section = sharedAddHeader, target = parent._ufPvpTimerRow, slotSide = "left" }
+        end
 
         return y
     end  -- BuildSharedSettings
@@ -2650,6 +2657,12 @@ initFrame:SetScript("OnEvent", function(self)
                     ov:SetShown(b[1]:IsShown())
                     pv._badgeOv[b[1]] = ov
                 end
+            end
+            -- The PvP Flagged Timer's sample text, the same way.
+            if pv._pvPvpTimer and targets.pvpTimer then
+                local ov = CreateHitOverlay(pv._pvPvpTimer, "pvpTimer", true, baseLevel + 20)
+                ov:SetShown(pv._pvPvpTimer:IsShown())
+                pv._badgeOv[pv._pvPvpTimer] = ov
             end
             pv._textOverlays = textOverlays
         end

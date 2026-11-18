@@ -1606,6 +1606,13 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
     local factionInd = combatIndHolder:CreateTexture(nil, "OVERLAY", nil, 6)
     factionInd:Hide()
     pf._factionIndicator = factionInd
+    -- PvP Flagged Timer sample beside it (player), behind its row's eye toggle.
+    if unitKey == "player" then
+        pf._pvPvpTimer = combatIndHolder:CreateFontString(nil, "OVERLAY", nil, 7)
+        pf._pvPvpTimer:SetTextColor(1, 1, 1)
+        pf._pvPvpTimer:SetWordWrap(false)
+        pf._pvPvpTimer:Hide()
+    end
     -- Raid marker / leader / elite previews, each behind its row's eye toggle
     -- (pf fields, not locals: this builder is long).
     pf._pvRaid = combatIndHolder:CreateTexture(nil, "OVERLAY", nil, 6)
@@ -4182,9 +4189,13 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         -- Faction indicator preview, behind its row's eye toggle: your own faction
         -- on the player frame, the other faction on the target frame (what
         -- Opposite Faction shows).
+        -- The PvP Flagged Timer's eye shows the badge too: its sample sits beside it.
         if factionInd then
             local fMode = s.factionIndicatorMode or "off"
-            local fEye = ns._ufPvEyes and ns._ufPvEyes.faction
+            local fTimer = pf._pvPvpTimer
+            local fSide = fTimer and ns._ufPvEyes and ns._ufPvEyes.pvpTimer and s.factionIndicatorTimer
+            if fSide == "none" then fSide = nil end
+            local fEye = ns._ufPvEyes and (ns._ufPvEyes.faction or fSide)
             if (unitKey == "player" or unitKey == "target") and fMode ~= "off" and fEye then
                 local mine = UnitFactionGroup("player")
                 local fac = mine
@@ -4195,10 +4206,11 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 local fSz = s.factionIndicatorSize or 18
                 local fPos = s.factionIndicatorPosition or "topright"
                 local fOx, fOy = s.factionIndicatorX or 0, s.factionIndicatorY or 0
-                local fStyle = s.factionIndicatorStyle or "pvp"
+                local fStyle = s.factionIndicatorStyle or "crest"
                 -- The preview shows your own badge on both frames.
                 EllesmereUI.SetFactionArt(factionInd, fStyle, fac, EllesmereUI.FactionBadgeFor(fStyle, "player"))
-                factionInd:SetSize(fSz, fSz)
+                -- As live: an fSz box, the art centred in it at its own proportions.
+                EllesmereUI.FitFactionArt(factionInd, fSz)
                 factionInd:ClearAllPoints()
                 if fPos == "portrait" and portraitFrame and (sp or blizzG) then
                     factionInd:SetPoint("CENTER", portraitFrame, "CENTER", fOx, fOy)
@@ -4208,11 +4220,30 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                         (fPos == "bottomleft"  and "BOTTOMLEFT")  or
                         (fPos == "bottomright" and "BOTTOMRIGHT") or
                         "TOPRIGHT"
-                    factionInd:SetPoint(anchor, pf, anchor, fOx, fOy)
+                    local bx, by = EllesmereUI.FactionBoxCenter(anchor, fSz)
+                    factionInd:SetPoint("CENTER", pf, anchor, fOx + bx, fOy + by)
                 end
                 factionInd:Show()
+                -- The live text's anchors (TIMER_SIDES in EUI_UnitFrames_Init.lua).
+                local tp = (fSide == "left" and "RIGHT") or (fSide == "right" and "LEFT")
+                    or (fSide == "top" and "BOTTOM") or (fSide == "bottom" and "TOP")
+                if tp then
+                    local rp = (fSide == "left" and "LEFT") or (fSide == "right" and "RIGHT")
+                        or (fSide == "top" and "TOP") or "BOTTOM"
+                    local gx = (fSide == "left" and -2) or (fSide == "right" and 2) or 0
+                    local gy = (fSide == "top" and 2) or (fSide == "bottom" and -2) or 0
+                    SetPVFont(fTimer, PREVIEW_FONT, s.factionIndicatorTimerSize or 12)
+                    fTimer:SetText("4:59")
+                    fTimer:ClearAllPoints()
+                    fTimer:SetPoint(tp, factionInd, rp,
+                        gx + (s.factionIndicatorTimerX or 0), gy + (s.factionIndicatorTimerY or 0))
+                    fTimer:Show()
+                elseif fTimer then
+                    fTimer:Hide()
+                end
             else
                 factionInd:Hide()
+                if fTimer then fTimer:Hide() end
             end
         end
         -- Raid marker / leader / elite previews, shown by their rows' eye toggles

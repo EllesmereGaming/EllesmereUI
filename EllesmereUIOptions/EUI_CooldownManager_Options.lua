@@ -219,7 +219,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     -- Default Glow Type (profile-wide): the glow type a new Bar Glow entry starts
-    -- with. Shown on the Bar Glows and CDM Bars pages; saved entries keep theirs.
+    -- with. Shown on the Bar Glows page only; saved entries keep theirs.
     local function DefaultBarGlowStyle()
         local p = DB()
         local v = p and p.cdmBars and tonumber(p.cdmBars.defaultBarGlowStyle)
@@ -228,7 +228,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
     local function DefaultGlowTypeCfg()
         local labels, order = GetGlowStyleValues()
-        return { type = "dropdown", text = "Default Glow Type (global)",
+        return { type = "dropdown", text = "Default Glow Type",
                  values = labels, order = order,
                  tooltip = "The glow type a new Bar Glow starts with. Glows you already made keep their own.",
                  getValue = DefaultBarGlowStyle,
@@ -1375,6 +1375,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:Spacer(parent, y, 8);  y = y - h
 
+        parent._showRowDivider = true
         _, h = W:DualRow(parent, y, DefaultGlowTypeCfg(), EllesmereUI.BlankRowCfg());  y = y - h
 
         -- A selected slot that is (now) non-glowable shows no glow settings (the header tip stays).
@@ -1440,7 +1441,9 @@ initFrame:SetScript("OnEvent", function(self)
                                   getValue = function() return tonumber(entry.swingWindow) ~= nil end,
                                   setValue = function(v)
                                       entry.swingWindow = v and 0.5 or nil
-                                      Refresh()
+                                      -- The glow pass alone (SetupOverlays re-syncs the
+                                      -- windows): never a full CDM rebuild.
+                                      ns.RequestBarGlowUpdate()
                                       EllesmereUI:RefreshPage()
                                   end },
                                 { type = "slider", text = "Seconds Before Swing",
@@ -1450,7 +1453,8 @@ initFrame:SetScript("OnEvent", function(self)
                                   getValue = function() return tonumber(entry.swingWindow) or 0.5 end,
                                   setValue = function(v)
                                       entry.swingWindow = math.floor(v * 10 + 0.5) / 10
-                                      Refresh()
+                                      -- Writes on every drag step: the glow pass only.
+                                      ns.RequestBarGlowUpdate()
                                   end })
                             y = y - h
                         end
@@ -2092,7 +2096,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- opens or a page is built).
     ns._CDMO_OptEnv = {
         _cdmActivePreviewOn = _cdmActivePreviewOn, AnyIconAlwaysShowOn = AnyIconAlwaysShowOn, BuildKeybindStyleControls = BuildKeybindStyleControls,
-        DB = DB, DefaultGlowTypeCfg = DefaultGlowTypeCfg, durationPositionOrder = durationPositionOrder, durationPositionValues = durationPositionValues,
+        DB = DB, durationPositionOrder = durationPositionOrder, durationPositionValues = durationPositionValues,
         FitMenuWidth = FitMenuWidth, FONT_PATH = FONT_PATH, GetCDMOptOutline = GetCDMOptOutline,
         NormalizeToBase = NormalizeToBase, optState = optState, PP = PP,
         Refresh = Refresh, RefreshCDPreview = RefreshCDPreview, ResolveIconArt = ResolveIconArt,

@@ -2100,14 +2100,28 @@ end
 -- two can show: `armed` is 1 for the brackets plus 2 for the tint.
 -- The tint also follows the member's PvP flag (lighter blue off, lighter green on),
 -- and the flag moves without a roster change: while the tint can show, UNIT_FACTION
--- marks the tinted plate it names, and the same pass repaints it.
+-- marks the tinted plate it names, and the same next-frame pass repaints it. A pass
+-- with only such marks repaints the marked plates alone; the whole roster is read
+-- again only after a roster event.
 do
     local groupEv, armed
+    local rosterDirty = false
     local factionDirty = {}
     local function Flush(self)
         self:Hide()
         local brackets, tint = armed == 1 or armed == 3, armed >= 2
         local fp = tint and FP()
+        if not rosterDirty then
+            if tint then
+                for unit in pairs(factionDirty) do
+                    local plate = friendlyPlates[unit]
+                    if plate then PaintFriendlyColors(plate, unit, fp) end
+                end
+            end
+            wipe(factionDirty)
+            return
+        end
+        rosterDirty = false
         for unit, plate in pairs(friendlyPlates) do
             if brackets then
                 local kind = UnitIsPlayer(unit) and GetUnitGroupBracketKind(unit) or nil
@@ -2143,6 +2157,8 @@ do
         if want == 0 then
             groupEv:UnregisterAllEvents()
             groupEv:Hide()
+            rosterDirty = false
+            wipe(factionDirty)
             return
         end
         if not groupEv then
@@ -2154,15 +2170,21 @@ do
                     local plate = unit and friendlyPlates[unit]
                     if not (plate and plate._grpTint) then return end
                     factionDirty[unit] = true
+                else
+                    rosterDirty = true
                 end
                 self:Show()
             end)
             groupEv:SetScript("OnUpdate", Flush)
         end
-        if want >= 2 then
-            groupEv:RegisterEvent("UNIT_FACTION")
-        else
-            groupEv:UnregisterEvent("UNIT_FACTION")
+        -- the PvP flag event follows the tint alone, registered or dropped only when that changes
+        if (want >= 2) ~= (was >= 2) then
+            if want >= 2 then
+                groupEv:RegisterEvent("UNIT_FACTION")
+            else
+                groupEv:UnregisterEvent("UNIT_FACTION")
+                wipe(factionDirty)
+            end
         end
         -- already listening: a pass that is waiting for its frame runs with the new set
         if was ~= 0 then return end

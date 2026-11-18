@@ -452,8 +452,9 @@ local function MergeDuplicates(items)
     -- the state changed while they were hidden and repaint (see OnShow).
     SetPaintedPanelOpen(_anyItemPanelOpen)
     if _anyItemPanelOpen or BP().bagMergeDuplicates == false then return items end
-    -- Session-only unmerge marks (EUI_Bags._unmergedLinks: set by the split
-    -- dialog, wiped when the bags close, never persisted): a marked item keeps
+    -- Session-only unmerge marks (EUI_Bags._unmergedLinks, keyed by merge key,
+    -- GetItemMergeKey above, not by link: set by the split dialog, wiped when
+    -- the bags close, never persisted): a marked item keeps
     -- its real stacks apart so a split's pieces are visible in these views.
     local unmerged = EUI_Bags._unmergedLinks
     -- Painted-with-marks state, the same job _paintedPanelOpen does: the bags
@@ -500,6 +501,7 @@ end
 -- contract as MergeDuplicates: input tables are never modified, the result
 -- dies with the render pass, and while an item panel is open the list stays
 -- as it is (a proxy showing x1 would hand over the whole real stack).
+local _gainedCarried, _gainedBest = {}, {} -- scratch, wiped per call
 local function RecentGainedItems(items)
     if BP().bagRecentShowGained ~= true then return items end
     SetPaintedPanelOpen(_anyItemPanelOpen)
@@ -511,7 +513,8 @@ local function RecentGainedItems(items)
     local gained = EUI_Bags._recentGained
     if not gained or next(gained) == nil then return items end
     -- First pass: the carried amount and the representative slot per item.
-    local carried, best = {}, {}
+    local carried, best = _gainedCarried, _gainedBest
+    wipe(carried); wipe(best)
     for _, d in ipairs(items) do
         local id = d.info and d.info.itemID
         if id and gained[id] and not (unmerged and unmerged[GetItemMergeKey(d.itemLink) or false]) then

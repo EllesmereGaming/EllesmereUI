@@ -827,8 +827,13 @@ end
 --  "coords" crops a file whose art does not fill it (the Classic banner sits in the
 --  top-left 42 of 64 pixels).
 --  Unknown styles fall back to "pvp", the default.
+--  Proportions: a caller's square is a box (EllesmereUI.FitFactionArt), and the art
+--  sits centred inside it at its own width and height: an atlas's, read from the game
+--  (the PvP Emblem's Alliance art is 28 x 41, the crest 82 x 92 / 88 x 101); the file
+--  styles are square (game icons, and the Classic banner's square crop).
 -------------------------------------------------------------------------------
 EllesmereUI.FACTION_ART = {
+    crest     = { atlas = "talenttree-%s-cornerlogo", lower = true },
     pvp       = { atlas = "UI-HUD-UnitFrame-Player-PVP-%sIcon" },
     honor     = { atlas = "honorsystem-portrait-%s", lower = true, badge = true },
     poi       = { atlas = "poi-%s", lower = true },
@@ -837,9 +842,9 @@ EllesmereUI.FACTION_ART = {
     honoricon = { file = "Interface\\Icons\\PVPCurrency-Honor-%s" },
     friends   = { file = "Interface\\FriendsFrame\\PlusManz-%s" },
 }
-EllesmereUI.FACTION_ART_ORDER = { "pvp", "honor", "poi", "classic", "banner", "honoricon", "friends" }
+EllesmereUI.FACTION_ART_ORDER = { "crest", "pvp", "honor", "poi", "classic", "banner", "honoricon", "friends" }
 EllesmereUI.FACTION_ART_LABELS = {
-    pvp = "PvP Emblem", honor = "Honor Portrait", poi = "Map Flag", classic = "Classic Banner",
+    crest = "Faction Crest", pvp = "PvP Emblem", honor = "Honor Portrait", poi = "Map Flag", classic = "Classic Banner",
     banner = "Banner Icon", honoricon = "Honor Icon", friends = "Friends Crest",
 }
 -- Honor Portrait is an empty hexagon; the unit's honor badge is drawn on top (30 on 50).
@@ -904,6 +909,44 @@ local function SetBadge(tex, file)
     if tex:IsShown() then host:Show() end
 end
 
+-- width / height of an atlas, read once per name (1 for a name the client lacks).
+local atlasAspect = {}
+local function AtlasAspect(name)
+    local a = atlasAspect[name]
+    if a == nil then
+        local info = C_Texture.GetAtlasInfo(name)
+        local w, h = info and info.width, info and info.height
+        a = (w and h and w > 0 and h > 0) and (w / h) or 1
+        atlasAspect[name] = a
+    end
+    return a
+end
+
+-- The art's size inside its box: the longer side fills it.
+local function FitArt(tex)
+    local box = tex._facBox
+    if not box then return end
+    local a = tex._facAspect or 1
+    if a >= 1 then tex:SetSize(box, box / a) else tex:SetSize(box * a, box) end
+end
+
+-- Sizes a faction texture for an sz x sz box. The caller anchors the texture by its
+-- CENTER on the box's centre (EllesmereUI.FactionBoxCenter for a box placed by a
+-- corner or an edge), so art narrower or shorter than the box stays centred in it.
+function EllesmereUI.FitFactionArt(tex, sz)
+    tex._facBox = sz
+    FitArt(tex)
+end
+
+-- The offset from a box's anchor point to its centre, for an sz x sz box anchored
+-- by `point` ("TOPLEFT", "RIGHT", "CENTER", ...).
+function EllesmereUI.FactionBoxCenter(point, sz)
+    local half = sz / 2
+    local dx = point:find("LEFT", 1, true) and half or (point:find("RIGHT", 1, true) and -half) or 0
+    local dy = point:find("TOP", 1, true) and -half or (point:find("BOTTOM", 1, true) and half) or 0
+    return dx, dy
+end
+
 function EllesmereUI.SetFactionArt(tex, style, faction, badgeFile)
     SetBadge(tex, badgeFile)
     local art = EllesmereUI.FACTION_ART[style] or EllesmereUI.FACTION_ART.pvp
@@ -925,11 +968,14 @@ function EllesmereUI.SetFactionArt(tex, style, faction, badgeFile)
         -- unless told to reset it, so clear it first and ask for the reset too.
         tex:SetTexCoord(0, 1, 0, 1)
         tex:SetAtlas(name, false, nil, true)
+        tex._facAspect = AtlasAspect(name)
     else
         tex:SetTexture(name)
         local c = art.coords
         if c then tex:SetTexCoord(c[1], c[2], c[3], c[4]) else tex:SetTexCoord(0, 1, 0, 1) end
+        tex._facAspect = 1
     end
+    FitArt(tex)
 end
 
 -------------------------------------------------------------------------------

@@ -1009,7 +1009,13 @@ function ns.RenderListView(items, opts)
             if opts.recentOnly then
                 if not recentItems then Add("recent", "", d) end
             elseif opts.reagentView then
-                Add(opts.reagentView, "", d)
+                -- the bag's own tab with categorized reagents: one section, its Split
+                -- by Type sub-sections and junk routed as in a category's section
+                if junkOn and cat and cat.isJunk or (not junkOn and d._lvQuality == 0) then
+                    Add("junk", "", d)
+                else
+                    Add(opts.reagentView, d._lvSub, d)
+                end
             elseif slotView then
                 Add(BagKey(d.bag), "", d)
             elseif view then

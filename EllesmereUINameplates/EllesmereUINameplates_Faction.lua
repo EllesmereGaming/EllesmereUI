@@ -19,8 +19,10 @@ local function GetBadge(nameplate)
     if not b then
         b = CreateFrame("Frame", nil, nameplate)
         b:SetFrameStrata("MEDIUM")
+        -- The frame is the badge's box; the art sits centred in it at its own
+        -- proportions (EllesmereUI.FitFactionArt in Refresh).
         b.tex = b:CreateTexture(nil, "ARTWORK")
-        b.tex:SetAllPoints()
+        b.tex:SetPoint("CENTER")
         b:Hide()
         badges[nameplate] = b
     end
@@ -62,6 +64,7 @@ local function Refresh(fp)
     b = b or GetBadge(nameplate)
     local sz = ns.NP_GetFactionIconSize()
     b:SetSize(sz, sz)
+    EllesmereUI.FitFactionArt(b.tex, sz)
     b:SetFrameLevel(nameplate:GetFrameLevel() + 5)
     b:ClearAllPoints()
     b:SetPoint("RIGHT", fs, "LEFT", -2, 0)
