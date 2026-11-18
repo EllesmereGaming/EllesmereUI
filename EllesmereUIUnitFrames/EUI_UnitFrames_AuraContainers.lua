@@ -1692,10 +1692,13 @@ local function BuildStyle(unit, base, s, unitFrame)
     -- Boss simple side displays read their own cooldown-text keys.
     local simpleOn = BossSimple(unit, base, s)
     local showCdKey, cdSizeKey = p .. "ShowCooldownText", p .. "CooldownTextSize"
+    local cdOffXKey, cdOffYKey = p .. "CooldownTextOffsetX", p .. "CooldownTextOffsetY"
     local cdSizeDefault = 10
     if simpleOn then
         showCdKey = "simple" .. p:gsub("^%l", string.upper) .. "ShowCooldownText"
         cdSizeKey = "simple" .. p:gsub("^%l", string.upper) .. "CooldownTextSize"
+        cdOffXKey = "simple" .. p:gsub("^%l", string.upper) .. "CooldownTextOffsetX"
+        cdOffYKey = "simple" .. p:gsub("^%l", string.upper) .. "CooldownTextOffsetY"
         cdSizeDefault = 14
     end
 
@@ -1763,8 +1766,8 @@ local function BuildStyle(unit, base, s, unitFrame)
         durationPrecisionThreshold = tonumber(s[p .. "CooldownTextPrecision"]),
         cdTextSize = s[cdSizeKey] or cdSizeDefault,
         cdTextColor = s[p .. "CooldownTextColor"],
-        cdOffX = s[p .. "CooldownTextOffsetX"] or 0,
-        cdOffY = s[p .. "CooldownTextOffsetY"] or 0,
+        cdOffX = s[cdOffXKey] or 0,
+        cdOffY = s[cdOffYKey] or 0,
         stackSize = s[p .. "StackTextSize"] or 14,
         stackColor = s[p .. "StackTextColor"],
         stackPos = s[p .. "StackTextPosition"],
