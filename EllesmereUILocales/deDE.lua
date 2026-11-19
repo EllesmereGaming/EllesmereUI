@@ -640,7 +640,6 @@ L["ToS"] = true
 L["KR"] = true
 
 -- == Community Translation ==========================================================
--- The Loadout Manager tab of AuraBuff Reminders (2026-11-17)
 L["    Enemy Units"] = "    Gegnerische Einheiten"
 L["    Friendly Units"] = "    Befreundete Einheiten"
 L["    Unit Types"] = "    Einheitentypen"
@@ -1351,7 +1350,6 @@ L["Applicant Row Height"] = "Bewerber Zeilenhöhe"
 L["Applied Groups on Top"] = "Gruppen mit Bewerbung nach oben"
 L["Applied"] = "Angewendet"
 L["Applies EllesmereUI theme styling to the inspect sheet window."] = "Wendet das EllesmereUI Design auf das Instandhaltungs-/Betrachten Fenster an."
-L["Applies gear sets and talent loadouts automatically per instance type and specialization."] = "Wendet Ausrüstungssets und Talentkonfigurationen automatisch je nach Instanztyp und Spezialisierung an."
 L["Applies one text size to every chat window, saved with your profile. Individual windows can still be adjusted from their tab's right-click menu until the next login re-applies the profile size."] = "Wendet eine einheitliche Textgröße auf jedes Chatfenster an, gespeichert in Deinem Profil. Einzelne Fenster können weiterhin über das Rechtsklick-Menü ihres Tabs angepasst werden, bis das Neuanmelden die Profilgröße wieder anwendet."
 L["Applies when you leave an instance."] = "Gilt, wenn Du eine Instanz verlässt."
 L["Applies your Global Font to Blizzard's default game text (menus, tooltips, quest log, character panes, and more). Requires a UI reload."] = "Wendet Deine globale Schriftart auf Blizzards Standard Spieltext an (Menüs, Tooltips, Questlog, Charakterfenster und mehr). Erfordert ein Neuladen des UI."
@@ -2321,7 +2319,6 @@ L["Choose the spells and their colors."] = "Wähle die Zauber und ihre Farben."
 L["Choose this text's position."] = "Wähle die Position dieses Texts."
 L["Choose this text's slot position."] = "Wähle die Platzposition dieses Textes."
 L["Choose what shows on each equipped item."] = "Wähle, was auf jedem angelegten Gegenstand angezeigt wird."
-L["Choose what swaps on its own."] = "Wähle, was automatisch gewechselt wird."
 L["Choose when the crosshair is shown."] = "Wähle, wann das Fadenkreuz angezeigt wird."
 L["Choose where each talent's 'Not Needed' reminder shows: never, this season's instances or every instance; one that was on now shows in this season's instances"] = "Wähle, wo die 'Nicht benötigt'-Erinnerung jedes Talents angezeigt wird: Nie, in den Instanzen dieser Saison oder in jeder Instanz; eine zuvor aktive Option zeigt sich nun in den Instanzen dieser Saison"
 L["Choose where your combo points show."] = "Wähle, wo Deine Kombopunkte angezeigt werden."
