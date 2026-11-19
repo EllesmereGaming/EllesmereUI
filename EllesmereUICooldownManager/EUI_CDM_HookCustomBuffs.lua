@@ -65,10 +65,10 @@ end
 -- Loss counterpart to PlayPresetBuffGainSound for self-timed preset/custom buffs
 -- (no real aura-removed alert): fired when the displayed timer runs out. Separate
 -- throttle table so gain/loss never suppress each other.
-local function PlayPresetBuffLossSound(sd, sid, now)
+local function PlayPresetBuffLossSound(sd, barKey, sid, now)
     if not ns._cdmAnyBuffSound then return end
     if ns._cdmSoundSuppressed and ns._cdmSoundSuppressed() then return end
-    local ss = sd and sd.spellSettings and sd.spellSettings[sid]
+    local ss = ResolveSpellSettings(nil, sid, sd, barKey)
     local key = ss and ss.buffLostSoundKey
     if not key or key == "none" then return end
     local last = _presetLossSoundAt[sid]
@@ -754,7 +754,7 @@ local function UpdateCustomBuffBars()
 
                             -- Loss edge: displayed timer ran out -> fire once, drop it.
                             if timer and (now - timer.start) >= timer.duration then
-                                PlayPresetBuffLossSound(sd, sid, now)
+                                PlayPresetBuffLossSound(sd, barKey, sid, now)
                                 _customAuraTimers[timerKey] = nil
                                 timer = nil
                             end
@@ -865,7 +865,7 @@ local function UpdateCustomBuffBars()
                             -- Loss edge: displayed window ran out -> fire once, drop timer.
                             local t = _customAuraTimers[tkey]
                             if t and (now - t.start) >= t.duration then
-                                PlayPresetBuffLossSound(sd, sid, now)
+                                PlayPresetBuffLossSound(sd, barData.key, sid, now)
                                 _customAuraTimers[tkey] = nil
                                 needBuffReanchor = true
                             end
