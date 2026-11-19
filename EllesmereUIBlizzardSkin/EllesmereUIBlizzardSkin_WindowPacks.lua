@@ -8687,11 +8687,13 @@ local function UpdateMerchantItemLevels()
     local onSellTab = (f.selectedTab or 1) == 1
     local numItems
     local prefix = "MerchantItem"
-    if EllesmereUIDB.merchantShowAsList then
+    -- The list and grid only exist once the Merchant reskin built them; else use native tiles.
+    local asList = EllesmereUIDB.merchantShowAsList and f.wSkinScrollFrame
+    if asList then
         -- GetNumBuybackItems is irrelevant: text only shows on the sell tab.
         numItems = GetMerchantNumItems()
         prefix = "EUI_MerchantItem"
-    elseif EllesmereUI._Merchant_ExpandActive() then
+    elseif EllesmereUI._Merchant_ExpandActive() and EllesmereUI._Merchant_ExpandPerPage() > 0 then
         numItems = EllesmereUI._Merchant_ExpandPerPage()
         prefix = "EUI_MerchantPage"
     else
@@ -8710,7 +8712,7 @@ local function UpdateMerchantItemLevels()
             else
                 if not fs then
                     fs = btn:CreateFontString(nil, "OVERLAY", nil, 7)
-                    if EllesmereUIDB.merchantShowAsList then
+                    if asList then
                         fs:SetPoint("TOPLEFT", _G["EUI_MerchantItem" .. i .. "SlotTexture"], "TOPLEFT", 1, -1)
                     else
                         fs:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
