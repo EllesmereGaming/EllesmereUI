@@ -246,9 +246,13 @@ local function OnPaletteUpdate(_, elapsed)
 end
 
 -- The tint's events (see PaletteView:RefreshTints), registered only while a
--- live tinted menu is up; ns.Open and ns.Close sync it. CONTROL_LOST/GAINED
--- bracket a flight path; the first two are the mount area (journal, doorway).
--- Landing clears the taxi flag after CONTROL_GAINED, so UNIT_FLAGS catches it.
+-- live menu with a tinted entry is up; ns.Open and ns.Close, every close's
+-- path, sync it, and the frame is made the first time such a menu opens. The
+-- first two are the mount area (the journal, a doorway); CONTROL_LOST/GAINED
+-- bracket a flight path, and UNIT_FLAGS catches the taxi flag whenever it
+-- clears. A combat or flight edge brings several in one frame: an event only
+-- shows the hidden frame, whose next OnUpdate hides it and re-reads once,
+-- after the frame's events (combat lockdown has begun by then).
 local tintWatch
 local TINT_WATCH_EVENTS = { "MOUNT_JOURNAL_USABILITY_CHANGED", "MINIMAP_UPDATE_ZOOM",
                             "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
@@ -257,13 +261,18 @@ local TINT_WATCH_EVENTS = { "MOUNT_JOURNAL_USABILITY_CHANGED", "MINIMAP_UPDATE_Z
 local function SyncTintWatch(on)
     if on and not tintWatch then
         tintWatch = CreateFrame("Frame")
-        tintWatch:SetScript("OnEvent", function()
+        tintWatch:Hide()
+        tintWatch:SetScript("OnEvent", tintWatch.Show)
+        tintWatch:SetScript("OnUpdate", function(self)
+            self:Hide()
             if liveView and liveView:GetFrame():IsShown() then
                 liveView:RefreshTints()
             end
         end)
     end
     if not tintWatch then return end
+    -- A close drops a re-read still waiting for its frame.
+    if not on then tintWatch:Hide() end
     for i = 1, #TINT_WATCH_EVENTS do
         if on then
             tintWatch:RegisterEvent(TINT_WATCH_EVENTS[i])

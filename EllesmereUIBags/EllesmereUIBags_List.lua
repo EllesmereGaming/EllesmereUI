@@ -835,8 +835,10 @@ local function RenderRow(btn, data, cols, rowW, x, y, stripe, dim, reagentSectio
     end
     btn._textOverlay:SetShown(btn._lvIcon:IsShown())
     if reagentBadgeOn or btn._reagentBadge then
-        -- only while the icon column shows (the badge sits on the row icon)
-        ns.PaintReagentBadge(btn, reagentBadgeOn and data.bag == 5 and not reagentSection and btn._lvIcon:IsShown(),
+        -- only while the icon column shows (the badge sits on the row icon); a Recent Items
+        -- picked-up entry stands for every stack of its item, in any bag: no badge
+        ns.PaintReagentBadge(btn, reagentBadgeOn and data.bag == 5 and not data._recentGained
+            and not reagentSection and btn._lvIcon:IsShown(),
             btn._lvIcon, IconSize())
     end
     EUI_Bags.RunItemOverlays(btn, data)

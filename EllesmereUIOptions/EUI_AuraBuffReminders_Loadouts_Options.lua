@@ -737,8 +737,11 @@ function ns._BuildLoadoutPage(_, parent, yOffset)
         y = y - ROW_H
     end
 
-    -- Your spec's card starts open, the others closed.
-    if current ~= nil and cardOpen[current] == nil then cardOpen[current] = true end
+    -- Your spec's card starts open, the others closed (WoW Forever: the shared
+    -- card while your spec group has no card of its own).
+    local openKey = current
+    if FOREVER and not taken[current] and taken[0] then openKey = 0 end
+    if openKey ~= nil and cardOpen[openKey] == nil then cardOpen[openKey] = true end
 
     local _, playerClass = UnitClass("player")
     for _, key in ipairs(ordered) do

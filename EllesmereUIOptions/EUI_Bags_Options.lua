@@ -704,7 +704,7 @@ initFrame:SetScript("OnEvent", function(self)
                       if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                   end },
                 { type="dropdown", text="Reagent Bag Icon",
-                  tooltip="Marks items in the reagent bag with the chosen icon, except in the Reagent Bag sections. While an icon is chosen, Merge Duplicate Items keeps reagent bag stacks apart from stacks in other bags.",
+                  tooltip="Marks reagent bag items with this icon outside the Reagent Bag sections, and keeps their stacks apart in Merge Duplicate Items.",
                   values=reagentBadgeValues, order=reagentBadgeOrder,
                   getValue=function()
                       local v = db.profile.bagReagentBadge

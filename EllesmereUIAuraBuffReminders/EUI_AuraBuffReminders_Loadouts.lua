@@ -163,7 +163,8 @@ end
 -- talent channel picks a spec group: each unlocked group is listed as a
 -- "loadout" whose configID is the negative group index (stable, never a real
 -- config), named after its tab and the tree holding the most points.
--- The character's loadouts are one bucket there (0), each loadout's talents a
+-- Each spec group keeps a bucket of its own (-1, -2) and both read the shared
+-- bucket 0 (Specializations and buckets, below); a loadout's talents are a
 -- spec group. The negative active group still stands for the spec where a
 -- place's context is compared, so a group switch re-runs the swaps like a
 -- spec change does on retail.
@@ -911,10 +912,10 @@ local function LoadoutFor(act)
     return lo
 end
 -- WoW Forever: the other spec group's loadout that brings its talents to an
--- activity neither this group nor the shared bucket holds (entering switches
--- to that group).
+-- activity (entering switches to that group). Asked only where LoadoutFor
+-- found nothing: neither this group nor the shared bucket holds it.
 local function SwitchingLoadoutFor(act)
-    if not (IS_FOREVER and act) or act == "riding" or LoadoutFor(act) then return nil end
+    if not (IS_FOREVER and act) or act == "riding" then return nil end
     local own = BucketKey()
     for group = 1, SpecGroupCount() do
         local lo = -group ~= own and HeldIn(-group, act)
@@ -936,7 +937,7 @@ local function GetAssignedTalentForContext(ctx)
     if ctx.inInstance and not ctx.instanceID then return nil, "missing-instance-id" end
     local act = ActivityFor(ctx)
     local lo = LoadoutFor(act) or SwitchingLoadoutFor(act)
-    if lo and lo.talent and TalentMatchesSpec(lo.talent, GetCurrentSpecID()) then return lo.talent, "activity", act, lo.gear end
+    if lo and lo.talent and TalentMatchesSpec(lo.talent, GetCurrentSpecID()) then return lo.talent, "activity", act end
     return nil, "unassigned"
 end
 
@@ -1177,7 +1178,7 @@ local function TryActivateSpecGroup(request)
     request.commitCastGUID, request.commitFailed, request.casting = nil, nil, nil
     request.commitCastSucceeded, request.commitSignal = nil, nil
     UpdateRequestEvents()
-    ownSwitch = { group = group, confirmed = request.confirmed, gear = request.gear }
+    ownSwitch = { group = group, confirmed = request.confirmed }
     local okCall = pcall(C_SpecializationInfo.SetActiveSpecGroup, group)
     request.callingLoad = nil
     if not RequestIsCurrent(request) then return end
@@ -1458,7 +1459,7 @@ end
 -- switch you made yourself is never undone). confirmed: Ask Before Swap's Yes
 -- (or the Yes that started this spec group switch).
 local CheckAndSwap
-CheckAndSwap = function(gearOnly, confirmed, carried)
+CheckAndSwap = function(gearOnly, confirmed)
     if not Gen("enabled") then return end
     if KeystoneRunning() then return end -- gear and talents are locked mid-key
     -- This check expresses new intent, including the absence of an assignment.
@@ -1466,11 +1467,9 @@ CheckAndSwap = function(gearOnly, confirmed, carried)
     CancelRequests()
 
     local ctx = GetCurrentInstanceContext()
-    local setName, gearSource, gearKey, talentStored, talentSource, talentKey, talentGear
+    local setName, gearSource, gearKey, talentStored, talentSource, talentKey
     if Gen("gearEnabled") then setName, gearSource, gearKey = GetAssignedSetForContext(ctx) end
-    if Gen("talentEnabled") and not gearOnly then
-        talentStored, talentSource, talentKey, talentGear = GetAssignedTalentForContext(ctx)
-    end
+    if Gen("talentEnabled") and not gearOnly then talentStored, talentSource, talentKey = GetAssignedTalentForContext(ctx) end
     -- WoW Forever: after a spec group switch, a loadout's gear follows only
     -- while its talents are that group (or it has none): a loadout of the other
     -- group waits for its own switch, so a group you picked yourself keeps its gear.
@@ -1478,11 +1477,6 @@ CheckAndSwap = function(gearOnly, confirmed, carried)
         local stored = GetAssignedTalentForContext(ctx)
         local group = stored and SpecGroupOf(GetTalentLoadoutFromStored(stored))
         if group and group ~= ActiveSpecGroup() then setName = nil end
-    end
-    -- The loadout that switched the group brings its own gear set, whatever
-    -- the new group holds for this place.
-    if gearOnly and carried and Gen("gearEnabled") then
-        setName, gearSource, gearKey = carried[1], "activity", carried[2]
     end
     -- WoW Forever: a talent assignment that switches spec groups brings the
     -- target group's gear: no gear is equipped now, and the group change
@@ -1512,7 +1506,7 @@ CheckAndSwap = function(gearOnly, confirmed, carried)
             ShowSwapPrompt(where, gearAsk, talentAsk, function()
                 -- Still where (and on the spec) you were asked.
                 if key ~= BuildAutoInstanceKey(GetCurrentInstanceContext()) then return end
-                CheckAndSwap(gearOnly, true, carried)
+                CheckAndSwap(gearOnly, true)
             end)
             return
         end
@@ -1525,7 +1519,6 @@ CheckAndSwap = function(gearOnly, confirmed, carried)
         local request = BeginRequest("talent", StoreTalentLoadout(NormalizeTalentStored(talentStored)),
             SourceLabel(ctx, talentSource, talentKey))
         request.confirmed = confirmed
-        request.gear = gearAfterSwitch and talentGear and { talentGear, talentKey } or nil
         TryLoadTalentLoadout(request)
     end
 end
@@ -1539,7 +1532,7 @@ local function RunAutoCheck()
     local opts = autoCheckOpts or NO_ENTRIES
     if autoCheckQueuedSerial ~= autoCheckSerial or not AutomationLive() then return end
     if autoCheckKey ~= BuildAutoInstanceKey(GetCurrentInstanceContext()) then return end
-    CheckAndSwap(opts.gearOnly, opts.confirmed, opts.gear)
+    CheckAndSwap(opts.gearOnly, opts.confirmed)
 end
 
 local function QueueAutoCheck(opts)
@@ -1771,7 +1764,7 @@ local function OnSpecChanged()
     if own then
         -- Its gear follows, without another switch.
         lastPlaceKey = BuildPlaceKey(ctx)
-        QueueAutoCheck({ gearOnly = true, confirmed = own.confirmed, gear = own.gear })
+        QueueAutoCheck({ gearOnly = true, confirmed = own.confirmed })
     elseif AutomationLive() and Gen("specSwap") and (ctx.inInstance or IS_FOREVER) then
         -- Re-run the swap for the new spec; it covers this place too. On
         -- WoW Forever a group you switched to yourself is never switched
@@ -1804,6 +1797,8 @@ EVENT_HANDLERS.PLAYER_STOPPED_MOVING = function()
     ResumeRequests("availability")
 end
 EVENT_HANDLERS.PLAYER_UPDATE_RESTING = EVENT_HANDLERS.PLAYER_STOPPED_MOVING
+-- A channel's end is its own event (a cast's is UNIT_SPELLCAST_STOP, below).
+EVENT_HANDLERS.UNIT_SPELLCAST_CHANNEL_STOP = EVENT_HANDLERS.PLAYER_STOPPED_MOVING
 
 EVENT_HANDLERS.ADDON_RESTRICTION_STATE_CHANGED = function(_, restriction, state)
     -- Only the lift of the restriction the talent swap waits on resumes it.
@@ -1946,12 +1941,14 @@ UpdateRequestEvents = function()
         SetEventState(event, inFlight or (FOREVER_GROUP_EVENTS[event] and specWatch))
     end
     SetEventState("PLAYER_REGEN_DISABLED", inFlight)
-    -- Availability waits wake on movement, resting and the end of a cast.
+    -- Availability waits wake on movement, resting and the end of a cast or
+    -- a channel.
     local availability = (gear and gear.waitReason == "availability") or (talent and talent.waitReason == "availability")
     for i = 1, #TALENT_CAST_EVENTS do
         local event = TALENT_CAST_EVENTS[i]
         SetEventState(event, inFlight or (availability and event == "UNIT_SPELLCAST_STOP"), true)
     end
+    SetEventState("UNIT_SPELLCAST_CHANNEL_STOP", availability, true)
     SetEventState("PLAYER_STOPPED_MOVING", availability)
     SetEventState("PLAYER_UPDATE_RESTING", availability)
     SetEventState("ADDON_RESTRICTION_STATE_CHANGED", talent and talent.waitReason == "restricted")

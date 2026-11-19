@@ -419,6 +419,10 @@ function ECME:OnInitialize()
     -- the first PLAYER_ENTERING_WORLD and only works because nil is falsy.
     ns.RefreshGlowCombatGate()
     _G._ECME_Apply = function()
+        -- Settings the buff ticker draws (Desaturate Off CD) take one ticker pass
+        -- now and one after the placement this apply queues, which can run later
+        -- and show placeholders the first pass did not see.
+        ns._btDirtyOnPlace = true
         ns.RefreshRotationAssistIcon()
         -- Profile switches land here, so the cached glow gate is re-read before
         -- the rebuild restarts any glow under the new profile's setting.
@@ -446,6 +450,8 @@ function ECME:OnInitialize()
         -- profile suppressed: the edge-driven ones (proc, cd ready) have no
         -- ticker to bring them back on their own.
         ns.CDMGlowCombatSync()
+        ns._btDirty = true
+        if ns.ArmBuffTicker then ns.ArmBuffTicker() end
     end
 
     -- Append SharedMedia textures to TBB runtime tables

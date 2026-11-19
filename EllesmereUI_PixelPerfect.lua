@@ -1813,7 +1813,7 @@ do
                 local par = host:GetParent()
                 if par and par ~= UIParent then
                     local pok, ps = pcall(par.GetScale, par)
-                    if pok and PP.IsNum(ps) and ps > 0 then ses = ses / ps end
+                    if pok and not (issecretvalue and issecretvalue(ps)) and PP.IsNum(ps) and ps > 0 then ses = ses / ps end
                 end
             end
             -- Still below 0.1 (no host, or the plate itself collapsed): snap at UIParent scale.
@@ -1974,7 +1974,7 @@ do
         local sx, sy = (shX or dsx) * ratio, (shY or dsy) * ratio
         -- ApplyBorderStyle puts the backdrop's anchors on whole pixels at its own
         -- effective scale; these four values are snapped the same way.
-        if not (es and es > 0.01) then
+        if not (es and es > 0.1) then
             es = (UIParent and UIParent:GetEffectiveScale() or 1) / ratio
         end
         if EllesmereUI.BorderTextureUsesScaleOffset(tex) then

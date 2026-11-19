@@ -1774,20 +1774,19 @@ function Paint()  -- forward-declared up top
     ns.PlaceStartGroup(#shown == 0 and not SP.searching and not SP.searchFailed)
 end
 
--- over the middle of our list, out of combat only (it's secure)
+-- over the middle of our list: a child of the list (not protected), so it moves, scales,
+-- dims and hides with it, in combat too. Blizzard's button decides whether it can be used.
 function ns.PlaceStartGroup(want)
-    if not startProxy or InCombatLockdown() then return end
-    local x, y = frame:GetCenter()
-    if not (want and x and frame:IsVisible()) then
+    if not startProxy then return end
+    if not want then
         startProxy:Hide()
         return
     end
-    -- the list's scale, so its text matches the sign up button's
-    startProxy:SetScale(frame:GetEffectiveScale() / UIParent:GetEffectiveScale())
     local w, h = startBtn:GetSize()
     startProxy:SetSize(math.max(w or 0, 140), math.max(h or 0, 22))
-    startProxy:ClearAllPoints()
-    startProxy:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
+    -- above the rows, also after something raised the list
+    startProxy:SetFrameLevel(frame:GetFrameLevel() + 20)
+    startProxy:SetEnabled(startBtn:IsEnabled())
     startProxy:Show()
 end
 
@@ -1937,15 +1936,34 @@ local function Build()
         return b
     end
     startBtn = SP.ScrollBox.StartGroupButton or SP.StartGroupButton
-    -- start a group: on UIParent, as a secure button can't sit in frames we show and hide in combat
+    -- start a group: InsecureActionButtonTemplate (the confirm popup's confirmClick shape) is not
+    -- protected, so it is built at any time and lives in our list; its click runs blizzard's own
+    -- secure click action out of combat and nothing in combat, as blizzard's template does.
     if startBtn then
-        startProxy = NewButton(UIParent, "SecureActionButtonTemplate", START_A_GROUP or "Start a Group")
+        startProxy = NewButton(frame, "InsecureActionButtonTemplate", START_A_GROUP or "Start a Group")
         startProxy:Hide()
-        startProxy:SetFrameStrata("HIGH")
-        startProxy:RegisterForClicks("AnyUp", "AnyDown")
+        startProxy:SetPoint("CENTER", frame, "CENTER", 0, 0)
+        -- the left release only: left unset, the secure handler follows the key-down CVar
+        startProxy:RegisterForClicks("LeftButtonUp")
+        startProxy:SetAttribute("useOnKeyDown", false)
         startProxy:SetAttribute("type", "click")
         startProxy:SetAttribute("clickbutton", startBtn)
-        frame:HookScript("OnHide", function() ns.PlaceStartGroup(false) end)
+        startProxy:SetMotionScriptsWhileDisabled(true)
+        startProxy:HookScript("PreClick", function()
+            if InCombatLockdown() then EUI.PrintError(ERR_NOT_IN_COMBAT) end
+        end)
+        -- blizzard's reason when its button is off (not the leader, already listed, queued)
+        startProxy:HookScript("OnEnter", function(self)
+            local tip = not startBtn:IsEnabled() and startBtn.tooltip
+            if type(tip) == "string" and tip ~= "" then EUI.ShowWidgetTooltip(self, tip) end
+        end)
+        startProxy:HookScript("OnLeave", function() EUI.HideWidgetTooltip() end)
+        -- blizzard turns its button on and off here (leader, roster, queue and listing changes)
+        if LFGListSearchPanel_UpdateButtonStatus then
+            hooksecurefunc("LFGListSearchPanel_UpdateButtonStatus", function()
+                if startProxy:IsShown() then startProxy:SetEnabled(startBtn:IsEnabled()) end
+            end)
+        end
     end
     -- our sign up button over blizzard's
     local sb = SP.SignUpButton
@@ -1995,10 +2013,6 @@ local function Build()
             -- one group changed; a result can also go secret mid-list
             if type(id) == "number" and not Secret(id) then dirty[id] = true else fullDirty = true end
             flusher:Show()
-        elseif event == "PLAYER_REGEN_DISABLED" then
-            startProxy:Hide()
-        elseif event == "PLAYER_REGEN_ENABLED" then
-            Paint()
         elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
             -- an auto cancel went through
             if cancelSent[id] and newStatus == "cancelled" then
@@ -2049,7 +2063,6 @@ function ns.OwnListRefresh()
         if SP.SearchingSpinner then SP.SearchingSpinner:SetAlpha(a) end  -- its "searching..." sat over our rows
         if signBtn then SP.SignUpButton:SetAlpha(a) end
         guard = false
-        -- it sits in blizzard's faded list: shown at full alpha all the same
         frame:SetShown(active)
         if signBtn then signBtn:SetShown(active) end
         if active then
@@ -2060,11 +2073,6 @@ function ns.OwnListRefresh()
             frame:RegisterEvent("LFG_LIST_AVAILABILITY_UPDATE")
             frame:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATE")
             frame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-            -- the start a group button is secure: out of the way before combat, back after
-            if startProxy then
-                frame:RegisterEvent("PLAYER_REGEN_DISABLED")
-                frame:RegisterEvent("PLAYER_REGEN_ENABLED")
-            end
         else
             frame:UnregisterAllEvents()
             wipe(dirty)
@@ -2126,6 +2134,11 @@ if ns.WhenGroupFinder then
                 -- a profile switched while the window was closed brings its own sizes
                 styleGen = styleGen + 1
                 if ns.OwnListOn() then ns.OwnListRefresh() end
+            end)
+            -- the panel went away (window closed, another panel): hand the list back, so none of
+            -- its events stay registered while nothing shows (the refresh reads SP:IsVisible())
+            sp:HookScript("OnHide", function()
+                if active then ns.OwnListRefresh() end
             end)
         end
     end)

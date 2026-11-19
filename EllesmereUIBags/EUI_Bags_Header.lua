@@ -240,6 +240,9 @@ local function CreateHeader()
     local function DoPhysicalSort(mergeOnly)
         if InCombatLockdown() or physicalActive then return end  -- confirm popup can outlive the pull
         physicalActive = true
+        -- An item held on the cursor would be swapped into the first slot the run
+        -- picks up from: put it back where it came from first.
+        if CursorHasItem() then ClearCursor() end
         LockSort()
         EUI_Bags.refreshEnabled = false
 
@@ -613,7 +616,9 @@ local function CreateHeader()
         -- Moves crafting reagents from the main bags into the reagent bag's
         -- free slots, as Blizzard's sort does. Special bags are left alone.
         -- refused: itemIDs the reagent bag turned away this run, skipped from then on.
-        local function RouteReagentsOnce(refused)
+        -- reagent: itemID -> isCraftingReagent, read once per run (uncached data reads
+        -- nil and is asked again on the next pass).
+        local function RouteReagentsOnce(refused, reagent)
             if InCombatLockdown() then return false end
             local free = {}
             for slot = 1, C_Container.GetContainerNumSlots(5) do
@@ -627,9 +632,17 @@ local function CreateHeader()
                     for slot = 1, C_Container.GetContainerNumSlots(bag) do
                         if nextFree > #free then return moved end
                         local info = C_Container.GetContainerItemInfo(bag, slot)
-                        -- Uncached item data reads nil: the item stays put this pass.
-                        if info and info.itemID and not info.isLocked and not refused[info.itemID]
-                           and select(17, C_Item.GetItemInfo(info.itemID)) then
+                        local id = info and info.itemID
+                        local isReagent
+                        if id and not info.isLocked and not refused[id] then
+                            isReagent = reagent[id]
+                            if isReagent == nil then
+                                -- Uncached item data reads nil: the item stays put this pass.
+                                isReagent = select(17, C_Item.GetItemInfo(id))
+                                if isReagent ~= nil then reagent[id] = isReagent end
+                            end
+                        end
+                        if isReagent then
                             C_Container.PickupContainerItem(bag, slot)
                             C_Container.PickupContainerItem(5, free[nextFree])
                             -- Still on the cursor: refused, so no bag update will come for it.
@@ -648,11 +661,13 @@ local function CreateHeader()
         end
 
         local function RouteReagents(onDone)
-            -- A WoW Forever special bag can sit in the fifth slot; it refuses most reagents.
-            local family = EllesmereUI.IS_FOREVER and select(2, C_Container.GetContainerNumFreeSlots(5))
-            local refused = {}
+            -- WoW Forever: the fifth slot also takes profession bags, which
+            -- report a family and refuse most reagents, so such a bag is
+            -- skipped; a reagent bag reports none.
+            local family = ns.FifthSlotFamily()
+            local refused, reagent = {}, {}
             if C_Container.GetContainerNumSlots(5) == 0 or (family and family ~= 0)
-               or not RouteReagentsOnce(refused) then
+               or not RouteReagentsOnce(refused, reagent) then
                 onDone()
                 return
             end
@@ -662,7 +677,7 @@ local function CreateHeader()
             routeFrame._runToken = runToken
             local function NextPass()
                 passes = passes + 1
-                if passes <= 3 and RouteReagentsOnce(refused) then
+                if passes <= 3 and RouteReagentsOnce(refused, reagent) then
                     WaitSettled(routeFrame, runToken, 0, 5, NextPass)
                 else
                     routeFrame:SetScript("OnEvent", nil)

@@ -2294,6 +2294,13 @@ local function CollectAndReanchor()
     -- An override's range tint follows its spell onto the frame Blizzard
     -- gave it this time (EUI_CDM_Rotation.lua).
     if ns.ReapplyOverrideRanges then ns.ReapplyOverrideRanges() end
+    -- A settings apply asked for one buff ticker pass after the placement it
+    -- queued (_ECME_Apply): the placeholders shown here take Desaturate Off CD.
+    if ns._btDirtyOnPlace then
+        ns._btDirtyOnPlace = nil
+        ns._btDirty = true
+        if ns.ArmBuffTicker then ns.ArmBuffTicker() end
+    end
 
     if not ns._initialReanchorDone then ns._initialReanchorDone = true end
 

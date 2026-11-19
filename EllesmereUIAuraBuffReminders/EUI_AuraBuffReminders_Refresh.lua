@@ -1294,8 +1294,13 @@ end
 -- member of that class is in range (informational, no click; never a talent
 -- buff). Out of combat the pass also picks the provider's cast
 -- (EABR.SyncProviderCastSpell binds it), and every pass syncs the group watch
--- to what it read. Out of combat each missing own buff gets its own secure icon
--- (fvExtra past the first); under lockdown only the provider button's buff shows.
+-- to what it read. A class that provides two buffs (a priest with Divine
+-- Spirit) shows, out of combat, every one that is missing and not dismissed:
+-- the first in list order on the provider button, bound to its cast, each
+-- further one on a secure icon of its own (fvExtra, its own cast and member);
+-- with none showing, the button stays bound to the first buff it provides. In
+-- combat (ABR's own flag too, set at ENCOUNTER_START before the lockdown) only
+-- the buff the button casts shows.
 function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
     local rb = db.profile.raidBuffs
     local watch = EABR._fvWatchFams
@@ -1304,6 +1309,7 @@ function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
     local castSpell, castUnit
     local provided, covered, idle, idleFirst = false, false, nil, nil
     local lockdown = InCombatLockdown()
+    local noExtras = lockdown or InCombat()
     if rb and EABR.SectionShows(rb.whereToShow, inInstance) then
         local sw = rb.showWhen
         local othersMissing = not sw or sw.othersMissing ~= false
@@ -1321,7 +1327,7 @@ function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
                 local doReceiver = not iCast and not buff.talent and groupClasses and groupClasses[buff.class]
                     and EABR.PlayerBenefitsFromBuff(buff)
                 if (iCast or doReceiver) and EABR.FvReadable(fam, restricted) then
-                    local isMissing, have, total, first, extraCast, extraUnit
+                    local isMissing, have, total, first, extraCast, extraUnit, isExtra
                     if iCast and othersMissing and grouped then
                         have, total, first = EABR.FvCoverage(fam, buff.benefit, covered)
                         covered = true
@@ -1334,11 +1340,14 @@ function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
                         -- Under lockdown: the spell the button casts, a rank or
                         -- group version of the one buff that may show.
                         local bound = lockdown and EABR._providerCastSpell
-                        isMissing = isMissing and not (provided and lockdown)
+                        isMissing = isMissing and not (provided and noExtras)
                             and not _dismissedUntilLoad[buff.dismissKey]
                             and not (bound and not (tContains(fam.single, bound) or tContains(fam.group, bound)))
                         if isMissing and provided then
+                            -- A further buff: its own icon, never the provider's.
+                            isExtra = true
                             extraCast, extraUnit = EABR.FvPickCast(buff, first)
+                            if not extraCast then isMissing = false end
                         elseif isMissing then
                             provided = true
                             if not lockdown then
@@ -1359,7 +1368,7 @@ function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
                             -- The provider button casts it; in combat it keeps
                             -- the cast bound before the pull.
                             e.mode = "spell"
-                            if extraCast then
+                            if isExtra then
                                 e.spellID, e.unit, e.fvExtra = extraCast, extraUnit, true
                             else
                                 e.spellID = castSpell or EABR._providerCastSpell
@@ -1395,8 +1404,10 @@ function EABR.FvStandDown(keepSleepProgress)
     EABR.FvSyncCenserWatch(false)
     EABR._fvCenser = nil
     if not keepSleepProgress and EABR._fvSleepStartedAt then EABR.ClearSleepProgress() end
-    -- Bag changes go unheard while these listeners are off.
-    EABR._fvSleepBag = nil
+    -- Bag changes go unheard while these listeners are off, so the bag is
+    -- counted again later; a running sleep timer keeps the answer (the bag is
+    -- in use, and every pass of the timer would count it again).
+    if not keepSleepProgress then EABR._fvSleepBag = nil end
     if EABR._fvPickerSpellEvents then EABR.FvSyncPickerSpellEvents(false) end
     if EABR.ValidateOpenPicker then EABR.ValidateOpenPicker() end
     if EABR._durationTimer then
@@ -1407,7 +1418,7 @@ end
 
 local function SyncSleepProgress()
     local fo = db.profile.forever
-    local want = fo and fo.sleepingBag == true and fo.sleepingBagShowProgress == true
+    local want = fo and fo.sleepingBag == true and fo.sleepingBagShowProgress ~= false
         and db.profile.display.remindersEnabled ~= false and not InCombat() and not UnitIsDeadOrGhost("player")
         and not UnitInVehicle("player") and not (IsMounted() and IsFlying())
     if want then
@@ -1437,13 +1448,14 @@ end
 
 local function RefreshRestedSleepingBag()
     EABR.FvStandDown(EABR._fvSleepStartedAt ~= nil)
-    if not EABR._fvSleepStartedAt then
-        EllesmereUI.SetElementVisibility(iconAnchor, false)
-        return
-    end
+    -- With no timer the rested branch has already hidden the reminders, and the
+    -- anchor is left as it is: it holds the secure reminder buttons, so its
+    -- mouse cannot change in combat (SetElementVisibility calls EnableMouse).
+    -- A timer never runs in combat (SyncSleepProgress ends it there).
+    if not EABR._fvSleepStartedAt or InCombat() then return end
 
     local entry
-    if EABR._fvSleepStartedAt and not _dismissedUntilLoad["forever:sleepingbag"] then
+    if not _dismissedUntilLoad["forever:sleepingbag"] then
         ResetEntryPool()
         entry = CollectSleepingBag(0, true, EllesmereUI.AuraKit.AurasRestricted())
         if entry then

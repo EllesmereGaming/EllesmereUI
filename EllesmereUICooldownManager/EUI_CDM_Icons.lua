@@ -1241,6 +1241,10 @@ ns.RefreshCDMIconAppearance = RefreshCDMIconAppearance
 -- Per-icon menu setters: a buff's settings also style its "Replace with Buff" icons on cd/util bars.
 function ns.RefreshCDMIconSettings(barKey)
     RefreshCDMIconAppearance(barKey)
+    -- Desaturate Inactive (fd._desatOverride, stashed above) is drawn by the
+    -- dirty-gated buff ticker.
+    ns._btDirty = true
+    if ns.ArmBuffTicker then ns.ArmBuffTicker() end
     if not ns._cdmAnyBuffReplace then return end
     local bd = barDataByKey[barKey]
     if not (bd and (bd.barType == "buffs" or bd.barType == "custom_buff")) then return end
