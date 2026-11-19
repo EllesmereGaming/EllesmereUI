@@ -1531,16 +1531,17 @@ local function Skin_EncounterJournal()
         local function SkinAllEJSearch()
             -- Re-assert the container panel: Blizzard re-raises corner art on popout show, hiding our border.
             WSkin.Panel(prevC)
-            for i = 1, (_G.EJ_NUM_SEARCH_PREVIEWS or 5) do
-                SkinEJSearchBtn(sbox["searchPreview" .. i])
+            local rows = sbox.GetButtons and sbox:GetButtons()
+            if rows then
+                for _, b in ipairs(rows) do SkinEJSearchBtn(b) end
             end
             SkinEJSearchBtn(sbox.showAllResults, true)
         end
         SkinAllEJSearch()
         -- Preview rows re-populate as you type; re-white after each update.
-        if not GetFFD(sbox).searchHook and type(_G.EncounterJournal_SetSearchPreview) == "function" then
+        if not GetFFD(sbox).searchHook and type(_G.EncounterJournal_UpdateSearchPreview) == "function" then
             GetFFD(sbox).searchHook = true
-            hooksecurefunc("EncounterJournal_SetSearchPreview", SkinAllEJSearch)
+            hooksecurefunc("EncounterJournal_UpdateSearchPreview", SkinAllEJSearch)
         end
     end
     local sr = _G.EncounterJournalSearchResults
