@@ -921,6 +921,9 @@ function ns.RefreshAllSettings()
     -- mode or its guild brackets reaches the live friendly names (one compare
     -- while they are unchanged).
     if ns.NP_SyncFriendlyNameFormat then ns.NP_SyncFriendlyNameFormat() end
+    -- The away/busy tag and the target/hover events follow the profile's own
+    -- switches (a no-op while they are unchanged).
+    if ns.RefreshFriendlyTagWatch then ns.RefreshFriendlyTagWatch() end
 end
 
 I.frameCache, I.GetActiveKickSpell = frameCache, GetActiveKickSpell
