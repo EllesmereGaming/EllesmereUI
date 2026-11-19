@@ -315,9 +315,9 @@ local function GetOrCreateCombatIcon(index)
     return f
 end
 
--- Receiver raid buffs and Hunter tracking are information-only reminders.
--- Their icons let the left and right click through to whatever is
--- behind, keep the middle-click dismiss and show no hover highlight. Click
+-- A groupmate's raid buff the player cannot cast is shown to be read, never
+-- clicked: its icon lets the left and right click through to whatever is
+-- behind, keeps the middle-click dismiss and shows no hover highlight. Click
 -- routing (SetPassThroughButtons) is blocked in combat on every frame, ours
 -- included, so these icons have a pool of their own whose routing is set once,
 -- out of combat. One first built in combat lets every click through (no
@@ -372,8 +372,16 @@ local function HideCombatIcons()
 end
 
 local function ShowCombatIcon(m)
+    local hunter = m.dismissKey == "forever:huntertracking"
     local f
-    if EABR.IsReceiverRaidBuff(m) or m.dismissKey == "forever:huntertracking" then
+    if hunter then
+        f = GetOrCreateReceiverIcon("HunterTracking")
+        f._hunterTracking = m
+        f:EnableMouse(not m.hunterTrackingStatus)
+        if not f._routed then f:SetMouseClickEnabled(false) end
+        f._icon:SetAlpha(0)
+        if f._hunterSprite then f._hunterSprite.clip:Hide() end
+    elseif EABR.IsReceiverRaidBuff(m) then
         receiversShown = receiversShown + 1
         f = GetOrCreateReceiverIcon(receiversShown)
     else
@@ -381,33 +389,10 @@ local function ShowCombatIcon(m)
         f = GetOrCreateCombatIcon(combatShown)
     end
     f._dismissKey = m.dismissKey or nil
-    f._hunterTrackingStatus = m.hunterTrackingStatus
-    f._hunterTargetTypeID = m.hunterTargetTypeID
-    f._hunterMatchMask = m.hunterMatchMask
-    if m.hunterTrackingStatus then
-        f:EnableMouse(false)
-        f._hunterNoMouse = true
-    elseif f._hunterNoMouse then
-        f:EnableMouse(true)
-        if not f._routed then f:SetMouseClickEnabled(false) end
-        f._hunterNoMouse = nil
-    end
-    if f._hunterSprite then
-        f._hunterSprite.clip:Hide()
-        f._icon:SetAlpha(1)
-        if not m.hunterTrackingStatus and f._hunterSprite.visibilityMasks then
-            for texture, record in pairs(f._hunterSprite.visibilityMasks) do
-                if record.attached then
-                    texture:RemoveMaskTexture(record.mask)
-                    record.attached = nil
-                end
-            end
-        end
-    end
     local spellID = m.spellID or (m.data and m.data.castSpell)
     f._icon:SetTexture(m.texture or (spellID and Tex(spellID)) or 134400)
     local p = db and db.profile.display
-    if p and p.showText and not m.isEating and m.dismissKey ~= "forever:huntertracking" then
+    if p and p.showText and not m.isEating and not hunter then
         local tc = p.textColor or DEFAULT_TEXT_COLOR
         local fontPath = ResolveFontPath(p.nameFont)
         local textSize = p.textSize or 11
@@ -452,6 +437,7 @@ local function MaskHunterTexture(s, texture, targetTypeID, row)
         ruler:EnableMouse(false)
         record = { mask = mask, ruler = ruler, fill = ruler:GetStatusBarTexture() }
         s.visibilityMasks[texture] = record
+        texture:AddMaskTexture(mask)
     end
     local mask, ruler = record.mask, record.ruler
     -- The native reverse fill positions the column without reading its width.
@@ -463,27 +449,23 @@ local function MaskHunterTexture(s, texture, targetTypeID, row)
     mask:ClearAllPoints()
     mask:SetSize(width * 16, height * 128)
     mask:SetPoint("TOPLEFT", record.fill, "TOPLEFT", 0, row * height)
-    if not record.attached then texture:AddMaskTexture(mask); record.attached = true end
 end
 
 local function MaskHunterRegions(s, targetTypeID, row, ...)
     for i = 1, select("#", ...) do
         local region = select(i, ...)
-        if region:GetObjectType() == "Texture" then MaskHunterTexture(s, region, targetTypeID, row) end
-    end
-end
-
-local function MaskHunterBorders(s, targetTypeID, row, ...)
-    for i = 1, select("#", ...) do
-        local frame = select(i, ...)
-        MaskHunterRegions(s, targetTypeID, row, frame:GetRegions())
-        MaskHunterBorders(s, targetTypeID, row, frame:GetChildren())
+        local kind = region:GetObjectType()
+        if kind == "Texture" then MaskHunterTexture(s, region, targetTypeID, row)
+        elseif kind == "Frame" then
+            MaskHunterRegions(s, targetTypeID, row, region:GetRegions())
+            MaskHunterRegions(s, targetTypeID, row, region:GetChildren())
+        end
     end
 end
 
 -- Crop a full native sprite through an ordinary viewport. Only the separate
 -- sprite receives secret UVs; the normal icon's layout stays readable.
-local function PaintHunterTargetIcon(f)
+local function PaintHunterTargetIcon(f, entry)
     local left, top, _, bottom, right = f._icon:GetTexCoord()
     if issecretvalue and (issecretvalue(left) or issecretvalue(top)
         or issecretvalue(bottom) or issecretvalue(right)) then return end
@@ -500,7 +482,7 @@ local function PaintHunterTargetIcon(f)
         local icon = canvas:CreateTexture(nil, "ARTWORK")
         icon:SetAllPoints(canvas)
         icon:SetTexture(HUNTER_TRACKING_SHEET)
-        s = { clip = clip, canvas = canvas, icon = icon }
+        s = { clip = clip, canvas = canvas, icon = icon, visibilityMasks = {} }
         f._hunterSprite = s
     end
     local w, h = f:GetWidth() / (right - left), f:GetHeight() / (bottom - top)
@@ -520,11 +502,8 @@ local function PaintHunterTargetIcon(f)
         s.masked = nil
     end
     -- Native cell selection accepts the restricted id without Lua inspecting it.
-    s.icon:SetSpriteSheetCell(f._hunterTargetTypeID, 4, 4)
-    if not s.visibilityMasks then s.visibilityMasks = {} end
-    MaskHunterTexture(s, s.icon, f._hunterTargetTypeID, f._hunterMatchMask)
-    MaskHunterBorders(s, f._hunterTargetTypeID, f._hunterMatchMask, f._eabrBorderFrame)
-    f._icon:SetAlpha(0)
+    s.icon:SetSpriteSheetCell(entry.hunterTargetTypeID, 4, 4)
+    MaskHunterRegions(s, entry.hunterTargetTypeID, entry.hunterMatchMask, s.icon, f._eabrBorderFrame)
     s.clip:Show()
 end
 
@@ -556,7 +535,7 @@ local function LayoutCombatIcons()
         EABR.SizeIconBagCount(f, sz)
         f:ClearAllPoints()
         f:SetPoint(pt, combatAnchor, pt, xOff + (i-1)*(sz+spacing), 0)
-        if f._hunterTrackingStatus then PaintHunterTargetIcon(f) end
+        if f._hunterTracking then PaintHunterTargetIcon(f, f._hunterTracking) end
     end
 end
 

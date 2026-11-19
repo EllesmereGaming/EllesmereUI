@@ -334,34 +334,37 @@ end
 
 -- Public player tracking state chooses a visibility row; the native widget
 -- selects the target's column without Lua inspecting its restricted type.
-local function HunterTrackingMask(spells)
-    if EABR._fvHunterMatchMask ~= nil then return EABR._fvHunterMatchMask end
-    local types = EABR._fvHunterTrackingTypes
-    if not types then
-        types = {}
-        for creatureTypeID, spellID in pairs(spells) do types[spellID] = creatureTypeID end
-        EABR._fvHunterTrackingTypes = types
+local function HunterTrackingState()
+    local needed = EABR._fvHunterMissingSpells
+    if not needed then
+        needed = {}; EABR._fvHunterMissingSpells = needed
+        -- Beast, Dragonkin, Demon, Elemental, Giant, Undead, Humanoid.
+        EABR._fvHunterTrackingTypes = { [1494]=1, [19879]=2, [19878]=3, [19880]=4,
+            [19882]=5, [19884]=6, [19883]=7 }
     end
-    local mask = 0
-    for creatureTypeID, spellID in pairs(spells) do
+    if EABR._fvHunterMatchMask ~= nil then return needed, EABR._fvHunterMatchMask end
+    wipe(needed)
+    local types, mask, uncertain = EABR._fvHunterTrackingTypes, 0, false
+    for spellID, creatureTypeID in pairs(types) do
         if not Known(spellID) then mask = bit.bor(mask, 2 ^ (creatureTypeID - 1)) end
     end
     for i = 1, C_Minimap.GetNumTrackingTypes() do
         local info = C_Minimap.GetTrackingInfo(i)
         if info and info.type == "spell" then
             if isSecret(info.spellID) then
-                if isSecret(info.active) or info.active then mask = 127; break end
+                if isSecret(info.active) or info.active then uncertain = true end
             else
                 local creatureTypeID = types[info.spellID]
                 if creatureTypeID then
-                    if isSecret(info.active) then mask = 127; break end
-                    if info.active then mask = bit.bor(mask, 2 ^ (creatureTypeID - 1)) end
+                    if isSecret(info.active) then uncertain = true
+                    elseif info.active then mask = bit.bor(mask, 2 ^ (creatureTypeID - 1))
+                    elseif Known(info.spellID) then needed[creatureTypeID] = info.spellID end
                 end
             end
         end
     end
-    EABR._fvHunterMatchMask = mask
-    return mask
+    EABR._fvHunterMatchMask = uncertain and 127 or mask
+    return needed, EABR._fvHunterMatchMask
 end
 
 function EABR.CollectHunterTracking(missing)
@@ -372,45 +375,22 @@ function EABR.CollectHunterTracking(missing)
     local dead = UnitIsDeadOrGhost("target")
     if isSecret(dead) or dead then return end
     local _, creatureTypeID = UnitCreatureType("target")
-    local spells = EABR._fvHunterTrackingSpells
-    if not spells then
-        spells = {
-            [1] = 1494,   -- Beast
-            [2] = 19879,  -- Dragonkin
-            [3] = 19878,  -- Demon
-            [4] = 19880,  -- Elemental
-            [5] = 19882,  -- Giant
-            [6] = 19884,  -- Undead
-            [7] = 19883,  -- Humanoid
-        }
-        EABR._fvHunterTrackingSpells = spells
+    local restricted = isSecret(creatureTypeID)
+    if not restricted and (type(creatureTypeID) ~= "number"
+        or creatureTypeID < 1 or creatureTypeID > 7) then return end
+    local needed, mask = HunterTrackingState()
+    local spellID
+    if not restricted then
+        spellID = needed[creatureTypeID]
+        if not spellID then return end
     end
-    if isSecret(creatureTypeID) then
-        local e = AcquireEntry()
-        e.mode = "texture"; e.texture = 134400
-        e.cat = "forever"; e.dismissKey = "forever:huntertracking"
-        e.hunterTrackingStatus = true
-        e.hunterTargetTypeID = creatureTypeID
-        e.hunterMatchMask = HunterTrackingMask(spells)
-        missing[#missing+1] = e
-        return
-    end
-    if type(creatureTypeID) ~= "number" then return end
-    local spellID = spells[creatureTypeID]
-    if not spellID or not Known(spellID) then return end
-    for i = 1, C_Minimap.GetNumTrackingTypes() do
-        local info = C_Minimap.GetTrackingInfo(i)
-        if info and not isSecret(info.spellID) and info.spellID == spellID then
-            if isSecret(info.active) or info.active then return end
-            local e = AcquireEntry()
-            e.mode = "texture"; e.spellID = spellID
-            e.texture = info.texture or Tex(spellID)
-            e.label = info.name or SpellName(spellID)
-            e.cat = "forever"; e.dismissKey = "forever:huntertracking"
-            missing[#missing+1] = e
-            return
-        end
-    end
+    local e = AcquireEntry()
+    e.mode = "texture"; e.spellID = spellID
+    e.cat = "forever"; e.dismissKey = "forever:huntertracking"
+    e.hunterTrackingStatus = restricted
+    e.hunterTargetTypeID = creatureTypeID
+    e.hunterMatchMask = restricted and mask or 0
+    missing[#missing+1] = e
 end
 
 -- A cast-on-click reminder for a WoW Forever spell (gathering, Find Treasure,
