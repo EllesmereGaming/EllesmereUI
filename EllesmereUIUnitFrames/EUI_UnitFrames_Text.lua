@@ -938,11 +938,11 @@ do
     end
     P.curpp = function(u)
         local pType = _G._EUI_ResolvedPowerType[u] or UnitPowerType(u)
-        return AbbreviateNumbers(UnitPower(u, pType))
+        return ns.AbbreviateValue(UnitPower(u, pType), "power")
     end
     P.maxpp = function(u)
         local pType = _G._EUI_ResolvedPowerType[u] or UnitPowerType(u)
-        return AbbreviateNumbers(UnitPowerMax(u, pType))
+        return ns.AbbreviateValue(UnitPowerMax(u, pType), "power")
     end
     -- Full numbers for the custom text tags ([hp], [hp:max], [pp], [pp:max]).
     -- %d formats a secret value like P.perpp does; [hp] names the status as

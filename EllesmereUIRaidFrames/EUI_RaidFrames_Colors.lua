@@ -28,7 +28,7 @@ local UnitGetTotalHealAbsorbs = UnitGetTotalHealAbsorbs
 local InCombatLockdown      = InCombatLockdown
 local issecretvalue         = issecretvalue
 
-local AbbreviateNumbers, ApplyFont, defaults = I.AbbreviateNumbers, I.ApplyFont, I.defaults
+local ApplyFont, defaults = I.ApplyFont, I.defaults
 local DISPEL_COLORS, GetFFD, PixelSnap = I.DISPEL_COLORS, I.GetFFD, I.PixelSnap
 local unitToButton = I.unitToButton
 
@@ -911,7 +911,7 @@ do
         local max, abr = sfind(key, ":max", 1, true) ~= nil, sfind(key, ":abr", 1, true) ~= nil
         local status = kind == "hp" and not max
         local pctKey, perKey, sample = kind .. "Pct", kind .. "Per", SCHEMA[key].sample
-        local valueType = kind == "hp" and (max and "maxHealth" or "health") or nil
+        local valueType = kind == "hp" and (max and "maxHealth" or "health") or "power"
         return function(unit, s, pv)
             local st = status and Status(unit, pv)
             if st then return st end
@@ -923,10 +923,7 @@ do
             else
                 return sample
             end
-            if abr then
-                if valueType then return AbbreviateValue(v, valueType) end
-                return AbbreviateNumbers(v)
-            end
+            if abr then return AbbreviateValue(v, valueType) end
             return sformat("%d", v)
         end
     end
@@ -1214,7 +1211,7 @@ function ns.RF_PowerTextInto(fs, mode, pct, unit, pType, perPct)
         fs:SetFormattedText("%.0f", pct)
     elseif mode == "number" or mode == "numberPercent" or mode == "percentNumber" then
         local num
-        if unit then num = AbbreviateNumbers(UnitPower(unit, pType)) else num = AbbreviateNumbers(pct * perPct) end
+        if unit then num = AbbreviateValue(UnitPower(unit, pType), "power") else num = AbbreviateValue(pct * perPct, "power") end
         if mode == "number" then
             fs:SetText(num)
         elseif mode == "numberPercent" then
