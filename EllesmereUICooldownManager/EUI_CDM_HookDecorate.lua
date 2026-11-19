@@ -407,6 +407,8 @@ local function DecorateFrame(frame, barData)
                 local sid2 = fc2 and fc2.spellID
                 local bk2 = fc2 and fc2.barKey
                 local bd2 = bk2 and barDataByKey and barDataByKey[bk2]
+                -- CURRENT bar's swipe alpha (see the buff branch above).
+                local swipeAlpha2 = (bd2 and bd2.swipeAlpha) or barData.swipeAlpha or 0.7
                 -- Resolved BEFORE the Suppress GCD block: the per-spell
                 -- suppressGCD flag joins the bar toggle there (pure hoist --
                 -- this resolve always ran once per hook pass, just later).
@@ -533,7 +535,7 @@ local function DecorateFrame(frame, barData)
                     -- on Suppress GCD; a spell genuinely on its own real CD keeps
                     -- the black swipe, and a charge proc mid-recharge is carved
                     -- out (its swipe IS the recharge).
-                    local hideActiveAlpha = barData.swipeAlpha or 0.7
+                    local hideActiveAlpha = swipeAlpha2
                     if ((bd2 and bd2.suppressGCD) or (ss2 and ss2.suppressGCD)) and sid2
                        and C_SpellBook and C_SpellBook.FindSpellOverrideByID
                        and C_Spell and C_Spell.GetSpellCooldown then
@@ -588,7 +590,7 @@ local function DecorateFrame(frame, barData)
                 else
                     -- Not active: black swipe.
                     if not _gcdSuppressed then
-                        cd:SetSwipeColor(0, 0, 0, ns.GCDTailAlpha(_gcdChargeTail, barData.swipeAlpha or 0.7))
+                        cd:SetSwipeColor(0, 0, 0, ns.GCDTailAlpha(_gcdChargeTail, swipeAlpha2))
                     end
                     -- Desaturate When Not Active (per-spell). Symmetric, but
                     -- re-saturates only icons WE desaturated (fd._desatNA), so
