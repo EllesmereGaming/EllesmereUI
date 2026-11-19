@@ -29,7 +29,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
 
     -- The instance note, the page's first line, over the first section.
     y = EllesmereUI.BuildNoteRow(parent, y,
-        "Friendly NPC nameplates are disabled in instances due to Blizzard limitations", { warn = true })
+        "Friendly Nameplate customization is disabled in instances due to Blizzard limitations", { warn = true })
 
     -----------------------------------------------------------------------
     --  FRIENDLY PLAYERS
@@ -216,6 +216,19 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
             ns.NPO_FriendlyPreviewUpdate()
           end }
 
+    -- Name Only in Instances: the third row of the first row's cog. Blizzard draws
+    -- the friendly plates inside instances, so the Nameplate style shows its plain
+    -- health bar plates there; this shows those players as Name Only instead.
+    local instNameOnlyRow =
+        { type="toggle", label="Name Only in Instances",
+          tooltip="With the Nameplate style, friendly players show as Name Only inside dungeons, raids, scenarios, arenas and battlegrounds.",
+          disabled=friendlyPlateOff, disabledTooltip=PLATE_TIP, rawTooltip=true,
+          get=function() return DBVal("friendlyNameOnlyInInstances") == true end,
+          set=function(v)
+            DB().friendlyNameOnlyInInstances = v and true or false
+            if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
+          end }
+
     -- The health bar plate's two rows (the bar's size; its colour and the health
     -- percent) are on the page only under the Nameplate style, and the name size
     -- row holds the slider of the style in use: a pick of the style builds the
@@ -225,12 +238,31 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     local OFF_PAGE = plateStyle and {} or { "Health Bar Width", "Health Bar Height", "Health Bar Color",
         "Class Colored Health Bar", "Show Health Percent" }
 
+    -- Show AFK/DND Tag: Blizzard's own nameplates print no away or busy tag, so
+    -- one here is a choice of its own and off until asked. It rides the name in
+    -- either style, so it sits with the other switches that shape a friendly
+    -- name rather than on a row of its own.
+    local statusTagRow =
+        { type = "toggle", label = "Show AFK/DND Tag",
+          tooltip = "Adds Blizzard's <AFK> or <DND> tag to a player's name when they set it.\n\nBlizzard's own nameplates show no such tag.",
+          disabled = friendlyPlayersOff, disabledTooltip = STYLE_REQ, rawTooltip = true,
+          get = function() return DBVal("friendlyShowStatusTag") == true end,
+          set = function(v)
+            DB().friendlyShowStatusTag = v and true or false
+            -- Arms or drops the flags listener, then repaints the names.
+            if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
+            if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+            ns.NPO_FriendlyPreviewUpdate()
+          end }
+
     -- The dropdown's cog has no label on the page: Global Search finds the row
     -- by the cog's rows and their tooltips too, and by the names Show EUI Friendly
     -- Player Nameplates and Make Friendly Nameplates Name Only; Name Color by
     -- Class Colored Names and its swatches' names.
     SearchWords("Friendly Nameplate Style", "FRIENDLY PLAYERS", "Show EUI Friendly Player Nameplates",
         "Make Friendly Nameplates Name Only", npSizeRow.label, npSizeRow.tooltip, bracketsRow.label, bracketsRow.tooltip,
+        instNameOnlyRow.label, instNameOnlyRow.tooltip,
+        statusTagRow.label, statusTagRow.tooltip, "Away", "Busy",
         unpack(OFF_PAGE))
     SearchWords("Name Color", "FRIENDLY PLAYERS", "Class Colored Names", "Class Color", "Custom Color",
         "Player Pets & Minions", "Player Relationships")
@@ -248,12 +280,13 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
 
     -- Friendly Nameplate Style inline cog. Never greyed: its slider sizes
     -- Blizzard's own plates, which show whatever the settings here say (its
-    -- brackets row greys by itself under Blizzard Default).
+    -- brackets row greys by itself under Blizzard Default, its Name Only in
+    -- Instances row outside the Nameplate style).
     -- Quiet: the dropdown's writes never light its dot.
     do
         EllesmereUI.BuildInlineCog(friendlyRow._leftRegion, {
             title = "Friendly Nameplate Settings",
-            rows = { npSizeRow, bracketsRow },
+            rows = { npSizeRow, bracketsRow, instNameOnlyRow, statusTagRow },
             quiet = true,
         })
     end
@@ -694,11 +727,29 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     -- below Blizzard's name -- so one size fits both.
     local guildSizeRow =
         { type="slider", label="Guild Text Size", min=6, max=30, step=1,
-          tooltip="Size of the guild line under friendly player names.",
+          tooltip="Size of the guild line under friendly player names: the health bar plate's line, and Name Only's when Guild Line Uses Its Own Size is on.",
           disabled=subtitleGuildOff, disabledTooltip=guildOffTip, rawTooltip=true,
           get=function() return DBVal("friendlyBelowNameSize") or defaults.friendlyBelowNameSize end,
           set=function(v)
             DB().friendlyBelowNameSize = v
+            if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+            ns.NPO_FriendlyPreviewUpdate()
+          end }
+    -- Show Guild Line as Its Own Text: the Name Only guild line as a separate
+    -- text at Guild Text Size, instead of the name's second line (which renders
+    -- at the name's size). Off keeps today's look.
+    local separateGuildRow =
+        { type="toggle", label="Guild Line Uses Its Own Size",
+          tooltip="In Name Only, draws the guild line as a text of its own at Guild Text Size instead of as the name's second line.\n\nOff keeps the guild on the name's second line, at the name's size.",
+          disabled=function() return subtitleGuildOff() or not ns.FriendlyNameOnlyNow(DB()) end,
+          disabledTooltip=function()
+            if subtitleGuildOff() then return guildOffTip() end
+            return NAMEONLY_REQ
+          end,
+          rawTooltip=true,
+          get=function() return DBVal("friendlyBelowNameSeparateGuild") == true end,
+          set=function(v)
+            DB().friendlyBelowNameSeparateGuild = v and true or false
             if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
             ns.NPO_FriendlyPreviewUpdate()
           end }
@@ -722,7 +773,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     SearchWords("Level Text", "FRIENDLY PLAYERS", "Show Level", "Color Level by Difficulty")
     SearchWords("Subtitle Text", "FRIENDLY PLAYERS", SUBTITLE_TIP, "Player Title", "Guild Name", "Title & Guild", "Guild Text Color",
         "Show <> Around Guild", "Name Text Settings", "Custom Color", "Class Color", guildSizeRow.label, guildSizeRow.tooltip,
-        matchNameRow.label, matchNameRow.tooltip)
+        matchNameRow.label, matchNameRow.tooltip, separateGuildRow.label, separateGuildRow.tooltip)
     local levelRow
     levelRow, h = W:DualRow(parent, y,
         { type="dropdown", text="Level Text",
@@ -802,7 +853,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
         -- Player Name Color must stay reachable there.
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Subtitle Text Settings",
-            rows = { guildSizeRow, matchNameRow },
+            rows = { guildSizeRow, separateGuildRow, matchNameRow },
             disabled = subtitleGuildOff,
             disabledTooltip = guildOffTip,
             rawTooltip = true,
@@ -898,61 +949,43 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     SearchWords("Show Friendly Pet Nameplates", "FRIENDLY PLAYERS", "Friendly Pet Name Size",
         "Owner Text Size", petOwnerColorRow.label, petOwnerMatchNameRow.label,
         petTitleSizeRow.tooltip)
-    local petSizeRow
-    petSizeRow, h = W:DualRow(parent, y,
-        { type="toggle", text="Show Friendly Pet Nameplates",
-          tooltip="Friendly player pets and minions get a nameplate of their own. In Name Only style it shows just the name.",
-          getValue=function() return DBVal("showFriendlyPets") == true end,
-          setValue=function(v)
-            DB().showFriendlyPets = v
-            -- The pet and minion CVars are this toggle's own: nothing else
-            -- writes them (see ns.ApplyPetCVars).
-            if ns.ApplyPetCVars then ns.ApplyPetCVars("friendly") end
-            if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
-            EllesmereUI:RefreshPage()
-            ns.NPO_FriendlyPreviewUpdate()
-          end },
-        { type="slider", text="Friendly Pet Name Size", trackWidth=120,
-          min=6, max=30, step=1,
-          disabled=petOverlayOff, disabledTooltip=petOverlayTip, rawTooltip=true,
-          getValue=function() return DBVal("friendlyPetNameSize") or defaults.friendlyPetNameSize end,
-          setValue=function(v)
-            DB().friendlyPetNameSize = v
-            if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
-            ns.NPO_FriendlyPreviewUpdate()
-          end });  y = y - h
-
-    -- The pet's subtitle settings ride the pet nameplate toggle's cog, as the NPC
-    -- rows' do: the owner line's colour and its match, then its size. The line
-    -- itself always shows.
+    -- The pet plate's own cog on the Friendly Nameplate Style row: the section
+    -- keeps the six rows it was cut to, so the pet toggle and everything that
+    -- styles a pet's plate live together here. The pet name size greys with the
+    -- plates it sizes; the owner line answers to those as well.
     do
-        EllesmereUI.BuildInlineCog(petSizeRow._leftRegion, {
-            title = "Pet Subtitle Settings",
-            rows = { petOwnerColorRow, petOwnerMatchNameRow, petTitleSizeRow },
-            disabled = petOverlayOff,
-            disabledTooltip = petOverlayTip,
+        EllesmereUI.BuildInlineCog(friendlyRow._leftRegion, {
+            title = "Pet Nameplates",
+            rows = {
+                { type = "toggle", label = "Show Friendly Pet Nameplates",
+                  tooltip = "Friendly player pets and minions get a nameplate of their own. In Name Only style it shows just the name.",
+                  get = function() return DBVal("showFriendlyPets") == true end,
+                  set = function(v)
+                    DB().showFriendlyPets = v
+                    -- The pet and minion CVars are this toggle's own click:
+                    -- nothing else writes them (see ns.ApplyPetCVars).
+                    if ns.ApplyPetCVars then ns.ApplyPetCVars("friendly") end
+                    if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
+                    EllesmereUI:RefreshPage()
+                    ns.NPO_FriendlyPreviewUpdate()
+                  end },
+                { type = "slider", label = "Friendly Pet Name Size", min = 6, max = 30, step = 1,
+                  disabled = petOverlayOff, disabledTooltip = petOverlayTip, rawTooltip = true,
+                  get = function() return DBVal("friendlyPetNameSize") or defaults.friendlyPetNameSize end,
+                  set = function(v)
+                    DB().friendlyPetNameSize = v
+                    if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
+                    ns.NPO_FriendlyPreviewUpdate()
+                  end },
+                petOwnerColorRow,
+                petOwnerMatchNameRow,
+                petTitleSizeRow,
+            },
+            disabled = friendlyPlayersOff,
+            disabledTooltip = STYLE_REQ,
             rawTooltip = true,
         })
     end
-
-    -- Away/busy: Blizzard's own nameplates print no AFK or DND tag, so showing
-    -- one here is a choice of its own. It rides the name in either style, so it
-    -- takes a row of its own; as the player section's final row it may leave the
-    -- right slot empty.
-    local statusTagCfg =
-        { type="toggle", text="Show AFK/DND Tag",
-          tooltip="Adds Blizzard's <AFK> or <DND> tag to a player's name when they set it, in both friendly styles.\n\nBlizzard's own nameplates show no such tag.",
-          disabled=friendlyPlayersOff, disabledTooltip=STYLE_REQ, rawTooltip=true,
-          getValue=function() return DBVal("friendlyShowStatusTag") == true end,
-          setValue=function(v)
-            DB().friendlyShowStatusTag = v and true or false
-            -- Arms or drops the flags listener, then repaints the names.
-            if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
-            if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
-            ns.NPO_FriendlyPreviewUpdate()
-          end }
-    SearchWords(statusTagCfg.text, "FRIENDLY PLAYERS", statusTagCfg.tooltip, "Away", "Busy")
-    _, h = W:DualRow(parent, y, statusTagCfg, EllesmereUI.BlankRowCfg());  y = y - h
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -972,17 +1005,11 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
         return npcOff() and NPC_PLATES_REQ or NAMEONLY_REQ
     end
     local function titleOff() return DBVal("showNPCTitles") == false end
-    -- The subtitle and the marker are drawn in BOTH friendly styles -- the
-    -- name-only overlay and the health bar plate -- so their rows answer only to
-    -- the NPC plates' own toggle. The name's colour and size stay the overlay's,
-    -- above, and keep the Name Only requirement. A pet's owner line reads its own
-    -- switches in the pet cog below, so these stay the NPC's even when only pets
-    -- are shown.
-    local function titlesOff() return npcOff() end
-    local function titlesTip() return NPC_PLATES_REQ end
-    -- A shared colour also needs the line itself shown.
-    local function titleColorOff() return titlesOff() or titleOff() end
-    local function titleColorTip() return titlesOff() and titlesTip() or "Show NPC Titles" end
+    -- The subtitle and its controls belong to the Name Only overlay, so they
+    -- keep the overlay's requirement. A pet's owner line reads its own switches
+    -- in the pet cog, so these stay the NPC's even when only pets are shown.
+    local function npcTitleOff() return npcOverlayOff() or titleOff() end
+    local function npcTitleTip() return npcOverlayOff() and npcOverlayTip() or "Show NPC Titles" end
     -- The marker follows the Raid Marker element, in both friendly styles.
     local function markerOff() return (DBVal("raidMarkerPos") or defaults.raidMarkerPos) == "none" end
 
@@ -992,8 +1019,6 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
         function(v)
             DB().friendlyNPCNameFormat = (v ~= "full") and v or nil
             if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
-            -- The health bar style names NPCs too: re-letter its live plates.
-            if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
             ns.NPO_FriendlyPreviewUpdate()
         end)
 
@@ -1010,7 +1035,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
             ns.NPO_FriendlyPreviewUpdate()
           end },
         { type="dropdown", text="Friendly NPC Name Format",
-          disabled=npcOff, disabledTooltip=NPC_PLATES_REQ, rawTooltip=true,
+          disabled=npcOverlayOff, disabledTooltip=npcOverlayTip, rawTooltip=true,
           values=nnfValues, order=nnfOrder, getValue=nnfGet, setValue=nnfSet });  y = y - h
 
     -- Inline swatch: friendly NPC bar & name color, full-plate mode only -- the exact complement of the rows below, which own the name-only colors.
@@ -1053,16 +1078,38 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
         refreshNpcSwatch()
     end
 
+    -- Show Marked NPCs: a raid-marked friendly NPC is taken over -- name and
+    -- marker -- even with its nameplate toggle off or Blizzard's own NPC-names
+    -- filter against it. Off by default, so a mark never brings up a plate the
+    -- user switched off; the marker still draws on any plate already shown.
+    EllesmereUI.BuildInlineCog(npcRow._leftRegion, {
+        title = "Friendly NPC Nameplates",
+        rows = {
+            { type = "toggle", label = "Show Marked NPCs",
+              tooltip = "Shows a friendly NPC's plate while it wears a raid marker, even with Show Friendly NPC Nameplates off or Blizzard's NPC-names filter against it.",
+              disabled = nameOnlyOff, disabledTooltip = NAMEONLY_REQ, rawTooltip = true,
+              get = function() return DBVal("friendlyShowMarkedNPCs") == true end,
+              set = function(v)
+                DB().friendlyShowMarkedNPCs = v and true or false
+                -- Claimed plates answer now: a mark going on shows the NPC, and
+                -- turning this off hands its plate back.
+                if ns.RefreshMarkedNPCOverlays then ns.RefreshMarkedNPCOverlays() end
+                ns.NPO_FriendlyPreviewUpdate()
+              end },
+        },
+        disabled = nameOnlyOff,
+        disabledTooltip = NAMEONLY_REQ,
+        rawTooltip = true,
+    })
+
     local npcTitlesRow
     npcTitlesRow, h = W:DualRow(parent, y,
         { type="toggle", text="Show NPC Titles",
-          tooltip="Shows the subtitle under a friendly NPC's name, in both friendly styles.",
-          disabled=titlesOff, disabledTooltip=titlesTip, rawTooltip=true,
+          disabled=npcOverlayOff, disabledTooltip=npcOverlayTip, rawTooltip=true,
           getValue=function() return DBVal("showNPCTitles") ~= false end,
           setValue=function(v)
             DB().showNPCTitles = v and true or false
             if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
-            if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
             EllesmereUI:RefreshPage()
             ns.NPO_FriendlyPreviewUpdate()
           end },
@@ -1139,7 +1186,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
           end },
         { type="slider", text="Friendly NPC Title Size", trackWidth=120,
           min=6, max=30, step=1,
-          disabled=titleColorOff, disabledTooltip=titleColorTip, rawTooltip=titlesOff,
+          disabled=npcTitleOff, disabledTooltip=npcTitleTip, rawTooltip=npcOverlayOff,
           getValue=function() return DBVal("friendlyNPCTitleSize") or defaults.friendlyNPCTitleSize end,
           setValue=function(v)
             DB().friendlyNPCTitleSize = v
@@ -1157,16 +1204,15 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     local npcMatchNameRow =
         { type="toggle", label="Match NPC Name Color",
           tooltip="Colors the subtitle under an NPC's name to match the name color, including target highlights.\n\nWhen disabled, the line uses the NPC Title Color swatch.",
-          -- Raw only while no plate that wears the line can show (titlesTip then
-          -- reads as a sentence); with just the titles off, the wrapper adds the
-          -- "Requires ... to be enabled" around the control's name, as the
+          -- Raw only while no plate that wears the line can show (npcTitleTip
+          -- then reads as a sentence); with just the titles off, the wrapper adds
+          -- the "Requires ... to be enabled" around the control's name, as the
           -- title size slider does.
-          disabled=titleColorOff, disabledTooltip=titleColorTip, rawTooltip=titlesOff,
+          disabled=npcTitleOff, disabledTooltip=npcTitleTip, rawTooltip=npcOverlayOff,
           get=function() return DBVal("friendlyNPCTitleMatchNameColor") == true end,
           set=function(v)
             DB().friendlyNPCTitleMatchNameColor = v and true or false
             if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
-            if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
             ns.NPO_FriendlyPreviewUpdate()
           end }
     local npcColorRow
@@ -1182,15 +1228,13 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
                 setValue = function(r, g, b)
                     DB().friendlyNPCNameColor = { r = r, g = g, b = b }
                     if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
-                    -- The health bar style paints its name and bar from this too,
-                    -- and its subtitle follows the name while Match is on.
+                    -- The health bar style paints its name and bar from this too.
                     if ns.RefreshFriendlyColors then ns.RefreshFriendlyColors() end
-                    if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
                     ns.NPO_FriendlyPreviewUpdate()
                 end },
           } },
         { type="multiSwatch", text="NPC Title Color",
-          disabled=titleColorOff, disabledTooltip=titleColorTip, rawTooltip=titlesOff,
+          disabled=npcTitleOff, disabledTooltip=npcTitleTip, rawTooltip=npcOverlayOff,
           swatches = {
               { tooltip = "Title Color", hasAlpha = true,
                 getValue = function()
@@ -1200,7 +1244,6 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
                 setValue = function(r, g, b, a)
                     DB().friendlyNPCTitleColor = { r = r, g = g, b = b, a = a or 1 }
                     if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
-                    if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
                     ns.NPO_FriendlyPreviewUpdate()
                 end },
           } });  y = y - h
@@ -1245,9 +1288,9 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     EllesmereUI.BuildInlineCog(npcColorRow._rightRegion, {
         title = "NPC Subtitle Settings",
         rows = { npcMatchNameRow },
-        disabled = titleColorOff,
-        disabledTooltip = titleColorTip,
-        rawTooltip = true,
+        disabled = npcTitleOff,
+        disabledTooltip = npcTitleTip,
+        rawTooltip = npcOverlayOff,
     })
 
     -- Nothing of the samples' click navigation in the search pre-build.

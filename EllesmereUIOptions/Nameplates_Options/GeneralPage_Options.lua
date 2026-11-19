@@ -587,7 +587,7 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             DB().showEnemyPets = v
             if ns.ApplyPetCVars then ns.ApplyPetCVars("enemy") end
           end,
-          tooltip="Toggle visibility of enemy pet and minion nameplates." }
+          tooltip="Toggle visibility of enemy pet nameplates." }
     -- (also found by the section name it is known under)
     SearchWords(petsCfg.text, SECTION_MISC, petsCfg.tooltip, "OTHER NAMEPLATES")
     _, h = W:DualRow(parent, y, petsCfg, classCfg or EllesmereUI.BlankRowCfg());  y = y - h

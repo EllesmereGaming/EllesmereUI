@@ -238,10 +238,12 @@ end
 -- compose it (mirrors UpdateNameOnlyText and FriendlyFrame:UpdateName; your
 -- own plate never takes group brackets, so the sample wears the party's): the
 -- Name Format, the title around the name, the brackets, the level. Both modes
--- draw the guild as a line of its own under the name (ApplySubText on the bar
--- plate, a font string of its own under Name Only), in the guild colour. When a
--- row's eye previews the player's pet entry the sample becomes that pet: the
--- pet's sizes and its owner's line. Returns the sample's height.
+-- draw the guild under the name in the guild colour -- on the bar plate as a
+-- line of its own (ApplySubText), under Name Only as the name's second line,
+-- unless Guild Line Uses Its Own Size is on, which gives it a text of its own
+-- at Guild Text Size. When a row's eye previews the player's pet entry the
+-- sample becomes that pet: the pet's sizes and its owner's line. Returns the
+-- sample's height.
 local function PaintPlayer(s, DB, DBVal, nameOnly, key)
     local mode = DBVal("friendlyBelowName") or "none"
     local titled = mode == "title" or mode == "both"
@@ -299,7 +301,9 @@ local function PaintPlayer(s, DB, DBVal, nameOnly, key)
     if guild then
         local gr, gg, gb = gc.r, gc.g, gc.b
         if DBVal("friendlyBelowNameMatchNameColor") == true then gr, gg, gb = nr, ng, nb end
-        local gsize = DBVal("friendlyBelowNameSize")
+        -- The guild is the name's second line at the name's size unless the
+        -- separate-line option is on (it draws at Guild Text Size).
+        local gsize = DBVal("friendlyBelowNameSeparateGuild") == true and DBVal("friendlyBelowNameSize") or size
         ns.SetFSFont(s.sub, gsize, "OUTLINE, SLUG")
         s.sub:SetFormattedText(body, guild)
         s.sub:SetTextColor(gr, gg, gb)
@@ -320,32 +324,18 @@ end
 -- row's eye previewing a pet entry makes it that pet: the pet's sizes and its
 -- owner's line. Otherwise the health bar plate in the NPC colour, its name
 -- whole and with no title (the tail of PaintFriendlyColors and
--- FriendlyFrame:UpdateName). Returns the sample's height.
+-- FriendlyFrame:UpdateName), and its marker in the Raid Marker slot. Returns
+-- the sample's height.
 local function PaintNPC(s, DBVal, nameOnly, marked, key)
     local name = EllesmereUI.L("Friendly NPC")
     s.raid:Hide()
     if not nameOnly then
-        -- The health bar plate draws the same NPC name format and subtitle as the
-        -- overlay, and its marker in the Raid Marker slot.
-        local titled = DBVal("showNPCTitles") ~= false
-        local h = PaintBar(s, DBVal, titled and DBVal("friendlyNPCTitleSize"))
+        local h = PaintBar(s, DBVal)
         local c = DBVal("friendlyNPCColor")
         s.health:SetStatusBarColor(c.r, c.g, c.b)
         s.name:SetTextColor(c.r, c.g, c.b)
-        s.name:SetText(EllesmereUI.ShortName(name, DBVal("friendlyNPCNameFormat")))
-        if titled then
-            -- NPC Title Color at its own alpha, or the name's colour on Match.
-            local t = DBVal("friendlyNPCTitleColor") or c
-            local tr, tg, tb = t.r, t.g, t.b
-            if DBVal("friendlyNPCTitleMatchNameColor") == true then
-                tr, tg, tb = c.r, c.g, c.b
-            end
-            ns.SetFSFont(s.sub, DBVal("friendlyNPCTitleSize"), "OUTLINE, SLUG")
-            s.sub:SetText("<" .. EllesmereUI.L("Merchant") .. ">")
-            s.sub:SetTextColor(tr, tg, tb, t.a or 1)
-        else
-            s.sub:SetText("")
-        end
+        s.name:SetText(name)
+        s.sub:SetText("")
         local pos = ns.GetRaidMarkerPos()
         if marked and DBVal("showNPCRaidMarker") ~= false and pos ~= "none" then
             SetRaidTargetIconTexture(s.raid, 8)

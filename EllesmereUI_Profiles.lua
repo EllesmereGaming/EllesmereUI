@@ -1438,11 +1438,7 @@ local REFRESH_ADDON_STEPS = {
     -- by the tail)
     function() if _G._ERF_RefreshAll then _G._ERF_RefreshAll() end end,
     -- Nameplates
-    function()
-        if _G._ENP_RefreshAllSettings then _G._ENP_RefreshAllSettings() end
-        -- The pet toggles' CVars follow the profile that was just applied.
-        if _G._ENP_ApplyPetCVars then _G._ENP_ApplyPetCVars() end
-    end,
+    function() if _G._ENP_RefreshAllSettings then _G._ENP_RefreshAllSettings() end end,
     -- Quest Tracker
     function() if _G._EQT_RefreshAll then _G._EQT_RefreshAll() end end,
     -- Chat (sidebar icons, borders, fonts, visibility)

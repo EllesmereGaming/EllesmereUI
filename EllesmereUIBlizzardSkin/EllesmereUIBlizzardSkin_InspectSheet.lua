@@ -1074,6 +1074,8 @@ local function SkinInspectSheet()
             GetFFD(frame).avgIlvlText:SetFormattedText("%.2f", avg)
             GetFFD(frame).avgIlvlText:Show()
         else
+            -- Cleared too: ApplyTabVisibility re-shows the line on Tab 1
+            GetFFD(frame).avgIlvlText:SetText("")
             GetFFD(frame).avgIlvlText:Hide()
         end
 
@@ -1090,6 +1092,7 @@ local function SkinInspectSheet()
             GetFFD(frame).mPlusScoreText:SetFormattedText("M+ Score: |cff%s%d|r", hex, math.floor(mpScore))
             GetFFD(frame).mPlusScoreText:Show()
         else
+            GetFFD(frame).mPlusScoreText:SetText("")
             GetFFD(frame).mPlusScoreText:Hide()
         end
     end
