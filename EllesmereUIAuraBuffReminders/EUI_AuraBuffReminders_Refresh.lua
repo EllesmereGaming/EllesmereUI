@@ -332,7 +332,7 @@ function EABR.FvTrackingState()
     return EABR._fvTreasureUp, EABR._fvClassUp
 end
 
--- Restricted creature names go straight to the text widget, never a comparison.
+-- Restricted creature type IDs go straight to the sprite widget.
 function EABR.CollectHunterTracking(missing)
     local exists = UnitExists("target")
     if isSecret(exists) or not exists then return end
@@ -340,25 +340,13 @@ function EABR.CollectHunterTracking(missing)
     if isSecret(attackable) or not attackable then return end
     local dead = UnitIsDeadOrGhost("target")
     if isSecret(dead) or dead then return end
-    local creatureType, creatureTypeID = UnitCreatureType("target")
+    local _, creatureTypeID = UnitCreatureType("target")
     if isSecret(creatureTypeID) then
         local e = AcquireEntry()
-        e.mode = "texture"; e.texture = 134400; e.label = NONE or "None"
+        e.mode = "texture"; e.texture = 134400
         e.cat = "forever"; e.dismissKey = "forever:huntertracking"
-        e.hunterTrackingStatus = true; e.hunterTargetType = creatureType
+        e.hunterTrackingStatus = true
         e.hunterTargetTypeID = creatureTypeID
-        for i = 1, C_Minimap.GetNumTrackingTypes() do
-            local info = C_Minimap.GetTrackingInfo(i)
-            if info and info.type == "spell"
-                and (isSecret(info.spellID) or info.spellID ~= EABR.FIND_TREASURE) then
-                if isSecret(info.active) then
-                    e.label = UNKNOWN or "Unknown"
-                elseif info.active then
-                    e.label = not isSecret(info.name) and info.name or (UNKNOWN or "Unknown")
-                    break
-                end
-            end
-        end
         missing[#missing+1] = e
         return
     end

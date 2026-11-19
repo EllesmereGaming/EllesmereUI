@@ -389,7 +389,7 @@ local function ShowCombatIcon(m)
     local spellID = m.spellID or (m.data and m.data.castSpell)
     f._icon:SetTexture(m.texture or (spellID and Tex(spellID)) or 134400)
     local p = db and db.profile.display
-    if p and (p.showText or m.hunterTrackingStatus) and not m.isEating then
+    if p and p.showText and not m.isEating and m.dismissKey ~= "forever:huntertracking" then
         local tc = p.textColor or DEFAULT_TEXT_COLOR
         local fontPath = ResolveFontPath(p.nameFont)
         local textSize = p.textSize or 11
@@ -400,11 +400,7 @@ local function ShowCombatIcon(m)
         local tp, ip = GetTextAnchorPoints(p)
         f._text:SetPoint(tp, f, ip, xOff, yOff)
         f._text:SetTextColor(tc.r, tc.g, tc.b, 1)
-        if m.hunterTrackingStatus then
-            f._text:SetFormattedText("Target: %s\nTracking: %s", m.hunterTargetType, m.label or "")
-        else
-            f._text:SetText(m.label or "")
-        end
+        f._text:SetText(m.label or "")
         f._text:Show()
     else
         f._text:SetText("")
@@ -1712,7 +1708,7 @@ do
         e.foreverGroup = nil
         e.spellRank = nil
         e.foreverFood = nil
-        e.hunterTrackingStatus = nil; e.hunterTargetType = nil
+        e.hunterTrackingStatus = nil
         e.hunterTargetTypeID = nil
         e.fvExtra = nil
         e.stackText = nil
