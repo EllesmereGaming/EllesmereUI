@@ -290,6 +290,7 @@ local defaults = {
     showCastLockoutAsCrowdControl = false,
     healthBarHeight = 17,
     friendlyNameOnly = true,
+    friendlyNameOnlyInInstances = false,
     friendlyNameOnlyYOffset = -20,
     friendlyNameSize = 15,
     friendlyPlateYOffset = 0,

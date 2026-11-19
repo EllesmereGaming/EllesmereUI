@@ -305,6 +305,21 @@ function ns.FriendlyNameClass(db, nameOnly)
     return db ~= nil and db.friendlyNameClassColor == true
 end
 
+-- Whether the player stands inside a dungeon, raid, scenario, arena or
+-- battleground. GetInstanceInfo reports the zone, not the group: a group in
+-- the open world reads "none".
+function ns.InFriendlyInstance()
+    local _, iType = GetInstanceInfo()
+    return iType == "party" or iType == "raid" or iType == "scenario" or iType == "arena" or iType == "pvp"
+end
+
+-- Whether friendly players show as Name Only right now: the Name Only style, or
+-- the Nameplate style with Name Only in Instances while inside an instance.
+function ns.FriendlyNameOnlyNow(db)
+    if db.friendlyNameOnly ~= false then return true end
+    return db.friendlyNameOnlyInInstances == true and ns.InFriendlyInstance()
+end
+
 -- Value (1/0) of the class-colour CVar for the friendly player names Blizzard draws
 -- (Name Only's names, and the protected instance plates of the health bar style):
 -- the Name Color pick. While that is unset: on with Class Colored Health Bar, and in
@@ -316,7 +331,7 @@ function ns.FriendlyNameClassCVar(db)
         on = mode == "class"
     else
         on = db.classColorFriendly ~= false
-            or (db.friendlyNameOnly == false and db.friendlyNameClassColor == true)
+            or (not ns.FriendlyNameOnlyNow(db) and db.friendlyNameClassColor == true)
     end
     return on and 1 or 0
 end
@@ -338,7 +353,7 @@ local function SetupAuraCVars()
     end
     do
         local db = p or defaults
-        local nameOnly = (db.friendlyNameOnly ~= false)
+        local nameOnly = ns.FriendlyNameOnlyNow(db)
         local showPlayers = (db.showFriendlyPlayers ~= false)
         local showNPCs = (db.showFriendlyNPCs == true)
         -- Friendly player CVars are written ONLY while EUI manages friendly player nameplates;

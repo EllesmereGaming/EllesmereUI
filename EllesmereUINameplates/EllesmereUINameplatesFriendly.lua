@@ -75,7 +75,7 @@ local function IsFriendlyEnabled()
     if IsInFollowerDungeon() then return false end
     local fp = FP()
     if not fp or fp.showFriendlyPlayers == false then return false end
-    return (fp.friendlyNameOnly == false)
+    return not ns.FriendlyNameOnlyNow(fp)
 end
 
 local function IsNameOnlyMode()
@@ -83,7 +83,7 @@ local function IsNameOnlyMode()
     local fp = FP()
     if not fp then return false end
     if fp.showFriendlyPlayers == false then return false end
-    return (fp.friendlyNameOnly ~= false)
+    return ns.FriendlyNameOnlyNow(fp)
 end
 
 local function IsFriendlyNPCEnabled()
@@ -2376,8 +2376,10 @@ function ns.UpdateFriendlyNameplateSystem()
                 -- well as in the open-world branch. Leaving it out let the health bars
                 -- return on zone-in and stay for the whole instance, since nothing else
                 -- rewrites this CVar until the player is back outside.
+                -- Name Only in Instances turns the Nameplate style's plates into
+                -- names here; the open-world branch hands the style back on exit.
                 pcall(EllesmereUI.SetCVar, "nameplateShowOnlyNameForFriendlyPlayerUnits",
-                    (fp and fp.friendlyNameOnly ~= false) and 1 or 0, "EllesmereUINameplates")
+                    ns.FriendlyNameOnlyNow(fp) and 1 or 0, "EllesmereUINameplates")
             end
             pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNPCs", 0, "EllesmereUINameplates")
             pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNpcs", 0, "EllesmereUINameplates")
