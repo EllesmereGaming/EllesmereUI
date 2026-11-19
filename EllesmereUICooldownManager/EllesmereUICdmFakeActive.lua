@@ -124,7 +124,8 @@ local _hasUserRules = false                             -- any profile (user) ru
 -- when the UNIT_AURA payload shows one coming or going (ns.CdmFormAuraEdge).
 local _needUsable, _needForms, _needFormAuras, _formSeen = false, false, false, nil
 -- Any cd-state rule with a Stance Bar hide (EllesmereUICdmStanceBar.lua): a
--- stance bar page change (UPDATE_BONUS_ACTIONBAR, UPDATE_STEALTH for Prowl).
+-- stance bar page change (UPDATE_BONUS_ACTIONBAR, UPDATE_STEALTH for Prowl),
+-- and the player's UNIT_AURA for a WoW Forever druid's powershift.
 local _needStance = false
 local _formAuraRules = {}
 local _formAuraQueued = false
@@ -1004,11 +1005,11 @@ OnEvent = function(self, event, unit, updateInfo, spellID)
             for i = 1, #_auraRules do OpenFromAura(_auraRules[i]) end
             for i = 1, #_customRules do EvalCustom(_customRules[i]) end
         end
-        if _needForms then
+        if _needForms or (_needStance and ns.CdmStanceBarFormAura) then
             local form = ns.CdmCurrentFormID()
             if form ~= _formSeen then
                 _formSeen = form
-                ns.CdmRetryUnreadForms()
+                if _needForms then ns.CdmRetryUnreadForms() end
                 QueueCdStateEval()
             elseif _needFormAuras and ns.CdmFormAuraEdge(updateInfo, "preset") then
                 QueueFormAuraEval()
@@ -1066,7 +1067,8 @@ UpdateListeners = function()
             _events = CreateFrame("Frame")
             _events:SetScript("OnEvent", OnEvent)
         end
-        if _needAura or _needForms then _events:RegisterUnitEvent("UNIT_AURA", "player")
+        if _needAura or _needForms or (_needStance and ns.CdmStanceBarFormAura) then
+            _events:RegisterUnitEvent("UNIT_AURA", "player")
         else _events:UnregisterEvent("UNIT_AURA") end
         if _needCast then _events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
         else _events:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED") end
