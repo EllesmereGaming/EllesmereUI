@@ -28,7 +28,9 @@ EABR.SLEEPING_BAG_ITEM = 211527
 EABR.SLEEPING_BAG_STACKS = 3
 -- The Arcane Censer (not used up) gives Magical Awareness for 2 hours, which
 -- lets certain casters and powerful enemies drop Motes of Unstable Magic.
+-- The Horde's Elemental Attractor gives the same buff.
 EABR.ARCANE_CENSER_ITEM = 275730
+EABR.ELEMENTAL_ATTRACTOR_ITEM = 281371
 EABR.ARCANE_CENSER_BUFF = 1297774
 -- WoW Forever gathering trackers, in cast preference order: Find Herbs, Find
 -- Minerals. Both are self-buffs there and share one slot with the class
