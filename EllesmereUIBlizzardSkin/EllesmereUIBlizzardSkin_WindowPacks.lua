@@ -4195,13 +4195,14 @@ local function SkinResultRow(child)
         local hov = SolidTex(child, "HIGHLIGHT", 1, 1, 1, 0.1)
         hov:SetAllPoints(child)
         d.hover = hov
-        WSkin.Register(child, true)
+        WSkin.Register(child, child.Icon and { [child.Icon] = true } or true)
         if child.Icon then WSkin.SquareIcon(child.Icon) end
     end
     -- Pooled rows: re-fade the native art every pass (see SkinAchRow).
     local keep = {}
     if d.bg then keep[d.bg] = true end
     if d.hover then keep[d.hover] = true end
+    if child.Icon then keep[child.Icon] = true end
     WSkin.FadeRegions(child, keep)
     AchWhiteTexts(child)
 end
