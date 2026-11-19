@@ -332,7 +332,7 @@ function EABR.FvTrackingState()
     return EABR._fvTreasureUp, EABR._fvClassUp
 end
 
--- Target identity can be secret in combat; classify only a readable creature type.
+-- Restricted creature names go straight to the text widget, never a comparison.
 function EABR.CollectHunterTracking(missing)
     local exists = UnitExists("target")
     if isSecret(exists) or not exists then return end
@@ -340,8 +340,30 @@ function EABR.CollectHunterTracking(missing)
     if isSecret(attackable) or not attackable then return end
     local dead = UnitIsDeadOrGhost("target")
     if isSecret(dead) or dead then return end
-    local _, creatureTypeID = UnitCreatureType("target")
-    if isSecret(creatureTypeID) or type(creatureTypeID) ~= "number" then return end
+    local creatureType, creatureTypeID = UnitCreatureType("target")
+    if isSecret(creatureTypeID) then
+        local e = AcquireEntry()
+        e.mode = "texture"; e.texture = 134400; e.label = NONE or "None"
+        e.cat = "forever"; e.dismissKey = "forever:huntertracking"
+        e.hunterTrackingStatus = true; e.hunterTargetType = creatureType
+        for i = 1, C_Minimap.GetNumTrackingTypes() do
+            local info = C_Minimap.GetTrackingInfo(i)
+            if info and info.type == "spell"
+                and (isSecret(info.spellID) or info.spellID ~= EABR.FIND_TREASURE) then
+                if isSecret(info.active) then
+                    e.label = UNKNOWN or "Unknown"
+                elseif info.active then
+                    if not isSecret(info.spellID) then e.spellID = info.spellID end
+                    if not isSecret(info.texture) then e.texture = info.texture or e.texture end
+                    e.label = not isSecret(info.name) and info.name or (UNKNOWN or "Unknown")
+                    break
+                end
+            end
+        end
+        missing[#missing+1] = e
+        return
+    end
+    if type(creatureTypeID) ~= "number" then return end
     local spells = EABR._fvHunterTrackingSpells
     if not spells then
         spells = {
@@ -1762,7 +1784,7 @@ local function Refresh()
                             ShowCombatIcon(m)
                             f = combatActiveIcons[#combatActiveIcons]
                         end
-                        if f and not m.isEating then
+                        if f and not m.isEating and not m.hunterTrackingStatus then
                             local p = db.profile.display
                             local baseScale = p.scale or 1.0
                             local sz = floor(ICON_SIZE * baseScale + 0.5)

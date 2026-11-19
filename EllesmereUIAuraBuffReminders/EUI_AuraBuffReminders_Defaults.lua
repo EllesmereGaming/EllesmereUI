@@ -284,7 +284,7 @@ function EABR.HandleAppearSounds(missing)
     local primed = EABR._soundPrimed
     for i = 1, #missing do
         local dk = missing[i].dismissKey
-        if dk and not _dismissedUntilLoad[dk] then
+        if dk and not missing[i].hunterTrackingStatus and not _dismissedUntilLoad[dk] then
             cur[dk] = true
             if primed and not prev[dk] then
                 local skey = EABR.ResolveReminderSound(dk)
