@@ -780,6 +780,67 @@ function ns.UFOpt_ShowTrackedAuras(unitKey)
     })
 end
 
+-- Buff Tracked Auras popup: the target/focus Buff Filter's "Edit Tracked
+-- Auras" action. The engine applies the lists only while the unit is friendly
+-- (BuffTrack in EUI_UnitFrames_AuraContainers.lua). No boss entry: boss frames
+-- are hostile.
+local BUFF_TRACKED_UNITS = {
+    { key = "target", label = "Target" },
+    { key = "focus",  label = "Focus" },
+}
+local BUFF_TRACKED_TITLES = {
+    target = "Target Tracked Buffs",
+    focus  = "Focus Tracked Buffs",
+}
+function ns.UFOpt_ShowBuffTrackedAuras(unitKey)
+    local choices = {}
+    for i = 1, #BUFF_TRACKED_UNITS do
+        local u = BUFF_TRACKED_UNITS[i]
+        if u.key ~= unitKey then choices[#choices + 1] = u end
+    end
+    local function Changed()
+        if ns.ReloadFrames then ns.ReloadFrames() end
+        if ns.UpdatePreview then ns.UpdatePreview() end
+        -- Non-force: the Buff Filter dropdown's empty warning re-reads live.
+        EllesmereUI:RefreshPage()
+    end
+    EllesmereUI.ShowTrackedAurasPopup({
+        eyebrow = "UNIT FRAME AURA FILTERS",
+        title = BUFF_TRACKED_TITLES[unitKey] or "Tracked Buffs",
+        subtitle = "Friendly units only. Included buffs show on top of your Buff Filter (or alone with Only Tracked Auras).",
+        includeGet = function() return TrackedList(unitKey, "buffInclude") end,
+        excludeGet = function() return TrackedList(unitKey, "buffExclude") end,
+        includeMine = {
+            mineGet = function() return TrackedList(unitKey, "buffIncludeMine") end,
+        },
+        includeTitle = "INCLUDED BUFFS",
+        excludeTitle = "EXCLUDED BUFFS",
+        includePrompt = "Enter the spell ID of the buff to always show on this frame.",
+        excludePrompt = "Enter the spell ID of the buff to hide on this frame.",
+        onChanged = Changed,
+        copyFrom = {
+            label = "Copy Included/Excluded Buffs From:",
+            choices = choices,
+            apply = function(srcKey)
+                local db = ns.db
+                local src = db and db.profile and db.profile[srcKey]
+                local dst = db and db.profile and db.profile[unitKey]
+                if not (src and dst) then return end
+                local function Clone(t)
+                    if not t then return nil end
+                    local c = {}
+                    for k, v in pairs(t) do c[k] = v end
+                    return c
+                end
+                dst.buffInclude = Clone(src.buffInclude)
+                dst.buffExclude = Clone(src.buffExclude)
+                dst.buffIncludeMine = Clone(src.buffIncludeMine)
+                Changed()
+            end,
+        },
+    })
+end
+
 -- Options preview: the first fake buff stands in for a purgeable one while
 -- Purgeable Buff Glow is set on target/focus and this character can purge or
 -- spellsteal (the live frame's own gate). The host is our own frame.
