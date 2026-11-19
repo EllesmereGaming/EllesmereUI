@@ -346,6 +346,7 @@ function EABR.CollectHunterTracking(missing)
         e.mode = "texture"; e.texture = 134400; e.label = NONE or "None"
         e.cat = "forever"; e.dismissKey = "forever:huntertracking"
         e.hunterTrackingStatus = true; e.hunterTargetType = creatureType
+        e.hunterTargetTypeID = creatureTypeID
         for i = 1, C_Minimap.GetNumTrackingTypes() do
             local info = C_Minimap.GetTrackingInfo(i)
             if info and info.type == "spell"
@@ -353,8 +354,6 @@ function EABR.CollectHunterTracking(missing)
                 if isSecret(info.active) then
                     e.label = UNKNOWN or "Unknown"
                 elseif info.active then
-                    if not isSecret(info.spellID) then e.spellID = info.spellID end
-                    if not isSecret(info.texture) then e.texture = info.texture or e.texture end
                     e.label = not isSecret(info.name) and info.name or (UNKNOWN or "Unknown")
                     break
                 end

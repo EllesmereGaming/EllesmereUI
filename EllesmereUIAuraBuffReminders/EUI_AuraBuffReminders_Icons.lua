@@ -30,6 +30,7 @@ I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 --  Icon Pool SecureActionButton based for click-to-cast
 -------------------------------------------------------------------------------
 local ICON_SIZE = 40
+local HUNTER_TRACKING_SHEET = "Interface\\AddOns\\EllesmereUIAuraBuffReminders\\Media\\HunterTracking.tga"
 local iconAnchor
 I.iconAnchorSetters[#I.iconAnchorSetters + 1] = function(v) iconAnchor = v end
 local iconPool = {}     -- all created icon buttons
@@ -379,6 +380,12 @@ local function ShowCombatIcon(m)
         f = GetOrCreateCombatIcon(combatShown)
     end
     f._dismissKey = m.dismissKey or nil
+    f._hunterTrackingStatus = m.hunterTrackingStatus
+    f._hunterTargetTypeID = m.hunterTargetTypeID
+    if f._hunterSprite then
+        f._hunterSprite.clip:Hide()
+        f._icon:SetAlpha(1)
+    end
     local spellID = m.spellID or (m.data and m.data.castSpell)
     f._icon:SetTexture(m.texture or (spellID and Tex(spellID)) or 134400)
     local p = db and db.profile.display
@@ -418,6 +425,50 @@ local function ShowCombatIcon(m)
     combatActiveIcons[#combatActiveIcons+1] = f
 end
 
+-- Crop a full native sprite through an ordinary viewport. Only the separate
+-- sprite receives secret UVs; the normal icon's layout stays readable.
+local function PaintHunterTargetIcon(f)
+    local left, top, _, bottom, right = f._icon:GetTexCoord()
+    if issecretvalue and (issecretvalue(left) or issecretvalue(top)
+        or issecretvalue(bottom) or issecretvalue(right)) then return end
+    if right <= left or bottom <= top then return end
+    local s = f._hunterSprite
+    if not s then
+        local clip = CreateFrame("Frame", nil, f)
+        clip:SetAllPoints(f._icon)
+        clip:SetFrameLevel(f:GetFrameLevel())
+        clip:SetClipsChildren(true)
+        clip:EnableMouse(false)
+        local canvas = CreateFrame("Frame", nil, clip)
+        canvas:EnableMouse(false)
+        local icon = canvas:CreateTexture(nil, "ARTWORK")
+        icon:SetAllPoints(canvas)
+        icon:SetTexture(HUNTER_TRACKING_SHEET)
+        s = { clip = clip, canvas = canvas, icon = icon }
+        f._hunterSprite = s
+    end
+    local w, h = f:GetWidth() / (right - left), f:GetHeight() / (bottom - top)
+    s.canvas:SetSize(w, h)
+    s.canvas:ClearAllPoints()
+    s.canvas:SetPoint("CENTER", s.clip, "CENTER", (0.5 - (left + right) / 2) * w,
+        ((top + bottom) / 2 - 0.5) * h)
+    local shape = f._eabrShape
+    if shape and shape.attached then
+        if not s.mask then s.mask = s.canvas:CreateMaskTexture() end
+        local p = db.profile.display
+        s.mask:SetTexture(EllesmereUI.SHAPE_MASKS[p.iconShape], "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        s.mask:SetAllPoints(shape.mask)
+        if not s.masked then s.icon:AddMaskTexture(s.mask); s.masked = true end
+    elseif s.masked then
+        s.icon:RemoveMaskTexture(s.mask)
+        s.masked = nil
+    end
+    -- Native cell selection accepts the restricted id without Lua inspecting it.
+    s.icon:SetSpriteSheetCell(f._hunterTargetTypeID, 4, 4)
+    f._icon:SetAlpha(0)
+    s.clip:Show()
+end
+
 -- Left-aligned from the anchor's left edge; Grow Left right-aligns from its
 -- right edge instead. Slot 0 is reserved while the provider secure button is
 -- shown, and stays reserved after a mid-combat hide until the OOC park -- its
@@ -446,6 +497,7 @@ local function LayoutCombatIcons()
         EABR.SizeIconBagCount(f, sz)
         f:ClearAllPoints()
         f:SetPoint(pt, combatAnchor, pt, xOff + (i-1)*(sz+spacing), 0)
+        if f._hunterTrackingStatus then PaintHunterTargetIcon(f) end
     end
 end
 
@@ -1661,6 +1713,7 @@ do
         e.spellRank = nil
         e.foreverFood = nil
         e.hunterTrackingStatus = nil; e.hunterTargetType = nil
+        e.hunterTargetTypeID = nil
         e.fvExtra = nil
         e.stackText = nil
         return e
