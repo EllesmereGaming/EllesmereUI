@@ -1439,7 +1439,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                   ns.FB_Apply()
                   if ns.FB_IsMoverShown() then ns.FB_SetMoverShown(true) end
               end },
-            { type="slider", text="Extra Height", min=-50, max=100, step=1,
+            { type="slider", text="Extra Height", min=-200, max=100, step=1,
               tooltip="Makes the boss frames taller or shorter relative to the raid frame size.",
               getValue = function() return FBSet().extraHeight or 0 end,
               setValue = function(v)
@@ -1622,7 +1622,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                   ns.XF_Apply()
                   if ns.XF_IsMoverShown() then ns.XF_SetMoverShown(true) end
               end },
-            { type="slider", text="Extra Height", min=-50, max=100, step=1,
+            { type="slider", text="Extra Height", min=-200, max=100, step=1,
               tooltip="Makes the extra frames taller or shorter relative to the raid frame size.",
               getValue = function() return XFSet().extraHeight or 0 end,
               setValue = function(v)
@@ -1835,7 +1835,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                   ns.PF_PlaceMover(tabKey)
                   PFRefreshPreview()
               end },
-            { type="slider", text="Extra Height", min=-50, max=100, step=1,
+            { type="slider", text="Extra Height", min=-200, max=100, step=1,
               tooltip="Makes the pet frames taller or shorter relative to the frame size.",
               getValue = function() return PFTab().extraHeight or 0 end,
               setValue = function(v)
