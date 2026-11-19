@@ -938,12 +938,19 @@ local function CollectSleepingBag(showBelow, resting, auraLock)
     end
 end
 
--- Whether an Arcane Censer is in the bags: counted once and kept until a bag
--- change, a loading screen or a stand-down, as the Sleeping Bag is.
+-- The item ID of the Arcane Censer or Elemental Attractor in the bags, or false.
+function EABR.FvCenserInBags()
+    if (C_Item.GetItemCount(EABR.ARCANE_CENSER_ITEM) or 0) > 0 then return EABR.ARCANE_CENSER_ITEM end
+    if (C_Item.GetItemCount(EABR.ELEMENTAL_ATTRACTOR_ITEM) or 0) > 0 then return EABR.ELEMENTAL_ATTRACTOR_ITEM end
+    return false
+end
+
+-- The censer in the bags (EABR.FvCenserInBags): counted once and kept until a
+-- bag change, a loading screen or a stand-down, as the Sleeping Bag is.
 function EABR.FvCenserOwned()
     local owned = EABR._fvCenser
     if owned == nil then
-        owned = (C_Item.GetItemCount(EABR.ARCANE_CENSER_ITEM) or 0) > 0
+        owned = EABR.FvCenserInBags()
         EABR._fvCenser = owned
     end
     return owned
@@ -1037,7 +1044,7 @@ function EABR.CollectForever(missing, inInstance, inPvP)
     -- Arcane Censer: its buff missing and a censer in the bags (read above);
     -- the click uses the censer.
     if censer then
-        local item = EABR.ARCANE_CENSER_ITEM
+        local item = censer
         local e = AcquireEntry()
         e.mode = "item"; e.itemID = item
         e.texture = C_Item.GetItemIconByID(item) or Tex(EABR.ARCANE_CENSER_BUFF)

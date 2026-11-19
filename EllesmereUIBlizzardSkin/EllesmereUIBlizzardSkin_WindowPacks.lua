@@ -1531,16 +1531,17 @@ local function Skin_EncounterJournal()
         local function SkinAllEJSearch()
             -- Re-assert the container panel: Blizzard re-raises corner art on popout show, hiding our border.
             WSkin.Panel(prevC)
-            for i = 1, (_G.EJ_NUM_SEARCH_PREVIEWS or 5) do
-                SkinEJSearchBtn(sbox["searchPreview" .. i])
+            local rows = sbox.GetButtons and sbox:GetButtons()
+            if rows then
+                for _, b in ipairs(rows) do SkinEJSearchBtn(b) end
             end
             SkinEJSearchBtn(sbox.showAllResults, true)
         end
         SkinAllEJSearch()
         -- Preview rows re-populate as you type; re-white after each update.
-        if not GetFFD(sbox).searchHook and type(_G.EncounterJournal_SetSearchPreview) == "function" then
+        if not GetFFD(sbox).searchHook and type(_G.EncounterJournal_UpdateSearchPreview) == "function" then
             GetFFD(sbox).searchHook = true
-            hooksecurefunc("EncounterJournal_SetSearchPreview", SkinAllEJSearch)
+            hooksecurefunc("EncounterJournal_UpdateSearchPreview", SkinAllEJSearch)
         end
     end
     local sr = _G.EncounterJournalSearchResults
@@ -4195,13 +4196,14 @@ local function SkinResultRow(child)
         local hov = SolidTex(child, "HIGHLIGHT", 1, 1, 1, 0.1)
         hov:SetAllPoints(child)
         d.hover = hov
-        WSkin.Register(child, true)
+        WSkin.Register(child, child.Icon and { [child.Icon] = true } or true)
         if child.Icon then WSkin.SquareIcon(child.Icon) end
     end
     -- Pooled rows: re-fade the native art every pass (see SkinAchRow).
     local keep = {}
     if d.bg then keep[d.bg] = true end
     if d.hover then keep[d.hover] = true end
+    if child.Icon then keep[child.Icon] = true end
     WSkin.FadeRegions(child, keep)
     AchWhiteTexts(child)
 end
@@ -8687,11 +8689,13 @@ local function UpdateMerchantItemLevels()
     local onSellTab = (f.selectedTab or 1) == 1
     local numItems
     local prefix = "MerchantItem"
-    if EllesmereUIDB.merchantShowAsList then
+    -- The list and grid only exist once the Merchant reskin built them; else use native tiles.
+    local asList = EllesmereUIDB.merchantShowAsList and f.wSkinScrollFrame
+    if asList then
         -- GetNumBuybackItems is irrelevant: text only shows on the sell tab.
         numItems = GetMerchantNumItems()
         prefix = "EUI_MerchantItem"
-    elseif EllesmereUI._Merchant_ExpandActive() then
+    elseif EllesmereUI._Merchant_ExpandActive() and EllesmereUI._Merchant_ExpandPerPage() > 0 then
         numItems = EllesmereUI._Merchant_ExpandPerPage()
         prefix = "EUI_MerchantPage"
     else
@@ -8710,7 +8714,7 @@ local function UpdateMerchantItemLevels()
             else
                 if not fs then
                     fs = btn:CreateFontString(nil, "OVERLAY", nil, 7)
-                    if EllesmereUIDB.merchantShowAsList then
+                    if asList then
                         fs:SetPoint("TOPLEFT", _G["EUI_MerchantItem" .. i .. "SlotTexture"], "TOPLEFT", 1, -1)
                     else
                         fs:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)

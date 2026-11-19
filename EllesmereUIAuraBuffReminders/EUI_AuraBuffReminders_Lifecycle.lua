@@ -921,8 +921,9 @@ if EABR.FOREVER then
                     if EABR._fvSleepWatch and (C_Item.GetItemCount(EABR.SLEEPING_BAG_ITEM) or 0) > 0 then
                         EABR._fvSleepBag, EABR._fvSleepWatch, came = true, false, true
                     end
-                    if EABR._fvCenserWatch and (C_Item.GetItemCount(EABR.ARCANE_CENSER_ITEM) or 0) > 0 then
-                        EABR._fvCenser, EABR._fvCenserWatch, came = true, false, true
+                    local censer = EABR._fvCenserWatch and EABR.FvCenserInBags()
+                    if censer then
+                        EABR._fvCenser, EABR._fvCenserWatch, came = censer, false, true
                     end
                     if came then
                         SyncArrivalWatch()
