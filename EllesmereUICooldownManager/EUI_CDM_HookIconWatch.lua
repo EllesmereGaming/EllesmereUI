@@ -1326,7 +1326,7 @@ end
 do
     local watch = setmetatable({}, { __mode = "k" })  -- icon frame -> the spell ID it was watched with
     local eventFrame, flushFrame
-    local usableOn, formOn, auraOn, stanceOn = false, false, false, false
+    local usableOn, formOn, auraOn, stanceOn, unitAuraOn = false, false, false, false, false
     local flushedForm  -- the form ID the last pass evaluated
 
     local function SyncEvents(usable, form, aura, stance)
@@ -1371,12 +1371,17 @@ do
             if form then
                 eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
                 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-                eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
             else
                 eventFrame:UnregisterEvent("UPDATE_SHAPESHIFT_FORM")
                 eventFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                eventFrame:UnregisterEvent("UNIT_AURA")
             end
+        end
+        -- The stance bar too, for a WoW Forever druid (ns.CdmStanceBarFormAura).
+        local unitAura = form or (stanceOn and ns.CdmStanceBarFormAura == true)
+        if unitAura ~= unitAuraOn then
+            unitAuraOn = unitAura
+            if unitAura then eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+            else eventFrame:UnregisterEvent("UNIT_AURA") end
         end
     end
 
