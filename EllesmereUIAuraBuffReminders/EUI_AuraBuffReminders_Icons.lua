@@ -30,8 +30,6 @@ I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 --  Icon Pool SecureActionButton based for click-to-cast
 -------------------------------------------------------------------------------
 local ICON_SIZE = 40
-local HUNTER_TRACKING_SHEET = "Interface\\AddOns\\EllesmereUIAuraBuffReminders\\Media\\HunterTracking.tga"
-local HUNTER_TRACKING_VISIBILITY = "Interface\\AddOns\\EllesmereUIAuraBuffReminders\\Media\\HunterTrackingVisibility.tga"
 local iconAnchor
 I.iconAnchorSetters[#I.iconAnchorSetters + 1] = function(v) iconAnchor = v end
 local iconPool = {}     -- all created icon buttons
@@ -380,7 +378,8 @@ local function ShowCombatIcon(m)
         f:EnableMouse(not m.hunterTrackingStatus)
         if not f._routed then f:SetMouseClickEnabled(false) end
         f._icon:SetAlpha(0)
-        if f._hunterSprite then f._hunterSprite.clip:Hide() end
+        f._eabrBorderFrame:SetAlpha(0)
+        if f._hunterIcons then f._hunterIcons.clip:Hide() end
     elseif EABR.IsReceiverRaidBuff(m) then
         receiversShown = receiversShown + 1
         f = GetOrCreateReceiverIcon(receiversShown)
@@ -424,86 +423,60 @@ local function ShowCombatIcon(m)
     combatActiveIcons[#combatActiveIcons+1] = f
 end
 
-local function MaskHunterTexture(s, texture, targetTypeID, row)
-    local record = s.visibilityMasks[texture]
-    if not record then
-        local mask = texture:GetParent():CreateMaskTexture()
-        mask:SetTexture(HUNTER_TRACKING_VISIBILITY, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE", "NEAREST")
-        local ruler = CreateFrame("StatusBar", nil, s.canvas)
+-- Native reverse fill slides seven built-in icons behind a fixed viewport.
+-- Lua only styles public cells; it never reads the fill's restricted geometry.
+local function PaintHunterTargetIcon(f, entry)
+    local s = f._hunterIcons
+    if not s then
+        local clip = CreateFrame("Frame", nil, f)
+        clip:SetClipsChildren(true)
+        clip:EnableMouse(false)
+        local ruler = CreateFrame("StatusBar", nil, clip)
         ruler:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
         ruler:SetMinMaxValues(0, 16)
         ruler:SetReverseFill(true)
         ruler:SetAlpha(0)
         ruler:EnableMouse(false)
-        record = { mask = mask, ruler = ruler, fill = ruler:GetStatusBarTexture() }
-        s.visibilityMasks[texture] = record
-        texture:AddMaskTexture(mask)
-    end
-    local mask, ruler = record.mask, record.ruler
-    -- The native reverse fill positions the column without reading its width.
-    local width, height = texture:GetSize()
-    ruler:ClearAllPoints()
-    ruler:SetSize(width * 16, height)
-    ruler:SetPoint("TOPRIGHT", texture, "TOPRIGHT")
-    ruler:SetValue(targetTypeID)
-    mask:ClearAllPoints()
-    mask:SetSize(width * 16, height * 128)
-    mask:SetPoint("TOPLEFT", record.fill, "TOPLEFT", 0, row * height)
-end
-
-local function MaskHunterRegions(s, targetTypeID, row, ...)
-    for i = 1, select("#", ...) do
-        local region = select(i, ...)
-        local kind = region:GetObjectType()
-        if kind == "Texture" then MaskHunterTexture(s, region, targetTypeID, row)
-        elseif kind == "Frame" then
-            MaskHunterRegions(s, targetTypeID, row, region:GetRegions())
-            MaskHunterRegions(s, targetTypeID, row, region:GetChildren())
+        s = { clip = clip, ruler = ruler, fill = ruler:GetStatusBarTexture(), icons = {} }
+        f._hunterIcons = s
+        for spellID, creatureTypeID in pairs(EABR._fvHunterTrackingTypes) do
+            local cell = CreateFrame("Frame", nil, clip)
+            cell:EnableMouse(false)
+            cell._icon = cell:CreateTexture(nil, "ARTWORK")
+            cell._icon:SetAllPoints()
+            cell._icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            cell._icon:SetTexture(Tex(spellID))
+            s.icons[creatureTypeID] = cell
         end
     end
-end
-
--- Crop a full native sprite through an ordinary viewport. Only the separate
--- sprite receives secret UVs; the normal icon's layout stays readable.
-local function PaintHunterTargetIcon(f, entry)
-    local left, top, _, bottom, right = f._icon:GetTexCoord()
-    if issecretvalue and (issecretvalue(left) or issecretvalue(top)
-        or issecretvalue(bottom) or issecretvalue(right)) then return end
-    if right <= left or bottom <= top then return end
-    local s = f._hunterSprite
-    if not s then
-        local clip = CreateFrame("Frame", nil, f)
-        clip:SetAllPoints(f._icon)
-        clip:SetFrameLevel(f:GetFrameLevel())
-        clip:SetClipsChildren(true)
-        clip:EnableMouse(false)
-        local canvas = CreateFrame("Frame", nil, clip)
-        canvas:EnableMouse(false)
-        local icon = canvas:CreateTexture(nil, "ARTWORK")
-        icon:SetAllPoints(canvas)
-        icon:SetTexture(HUNTER_TRACKING_SHEET)
-        s = { clip = clip, canvas = canvas, icon = icon, visibilityMasks = {} }
-        f._hunterSprite = s
+    local p = db.profile.display
+    local size, texture = p.borderSize or 1, p.borderTexture or "solid"
+    local scale = f:GetEffectiveScale()
+    local _, ox, oy, sx, sy = EllesmereUI.BorderPlacement(size, texture,
+        p.borderTextureOffset, p.borderTextureOffsetY, p.borderTextureShiftX, p.borderTextureShiftY,
+        "aurabuffreminders", size, EllesmereUI.BorderPx(p.borderSizePx, size, texture), nil, scale)
+    local pad = math.ceil(max(0, ox + math.abs(sx), oy + math.abs(sy))) + 1
+    local width, height = f:GetSize()
+    local step = width + 2 * pad
+    s.clip:ClearAllPoints()
+    s.clip:SetPoint("TOPLEFT", f, "TOPLEFT", -pad, pad)
+    s.clip:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", pad, -pad)
+    s.ruler:ClearAllPoints()
+    s.ruler:SetSize(16 * step, height + 2 * pad)
+    s.ruler:SetPoint("TOPRIGHT", s.clip, "TOPRIGHT")
+    for creatureTypeID, cell in ipairs(s.icons) do
+        -- Restyle while anchored to the public owner, then restore native positioning.
+        cell:ClearAllPoints()
+        cell:SetPoint("TOPLEFT", f, "TOPLEFT")
+        cell:SetSize(width, height)
+        if s.scale ~= scale and cell._eabrBorderFrame then cell._eabrBorderFrame._eabrSize = nil end
+        EABR.ApplyIconBorder(cell, false)
+        cell:SetAlpha(bit.band(entry.hunterMatchMask, 2 ^ (creatureTypeID - 1)) == 0 and 1 or 0)
+        cell:ClearAllPoints()
+        cell:SetPoint("TOPLEFT", s.fill, "TOPLEFT", (creatureTypeID - 1) * step + pad, -pad)
     end
-    local w, h = f:GetWidth() / (right - left), f:GetHeight() / (bottom - top)
-    s.canvas:SetSize(w, h)
-    s.canvas:ClearAllPoints()
-    s.canvas:SetPoint("CENTER", s.clip, "CENTER", (0.5 - (left + right) / 2) * w,
-        ((top + bottom) / 2 - 0.5) * h)
-    local shape = f._eabrShape
-    if shape and shape.attached then
-        if not s.mask then s.mask = s.canvas:CreateMaskTexture() end
-        local p = db.profile.display
-        s.mask:SetTexture(EllesmereUI.SHAPE_MASKS[p.iconShape], "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-        s.mask:SetAllPoints(shape.mask)
-        if not s.masked then s.icon:AddMaskTexture(s.mask); s.masked = true end
-    elseif s.masked then
-        s.icon:RemoveMaskTexture(s.mask)
-        s.masked = nil
-    end
-    -- Native cell selection accepts the restricted id without Lua inspecting it.
-    s.icon:SetSpriteSheetCell(entry.hunterTargetTypeID, 4, 4)
-    MaskHunterRegions(s, entry.hunterTargetTypeID, entry.hunterMatchMask, s.icon, f._eabrBorderFrame)
+    s.scale = scale
+    s.ruler:SetValue(entry.hunterTargetTypeID)
     s.clip:Show()
 end
 

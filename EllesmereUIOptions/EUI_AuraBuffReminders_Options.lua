@@ -2153,7 +2153,7 @@ initFrame:SetScript("OnEvent", function(self)
                 _, h = W:SectionHeader(parent, "HUNTER TRACKING", y);  y = y - h
                 _, h = W:DualRow(parent, y,
                     { type="toggle", text="Match Target in Combat",
-                      tooltip="Shows a tracking icon in combat when your current hostile target's creature type does not match your active tracking.\nOnly tracking spells you know are suggested. Choose the matching spell from your tracking wheel or use a keybind. This icon is information only.\nIn restricted combat, the icon and border are masked when tracking matches, but their layout slot stays reserved.",
+                      tooltip="Shows a tracking icon in combat when your current hostile target's creature type does not match your active tracking.\nOnly tracking spells you know are suggested. Choose the matching spell from your tracking wheel or use a keybind. This icon is information only.\nIn restricted combat, matching tracking hides the icon and border but leaves their space in the row reserved.",
                       getValue=function() local f = FDB(); return f and f.hunterTracking == true end,
                       setValue=function(v)
                           local f = FDB(); if not f then return end; f.hunterTracking = v
