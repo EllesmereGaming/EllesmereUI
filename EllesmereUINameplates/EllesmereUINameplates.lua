@@ -297,7 +297,7 @@ local defaults = {
     friendlyHealthBarHeight = 17,
     friendlyHealthBarWidth = 150,
     showFriendlyNPCs = false,
-    -- Show Marked NPCs: a raid-marked friendly NPC gets a plate -- name and
+    -- Always Show Marked NPCs: a raid-marked friendly NPC gets a plate -- name and
     -- marker -- even with its nameplate toggle off or Blizzard's NPC-names
     -- filter against it. Off by default: a mark never brings up a plate the
     -- user switched off.
@@ -363,6 +363,9 @@ local defaults = {
     -- the name in Blizzard's own white and the softer alpha a subtitle takes.
     friendlyPetOwnerColor = { r = 1, g = 1, b = 1, a = 0.7 },
     friendlyPetOwnerMatchNameColor = false,
+    -- Owner Text Uses Its Own Size: off, the owner line under a pet's name takes
+    -- the pet name's size; on, Owner Text Size sets it.
+    friendlyPetOwnerOwnSize = false,
     friendlyNameTextSize = 12,
     friendlyBelowName = "none",
     friendlyBelowNameSize = 12,

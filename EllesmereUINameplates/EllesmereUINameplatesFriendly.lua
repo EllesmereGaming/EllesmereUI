@@ -556,6 +556,11 @@ end
 local function GetNPCTitleSize(overlay)
     local fp = FP()
     if overlay.isPet then
+        -- Owner Text Uses Its Own Size off: the owner line takes the pet name's
+        -- size, the way a name's second line does.
+        if not (fp and fp.friendlyPetOwnerOwnSize) then
+            return (fp and fp.friendlyPetNameSize) or NPC_OVERLAY_FONT_SIZE
+        end
         return (fp and fp.friendlyPetTitleSize) or NPC_TITLE_FONT_SIZE
     end
     return (fp and fp.friendlyNPCTitleSize) or NPC_TITLE_FONT_SIZE
@@ -708,8 +713,8 @@ local function HasRaidMarker(unit)
     return type(GetRaidTargetIndex(unit)) == "number"
 end
 
--- Whether a raid marker can put a plate up on its own: Show Marked NPCs, off
--- by default, so a mark never brings up a plate the user's toggle turned off.
+-- Whether a raid marker can put a plate up on its own: Always Show Marked NPCs,
+-- off by default, so a mark never brings up a plate the user's toggle turned off.
 local function MarkedNPCShown(unit)
     local fp = FP()
     return fp ~= nil and fp.friendlyShowMarkedNPCs == true and HasRaidMarker(unit)
@@ -733,8 +738,8 @@ end
 -- Whether our name goes on the plate we hold. A pet always takes its name (that
 -- is what its nameplate toggle is for); an NPC follows Blizzard's own filter,
 -- which is what lifts while the unit is hovered or targeted (see
--- IsFriendlyNPCShownForUnit) -- and, while Show Marked NPCs is on, a marked NPC
--- is named whatever that filter says.
+-- IsFriendlyNPCShownForUnit) -- and, while Always Show Marked NPCs is on, a
+-- marked NPC is named whatever that filter says.
 local function PlateNamed(unit)
     if IsPetUnit(unit) then return true end
     return IsFriendlyNPCShownForUnit(unit) or MarkedNPCShown(unit)
@@ -2420,13 +2425,6 @@ function FriendlyFrame:UpdateRaidIcon()
     local idx = GetRaidTargetIndex and GetRaidTargetIndex(self.unit)
     -- type() is taint-safe: "nil" / "number" without reading a secret index
     if type(idx) == "nil" then self.raidFrame:Hide(); return end
-    -- A non-player's marker answers the Friendly page's Show Raid Marker, the
-    -- switch the name-only overlay's marker takes. A player's does not: that row
-    -- sits in the NPCs' section.
-    local fp = FP()
-    if fp and fp.showNPCRaidMarker == false and not UnitIsPlayer(self.unit) then
-        self.raidFrame:Hide(); return
-    end
     SetRaidTargetIconTexture(self.raid, idx)
     ns.NP_PlaceFriendlyRaidMarker(self.raidFrame, self.health, pos)
     self.raidFrame:Show()
@@ -2892,15 +2890,6 @@ do
         -- already listening: a pass that is waiting for its frame runs with the new set
         if was ~= 0 then return end
         groupEv:RegisterEvent("GROUP_ROSTER_UPDATE")
-    end
-end
-
--- The Friendly page's Show Raid Marker: repaint the marker on every live
--- friendly plate, so an NPC's marker answers the switch in the health bar style
--- as it does on the name-only overlay.
-function ns.RefreshFriendlyRaidIcons()
-    for _, plate in pairs(friendlyPlates) do
-        plate:UpdateRaidIcon()
     end
 end
 

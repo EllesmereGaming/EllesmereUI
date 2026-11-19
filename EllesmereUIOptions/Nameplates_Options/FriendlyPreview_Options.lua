@@ -217,6 +217,12 @@ local function PaintNameLine(s, DBVal, text, sizeKey, nameR, nameG, nameB, petLi
     return 1 + size
 end
 
+-- A pet's owner line: Owner Text Uses Its Own Size off, it takes the pet name's
+-- size (as the live overlay does in GetNPCTitleSize).
+local function PetOwnerSizeKey(DBVal)
+    return DBVal("friendlyPetOwnerOwnSize") == true and "friendlyPetTitleSize" or "friendlyPetNameSize"
+end
+
 -- The player sample's name under the Name Format. A retail character's name
 -- is one word, which First Name, Last Name and Abbreviated leave whole, so
 -- there only a Character Count cuts the sample's; a WoW Forever name carries
@@ -291,7 +297,7 @@ local function PaintPlayer(s, DB, DBVal, nameOnly, key)
     if pet then
         s.name:SetText(EllesmereUI.L("Pet"))
         local extra = PaintNameLine(s, DBVal, EllesmereUI.L("Friendly Player"),
-            "friendlyPetTitleSize", nr, ng, nb, true)
+            PetOwnerSizeKey(DBVal), nr, ng, nb, true)
         -- The name and its line sit as one block, as the overlay's do on a plate.
         s.name:SetPoint("TOP", s, "CENTER", 0, math.floor((size + extra) / 2))
         return size + extra
@@ -324,8 +330,7 @@ end
 -- row's eye previewing a pet entry makes it that pet: the pet's sizes and its
 -- owner's line. Otherwise the health bar plate in the NPC colour, its name
 -- whole and with no title (the tail of PaintFriendlyColors and
--- FriendlyFrame:UpdateName), and its marker in the Raid Marker slot. Returns
--- the sample's height.
+-- FriendlyFrame:UpdateName). Returns the sample's height.
 local function PaintNPC(s, DBVal, nameOnly, marked, key)
     local name = EllesmereUI.L("Friendly NPC")
     s.raid:Hide()
@@ -336,12 +341,6 @@ local function PaintNPC(s, DBVal, nameOnly, marked, key)
         s.name:SetTextColor(c.r, c.g, c.b)
         s.name:SetText(name)
         s.sub:SetText("")
-        local pos = ns.GetRaidMarkerPos()
-        if marked and DBVal("showNPCRaidMarker") ~= false and pos ~= "none" then
-            SetRaidTargetIconTexture(s.raid, 8)
-            ns.NP_PlaceFriendlyRaidMarker(s.raid, s.health, pos)
-            s.raid:Show()
-        end
         return h
     end
     local pet = PreviewIsPet(key)
@@ -356,7 +355,7 @@ local function PaintNPC(s, DBVal, nameOnly, marked, key)
     -- A pet's line names its owner; an NPC's is its own subtitle.
     h = h + PaintNameLine(s, DBVal,
         pet and EllesmereUI.L("Friendly NPC") or EllesmereUI.L("Merchant"),
-        pet and "friendlyPetTitleSize" or "friendlyNPCTitleSize", nr, ng, nb, pet)
+        pet and PetOwnerSizeKey(DBVal) or "friendlyNPCTitleSize", nr, ng, nb, pet)
     if marked and DBVal("showNPCRaidMarker") ~= false then
         local pos = ns.GetRaidMarkerPos()
         if pos ~= "none" then
