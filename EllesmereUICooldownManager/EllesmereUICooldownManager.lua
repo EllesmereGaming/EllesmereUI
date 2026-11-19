@@ -597,9 +597,10 @@ if EllesmereUI.IS_FOREVER then
     end
 end
 
--- Pandemic Glow is the Anti-Clip Glow (EUI_CDM_ForeverAntiClip.lua) where auras
--- carry no time over on a refresh: WoW Forever. The one gate every reader asks.
-ns.CDM_ANTI_CLIP = EllesmereUI.IS_FOREVER == true
+-- WoW Forever has no Pandemic Glow: its auras carry no time over on a refresh, so
+-- Blizzard's Cooldown Manager opens no pandemic window there. The rows are not built
+-- and nothing draws or hooks for it. The one gate every reader asks.
+ns.CDM_NO_PANDEMIC = EllesmereUI.IS_FOREVER == true
 
 -- Built after the WoW Forever drop, so they describe the presets this client offers.
 do

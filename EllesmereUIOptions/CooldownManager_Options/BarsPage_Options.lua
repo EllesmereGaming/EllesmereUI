@@ -1984,6 +1984,9 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                       get=function() return BD().desaturateInactiveBuffs ~= false end,
                       set=function(v)
                           BD().desaturateInactiveBuffs = v
+                          -- Applied by the dirty-gated buff ticker.
+                          ns._btDirty = true
+                          if ns.ArmBuffTicker then ns.ArmBuffTicker() end
                       end },
                 },
             })
@@ -3317,17 +3320,15 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
 
     -- Pandemic Glow: the Glows page's descriptor over this bar, with the
     -- preview and the Pixel Glow cog inline and the swatches in the right half.
-    -- WoW Forever: the same row is the Anti-Clip Glow (EUI_CDM_ForeverAntiClip.lua).
-    do
+    -- Not on WoW Forever, which has no pandemic window (ns.CDM_NO_PANDEMIC).
+    if not ns.CDM_NO_PANDEMIC then
         local GO = EllesmereUI.GlowOptions
-        local antiClip = ns.CDM_ANTI_CLIP
         local panDesc = ns._CDM_PandemicGlowDesc(BD, function() ns.BuildAllCDMBars(); Refresh() end)
         local panGlowRow
         panGlowRow, h = W:DualRow(parent, y,
-            GO.DropdownSpec(panDesc, antiClip and "Anti-Clip Glow" or "Pandemic Glow",
-                antiClip and "Show a glow on icons when casting the spell next, after your current cast or global cooldown, won't clip it, or it has 1.5 seconds or less left"
-                    or "Show a glow on icons when the remaining duration is in the pandemic window (last 30%)"),
-            { type="label", text = antiClip and "Anti-Clip Glow Color" or "Pandemic Glow Color" });  y = y - h
+            GO.DropdownSpec(panDesc, "Pandemic Glow",
+                "Show a glow on icons when the remaining duration is in the pandemic window (last 30%)"),
+            { type="label", text="Pandemic Glow Color" });  y = y - h
 
         if not EllesmereUI._prebuilding then
             local leftRgn = panGlowRow._leftRegion
@@ -3338,8 +3339,7 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
             if EllesmereUI.BuildSyncIcon and EllesmereUI.ApplyPandemicGlowToAll then
                 EllesmereUI.BuildSyncIcon({
                     region = panGlowRow._leftRegion,
-                    tooltip = antiClip and "Apply this glow's look to all CDM bars and tracking bars. A surface that can't show a style uses its closest match."
-                        or "Apply this pandemic glow to Nameplates, all CDM bars, and tracking bars. A surface that can't show a style uses its closest match.",
+                    tooltip = "Apply this pandemic glow to Nameplates, all CDM bars, and tracking bars. A surface that can't show a style uses its closest match.",
                     isSynced = function()
                         return EllesmereUI.IsPandemicGlowSyncedToAll(EllesmereUI.PandemicPayloadFromCdmBar(BD()), { skipCdmKey = barKey })
                     end,

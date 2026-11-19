@@ -1405,8 +1405,8 @@ function ns.ShowIdleCastBar()
     if not castBarFrame then return end
     local cb = ERB.db.profile.castBar
 
-    -- Reset the timer and hide the fill. An eased channel can report zero
-    -- while the texture still draws a few pixels on the Always Show bar.
+    -- Empty the fill and hide it: the idle bar (Always Show) draws nothing of
+    -- it. ns.ActivateCastBar shows it again.
     castBarFrame._bar:SetValue(0)
     castBarFrame._bar:GetStatusBarTexture():Hide()
     castBarFrame._nativeFill = nil

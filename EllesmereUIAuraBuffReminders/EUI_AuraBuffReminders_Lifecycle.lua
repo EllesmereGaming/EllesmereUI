@@ -527,7 +527,37 @@ end
 -------------------------------------------------------------------------------
 --  MAIN EVENT HANDLER (OnEvent script for runtime events)
 -------------------------------------------------------------------------------
+function EABR.ClearSleepProgress()
+    EABR._fvSleepStartedAt, EABR._fvSleepProgressEnd, EABR._fvSleepStacks = nil, nil, nil
+    EABR._fvSleepProfile, EABR._fvSleepAuraInstance, EABR._fvSleepReloaded = nil, nil, nil
+    mainFrame:UnregisterEvent("PLAYER_LOGOUT")
+end
+
+function EABR.StartSleepProgress(instanceID)
+    EABR._fvSleepProfile = db.profile
+    EABR._fvSleepAuraInstance = instanceID
+    EABR._fvSleepStartedAt = GetTime()
+    EABR._fvSleepProgressEnd, EABR._fvSleepStacks = nil, nil
+    mainFrame:RegisterEvent("PLAYER_LOGOUT")
+end
+
 mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
+    if e == "PLAYER_LOGOUT" then
+        local startedAt = EABR._fvSleepStartedAt
+        if startedAt and db and EABR._fvSleepProfile == db.profile
+            and db.profile.forever.sleepingBagShowProgress ~= false then
+            local saved = EllesmereUI.CharData("sleepingBagProgress", true)
+            if saved then
+                saved.startedAt = startedAt
+                saved.endsAt = EABR._fvSleepProgressEnd
+                saved.stacks = EABR._fvSleepStacks
+            end
+        end
+        return
+    end
+    if EABR._fvSleepStartedAt and (e == "PLAYER_ENTERING_WORLD" or e == "ZONE_CHANGED_NEW_AREA") then
+        EABR.ClearSleepProgress()
+    end
     if e == "ENCOUNTER_START" then
         SnapshotPlayerAuras()
         if _isEvokerOwnOnRaid then SnapshotOwnOnRaidBuffs() end
@@ -632,6 +662,30 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
             -- are read afresh after a loading screen.
             EABR._fvTrackDirty = true
             EABR._fvSleepBag, EABR._fvCenser = nil, nil
+            local guid = EllesmereUI.CharGUID()
+            local saved = guid and EllesmereUI.CharData("sleepingBagProgress")
+            if saved then
+                EllesmereUI.ForgetCharField(guid, "sleepingBagProgress")
+                local fo = db and db.profile.forever
+                -- Resume only a confirmed session from a UI reload. A fresh login discards it.
+                if arg2 and fo and fo.sleepingBag == true and fo.sleepingBagShowProgress ~= false
+                    and db.profile.display.remindersEnabled ~= false and not InCombat()
+                    and type(saved) == "table" and type(saved.startedAt) == "number"
+                    and saved.startedAt >= 0 and saved.startedAt <= GetTime()
+                    and (saved.endsAt == nil or saved.endsAt == false
+                        or (type(saved.endsAt) == "number" and saved.endsAt >= saved.startedAt and saved.endsAt < math.huge))
+                    and (saved.stacks == nil or (type(saved.stacks) == "number" and saved.stacks >= 0
+                        and saved.stacks <= EABR.SLEEPING_BAG_STACKS and saved.stacks % 1 == 0)) then
+                    local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, EABR.SLEEPING_BAG_TRACKING)
+                    if ok and not I.isSecret(aura) and aura then
+                        EABR._fvSleepStartedAt, EABR._fvSleepProgressEnd, EABR._fvSleepStacks =
+                            saved.startedAt, saved.endsAt, saved.stacks
+                        EABR._fvSleepProfile = db.profile
+                        mainFrame:RegisterEvent("PLAYER_LOGOUT")
+                        EABR._fvSleepReloaded = true
+                    end
+                end
+            end
         end
         EABR.ScanEatingState()
         if not InCombatLockdown() then EABR.SyncProviderCastSpell() end

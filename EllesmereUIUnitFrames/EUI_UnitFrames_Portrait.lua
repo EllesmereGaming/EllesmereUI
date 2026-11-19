@@ -203,7 +203,7 @@ do
             if v ~= nil then return v end
             -- This unit's load is still in flight: take the answer if it is in.
             if model._mirPending == key then
-                if type(model:GetModelFileID()) == "nil" then return false end
+                if type((model:GetModelFileID())) == "nil" then return false end
                 model._mirReady = nil
                 return Resolve(model, key)
             end

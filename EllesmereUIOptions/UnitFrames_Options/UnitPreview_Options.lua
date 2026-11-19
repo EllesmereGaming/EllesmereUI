@@ -3765,8 +3765,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 if ns.GetBossSimpleDebuffMode(s) ~= "none" then
                     showCDText = s.simpleDebuffShowCooldownText
                     cdTextSize = s.simpleDebuffCooldownTextSize or 14
-                    cdTOffX = s.simpleDebuffCooldownTextOffsetX or 0
-                    cdTOffY = s.simpleDebuffCooldownTextOffsetY or 0
+                    cdTOffX, cdTOffY = ns.GetBossSimpleCdTextOffset(s, false)
                 else
                     showCDText = s.debuffShowCooldownText
                     cdTextSize = s.debuffCooldownTextSize or 10

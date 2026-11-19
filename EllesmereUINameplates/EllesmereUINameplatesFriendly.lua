@@ -217,17 +217,10 @@ local function GetSubTextSize()
     return (fp and fp.friendlyBelowNameSize) or 12
 end
 
--- An NPC's subtitle on the health bar plate takes the friendly NPC title size,
--- the same setting the name-only overlay gives it.
-local function GetPlateNPCTitleSize()
-    local fp = FP()
-    return (fp and fp.friendlyNPCTitleSize) or NPC_TITLE_FONT_SIZE
-end
-
 -- One sub text's family, for the line it currently holds: the guild line's size
--- comes from ApplySubtitleFont's bulk pass, an NPC subtitle's from its own
--- setting, and a pooled plate can carry either in turn -- so the family is set
--- per paint (SetFontFamily is memoized on the FontObject, so a repeat is cheap).
+-- comes from ApplySubtitleFont's bulk pass, and a pooled plate can carry the
+-- line in turn -- so the family is set per paint (SetFontFamily is memoized on
+-- the FontObject, so a repeat is cheap).
 local function SetPlateSubTextFont(fs, size)
     EllesmereUI.SetFontFamily(fs, GetFont(), size, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG", false)
 end
@@ -715,29 +708,36 @@ local function HasRaidMarker(unit)
     return type(GetRaidTargetIndex(unit)) == "number"
 end
 
+-- Whether a raid marker can put a plate up on its own: Show Marked NPCs, off
+-- by default, so a mark never brings up a plate the user's toggle turned off.
+local function MarkedNPCShown(unit)
+    local fp = FP()
+    return fp ~= nil and fp.friendlyShowMarkedNPCs == true and HasRaidMarker(unit)
+end
+
 -- Whether this base's plate is ours to take: a pet rides its own nameplate
--- toggle, a friendly or neutral NPC its nameplate toggle -- plus any NPC the
--- player has marked, which is worth showing on its own (naming it and drawing its
--- marker), so a marked NPC is taken even with the toggle off. Holding the plate
--- and naming it are separate decisions (PlateNamed below): a plate we hold but do
--- not name stays parked and invisible, which is the whole point of Name Only --
--- the NPC keeps its plate, and that plate shows neither a health bar nor a name
--- Blizzard's own NPC-names filter would have hidden.
+-- toggle, a friendly or neutral NPC its nameplate toggle -- plus, while Show
+-- Marked NPCs is on, any NPC the player has marked (naming it and drawing its
+-- marker). Holding the plate and naming it are separate decisions (PlateNamed
+-- below): a plate we hold but do not name stays parked and invisible, which is
+-- the whole point of Name Only -- the NPC keeps its plate, and that plate shows
+-- neither a health bar nor a name Blizzard's own NPC-names filter would have
+-- hidden.
 local function PlateClaimed(unit)
     local fp = FP()
     if not fp then return false end
     if IsPetUnit(unit) then return fp.showFriendlyPets == true end
-    return fp.showFriendlyNPCs == true or HasRaidMarker(unit)
+    return fp.showFriendlyNPCs == true or MarkedNPCShown(unit)
 end
 
 -- Whether our name goes on the plate we hold. A pet always takes its name (that
 -- is what its nameplate toggle is for); an NPC follows Blizzard's own filter,
 -- which is what lifts while the unit is hovered or targeted (see
--- IsFriendlyNPCShownForUnit) -- and a marked NPC is named whatever that filter
--- says, which is what makes a marked, non-interactable NPC visible at all.
+-- IsFriendlyNPCShownForUnit) -- and, while Show Marked NPCs is on, a marked NPC
+-- is named whatever that filter says.
 local function PlateNamed(unit)
     if IsPetUnit(unit) then return true end
-    return IsFriendlyNPCShownForUnit(unit) or HasRaidMarker(unit)
+    return IsFriendlyNPCShownForUnit(unit) or MarkedNPCShown(unit)
 end
 
 -- Whether a plate stays ours: a hostile plate we already parked keeps its name
@@ -871,21 +871,23 @@ local function ReleaseUnclaimedNPCOverlays()
     end
 end
 
--- A raid marker going on or off re-decides every plate it can affect: an NPC the
--- player has marked is shown -- name and marker -- even with its nameplate toggle
--- off and Blizzard's own filter against it, and one whose marker is gone goes back
--- to answering the toggles. RAID_TARGET_UPDATE is a user action, so this sweep
--- costs nothing while markers are left alone.
+-- A raid marker going on or off re-decides the plates it can affect: while Show
+-- Marked NPCs is on, a marked NPC is shown -- name and marker -- even with its
+-- nameplate toggle off and Blizzard's own filter against it; a plate we already
+-- hold takes the new marker either way. RAID_TARGET_UPDATE is a user action, so
+-- this sweep costs nothing while markers are left alone.
 function ns.RefreshMarkedNPCOverlays()
     if not IsNameOnlyMode() then return end
     local plates = C_NamePlate.GetNamePlates()
     if not plates then return end
+    local fp = FP()
+    local showMarked = fp ~= nil and fp.friendlyShowMarkedNPCs == true
     for _, nameplate in ipairs(plates) do
         local unit = GetNamePlateUnitToken(nameplate)
         -- Attackable plates are the enemy system's, and a friendly player's name
         -- is not painted here.
         if unit and not UnitIsPlayer(unit) and not UnitCanAttack("player", unit) then
-            if HasRaidMarker(unit) or suppressedNPCPlates[nameplate] then
+            if suppressedNPCPlates[nameplate] or (showMarked and HasRaidMarker(unit)) then
                 RefreshNPCOverlay(nameplate, unit)
             end
         end
@@ -1265,19 +1267,19 @@ do
         titledCount[mode] = titledCount[mode] + 1
         return s
     end
-    local aFormat, aNpcFormat, aMode, aBrackets, aMatch, aLevel, aDiff, aGroupBrackets, aNameEsc, aStatusTag, stamped
+    local aFormat, aNpcFormat, aMode, aBrackets, aMatch, aLevel, aDiff, aGroupBrackets, aNameEsc, aStatusTag, aSepGuild, stamped
     StampFriendlyNames = function()
         local fp = FP()
         if not fp then return end
         aFormat, aMode = fp.friendlyNameFormat, fp.friendlyBelowName or "none"
-        -- An NPC's name takes its own format, on the name-only overlay and on the
-        -- health bar plate alike.
+        -- An NPC's name takes its own format, on the name-only overlay.
         aNpcFormat = fp.friendlyNPCNameFormat
         aBrackets, stamped = fp.friendlyBelowNameGuildBrackets ~= false, true
         aMatch = fp.friendlyBelowNameMatchNameColor == true
         aLevel, aDiff = fp.friendlyShowLevel == true, fp.friendlyLevelDiffColor == true
         aGroupBrackets = fp.friendlyGroupBrackets == true
         aStatusTag = fp.friendlyShowStatusTag == true
+        aSepGuild = fp.friendlyBelowNameSeparateGuild == true
         aNameEsc = NameEsc.Get()
     end
     -- The Name Format options rows and every settings re-read (ns.RefreshAllSettings:
@@ -1294,6 +1296,7 @@ do
             and (fp.friendlyLevelDiffColor == true) == aDiff
             and (fp.friendlyGroupBrackets == true) == aGroupBrackets
             and (fp.friendlyShowStatusTag == true) == aStatusTag
+            and (fp.friendlyBelowNameSeparateGuild == true) == aSepGuild
             and NameEsc.Get() == aNameEsc then
             return
         end
@@ -1336,7 +1339,9 @@ end
 --  Cost of the approach: one FontString means ONE font size, so the guild
 --  line renders at the name's size here (its colour still applies, via an
 --  inline colour escape). The Guild Text Size setting governs full-plate
---  mode, which draws its own separate FontString.
+--  mode, which draws its own separate FontString. Show Guild Line as Its Own
+--  Text (off by default) opts into the separate widget instead, which can take
+--  Guild Text Size at the cost of a position to keep in sync.
 --
 --  The unit token and last-written text for a Blizzard name FontString ride
 --  external weak-keyed tables -- never custom keys on the Blizzard widget.
@@ -1344,7 +1349,18 @@ end
 nameFSUnits = setmetatable({}, { __mode = "k" })   -- nameFS -> unit token
 nameFSText  = setmetatable({}, { __mode = "k" })   -- nameFS -> { name=, guild= }
 local hookedNameText = {}   -- nameFS -> true (permanent hooks, applied once)
+-- UnitFrames we hooked for the unit's own events: keyed weakly here, never
+-- stamped on Blizzard's frame (a field there taints it).
+local hookedUFEvents = setmetatable({}, { __mode = "k" })
 local _titledNameGuard = false
+
+-- Show Guild Line as Its Own Text: the guild as a separate text at Guild Text
+-- Size instead of the name's second line. Off keeps today's look (the second
+-- line, at the name's size).
+local function SeparateGuildLine()
+    local fp = FP()
+    return fp ~= nil and fp.friendlyBelowNameSeparateGuild == true
+end
 
 -- The guild line under a Name Only name is a text of its own, never a second
 -- line of Blizzard's name string: that string carries one font at one size, so
@@ -1499,11 +1515,34 @@ local function UpdateNameOnlyText(nameFS)
     st.name, st.guild, st.grp = want, guildKey, gKind
 
     _titledNameGuard = true
-    nameFS:SetMaxLines(1)
-    nameFS:SetText(want)
+    if guild and not SeparateGuildLine() then
+        -- Today's look: the guild rides the name's own second line, at the
+        -- name's size. The guild is only ever a SetFormattedText argument
+        -- (display sinks accept secrets); the colour escape and brackets are
+        -- literals built from our own values.
+        local r, g, b = GetSubTextColor(unit)
+        local fp = FP()
+        local body = (not fp or fp.friendlyBelowNameGuildBrackets ~= false) and "<%s>" or "%s"
+        -- Word wrap MUST be on for the explicit newline to break a line --
+        -- Blizzard leaves this FontString non-wrapping, which silently drops
+        -- everything after the "\n". Nothing wraps by accident: the width is
+        -- 0 (auto-size), so there is no boundary to wrap against.
+        nameFS:SetWordWrap(true)
+        nameFS:SetMaxLines(2)
+        nameFS:SetFormattedText("%s\n" .. string.format("|cff%02x%02x%02x",
+            math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
+            .. body .. "|r", want, guild)
+    else
+        nameFS:SetMaxLines(1)
+        nameFS:SetText(want)
+    end
     _titledNameGuard = false
-    -- The guild line, under the name and a text of its own (nil clears it).
-    WriteNameOnlySub(nameFS, unit, guild)
+    -- The opt-in separate guild line; nil clears a line the option left behind.
+    if SeparateGuildLine() then
+        WriteNameOnlySub(nameFS, unit, guild)
+    else
+        HideNameOnlySub(nameFS)
+    end
 end
 
 -- Whether this plate's name can differ from the plain name Blizzard writes:
@@ -1565,8 +1604,8 @@ local function AttachNameOnlyText(nameFS, unit)
     -- rides its OnEvent instead of a timer retry on the add.
     local np = C_NamePlate.GetNamePlateForUnit(unit)
     local uf = np and np.UnitFrame
-    if uf and not uf._euiNameOnlyEvents and not uf:IsForbidden() then
-        uf._euiNameOnlyEvents = true
+    if uf and not hookedUFEvents[uf] and not uf:IsForbidden() then
+        hookedUFEvents[uf] = true
         uf:HookScript("OnEvent", function(self, event)
             if event ~= "UNIT_FACTION" then return end
             local fs = self.name
@@ -1623,6 +1662,24 @@ local function RefreshStatusTags(eventUnit)
             and PlayerStatusTag(bar.unit) ~= bar._statusTag then
             bar:UpdateName()
         end
+    end
+end
+
+-- One unit's guild name arrived or changed (PLAYER_GUILD_UPDATE carries the
+-- token): repaint that unit's plate alone, in either friendly style. The
+-- client's token ("party1", "target") is bridged to the plate's own token in
+-- one call, so no GUID scan and no walk over every plate.
+local function RepaintUnitGuild(eventUnit)
+    if not eventUnit then return end
+    local np = C_NamePlate and C_NamePlate.GetNamePlateForUnit and C_NamePlate.GetNamePlateForUnit(eventUnit)
+    if not np then return end
+    local token = GetNamePlateUnitToken(np) or eventUnit
+    local plate = friendlyPlates[token] or friendlyPlates[eventUnit]
+    if plate then plate:UpdateName() end
+    local fs = np.UnitFrame and np.UnitFrame.name
+    if fs and nameFSUnits[fs] then
+        nameFSText[fs] = nil
+        UpdateNameOnlyText(fs)
     end
 end
 
@@ -2296,12 +2353,6 @@ function FriendlyFrame:UpdateName()
     if fmt and isPlayer and unitName then
         unitName = FormatFriendlyName(unit, unitName, hasTitle)
     end
-    -- An NPC's name takes the Friendly NPC Name Format, as the name-only overlay's
-    -- does. isPlayer above is a lazy guard (false whenever none of the player
-    -- features is on), so the NPC test is asked here, once, for its answer.
-    if unitName and not isPlayer and not UnitIsPlayer(unit) then
-        unitName = FormatNPCName(unitName)
-    end
     -- Blizzard's away/busy tag, on the same text and colour as the name. A secret
     -- name cannot be concatenated, so it is left without one.
     local tag
@@ -2325,47 +2376,27 @@ function FriendlyFrame:UpdateName()
     self:UpdateSubText()
 end
 
--- Below Name sub text: a player's guild line (the title is inline on the name),
--- or an NPC's subtitle. The name normally hangs 4px above the bar (the pool
--- initializer's base anchor); a populated line reserves extra room under it so
--- it fits between the name and the bar. The name anchor is memoized on the
--- COMPUTED offset (a pure function of line count and line size, its only two
--- inputs), so it self-invalidates on size and mode changes and survives pool
--- round-trips. _subOff == 4 means base anchor + empty text, which is the
--- zero-write fast path while the feature is off.
+-- Below Name sub text: a player's guild line (the title is inline on the name).
+-- The name normally hangs 4px above the bar (the pool initializer's base
+-- anchor); a populated line reserves extra room under it so it fits between the
+-- name and the bar. The name anchor is memoized on the COMPUTED offset (a pure
+-- function of line count and line size, its only two inputs), so it
+-- self-invalidates on size and mode changes and survives pool round-trips.
+-- _subOff == 4 means base anchor + empty text, which is the zero-write fast
+-- path while the feature is off.
 function FriendlyFrame:UpdateSubText()
     local unit = self.unit
     if not unit then return end
     local lines = 0
     local size = 0
-    local isPlayer = UnitIsPlayer(unit)
-    if isPlayer and ModeHasGuild(GetBelowNameMode()) then
+    if ModeHasGuild(GetBelowNameMode()) and UnitIsPlayer(unit) then
         -- The font is ApplySubtitleFont's (set at build and on a change); only
         -- the content and the name-lift offset are per-plate.
         size = GetSubTextSize()
         SetPlateSubTextFont(self.subText1, size)
         lines = ApplySubText(self.subText1, unit)
-    elseif not isPlayer and not UnitPlayerControlled(unit) and ShowNPCTitles() then
-        -- An NPC's subtitle, as the name-only overlay draws it: the same switch,
-        -- on the same row, both styles. A pet is player controlled (or names a
-        -- player owner), so its bar plate is left without a line: the overlay's
-        -- Pet Subtitle Settings are the pet's own.
-        local title = GetCachedNPCTitle(unit)
-        if title then
-            size = GetPlateNPCTitleSize()
-            SetPlateSubTextFont(self.subText1, size)
-            self.subText1:SetText("<" .. title .. ">")
-            -- Match takes this plate's own name colour, which is the bar & name
-            -- colour, so the two lines agree in the health bar style too.
-            self.subText1:SetTextColor(ns.Allied.GetTitleColor(unit, GetFriendlyNPCColor()))
-            lines = 1
-        elseif self._subOff == 4 then
-            return   -- no subtitle to draw: nothing to do
-        else
-            self.subText1:SetText("")
-        end
     elseif self._subOff == 4 then
-        return   -- no line drawn: nothing to do
+        return   -- no guild line drawn: nothing to do
     else
         self.subText1:SetText("")
     end
@@ -3015,8 +3046,8 @@ end
 local initFrame
 
 -- The guild line under a friendly name: the Name Only text and the health bar
--- plate both draw it, so the roster event that fills it in late is armed while
--- either style can show it.
+-- plate both draw it, so the event that fills it in late is armed while either
+-- style can show it.
 local function GuildLineInUse()
     if not ModeHasGuild(GetBelowNameMode()) then return false end
     return IsNameOnlyMode() or IsFriendlyEnabled()
@@ -3050,14 +3081,14 @@ function ns.RefreshFriendlyTagWatch()
             initFrame:UnregisterEvent("UPDATE_MOUSEOVER_UNIT")
         end
     end
-    -- The guild line resolves when the roster arrives, not on the plate add.
+    -- The guild line resolves per unit, not on a roster sweep.
     local guild = GuildLineInUse()
     if guild ~= guildEventArmed then
         guildEventArmed = guild
         if guild then
-            initFrame:RegisterEvent("GUILD_ROSTER_UPDATE")
+            initFrame:RegisterEvent("PLAYER_GUILD_UPDATE")
         else
-            initFrame:UnregisterEvent("GUILD_ROSTER_UPDATE")
+            initFrame:UnregisterEvent("PLAYER_GUILD_UPDATE")
         end
     end
 end
@@ -3292,7 +3323,7 @@ initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 initFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 initFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-initFrame:SetScript("OnEvent", function(self, event)
+initFrame:SetScript("OnEvent", function(self, event, unit)
     if event == "PLAYER_TARGET_CHANGED" or event == "UPDATE_MOUSEOVER_UNIT" then
         OnTargetChangedNPCOverlays()
         -- The client reports a player's away/busy flag for the units it tracks,
@@ -3302,13 +3333,10 @@ initFrame:SetScript("OnEvent", function(self, event)
         end
         return
     end
-    if event == "GUILD_ROSTER_UPDATE" then
-        -- A guild name arrives with the roster: recompose the names and the
-        -- guild lines that just gained one.
-        if GuildLineInUse() then
-            SweepPlayerSubText()
-            for _, plate in pairs(friendlyPlates) do plate:UpdateName() end
-        end
+    if event == "PLAYER_GUILD_UPDATE" then
+        -- One unit's guild name just arrived or changed: repaint that plate
+        -- alone (the client hands us the token, so no sweep of every plate).
+        if GuildLineInUse() then RepaintUnitGuild(unit) end
         return
     end
     if event == "GROUP_ROSTER_UPDATE" then

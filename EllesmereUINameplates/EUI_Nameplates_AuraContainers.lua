@@ -1128,7 +1128,9 @@ function NPB.GlowSpec(idx)
                 ApplyNPBuffExtra(btn, dd, style)
             end
         end,
-        layout = { elementWidth = 24, elementHeight = 24, elementSpacing = 4, lineSpacing = 4 },
+        -- Laid out by its place in the row (Magic, enrages, plain), not by
+        -- when it was declared: the enrage half can join after the plain group.
+        layout = { elementWidth = 24, elementHeight = 24, elementSpacing = 4, lineSpacing = 4, layoutIndex = idx },
     }
 end
 
@@ -1175,7 +1177,7 @@ local function AddBundleBuffs(b)
         maxFrameCount = plainToks and 4 or 0,
         sortMethod = SORT_IMPORTANT,
         style = "np:buffsplain",
-        layout = { elementWidth = 24, elementHeight = 24, elementSpacing = 4, lineSpacing = 4 },
+        layout = { elementWidth = 24, elementHeight = 24, elementSpacing = 4, lineSpacing = 4, layoutIndex = 3 },
     }
     b.containers.buffs = BundleContainer(b, "buffs", specs)
     if #specs > 2 then b.containers.buffs._npbSplit = true end
@@ -1369,10 +1371,22 @@ local function AnchorNPContainer(container, kind, plate, slotVal)
             elementWidth = size, elementHeight = height,
             elementSpacing = spacing, lineSpacing = spacing,
         }
+        -- A layout replaces the group's whole layout, its layoutIndex too: the
+        -- buff row's groups keep their row order (Magic, enrages, plain; see
+        -- NPB.GlowSpec) through every pass.
+        local buffs = kind == "buffs"
+        if buffs then gLayout.layoutIndex = 1 end
         container:SetAuraGroupLayout("np", gLayout)
         -- The buff row's non-Magic glow group shares the row's element sizing.
         if container._npbSplit then
+            gLayout.layoutIndex = 2
             container:SetAuraGroupLayout("np2", gLayout)
+        end
+        -- So does its plain remainder group (always declared on the buff row).
+        if buffs then
+            gLayout.layoutIndex = 3
+            container:SetAuraGroupLayout("npnb", gLayout)
+            gLayout.layoutIndex = nil
         end
         -- NPF record groups share the row's element sizing.
         if container._npfGroups then

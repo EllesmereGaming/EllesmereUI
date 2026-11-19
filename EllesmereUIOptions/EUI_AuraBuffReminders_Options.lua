@@ -1959,6 +1959,10 @@ initFrame:SetScript("OnEvent", function(self)
                           tooltip="Also reminds you this many minutes before Well-Rested runs out. 0 = off.",
                           get=function() local f = FDB(); return f and f.sleepingBagShowBelow or 0 end,
                           set=function(v) local f = FDB(); if f then f.sleepingBagShowBelow = v > 0 and v or nil; RefreshAll() end end },
+                        { type="toggle", label="Show Sleep Timer",
+                          tooltip="Counts down to three Well-Rested stacks while you sleep in the bag.",
+                          get=function() local f = FDB(); return not f or f.sleepingBagShowProgress ~= false end,
+                          set=function(v) local f = FDB(); if f then f.sleepingBagShowProgress = v and true or false; RefreshAll() end end },
                     },
                 })
                 EllesmereUI.BuildInlineCog(gatherRow._leftRegion, {

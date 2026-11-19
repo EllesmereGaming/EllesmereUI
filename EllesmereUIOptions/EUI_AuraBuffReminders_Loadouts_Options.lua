@@ -556,10 +556,11 @@ function ns._BuildLoadoutPage(_, parent, yOffset)
     local actDD = BuildActivityChecklist(addRow, DD_W, level, {
         get = function(key) return pend.acts[key] == true end,
         set = function(key, on) pend.acts[key] = on or nil end,
-        -- Dimmed while another loadout of your spec holds it; adding moves it.
-        dim = function(key) return LM.HolderOf(key) ~= nil end,
+        -- Dimmed while a loadout holds it where this one lands (your spec; on
+        -- WoW Forever the picked talents' spec group); adding moves it.
+        dim = function(key) return LM.HolderOf(key, pend.talentKey) ~= nil end,
         dimTooltip = function(key)
-            local lo = LM.HolderOf(key)
+            local lo = LM.HolderOf(key, pend.talentKey)
             if not lo then return nil end
             return EllesmereUI.Lf("Used by %s. Adding moves it to the new loadout.", LoadoutName(lo))
         end,
@@ -633,7 +634,7 @@ function ns._BuildLoadoutPage(_, parent, yOffset)
         end
         local acts = {}
         for k in pairs(pend.acts) do acts[k] = true end
-        local ok, why = LM.AddLoadout(GearPick(), talent, acts)
+        local ok, why, bucket = LM.AddLoadout(GearPick(), talent, acts)
         if not ok then
             if why == "noacts" then
                 CardPulse(actDD)
@@ -648,15 +649,16 @@ function ns._BuildLoadoutPage(_, parent, yOffset)
         end
         wipe(pend.acts)
         pend.gear, pend.talentKey = nil, nil
-        local bucket = LM.BucketKey()
+        -- The card it went to opens (WoW Forever: its talents' spec group).
         if bucket ~= nil then cardOpen[bucket] = true end
         Refresh(true)
     end)
     y = y - 38
 
     ---------------------------------------------------------------------------
-    --  The loadouts: one card per spec (WoW Forever: one for the character),
-    --  your spec first and open
+    --  The loadouts: one card per spec (WoW Forever: per spec group, and one
+    --  for the character holding what both groups share), your spec open and,
+    --  on retail, first
     ---------------------------------------------------------------------------
     _, h = W:Spacer(parent, y, 15); y = y - h
     _, h = W:SectionHeader(parent, "LOADOUTS", y); y = y - h
@@ -720,10 +722,9 @@ function ns._BuildLoadoutPage(_, parent, yOffset)
             ordered[#ordered + 1] = key
         end
     end
-    Take(current)
-    if not FOREVER then
-        for _, spec in ipairs(LM.GetSpecList()) do Take(spec.id) end
-    end
+    -- WoW Forever keeps Primary above Secondary, whichever is active.
+    if not FOREVER then Take(current) end
+    for _, spec in ipairs(LM.GetSpecList()) do Take(spec.id) end
     for key in pairs(buckets) do Take(key) end
 
     if #ordered == 0 then
@@ -736,15 +737,20 @@ function ns._BuildLoadoutPage(_, parent, yOffset)
         y = y - ROW_H
     end
 
-    -- Your spec's card starts open, the others closed.
-    if current ~= nil and cardOpen[current] == nil then cardOpen[current] = true end
+    -- Your spec's card starts open, the others closed (WoW Forever: the shared
+    -- card while your spec group has no card of its own).
+    local openKey = current
+    if FOREVER and not taken[current] and taken[0] then openKey = 0 end
+    if openKey ~= nil and cardOpen[openKey] == nil then cardOpen[openKey] = true end
 
     local _, playerClass = UnitClass("player")
     for _, key in ipairs(ordered) do
         local list = buckets[key]
         local display, specIcon, class = nil, nil, playerClass
         if FOREVER then
-            display = LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[playerClass] or tostring(playerClass)
+            -- A spec group's card carries its name; the shared card the class.
+            display = key ~= 0 and LM.SpecName(key)
+                or LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[playerClass] or tostring(playerClass)
         else
             local _, specName, _, icon, _, classFile, className
             if GetSpecializationInfoByID then

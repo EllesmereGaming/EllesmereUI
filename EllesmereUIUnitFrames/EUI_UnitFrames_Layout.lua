@@ -127,6 +127,25 @@ function ns.GetBossSimpleBuffOffset(s)
     return x, y
 end
 
+-- Boss Simple Buff / Debuff Display duration text X/Y: simple<Buff|Debuff>CooldownTextOffsetX/Y
+-- if set, else the regular buff / debuff duration offsets, the view the column offsets above
+-- use, so a duration offset saved for the regular display reads on in the simple one. The
+-- live auras (BuildStyle), the simple cogs' sliders and the boss previews all read this.
+function ns.GetBossSimpleCdTextOffset(s, isBuff)
+    if not s then return 0, 0 end
+    local x, y
+    if isBuff then
+        x, y = s.simpleBuffCooldownTextOffsetX, s.simpleBuffCooldownTextOffsetY
+        if x == nil then x = s.buffCooldownTextOffsetX or 0 end
+        if y == nil then y = s.buffCooldownTextOffsetY or 0 end
+    else
+        x, y = s.simpleDebuffCooldownTextOffsetX, s.simpleDebuffCooldownTextOffsetY
+        if x == nil then x = s.debuffCooldownTextOffsetX or 0 end
+        if y == nil then y = s.debuffCooldownTextOffsetY or 0 end
+    end
+    return x, y
+end
+
 -- Boss aura icon spacing, in PHYSICAL pixels. Simple modes use dedicated keys
 -- (simpleBuffSpacing/simpleDebuffSpacing); regular auras use buffSpacing/debuffSpacing.
 -- No legacy equivalent, so every variant defaults to 1 independently. Callers convert

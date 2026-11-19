@@ -1689,14 +1689,20 @@ local function BuildStyle(unit, base, s, unitFrame)
     local size, h, cropped = ElementSize(unit, base, s)
     local p = Pick(isBuff, "buff", "debuff")
 
-    -- Boss simple side displays read their own cooldown-text keys.
+    -- Boss simple side displays read their own cooldown-text keys; the duration
+    -- offsets fall back to the regular ones while unset (ns.GetBossSimpleCdTextOffset).
     local simpleOn = BossSimple(unit, base, s)
     local showCdKey, cdSizeKey = p .. "ShowCooldownText", p .. "CooldownTextSize"
     local cdSizeDefault = 10
+    local cdOffX, cdOffY
     if simpleOn then
-        showCdKey = "simple" .. p:gsub("^%l", string.upper) .. "ShowCooldownText"
-        cdSizeKey = "simple" .. p:gsub("^%l", string.upper) .. "CooldownTextSize"
+        local cap = (p:gsub("^%l", string.upper))
+        showCdKey = "simple" .. cap .. "ShowCooldownText"
+        cdSizeKey = "simple" .. cap .. "CooldownTextSize"
         cdSizeDefault = 14
+        cdOffX, cdOffY = ns.GetBossSimpleCdTextOffset(s, isBuff)
+    else
+        cdOffX, cdOffY = s[p .. "CooldownTextOffsetX"] or 0, s[p .. "CooldownTextOffsetY"] or 0
     end
 
     -- Blizzard Style: buffs borderless like the stock frames, debuffs on the
@@ -1763,8 +1769,8 @@ local function BuildStyle(unit, base, s, unitFrame)
         durationPrecisionThreshold = tonumber(s[p .. "CooldownTextPrecision"]),
         cdTextSize = s[cdSizeKey] or cdSizeDefault,
         cdTextColor = s[p .. "CooldownTextColor"],
-        cdOffX = s[p .. "CooldownTextOffsetX"] or 0,
-        cdOffY = s[p .. "CooldownTextOffsetY"] or 0,
+        cdOffX = cdOffX,
+        cdOffY = cdOffY,
         stackSize = s[p .. "StackTextSize"] or 14,
         stackColor = s[p .. "StackTextColor"],
         stackPos = s[p .. "StackTextPosition"],

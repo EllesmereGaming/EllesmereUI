@@ -1,6 +1,6 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local addon, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI._Pool and EllesmereUI.Glows and EllesmereUI.Glows.FlatKeys and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.OwnSurnameHidden and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.SetFontObjectFace and EllesmereUI.SnapshotFontObject and EllesmereUI.RestoreFontObject and EllesmereUI.FitFactionArt) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, the Name Format asks its UnitNameFormat, the [name:last] and [target:last] tags its OwnSurnameHidden, the plate texts take font families through its ApplyModuleFontFamily / SetFontFamily, and the friendly name-only fonts change through its SetFontObjectFace / SnapshotFontObject / RestoreFontObject, and the faction badges size their art through its FitFactionArt)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI._Pool and EllesmereUI.Glows and EllesmereUI.Glows.FlatKeys and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.OwnSurnameHidden and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.SetFontObjectFace and EllesmereUI.SnapshotFontObject and EllesmereUI.RestoreFontObject and EllesmereUI.FitFactionArt and EllesmereUI.SetBorderEdgeFill and EllesmereUI.SetBorderSnapHost) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, the Name Format asks its UnitNameFormat, the [name:last] and [target:last] tags its OwnSurnameHidden, the plate texts take font families through its ApplyModuleFontFamily / SetFontFamily, and the friendly name-only fonts change through its SetFontObjectFace / SnapshotFontObject / RestoreFontObject, and the faction badges size their art through its FitFactionArt, and the custom borders take their edge fill and snap host through its SetBorderEdgeFill / SetBorderSnapHost)
 EllesmereUI._ModuleNS[addon] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
@@ -296,6 +296,11 @@ local defaults = {
     friendlyHealthBarHeight = 17,
     friendlyHealthBarWidth = 150,
     showFriendlyNPCs = false,
+    -- Show Marked NPCs: a raid-marked friendly NPC gets a plate -- name and
+    -- marker -- even with its nameplate toggle off or Blizzard's NPC-names
+    -- filter against it. Off by default: a mark never brings up a plate the
+    -- user switched off.
+    friendlyShowMarkedNPCs = false,
     showNPCTitles = true,
     showNPCRaidMarker = true,
     showFriendlyPlayers = true,
@@ -316,10 +321,9 @@ local defaults = {
     nameOnlyStyleFriendlyNPCs = false,
     nameOnlyStyleHostileNPCs = false,
     -- Show Friendly Pet Nameplates has no default: nil means the user never
-    -- chose, and the nameplates init then takes the setting the client already
-    -- has for pet and minion plates, so a profile that never touched the option
-    -- keeps the pet plates Blizzard was showing. Once it has a value -- from that
-    -- seed or from the option -- the toggle writes the four pet CVars itself.
+    -- chose, and nil reads as off everywhere. Only the option's own click
+    -- writes the pet and minion CVars (ns.ApplyPetCVars), so a profile that
+    -- never touched it leaves the client's settings alone.
     nameOnlyCustomEnabled_FRIENDLY_PLAYER_FRIEND = false,
     nameOnlyCustomColor_FRIENDLY_PLAYER_FRIEND = { r = 1.00, g = 0.84, b = 0.00 },
     nameOnlyCustomEnabled_FRIENDLY_PLAYER_RECENT = false,
@@ -365,6 +369,10 @@ local defaults = {
     friendlyBelowNameClassColor = false,
     friendlyBelowNameGuildBrackets = true,
     friendlyBelowNameMatchNameColor = false,
+    -- Show Guild Line as Its Own Text: the Name Only guild line as a separate
+    -- text at Guild Text Size. Off keeps the name's second line in that FontString
+    -- (one font, one size), as it has always looked.
+    friendlyBelowNameSeparateGuild = false,
     friendlyShowLevel = false,
     friendlyLevelDiffColor = false,
     friendlyGroupBrackets = false,
@@ -372,10 +380,8 @@ local defaults = {
     -- one here is a choice of its own and off until asked.
     friendlyShowStatusTag = false,
     -- Show Enemy Pet Nameplates has no default either: nil means the user never
-    -- chose, and the nameplates init then takes the enemy pet setting the client
-    -- already has, the way Show Friendly Pet Nameplates does above. The toggle
-    -- writes nameplateShowEnemyPets, nameplateShowEnemyMinions and
-    -- UnitNameEnemyMinionName together (ns.ApplyPetCVars), and nothing else does.
+    -- chose, and nil reads as off. Its click writes nameplateShowEnemyPets alone
+    -- (ns.ApplyPetCVars); the enemy minion CVars stay the client's own.
     -- Blizzard's nameplateSize CVar (1 Small .. 5 Huge), applied on load; 3 = Large, the old forced value.
     nameplateSize = 3,
     font = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF",
@@ -770,6 +776,8 @@ function ns.ApplyCustomBorderStyle(plate, szOverride)
         plate._customBorder = bf
         -- Plates move by sub-pixels: the Pixels styles need their edge fill.
         EllesmereUI.SetBorderEdgeFill(bf, true)
+        -- Snap ignoring the engine's grow-in scale on the Blizzard nameplate.
+        EllesmereUI.SetBorderSnapHost(bf, plate)
     end
     -- Health bars flatten render layers: a BORDER-layer backdrop would be clipped by the
     -- ARTWORK health fill, so lift it onto MEDIUM strata (same escape the plate uses for
@@ -859,6 +867,7 @@ function ns.NP_UpdateCustomBorderWrap(plate)
             lower:SetPoint("BOTTOM", cast, "BOTTOM", 0, 0)
             plate._cbWrapLower = lower
             EUI.SetBorderEdgeFill(lower, true)
+            EUI.SetBorderSnapHost(lower, plate)
         end
         -- Above the cast spell icon, re-set every pass (a strata change on the lifted
         -- cast bar resets its children's levels).

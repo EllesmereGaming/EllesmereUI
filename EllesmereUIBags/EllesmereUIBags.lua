@@ -119,10 +119,10 @@ end
 -- family. Like the reagent bag they get their own category and sections and
 -- stay out of Main Bags, the header count, OneBag's sort, Auto Split and drop
 -- placement. nil on retail or with none equipped; the next call reuses the
--- set, so read it right away. Such a bag in the fifth slot (bag 5) is not in
--- the set: it keeps the reagent bag's section, sort and split paths, and only
--- the header count leaves it out, by the tally's own family read
--- (EUI_Bags:RefreshInventory).
+-- set, so read it right away. A bag in the fifth slot (bag 5) is not in the
+-- set: it keeps the reagent bag's section, sort and split paths, and the
+-- header count leaves out only a quiver, ammo pouch or soul bag there
+-- (families 1, 2, 4; EUI_Bags:RefreshInventory).
 do
     local special = {}
     function ns.SpecialBags()
@@ -134,6 +134,16 @@ do
             if family and family ~= 0 then special[bag] = true; any = true end
         end
         return any and special or nil
+    end
+
+    -- WoW Forever: the bag family of the fifth slot's bag, the one read the
+    -- header count and OneBag's reagent routing share; each applies its own
+    -- rule (the count keeps families 1, 2, 4 out, the routing skips any
+    -- non-zero family). nil on retail.
+    function ns.FifthSlotFamily()
+        if not EllesmereUI.IS_FOREVER then return nil end
+        local _, family = C_Container.GetContainerNumFreeSlots(5)
+        return family
     end
 
     -- Auto Split's target bags for a stack in bag, in order: the reagent bag

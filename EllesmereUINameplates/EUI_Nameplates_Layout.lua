@@ -1517,6 +1517,8 @@ function ns.ApplyCastIconBorder(plate)
         bf:SetAllPoints(icon)
         bf:EnableMouse(false)
         plate._castIconBorder = bf
+        -- Built as the plate spawns: snap at the nameplate's settled scale.
+        EllesmereUI.SetBorderSnapHost(bf, plate)
     end
     local tex = p.customBorderTexture or defaults.customBorderTexture
     local sz = p.customBorderSize or defaults.customBorderSize
@@ -1880,6 +1882,8 @@ local function PlaceArrow(plate, arrow, side, extent, aw, ah)
     elseif row and ry < a1 and a0 < ry + rh then
         local icon = ns.NP_FullIconPush(plate, side, a0, a1)
         if icon > 0 and ns.NP_FullIconPush(plate, side, ry, ry + rh) == 0 then x = x + icon end
+        -- The row starts the side aura gap off the bar: an empty one leaves the arrow where a bare side puts it.
+        x = x - GetSideAuraXOffset()
         local cy = barH / 2 - ry
         local corner = (side == "left") and "BOTTOMLEFT" or "BOTTOMRIGHT"
         if side == "left" then x = -x end
