@@ -332,7 +332,38 @@ function EABR.FvTrackingState()
     return EABR._fvTreasureUp, EABR._fvClassUp
 end
 
--- Restricted creature type IDs go straight to the sprite widget.
+-- Public player tracking state chooses a visibility row; the native widget
+-- selects the target's column without Lua inspecting its restricted type.
+local function HunterTrackingMask(spells)
+    if EABR._fvHunterMatchMask ~= nil then return EABR._fvHunterMatchMask end
+    local types = EABR._fvHunterTrackingTypes
+    if not types then
+        types = {}
+        for creatureTypeID, spellID in pairs(spells) do types[spellID] = creatureTypeID end
+        EABR._fvHunterTrackingTypes = types
+    end
+    local mask = 0
+    for creatureTypeID, spellID in pairs(spells) do
+        if not Known(spellID) then mask = bit.bor(mask, 2 ^ (creatureTypeID - 1)) end
+    end
+    for i = 1, C_Minimap.GetNumTrackingTypes() do
+        local info = C_Minimap.GetTrackingInfo(i)
+        if info and info.type == "spell" then
+            if isSecret(info.spellID) then
+                if isSecret(info.active) or info.active then mask = 127; break end
+            else
+                local creatureTypeID = types[info.spellID]
+                if creatureTypeID then
+                    if isSecret(info.active) then mask = 127; break end
+                    if info.active then mask = bit.bor(mask, 2 ^ (creatureTypeID - 1)) end
+                end
+            end
+        end
+    end
+    EABR._fvHunterMatchMask = mask
+    return mask
+end
+
 function EABR.CollectHunterTracking(missing)
     local exists = UnitExists("target")
     if isSecret(exists) or not exists then return end
@@ -341,16 +372,6 @@ function EABR.CollectHunterTracking(missing)
     local dead = UnitIsDeadOrGhost("target")
     if isSecret(dead) or dead then return end
     local _, creatureTypeID = UnitCreatureType("target")
-    if isSecret(creatureTypeID) then
-        local e = AcquireEntry()
-        e.mode = "texture"; e.texture = 134400
-        e.cat = "forever"; e.dismissKey = "forever:huntertracking"
-        e.hunterTrackingStatus = true
-        e.hunterTargetTypeID = creatureTypeID
-        missing[#missing+1] = e
-        return
-    end
-    if type(creatureTypeID) ~= "number" then return end
     local spells = EABR._fvHunterTrackingSpells
     if not spells then
         spells = {
@@ -364,6 +385,17 @@ function EABR.CollectHunterTracking(missing)
         }
         EABR._fvHunterTrackingSpells = spells
     end
+    if isSecret(creatureTypeID) then
+        local e = AcquireEntry()
+        e.mode = "texture"; e.texture = 134400
+        e.cat = "forever"; e.dismissKey = "forever:huntertracking"
+        e.hunterTrackingStatus = true
+        e.hunterTargetTypeID = creatureTypeID
+        e.hunterMatchMask = HunterTrackingMask(spells)
+        missing[#missing+1] = e
+        return
+    end
+    if type(creatureTypeID) ~= "number" then return end
     local spellID = spells[creatureTypeID]
     if not spellID or not Known(spellID) then return end
     for i = 1, C_Minimap.GetNumTrackingTypes() do

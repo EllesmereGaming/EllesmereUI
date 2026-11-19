@@ -31,6 +31,7 @@ I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 -------------------------------------------------------------------------------
 local ICON_SIZE = 40
 local HUNTER_TRACKING_SHEET = "Interface\\AddOns\\EllesmereUIAuraBuffReminders\\Media\\HunterTracking.tga"
+local HUNTER_TRACKING_VISIBILITY = "Interface\\AddOns\\EllesmereUIAuraBuffReminders\\Media\\HunterTrackingVisibility.tga"
 local iconAnchor
 I.iconAnchorSetters[#I.iconAnchorSetters + 1] = function(v) iconAnchor = v end
 local iconPool = {}     -- all created icon buttons
@@ -382,9 +383,26 @@ local function ShowCombatIcon(m)
     f._dismissKey = m.dismissKey or nil
     f._hunterTrackingStatus = m.hunterTrackingStatus
     f._hunterTargetTypeID = m.hunterTargetTypeID
+    f._hunterMatchMask = m.hunterMatchMask
+    if m.hunterTrackingStatus then
+        f:EnableMouse(false)
+        f._hunterNoMouse = true
+    elseif f._hunterNoMouse then
+        f:EnableMouse(true)
+        if not f._routed then f:SetMouseClickEnabled(false) end
+        f._hunterNoMouse = nil
+    end
     if f._hunterSprite then
         f._hunterSprite.clip:Hide()
         f._icon:SetAlpha(1)
+        if not m.hunterTrackingStatus and f._hunterSprite.visibilityMasks then
+            for texture, record in pairs(f._hunterSprite.visibilityMasks) do
+                if record.attached then
+                    texture:RemoveMaskTexture(record.mask)
+                    record.attached = nil
+                end
+            end
+        end
     end
     local spellID = m.spellID or (m.data and m.data.castSpell)
     f._icon:SetTexture(m.texture or (spellID and Tex(spellID)) or 134400)
@@ -419,6 +437,38 @@ local function ShowCombatIcon(m)
     end
     f:Show()
     combatActiveIcons[#combatActiveIcons+1] = f
+end
+
+local function MaskHunterTexture(s, texture, targetTypeID, row)
+    local record = s.visibilityMasks[texture]
+    if not record then
+        local mask = texture:GetParent():CreateMaskTexture()
+        mask:SetTexture(HUNTER_TRACKING_VISIBILITY, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE", "NEAREST")
+        mask:SetAllPoints(texture)
+        record = { mask = mask }
+        s.visibilityMasks[texture] = record
+    end
+    local mask = record.mask
+    mask:SetSpriteSheetCell(targetTypeID, 1, 16)
+    -- Only forward the opaque native X coordinates. Y comes from public state.
+    local left, _, _, _, right = mask:GetTexCoord()
+    mask:SetTexCoord(left, right, row / 128, (row + 1) / 128)
+    if not record.attached then texture:AddMaskTexture(mask); record.attached = true end
+end
+
+local function MaskHunterRegions(s, targetTypeID, row, ...)
+    for i = 1, select("#", ...) do
+        local region = select(i, ...)
+        if region:GetObjectType() == "Texture" then MaskHunterTexture(s, region, targetTypeID, row) end
+    end
+end
+
+local function MaskHunterBorders(s, targetTypeID, row, ...)
+    for i = 1, select("#", ...) do
+        local frame = select(i, ...)
+        MaskHunterRegions(s, targetTypeID, row, frame:GetRegions())
+        MaskHunterBorders(s, targetTypeID, row, frame:GetChildren())
+    end
 end
 
 -- Crop a full native sprite through an ordinary viewport. Only the separate
@@ -461,6 +511,9 @@ local function PaintHunterTargetIcon(f)
     end
     -- Native cell selection accepts the restricted id without Lua inspecting it.
     s.icon:SetSpriteSheetCell(f._hunterTargetTypeID, 4, 4)
+    if not s.visibilityMasks then s.visibilityMasks = {} end
+    MaskHunterTexture(s, s.icon, f._hunterTargetTypeID, f._hunterMatchMask)
+    MaskHunterBorders(s, f._hunterTargetTypeID, f._hunterMatchMask, f._eabrBorderFrame)
     f._icon:SetAlpha(0)
     s.clip:Show()
 end
@@ -1710,6 +1763,7 @@ do
         e.foreverFood = nil
         e.hunterTrackingStatus = nil
         e.hunterTargetTypeID = nil
+        e.hunterMatchMask = nil
         e.fvExtra = nil
         e.stackText = nil
         return e
