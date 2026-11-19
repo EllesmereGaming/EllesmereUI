@@ -155,6 +155,13 @@ EllesmereUI.BLIZZARD_FONT_KEY = "__blizzard"
 function EllesmereUI.GetBlizzardFontPath()
     return EllesmereUI._clientFontPath or _G.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
 end
+-- "Blizzard Chat": the client's chat face (ChatFontNormal), which differs from its UI face.
+EllesmereUI.BLIZZARD_CHAT_FONT_KEY = "__blizzardchat"
+-- Read at load, before the chat failsafe or Apply to All Game Text swaps it.
+EllesmereUI._clientChatFontPath = _G.ChatFontNormal and (_G.ChatFontNormal:GetFont()) or nil
+function EllesmereUI.GetBlizzardChatFontPath()
+    return EllesmereUI._clientChatFontPath or EllesmereUI.GetBlizzardFontPath()
+end
 
 function EllesmereUI.InvalidateFontCache()
     EllesmereUI._fontCacheDirty = true
@@ -196,6 +203,9 @@ local function ResolveFontName(fontName)
     -- locale-aware (the engine picks the right face per client language).
     if fontName == EllesmereUI.BLIZZARD_FONT_KEY then
         return EllesmereUI.GetBlizzardFontPath()
+    end
+    if fontName == EllesmereUI.BLIZZARD_CHAT_FONT_KEY then
+        return EllesmereUI.GetBlizzardChatFontPath()
     end
     -- Explicit Expressway override: bypasses the glyph-restriction mapping below.
     if fontName == EllesmereUI.EXPRESSWAY_FORCED_KEY then
@@ -1131,8 +1141,10 @@ function EllesmereUI.BuildFontDropdownData()
     -- Default" entry already IS the client's own font.
     local values = { ["__global"] = { text = "EUI Global Font" },
                      [EllesmereUI.BLIZZARD_FONT_KEY] = { text = "Blizzard Default",
-                         font = EllesmereUI.GetBlizzardFontPath() } }
-    local order  = { "__global", EllesmereUI.BLIZZARD_FONT_KEY, "---" }
+                         font = EllesmereUI.GetBlizzardFontPath() },
+                     [EllesmereUI.BLIZZARD_CHAT_FONT_KEY] = { text = "Blizzard Chat",
+                         font = EllesmereUI.GetBlizzardChatFontPath() } }
+    local order  = { "__global", EllesmereUI.BLIZZARD_FONT_KEY, EllesmereUI.BLIZZARD_CHAT_FONT_KEY, "---" }
     local FONT_DIR = EllesmereUI.MEDIA_PATH .. "fonts\\"
     for _, name in ipairs(EllesmereUI.FONT_ORDER) do
         if name == "---" then
