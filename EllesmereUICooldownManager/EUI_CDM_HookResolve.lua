@@ -483,9 +483,12 @@ function ns.ApplyActiveOverlays(frame, fd, ss, isActive, bd)
             shapeBorder:SetVertexColor(fd._sbR, fd._sbG, fd._sbB, fd._sbA)
             fd._sbColorSaved = false
         elseif fd.borderFrame and EllesmereUI.SetBorderStyleColor then
-            EllesmereUI.SetBorderStyleColor(fd.borderFrame,
-                (bd and bd.borderR) or 0, (bd and bd.borderG) or 0,
-                (bd and bd.borderB) or 0, (bd and bd.borderA) or 1)
+            local brdR, brdG, brdB = (bd and bd.borderR) or 0, (bd and bd.borderG) or 0, (bd and bd.borderB) or 0
+            if bd and bd.borderClassColor then
+                local cc = ns._playerClass and RAID_CLASS_COLORS[ns._playerClass]
+                if cc then brdR, brdG, brdB = cc.r, cc.g, cc.b end
+            end
+            EllesmereUI.SetBorderStyleColor(fd.borderFrame, brdR, brdG, brdB, (bd and bd.borderA) or 1)
         end
         fd._activeBorderOn = false
     end
