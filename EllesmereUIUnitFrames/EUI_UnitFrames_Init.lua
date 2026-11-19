@@ -2366,6 +2366,10 @@ local function InitializeFrames()
         local frame = frames[unitKey]
         if frame and (unitKey == "target" or unitKey == "focus") then
             ns.UF_RecolorTexts(frame, unitKey, db.profile[unitKey])
+            local s, btb = db.profile[unitKey], frame._btb
+            if btb and btb._applyBTBClassIcon and s and s.bottomTextBar then
+                btb._applyBTBClassIcon(s)
+            end
         end
         if not frame or not frame.Portrait then return end
         local backdrop = frame.Portrait.backdrop
