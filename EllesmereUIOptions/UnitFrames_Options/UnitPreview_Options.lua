@@ -557,18 +557,18 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         elseif content == "curpp" then
             local maxPP = UnitPowerMax("player") or 100
             local ppPct = optState._previewPowerPct or 0.85
-            return ns.AbbreviateNumbers(math.floor(maxPP * ppPct))
+            return ns.AbbreviateValue(math.floor(maxPP * ppPct), "power")
         elseif content == "curmaxpp" then
             local maxPP = UnitPowerMax("player") or 100
             local ppPct = optState._previewPowerPct or 0.85
-            return ns.AbbreviateNumbers(math.floor(maxPP * ppPct)) .. " / " .. ns.AbbreviateNumbers(maxPP)
+            return ns.AbbreviateValue(math.floor(maxPP * ppPct), "power") .. " / " .. ns.AbbreviateValue(maxPP, "power")
         elseif content == "curhp_curpp" then
             local maxHP = UnitHealthMax("player") or 1
             local pct = optState._previewHealthPct or 0.70
             local curHP = math.floor(maxHP * pct)
             local maxPP = UnitPowerMax("player") or 100
             local ppPct2 = optState._previewPowerPct or 0.85
-            return _pvAbbrev(curHP, "health") .. " | " .. ns.AbbreviateNumbers(math.floor(maxPP * ppPct2))
+            return _pvAbbrev(curHP, "health") .. " | " .. ns.AbbreviateValue(math.floor(maxPP * ppPct2), "power")
         elseif content == "perhp_perpp" then
             local pct = optState._previewHealthPct or 0.70
             local ppPct3 = optState._previewPowerPct or 0.85
@@ -611,9 +611,9 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 elseif key == "hp:max:abr" then v = _pvAbbrev(maxHP, "maxHealth")
                 elseif key == "hp:pct" then v = _pvPct(optState._previewHealthPct or 0.70)
                 elseif key == "pp" then v = tostring(curPP)
-                elseif key == "pp:abr" then v = ns.AbbreviateNumbers(curPP)
+                elseif key == "pp:abr" then v = ns.AbbreviateValue(curPP, "power")
                 elseif key == "pp:max" then v = tostring(maxPP)
-                elseif key == "pp:max:abr" then v = ns.AbbreviateNumbers(maxPP)
+                elseif key == "pp:max:abr" then v = ns.AbbreviateValue(maxPP, "power")
                 elseif key == "pp:pct" then v = tostring(math.floor(ppPct * 100))
                 elseif key == "absorb" then v = PreviewTextForContent("absorb", s, prefix)
                 elseif key == "absorb:abr" then v = PreviewTextForContent("absorbshort", s, prefix)

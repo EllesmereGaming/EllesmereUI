@@ -495,17 +495,17 @@ local function UpdatePrimaryBar()
             local txt
             if fmt == "smart" then
                 local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(cachedPrimary)
-                txt = isPercent and percentText or ns.AbbreviateNumbers(cur)
+                txt = isPercent and percentText or ns.AbbreviateValue(cur, "power")
             elseif fmt == "both" then
-                txt = ns.AbbreviateNumbers(cur) .. " | " .. percentText
+                txt = ns.AbbreviateValue(cur, "power") .. " | " .. percentText
             elseif fmt == "curpp" then
-                txt = ns.AbbreviateNumbers(cur)
+                txt = ns.AbbreviateValue(cur, "power")
             elseif fmt == "curmaxpp" then
-                txt = ns.AbbreviateNumbers(cur) .. " / " .. ns.AbbreviateNumbers(mx)
+                txt = ns.AbbreviateValue(cur, "power") .. " / " .. ns.AbbreviateValue(mx, "power")
             elseif fmt == "perpp" then
                 txt = percentText
             else
-                txt = ns.AbbreviateNumbers(cur)
+                txt = ns.AbbreviateValue(cur, "power")
             end
             primaryBar._text:SetText(txt)
         end
