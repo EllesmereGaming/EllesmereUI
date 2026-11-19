@@ -20,6 +20,7 @@ Blocks\Bags.lua
 Blocks\XPRep.lua
 Blocks\Travel.lua
 Blocks\Spec.lua
+Blocks\DualSpec.lua
 Blocks\Profession.lua
 Blocks\MicroMenu.lua
 Blocks\Currency.lua
