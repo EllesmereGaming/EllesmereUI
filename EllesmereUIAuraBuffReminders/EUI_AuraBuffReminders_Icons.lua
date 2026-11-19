@@ -379,7 +379,6 @@ local function ShowCombatIcon(m)
         if not f._routed then f:SetMouseClickEnabled(false) end
         f._icon:SetAlpha(0)
         f._eabrBorderFrame:SetAlpha(0)
-        if f._hunterIcons then f._hunterIcons.clip:Hide() end
     elseif EABR.IsReceiverRaidBuff(m) then
         receiversShown = receiversShown + 1
         f = GetOrCreateReceiverIcon(receiversShown)
@@ -464,6 +463,8 @@ local function PaintHunterTargetIcon(f, entry)
     s.ruler:ClearAllPoints()
     s.ruler:SetSize(16 * step, height + 2 * pad)
     s.ruler:SetPoint("TOPRIGHT", s.clip, "TOPRIGHT")
+    s.clip:Show()
+    s.ruler:SetValue(entry.hunterTargetTypeID)
     for creatureTypeID, cell in ipairs(s.icons) do
         -- Restyle while anchored to the public owner, then restore native positioning.
         cell:ClearAllPoints()
@@ -476,8 +477,6 @@ local function PaintHunterTargetIcon(f, entry)
         cell:SetPoint("TOPLEFT", s.fill, "TOPLEFT", (creatureTypeID - 1) * step + pad, -pad)
     end
     s.scale = scale
-    s.ruler:SetValue(entry.hunterTargetTypeID)
-    s.clip:Show()
 end
 
 -- Left-aligned from the anchor's left edge; Grow Left right-aligns from its

@@ -2060,15 +2060,27 @@ initFrame:SetScript("OnEvent", function(self)
                     items[#items + 1] = { key = b.key, label = text, tooltip = tip }
                     byKey[b.key] = b
                 end
+                if class == "HUNTER" then
+                    items[#items + 1] = { key = "hunterTracking", label = "Target Tracking",
+                        tooltip = "In combat, shows the tracking that matches your hostile target's creature type." }
+                end
                 local isOn = _G._EABR_FvClassBuffOn
                 local rgn = classRow._leftRegion
                 local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                     rgn, 170, rgn:GetFrameLevel() + 2, items,
-                    function(key) local f = FDB(); return isOn(byKey[key], f and f.classBuffPicks) end,
+                    function(key)
+                        local f = FDB()
+                        if key == "hunterTracking" then return f and f.hunterTracking == true end
+                        return isOn(byKey[key], f and f.classBuffPicks)
+                    end,
                     function(key, v)
                         local f = FDB(); if not f then return end
-                        f.classBuffPicks = f.classBuffPicks or {}
-                        f.classBuffPicks[key] = v and true or false
+                        if key == "hunterTracking" then
+                            f.hunterTracking = v and true or false
+                        else
+                            f.classBuffPicks = f.classBuffPicks or {}
+                            f.classBuffPicks[key] = v and true or false
+                        end
                         RefreshAll()
                     end)
                 EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
@@ -2148,20 +2160,6 @@ initFrame:SetScript("OnEvent", function(self)
                       AddSpellIDToList(f.customIDs, text)
                   end })
             y = BuildForeverGroupSections(parent, y)
-
-            if class == "HUNTER" then
-                _, h = W:SectionHeader(parent, "HUNTER TRACKING", y);  y = y - h
-                _, h = W:DualRow(parent, y,
-                    { type="toggle", text="Match Target in Combat",
-                      tooltip="Shows a tracking icon in combat when your current hostile target's creature type does not match your active tracking.\nOnly tracking spells you know are suggested. Choose the matching spell from your tracking wheel or use a keybind. This icon is information only.\nIn restricted combat, matching tracking hides the icon and border but leaves their space in the row reserved.",
-                      getValue=function() local f = FDB(); return f and f.hunterTracking == true end,
-                      setValue=function(v)
-                          local f = FDB(); if not f then return end; f.hunterTracking = v
-                          RefreshAll()
-                      end },
-                    EllesmereUI.BlankRowCfg()
-                );  y = y - h
-            end
 
             -- No preview header here, so no click-to-scroll mappings to wire.
             return math.abs(y)
