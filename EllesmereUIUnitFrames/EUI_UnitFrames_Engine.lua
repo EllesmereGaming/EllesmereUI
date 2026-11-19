@@ -476,6 +476,9 @@ end
 -- for the same reason).
 local IDENTITY_EVENTS = {
     UNIT_NAME_UPDATE = true, UNIT_LEVEL = true, UNIT_CONNECTION = true, UNIT_FACTION = true,
+    -- The 2D portrait repaints only on this one: a same-frame UNIT_MODEL_CHANGED
+    -- (a shapeshift sends both) must not eat it.
+    UNIT_PORTRAIT_UPDATE = true,
 }
 
 -- Heal prediction's trailing flush: a same-frame repeat can carry state the
