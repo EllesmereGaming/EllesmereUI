@@ -8,9 +8,12 @@ normal icon's public crop and zoom without changing the sprite's secret UVs.
 Columns follow the same creature-type IDs; rows 0-127 are bitmasks of the
 seven active or unlearned trackers (Beast is bit 0, Humanoid is bit 6).
 A set bit makes that column transparent; unsupported types are always
-transparent. Native sprite selection supplies the restricted X coordinates,
-while public player tracking state selects the row. Nearest filtering keeps
-each cell uniformly visible or hidden, including the reminder's border.
+transparent. A transparent native reverse-fill status bar takes the restricted
+creature type as its value on a 0-16 range. Its fill's left edge positions the
+mask so the chosen column overlaps the source. The mask spans 16 source widths
+and 128 source heights; its public row shifts it up by that many source heights.
+Its UVs stay at the full texture and are never read or rewritten. Nearest
+filtering keeps each cell uniformly visible or hidden, including the border.
 
 Spell/icon file IDs, verified against [Wago Tools](https://wago.tools/db2/SpellMisc):
 1494/132328, 19879/134153, 19878/136217, 19880/135861, 19882/132275,

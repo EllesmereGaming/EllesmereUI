@@ -444,15 +444,25 @@ local function MaskHunterTexture(s, texture, targetTypeID, row)
     if not record then
         local mask = texture:GetParent():CreateMaskTexture()
         mask:SetTexture(HUNTER_TRACKING_VISIBILITY, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE", "NEAREST")
-        mask:SetAllPoints(texture)
-        record = { mask = mask }
+        local ruler = CreateFrame("StatusBar", nil, s.canvas)
+        ruler:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+        ruler:SetMinMaxValues(0, 16)
+        ruler:SetReverseFill(true)
+        ruler:SetAlpha(0)
+        ruler:EnableMouse(false)
+        record = { mask = mask, ruler = ruler, fill = ruler:GetStatusBarTexture() }
         s.visibilityMasks[texture] = record
     end
-    local mask = record.mask
-    mask:SetSpriteSheetCell(targetTypeID, 1, 16)
-    -- Only forward the opaque native X coordinates. Y comes from public state.
-    local left, _, _, _, right = mask:GetTexCoord()
-    mask:SetTexCoord(left, right, row / 128, (row + 1) / 128)
+    local mask, ruler = record.mask, record.ruler
+    -- The native reverse fill positions the column without reading its width.
+    local width, height = texture:GetSize()
+    ruler:ClearAllPoints()
+    ruler:SetSize(width * 16, height)
+    ruler:SetPoint("TOPRIGHT", texture, "TOPRIGHT")
+    ruler:SetValue(targetTypeID)
+    mask:ClearAllPoints()
+    mask:SetSize(width * 16, height * 128)
+    mask:SetPoint("TOPLEFT", record.fill, "TOPLEFT", 0, row * height)
     if not record.attached then texture:AddMaskTexture(mask); record.attached = true end
 end
 
