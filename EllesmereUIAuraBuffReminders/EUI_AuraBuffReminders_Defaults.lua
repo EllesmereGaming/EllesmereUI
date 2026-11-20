@@ -199,6 +199,16 @@ if EABR.FOREVER then
         sleepingBagShowBelow = 0, -- minutes before Well-Rested runs out at which it also shows; 0 = off
         sleepingBagShowProgress = true, -- Show Sleep Timer: the countdown to three stacks while asleep in the bag; read ~= false
         arcaneCenser = false, -- Arcane Censer reminder; opt-in, in dungeons while a censer is in the bags
+        intellectConsumableByClass = {},
+        strengthConsumableByClass = {},
+        agilityConsumableByClass = {},
+        staminaConsumableByClass = {},
+        spiritConsumableByClass = {},
+        protectionConsumableByClass = {},
+        statConsumableLowRank = false,
+        statConsumableShowBelow = 0,
+        statConsumableSeparateReminders = false,
+        statConsumableShowUpgrades = false,
         gather = false,     -- gathering tracking reminder; opt-in, it shows while no tracker is up
         gatherClassTrack = true,  -- an active class tracking also hides it
         hunterTracking = false, -- Hunter: match creature tracking to the current hostile target in combat

@@ -541,7 +541,27 @@ function EABR.StartSleepProgress(instanceID)
     mainFrame:RegisterEvent("PLAYER_LOGOUT")
 end
 
+local consumableItemLevels, consumableItemPending, consumableItemFailed
+
 mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
+    if e == "BAG_UPDATE_COOLDOWN" then
+        EABR.FvUpdateStatItemCooldowns()
+        return
+    end
+    if e == "ITEM_DATA_LOAD_RESULT" then
+        if not consumableItemPending or consumableItemPending[arg1] == nil then return end
+        consumableItemPending[arg1] = nil
+        if not next(consumableItemPending) then mainFrame:UnregisterEvent(e) end
+        local level = arg2 and select(5, C_Item.GetItemInfo(arg1))
+        if level then
+            consumableItemLevels[arg1] = level
+            RequestRefresh()
+        else
+            consumableItemFailed = consumableItemFailed or {}
+            consumableItemFailed[arg1] = true
+        end
+        return
+    end
     if e == "PLAYER_LOGOUT" then
         local startedAt = EABR._fvSleepStartedAt
         if startedAt and db and EABR._fvSleepProfile == db.profile
@@ -648,6 +668,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
 
     if e == "PLAYER_ENTERING_WORLD" then
         wipe(_dismissedUntilLoad)
+        if EABR.FOREVER then EABR.FvInvalidateCampStats() end
         -- Preserve the last known targeted-aura state across loading screens;
         -- nil is unknown and readers suppress until the delayed rescan resolves it.
         -- WoW Forever has no targeted own-aura tracking (its Raid Buffs keep
@@ -700,7 +721,8 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
     if e == "UNIT_AURA" then
         -- arg1 = unit token. Player aura changes always refresh; group member changes only matter for Evoker ownOnRaid cache updates and OOC raid buff checks (broad UNIT_AURA is only registered for classes needing group tracking).
         if arg1 == "player" then
-            if not EABR.FOREVER then EABR.UpdateEatingState(arg2) end  -- eating channel feeds the retail food reminder only
+            if EABR.FOREVER then EABR.FvInvalidateCampStats(arg2)
+            else EABR.UpdateEatingState(arg2) end  -- eating channel feeds the retail food reminder only
             local isEvoker = GetPlayerClass() == "EVOKER"
             if isEvoker and InCombat() and IsInGroup() then
                 for _, id in ipairs(_ownOnRaidIDs) do
@@ -753,10 +775,10 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
         return
     end
 
-    -- Bag CONTENT changes (BAG_UPDATE/_DELAYED) alter item counts/resolution, so re-scan. BAG_UPDATE_COOLDOWN
-    -- is intentionally NOT registered: it fires ~1/sec from cooldown ticks, changes nothing reminder-relevant, and would refresh every second and bust the resolved-item cache.
+    -- Only bag content changes invalidate item counts and resolution.
     if e == "BAG_UPDATE_DELAYED" or e == "BAG_UPDATE" then
         InvalidateItemCountCache()
+        consumableItemFailed = nil
         EABR._fvSleepBag, EABR._fvCenser = nil, nil
     end
 
@@ -792,6 +814,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
         EABR._fvClassPickerGroups = nil
         if EABR._fvHunterTrackingEvents then EABR._fvHunterMatchMask = nil end
         if e == "LEARNED_SPELL_IN_SKILL_LINE" then EABR._fvTrackDirty = true end
+        if ns.RefreshStatConsumableOptions then ns.RefreshStatConsumableOptions() end
     elseif e == "MINIMAP_UPDATE_TRACKING" then
         EABR._fvTrackDirty = true
         if EABR._fvHunterTrackingEvents then EABR._fvHunterMatchMask = nil end
@@ -820,7 +843,7 @@ local function DetectUsedItem()
     for k, v in pairs(_bagCounts) do _prevBagCounts[k] = v end
 end
 
--- Item-use tracking serves the consumable pickers; WoW Forever has no consumable reminders.
+-- Item-use history serves the retail consumable pickers.
 if not EABR.FOREVER then
     local f = CreateFrame("Frame")
     f:RegisterEvent("BAG_UPDATE_DELAYED")
@@ -844,9 +867,9 @@ if EABR.FOREVER then
     -- state's edges and newly learned spells (a rank joins the custom spells'
     -- families, a raid buff becomes castable). Raid Buffs adds its group
     -- events itself (EABR.FvSyncGroupWatch), the two trackers their minimap
-    -- event (EABR.FvSyncTrackingEvent), the Action Picker its spellbook event
-    -- (EABR.FvSyncPickerSpellEvents), Hunter tracking its target events
-    -- (EABR.FvSyncHunterTrackingEvents).
+    -- event (EABR.FvSyncTrackingEvent), the Action Picker and stat consumables
+    -- share the spellbook event (EABR.FvSyncSpellbookEvents).
+    -- Hunter tracking uses its own target events (EABR.FvSyncHunterTrackingEvents).
     mainFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
     mainFrame:RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE")
     mainFrame:RegisterEvent("ENCOUNTER_START")
@@ -889,11 +912,9 @@ if EABR.FOREVER then
             mainFrame:UnregisterEvent("UNIT_FACTION")
         end
     end
-    -- The Action Picker's choices follow the spellbook: SPELLS_CHANGED is
-    -- listened to only while the picker is on and a reminder can show
-    -- (EABR.CollectForever; EABR.FvStandDown turns it off).
-    function EABR.FvSyncPickerSpellEvents(want)
-        EABR._fvPickerSpellEvents = want
+    -- Picker choices and stat consumable locks can change when a spell is unlearned.
+    function EABR.FvSyncSpellbookEvents(want)
+        EABR._fvSpellbookEvents = want
         if want then
             -- Talent changes may have happened while this listener was off.
             EABR._fvFamDirty = true
@@ -922,6 +943,51 @@ if EABR.FOREVER then
             mainFrame:RegisterEvent("BAG_UPDATE_DELAYED")
         else
             mainFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
+        end
+    end
+    function EABR.FvConsumableItemLevel(id)
+        consumableItemLevels = consumableItemLevels or {}
+        local level = consumableItemLevels[id]
+        if level ~= nil then return level end
+        if consumableItemPending and consumableItemPending[id] ~= nil then
+            consumableItemPending[id] = true
+            return
+        end
+        -- A failed load can retry on the next bag change or activation.
+        if consumableItemFailed and consumableItemFailed[id] then return end
+        level = select(5, C_Item.GetItemInfo(id))
+        if level ~= nil then
+            consumableItemLevels[id] = level
+            return level
+        end
+        consumableItemPending = consumableItemPending or {}
+        if not next(consumableItemPending) then mainFrame:RegisterEvent("ITEM_DATA_LOAD_RESULT") end
+        consumableItemPending[id] = true
+        C_Item.RequestLoadItemDataByID(id)
+        return consumableItemLevels[id]
+    end
+    function EABR.FvSyncConsumableItemEvents(active, watchLevel, watchCooldown)
+        if consumableItemPending and next(consumableItemPending) then
+            -- Retain only requests that could improve this pass's choice.
+            for id, seen in pairs(consumableItemPending) do
+                if active and seen then consumableItemPending[id] = false
+                else consumableItemPending[id] = nil end
+            end
+            if not next(consumableItemPending) then mainFrame:UnregisterEvent("ITEM_DATA_LOAD_RESULT") end
+        end
+        if not active then consumableItemFailed = nil end
+        watchCooldown = watchCooldown == true
+        if watchCooldown ~= (EABR._fvConsumableCooldownEvent or false) then
+            EABR._fvConsumableCooldownEvent = watchCooldown
+            if watchCooldown then mainFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")
+            else mainFrame:UnregisterEvent("BAG_UPDATE_COOLDOWN") end
+        end
+        if watchLevel == (EABR._fvConsumableLevelEvent or false) then return end
+        EABR._fvConsumableLevelEvent = watchLevel
+        if watchLevel then
+            mainFrame:RegisterEvent("PLAYER_LEVEL_UP")
+        else
+            mainFrame:UnregisterEvent("PLAYER_LEVEL_UP")
         end
     end
     -- A Cozy Sleeping Bag or an Arcane Censer bought or looted while none is

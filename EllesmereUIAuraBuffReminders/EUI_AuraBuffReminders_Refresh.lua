@@ -839,17 +839,15 @@ local function FvAuraExpiration(aura)
     if not isSecret(expiration) and expiration and expiration > 0 then return expiration end
 end
 
--- When the last of the foods whose buff has a name of its own (EABR.FOOD_BUFFS) runs out.
--- nil when none is up or one of them cannot be read: Well Fed's early reminder is then
--- left out, never guessed.
-local function FvFoodExpiration()
+-- The latest known expiration, or an unreadable flag if we cannot determine it.
+local function FvLatestAuraExpiration(ids)
     local latest
-    for _, id in ipairs(EABR.FOOD_BUFFS) do
+    for _, id in ipairs(ids) do
         local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
-        if not ok or isSecret(aura) then return end
+        if not ok or isSecret(aura) then return nil, true end
         if aura then
             local expiration = FvAuraExpiration(aura)
-            if not expiration then return end
+            if not expiration then return nil, true end
             if not latest or expiration > latest then latest = expiration end
         end
     end
@@ -1043,7 +1041,243 @@ end
 -- table, the cached families, the kept minimap answer and the dismiss-key memo
 -- keep the pass allocation-free; the weapon pass reads the game's enchant
 -- lists, a table per weapon.
-function EABR.CollectForever(missing, inInstance, inPvP)
+-- Item ID, stat bonus, and aura spell ID, strongest first.
+local intellectConsumables = {
+    label = "Intellect", dismissKey = "forever:intellect", iconSpell = 1459,
+    setting = "intellectConsumableByClass", legacySetting = "intellectConsumable", family = "ai",
+    items = {
+        { 9179, 25, 11396 }, { 10308, 16, 12176 }, { 4419, 12, 8098 }, { 250354, 10, 1250989 },
+        { 2290, 8, 8097 }, { 250353, 6, 1250988 }, { 955, 4, 8096 }, { 3383, 3, 3166 },
+    },
+}
+local strengthConsumables = {
+    label = "Strength", dismissKey = "forever:strength", iconSpell = 8118,
+    setting = "strengthConsumableByClass",
+    items = {
+        { 250351, 25, 1250986 }, { 9206, 25, 11405 }, { 250350, 18, 1250985 },
+        { 10310, 17, 12179 }, { 4426, 13, 8120 }, { 250349, 10, 1250984 }, { 2289, 9, 8119 },
+        { 3391, 8, 3164 }, { 6662, 8, 8212 }, { 954, 5, 8118 }, { 2454, 4, 2367 },
+    },
+}
+local agilityConsumables = {
+    label = "Agility", dismissKey = "forever:agility", iconSpell = 8115,
+    setting = "agilityConsumableByClass",
+    items = {
+        { 13452, 25, 17538 }, { 250328, 25, 1250918 }, { 9187, 25, 11334 }, { 250350, 18, 1250985 },
+        { 10309, 17, 12174 }, { 8949, 15, 11328 }, { 4425, 13, 8117 }, { 1477, 9, 8116 },
+        { 3390, 8, 3160 }, { 3012, 5, 8115 }, { 2457, 4, 2374 },
+    },
+}
+local staminaConsumables = {
+    label = "Stamina", dismissKey = "forever:stamina", iconSpell = 8099,
+    setting = "staminaConsumableByClass", family = "fort",
+    items = { { 10307, 16, 12178 }, { 4422, 12, 8101 }, { 1711, 8, 8100 }, { 1180, 4, 8099 } },
+    -- Max-health bonuses stack with Stamina, so check their auras separately.
+    health = {
+        items = { { 250335, 400, 1250931 }, { 250334, 200, 1250928 }, { 3825, 120, 3593 }, { 2458, 27, 2378 } },
+    },
+}
+local spiritConsumables = {
+    label = "Spirit", dismissKey = "forever:spirit", iconSpell = 8112,
+    setting = "spiritConsumableByClass", family = "spirit",
+    items = {
+        { 250348, 25, 1250981 }, { 250338, 25, 1250941 }, { 13447, 18, 17535 }, { 250347, 18, 1250979 },
+        { 10306, 15, 12177 }, { 4424, 11, 8114 }, { 250346, 10, 1250978 }, { 1712, 7, 8113 },
+        { 250345, 6, 1250976 }, { 1181, 3, 8112 }, { 250344, 3, 1250974 },
+    },
+}
+local protectionConsumables = {
+    label = "Protection", dismissKey = "forever:protection", iconSpell = 8091,
+    setting = "protectionConsumableByClass",
+    items = {
+        { 250329, 500, 1250920 }, { 13445, 450, 11348 }, { 8951, 250, 11349 }, { 10305, 240, 12175 },
+        { 4421, 180, 8095 }, { 3389, 150, 3220 }, { 1478, 120, 8094 }, { 3013, 60, 8091 }, { 5997, 50, 673 },
+    },
+}
+-- The single reminder uses the first eligible stat in dropdown order.
+local statConsumables = {
+    intellectConsumables, strengthConsumables, agilityConsumables, staminaConsumables, spiritConsumables, protectionConsumables,
+}
+local statBonusesToBeat = {}
+local statExpirations = {}
+local statConsumableDismissKey = "forever:scrollsAndElixirs"
+local statConsumableChoices, statConsumableMacros
+local statConsumableBuffClasses = { ai = "MAGE", fort = "PRIEST", spirit = "PRIEST" }
+local campStatAuraID, campStatExpiration, campIntellectAmount, campFirstAidKit
+
+function EABR.FvInvalidateCampStats(info)
+    if not campStatAuraID then return end
+    if isSecret(info) or not info or isSecret(info.isFullUpdate) or info.isFullUpdate then
+        campStatAuraID = nil
+        return
+    end
+    local updated = info.updatedAuraInstanceIDs
+    if isSecret(updated) then
+        campStatAuraID = nil
+    elseif updated then
+        for _, id in ipairs(updated) do
+            if isSecret(id) or id == campStatAuraID then
+                campStatAuraID = nil
+                break
+            end
+        end
+    end
+end
+
+local function FvCampStatBonuses()
+    -- Camp Benefits exposes its individual bonuses in the aura tooltip.
+    local ok, aura = pcall(C_UnitAuras.GetUnitAuraBySpellID, "player", EABR.CAMP_BENEFITS)
+    if not ok or isSecret(aura) then return 0 end
+    if not aura then
+        campStatAuraID = nil
+        return 0
+    end
+    local id, expiration = aura.auraInstanceID, aura.expirationTime
+    if isSecret(id) or not id or isSecret(expiration) then return 0 end
+    if id == campStatAuraID and expiration == campStatExpiration then return campIntellectAmount, campFirstAidKit end
+
+    local candle = C_Spell.GetSpellName(1229705) -- Incense Candle
+    local kit = C_Spell.GetSpellName(1307244) -- First Aid Kit
+    if isSecret(candle) then candle = nil end
+    if isSecret(kit) then kit = nil end
+    if not candle and not kit then return 0 end
+    local hasTooltip, tooltip = pcall(C_TooltipInfo.GetUnitAuraByAuraInstanceID, "player", id)
+    if not hasTooltip or isSecret(tooltip) or not tooltip then return 0 end
+    local lines = tooltip.lines
+    if isSecret(lines) or not lines then return 0 end
+    local amount, hasKit = 0, false
+    for _, line in ipairs(lines) do
+        if isSecret(line) then return 0 end
+        local text = line.leftText
+        if isSecret(text) then return 0 end
+        if text then
+            for entry in text:gmatch("[^\r\n]+") do
+                local start, last
+                if candle then start, last = entry:find(candle, 1, true) end
+                if start and entry:sub(1, start - 1):match("^%s*$") then
+                    amount = tonumber(entry:match("(%d+)%D*$", last + 1)) or amount
+                end
+                if kit and not hasKit then
+                    start = entry:find(kit, 1, true)
+                    hasKit = start ~= nil and entry:sub(1, start - 1):match("^%s*$") ~= nil
+                end
+            end
+        end
+    end
+    if candle and kit then
+        campStatAuraID, campStatExpiration = id, expiration
+        campIntellectAmount, campFirstAidKit = amount, hasKit
+    end
+    return amount, hasKit
+end
+
+function ns.FvStatConsumableLocked(family, class)
+    local buffClass = family and statConsumableBuffClasses[family]
+    if not buffClass or buffClass ~= class then return false, false end
+    local ranks = EllesmereUI.FOREVER_BUFF_FAMILIES[family].single
+    return EABR.FvHighest(ranks) ~= nil, true
+end
+
+local function StatConsumableAuraState(items, watchExpiration)
+    local strongest, latest, unknownExpiration = 0
+    for _, item in ipairs(items) do
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, item[3])
+        if not ok or isSecret(aura) then return end
+        if aura then
+            if strongest == 0 then strongest = item[2] end
+            if not watchExpiration then return strongest end
+            local expiration = FvAuraExpiration(aura)
+            if not expiration then unknownExpiration = true
+            elseif not latest or expiration > latest then latest = expiration end
+        end
+    end
+    return strongest, not unknownExpiration and latest or nil
+end
+
+local function StatBonusToBeat(stat, restricted, warnSec, showUpgrades, campIntellect, firstAidKit)
+    if stat == staminaConsumables and firstAidKit then return end
+    local amount = 0
+    if stat.family then
+        local family = EllesmereUI.FOREVER_BUFF_FAMILIES[stat.family]
+        if not EABR.FvReadable(family, restricted) then return end
+        local aura = EllesmereUI.ForeverFamilyAura("player", family)
+        if isSecret(aura) or aura == nil then return end
+        if aura then
+            if not showUpgrades then return end
+            local spellID = aura.spellId
+            if isSecret(spellID) then return end
+            amount = family.amounts and family.amounts[spellID]
+            if not amount then return end
+        end
+    end
+    if stat == intellectConsumables then amount = math.max(amount, campIntellect or 0) end
+    local items = stat.items
+    if (amount > 0 and not showUpgrades) or amount >= items[1][2] then return end
+    if restricted then
+        for _, item in ipairs(items) do
+            if not EABR.IsRuntimeNonSecret(item[3]) then return end
+        end
+    end
+    local active, expiration = StatConsumableAuraState(items, warnSec)
+    if not active then return end
+    if active == 0 then return amount end
+    if expiration then
+        local remaining = expiration - GetTime()
+        if remaining > 0 and FvNeeds(remaining, warnSec) then return amount, expiration end
+    end
+    if showUpgrades and active < items[1][2] then return math.max(amount, active) end
+end
+
+local function PickStatConsumable(stat, activeBonus, level, choices, low)
+    local watchLevel = false
+    local firstID
+    local first, last, step = 1, #stat.items, 1
+    if low then first, last, step = last, first, -1 end
+    for i = first, last, step do
+        local consumable = stat.items[i]
+        local itemID, bonus = consumable[1], consumable[2]
+        if not low and bonus <= activeBonus then break end
+        local count = bonus > activeBonus and CachedGetItemCount(itemID) or 0
+        if count > 0 then
+            local requiredLevel = EABR.FvConsumableItemLevel(itemID)
+            if requiredLevel then
+                if level >= requiredLevel then
+                    if not choices then return itemID, watchLevel end
+                    choices[itemID] = count
+                    firstID = firstID or itemID
+                else
+                    watchLevel = true
+                end
+            end
+        end
+    end
+    return firstID, watchLevel
+end
+
+local function AddStatConsumableEntry(missing, stat, itemID, expiration, choices, separate, automaticItemID)
+    if not statConsumableMacros then statConsumableMacros = {} end
+    local macro = statConsumableMacros[itemID]
+    if not macro then
+        macro = "/use [@player,nocombat] item:" .. itemID
+        statConsumableMacros[itemID] = macro
+    end
+    local e = AcquireEntry()
+    e.mode = "macro"
+    e.macro = macro
+    e.texture = C_Item.GetItemIconByID(itemID) or Tex(stat.iconSpell)
+    e.tooltipItem = itemID
+    e.label = EllesmereUI.L(stat.label)
+    e.cooldownItemID = itemID
+    e.cat = "forever"
+    e.dismissKey = separate and stat.dismissKey or statConsumableDismissKey
+    e.foreverStatItems = choices
+    e.foreverStatAutomaticItem = choices and automaticItemID or nil
+    e.foreverStatFamily = separate and stat.dismissKey or nil
+    if expiration then e.expireAt, e.expireTotal = expiration, expiration - GetTime() end
+    missing[#missing + 1] = e
+end
+
+function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     local fo = db.profile.forever
     local shows = fo and not InCombat() and EABR.SectionShows(fo.whereToShow, inInstance)
     local hunterTracking = fo and fo.hunterTracking == true and GetPlayerClass() == "HUNTER"
@@ -1068,21 +1302,53 @@ function EABR.CollectForever(missing, inInstance, inPvP)
         and not (EllesmereUI.AuraKit.AurasRestricted() and not EABR.FvRanksReadable(censerIDs))
     if wantCenser and not censerMissing then EABR._fvCenser = nil end
     local censer = censerMissing and EABR.FvCenserOwned() or false
-    -- The shared bag listener: Weapon Buffs, an owned Sleeping Bag, an owned
-    -- censer whose buff is missing. With none of those, a light watcher hears
-    -- a missing Sleeping Bag (below max level) or censer arrive.
+    local statConsumableNeeded = false
+    local watchStatSpells = false
+    local healthBonus, healthExpiration
+    local separate = fo and fo.statConsumableSeparateReminders == true
+    if shows and not inPvP and playerClass and (separate or not _dismissedUntilLoad[statConsumableDismissKey]) then
+        local restricted, campIntellect, firstAidKit
+        local minutes = fo.statConsumableShowBelow or 0
+        local warnSec = minutes > 0 and EABR.ShowUnderThresholdApplies() and minutes * 60 or nil
+        local showUpgrades = fo.statConsumableShowUpgrades == true
+        for i, stat in ipairs(statConsumables) do
+            local picks = fo[stat.setting]
+            local enabled = picks and picks[playerClass]
+            if enabled == nil and stat.legacySetting then enabled = fo[stat.legacySetting] end
+            local bonus, expiration
+            if enabled == true and not (separate and _dismissedUntilLoad[stat.dismissKey]) then
+                local locked, tracksSpell = ns.FvStatConsumableLocked(stat.family, playerClass)
+                if tracksSpell then watchStatSpells = true end
+                if not locked then
+                    if restricted == nil then restricted = EllesmereUI.AuraKit.AurasRestricted() end
+                    if not restricted and campIntellect == nil and (stat == intellectConsumables or stat == staminaConsumables) then
+                        campIntellect, firstAidKit = FvCampStatBonuses()
+                    end
+                    bonus, expiration = StatBonusToBeat(stat, restricted, warnSec, showUpgrades, campIntellect, firstAidKit)
+                    if stat.health then
+                        healthBonus, healthExpiration = StatBonusToBeat(stat.health, restricted, warnSec, showUpgrades)
+                    end
+                    if bonus ~= nil or (stat.health and healthBonus ~= nil) then statConsumableNeeded = true end
+                end
+            end
+            statBonusesToBeat[i] = bonus
+            statExpirations[i] = expiration
+        end
+    end
     -- A plain boolean: censer is the item ID, and the listener's sync compares by value.
-    local bagListen = shows and (fo.weapon == true or sleepBag or (censer and true)) or false
+    local bagListen = shows and (fo.weapon == true or sleepBag or (censer and true) or statConsumableNeeded) or false
     EABR.FvSyncSleepBagWatch(wantBag and not sleepBag and not EABR._fvMaxLevel
         and not bagListen or false)
     EABR.FvSyncCenserWatch(censerMissing and not censer and not bagListen or false)
     EABR.FvSyncBagEvent(bagListen)
-    local watchPickerSpells = shows and PickerEnabled() or false
-    if watchPickerSpells ~= (EABR._fvPickerSpellEvents or false) then
-        EABR.FvSyncPickerSpellEvents(watchPickerSpells)
+    local pickerEnabled = shows and PickerEnabled() or false
+    local watchSpellbook = pickerEnabled or watchStatSpells
+    if watchSpellbook ~= (EABR._fvSpellbookEvents or false) then
+        EABR.FvSyncSpellbookEvents(watchSpellbook)
     end
-    local watchFood = watchPickerSpells and not inPvP and fo.wellFed or false
+    local watchFood = pickerEnabled and not inPvP and fo.wellFed or false
     if not shows then
+        EABR.FvSyncConsumableItemEvents(false, false)
         EABR.SyncForeverFoodWatch(false)
         return
     end
@@ -1107,6 +1373,74 @@ function EABR.CollectForever(missing, inInstance, inPvP)
         local e = CollectSleepingBag(fo.sleepingBagShowBelow or 0, false, auraLock)
         if e then missing[#missing+1] = e end
     end
+    local watchLevel = false
+    local beforeStatCount = #missing
+    if statConsumableNeeded then
+        local level = UnitLevel("player")
+        local sharedChoices, preferred, familyPicks
+        if pickerEnabled then
+            if separate then
+                familyPicks = fo.statConsumablePickerByFamily and fo.statConsumablePickerByFamily[playerClass]
+            else
+                if not statConsumableChoices then statConsumableChoices = {} end
+                sharedChoices = statConsumableChoices
+                wipe(sharedChoices)
+                preferred = fo.statConsumablePickerByClass and fo.statConsumablePickerByClass[playerClass]
+            end
+        end
+        local chosenID, chosenIndex, chosenExpiration, automaticItemID
+        local low = fo.statConsumableLowRank == true
+        for i, stat in ipairs(statConsumables) do
+            local bonus = statBonusesToBeat[i]
+            local canUseHealth = stat.health and healthBonus ~= nil
+            if bonus or canUseHealth then
+                local choices = sharedChoices
+                if separate and pickerEnabled then
+                    if not stat.choices then stat.choices = {} end
+                    choices = stat.choices
+                    wipe(choices)
+                end
+                local itemID, blockedByLevel
+                local expiration = statExpirations[i]
+                local pinned = separate and familyPicks and familyPicks[stat.dismissKey] or preferred
+                if bonus then
+                    itemID, blockedByLevel = PickStatConsumable(stat, bonus, level, choices, low)
+                    if blockedByLevel then watchLevel = true end
+                end
+                local pinnedScroll = pinned and choices[pinned]
+                -- Prefer a scroll automatically. A pinned elixir uses its own aura timer.
+                if canUseHealth and (choices or not itemID) then
+                    local healthID
+                    healthID, blockedByLevel = PickStatConsumable(stat.health, healthBonus, level, choices, low)
+                    if blockedByLevel then watchLevel = true end
+                    if not itemID then
+                        itemID, expiration = healthID, healthExpiration
+                    elseif pinned and choices[pinned] and not pinnedScroll then
+                        expiration = healthExpiration
+                    end
+                end
+                local automatic = itemID
+                if pinned and choices[pinned] then itemID = pinned end
+                if separate then
+                    if itemID then AddStatConsumableEntry(missing, stat, itemID, expiration, choices, true, automatic) end
+                else
+                    automaticItemID = automaticItemID or automatic
+                    if itemID and not chosenID then
+                        chosenID, chosenIndex, chosenExpiration = itemID, i, expiration
+                        if not choices then break end
+                    end
+                    if preferred and choices[preferred] then
+                        chosenID, chosenIndex, chosenExpiration = preferred, i, expiration
+                        preferred = nil
+                    end
+                end
+            end
+        end
+        if chosenID then
+            AddStatConsumableEntry(missing, statConsumables[chosenIndex], chosenID, chosenExpiration, sharedChoices, false, automaticItemID)
+        end
+    end
+    EABR.FvSyncConsumableItemEvents(statConsumableNeeded, watchLevel, #missing > beforeStatCount)
     -- Arcane Censer: its buff missing and a censer in the bags (read above);
     -- the click uses the censer.
     if censer then
@@ -1157,7 +1491,7 @@ function EABR.CollectForever(missing, inInstance, inPvP)
             local fallback = not aura and PlayerHasAuraByID(EABR.FOOD_BUFFS)
             show = not aura and not fallback
             if not show and warnSec > 0 and EABR.ShowUnderThresholdApplies() then
-                expireAt = aura and FvAuraExpiration(aura) or (fallback and FvFoodExpiration())
+                expireAt = aura and FvAuraExpiration(aura) or (fallback and FvLatestAuraExpiration(EABR.FOOD_BUFFS))
                 if expireAt then
                     remaining = expireAt - GetTime()
                     show = remaining > 0 and FvNeeds(remaining, warnSec)
@@ -1473,6 +1807,7 @@ function EABR.FvStandDown(keepSleepProgress)
     EABR.FvSyncTrackingEvent(false)
     EABR.FvSyncHunterTrackingEvents(false)
     EABR.FvSyncWeaponEvents(false)
+    EABR.FvSyncConsumableItemEvents(false, false)
     EABR.FvSyncBagEvent(false)
     EABR.FvSyncSleepBagWatch(false)
     EABR.FvSyncCenserWatch(false)
@@ -1482,7 +1817,7 @@ function EABR.FvStandDown(keepSleepProgress)
     -- counted again later; a running sleep timer keeps the answer (the bag is
     -- in use, and every pass of the timer would count it again).
     if not keepSleepProgress then EABR._fvSleepBag = nil end
-    if EABR._fvPickerSpellEvents then EABR.FvSyncPickerSpellEvents(false) end
+    if EABR._fvSpellbookEvents then EABR.FvSyncSpellbookEvents(false) end
     if EABR.ValidateOpenPicker then EABR.ValidateOpenPicker() end
     if EABR._durationTimer then
         EABR._durationTimer:Cancel()
@@ -1618,7 +1953,7 @@ local function Refresh()
     if EABR.FOREVER then
         if remindersOn then
             EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
-            EABR.CollectForever(missing, inInstance, inPvP)
+            EABR.CollectForever(missing, inInstance, inPvP, playerClass)
         else
             EABR.FvStandDown()
         end
