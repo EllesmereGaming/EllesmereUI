@@ -171,6 +171,10 @@ local function ShowIcon(iconIdx, m)
     btn._dismissKey = m.dismissKey or nil
     btn._petCycleTotal = m.petCycleTotal or nil
     btn._foreverFood = m.foreverFood
+    btn._foreverStatItems = m.foreverStatItems
+    btn._foreverStatAutomaticItem = m.foreverStatAutomaticItem
+    btn._foreverStatFamily = m.foreverStatFamily
+    btn._cooldownItemID = m.cooldownItemID
     btn._foreverGroup = m.foreverGroup
     btn._requestKey = m.requestKey or nil
     btn._requestName = m.requestName or nil
@@ -182,7 +186,8 @@ local function ShowIcon(iconIdx, m)
     -- same as the attribute writes below, so this only ever runs OOC.
     local receiver = EABR.IsReceiverRaidBuff(m) and not m.requestKey
     if not InCombat() then
-        local pass = (receiver and 1 or 0) + ((m.petCycleTotal or btn._foreverGroup or btn._foreverFood) and 0 or 2)
+        local picker = m.foreverGroup or m.foreverFood or m.foreverStatItems
+        local pass = (receiver and 1 or 0) + ((m.petCycleTotal or picker) and 0 or 2)
         if btn._passButtons ~= pass then
             btn._passButtons = pass
             if pass == 3 then
@@ -198,6 +203,9 @@ local function ShowIcon(iconIdx, m)
     end
     EABR.SetIconHighlight(btn, not receiver)
     ApplySetup(btn, m)
+    if btn._cooldownItemID or btn._itemCooldown then
+        EABR.UpdateIconItemCooldown(btn, btn._cooldownItemID)
+    end
     local p = db.profile.display
     local baseScale = p.scale or 1.0
     local sz = floor(ICON_SIZE * baseScale + 0.5)
