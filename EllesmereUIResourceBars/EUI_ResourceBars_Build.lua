@@ -405,6 +405,8 @@ local function BuildBars()
             healthBar:SetSize(ow, oh)
             if not ApplyBarAnchor(healthBar, healthAnchorKey, hp.anchorPosition, offsetX, offsetY, hp.growthDirection, hp.growCentered) then
                 ApplyFreeBarPosition(healthBar, hp, 0, -64, ow, oh)
+            elseif healthAnchorKey == "mouse" then
+                I.PlaceCursorStandIn(healthBar, "ERB_Health", hp, 0, -64, ow, oh)
             end
         elseif hp.unlockPos and hp.unlockPos.point then
             local rp = hp.unlockPos.relPoint or hp.unlockPos.point
@@ -572,7 +574,8 @@ local function BuildBars()
         local primaryOverrideOwned = EllesmereUI._TryOverrideAnchor
             and EllesmereUI._TryOverrideAnchor("ERB_Power", primaryBar)
         local primaryUnlockAnchored = EllesmereUI.IsUnlockAnchored("ERB_Power")
-        if primaryOverrideOwned or primaryUnlockAnchored then
+        -- Anchor to Cursor wins over an unlock-mode link, as on the health bar.
+        if primaryOverrideOwned or (primaryUnlockAnchored and primaryAnchorKey ~= "mouse") then
             -- Unlock anchor system / override anchor owns positioning; only update size
             local ow, oh = OrientedSize(ppWidth, ppHeight, ppOri)
             primaryBar:SetSize(ow, oh)
@@ -582,6 +585,8 @@ local function BuildBars()
             primaryBar:SetSize(ow, oh)
             if not ApplyBarAnchor(primaryBar, primaryAnchorKey, pp.anchorPosition, offsetX, offsetY, pp.growthDirection, pp.growCentered) then
                 ApplyFreeBarPosition(primaryBar, pp, 0, -54, ow, oh)
+            elseif primaryAnchorKey == "mouse" then
+                I.PlaceCursorStandIn(primaryBar, "ERB_Power", pp, 0, -54, ow, oh)
             end
         elseif pp.unlockPos and pp.unlockPos.point then
             local rp = pp.unlockPos.relPoint or pp.unlockPos.point
@@ -819,7 +824,8 @@ local function BuildBars()
         local secondaryOverrideOwned = EllesmereUI._TryOverrideAnchor
             and EllesmereUI._TryOverrideAnchor("ERB_ClassResource", secondaryFrame)
         local secondaryUnlockAnchored = EllesmereUI.IsUnlockAnchored("ERB_ClassResource")
-        if secondaryOverrideOwned or secondaryUnlockAnchored then
+        -- Anchor to Cursor wins over an unlock-mode link, as on the health bar.
+        if secondaryOverrideOwned or (secondaryUnlockAnchored and secondaryAnchorKey ~= "mouse") then
             -- Unlock anchor system / override anchor owns positioning; only update size
             secondaryFrame:SetSize(frameW, frameH)
         elseif secondaryAnchorKey ~= "none" then
@@ -827,6 +833,8 @@ local function BuildBars()
             secondaryFrame:SetSize(frameW, frameH)
             if not ApplyBarAnchor(secondaryFrame, secondaryAnchorKey, sp.anchorPosition, offsetX, offsetY, sp.growthDirection, sp.growCentered) then
                 ApplyFreeBarPosition(secondaryFrame, sp, 0, -38, frameW, frameH)
+            elseif secondaryAnchorKey == "mouse" then
+                I.PlaceCursorStandIn(secondaryFrame, "ERB_ClassResource", sp, 0, -38, frameW, frameH)
             end
         elseif sp.unlockPos and sp.unlockPos.point then
             ApplyBarAnchor(secondaryFrame, "none")
@@ -1498,6 +1506,10 @@ local function BuildBars()
             end
         end
     end
+
+    -- Cursor bars linked to another cursor bar ride along with it, whatever
+    -- order they were built in.
+    I.ResolveCursorFollowers()
 
     -- WoW Forever druid mana bar (EUI_ResourceBars_ForeverDruidMana.lua):
     -- restyled after every Power Bar build; nil on every other client/class.

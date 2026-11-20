@@ -114,7 +114,7 @@ ns.unlockParts.PointPicker = function(UM)
         local childKey, targetKey = source._barKey, target._barKey
         local info = { mode = "POINT", target = targetKey, sourcePoint = sourcePoint,
             targetPoint = point, offsetX = 0, offsetY = 0 }
-        if not PA.Center(childKey, UM.GetBarFrame(childKey), info, UM.GetBarFrame(targetKey)) then
+        if not PA.Center(childKey, UM.GetBarFrame(childKey), info, UM.GetAnchorTargetFrame(targetKey)) then
             Reject(target, EllesmereUI.L("This element's position is not available yet"))
             return
         end

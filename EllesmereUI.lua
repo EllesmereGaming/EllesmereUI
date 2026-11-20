@@ -3065,6 +3065,9 @@ function EllesmereUI.MakeUnlockElement(opts)
         saveRawPosition   = opts.saveRawPos,
         noAnchorTarget    = opts.noAnchorTarget,
         noAnchorTo        = opts.noAnchorTo,
+        -- anchorStandIn: function -> frame children measure against while this
+        -- element rides the cursor (nil otherwise).
+        anchorStandIn     = opts.anchorStandIn,
         -- allowMatchSource: show the width/height MATCH buttons even when resize is
         -- disabled (noResize), so the element can size-match TO another element.
         -- noSizeMatchTarget: other elements may NOT size-match TO this one.
