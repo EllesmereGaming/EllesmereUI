@@ -24,6 +24,7 @@ EllesmereUIQoL_Shifter.lua
 EllesmereUIQoL_MovementAlert.lua
 EllesmereUIQoL_RaidTools.lua
 EllesmereUIQoL_RaidBuffCheck.lua
+EllesmereUIQoL_CombatTextScroll.lua
 EllesmereUIQoL_SelfCombatText.lua
 EllesmereUIQoL_Alerts.lua
 EllesmereUIQoL_UpgradeTooltip.lua
