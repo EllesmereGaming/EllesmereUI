@@ -93,12 +93,11 @@ end
 ns.BlockFactories.dualspec = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = K.InstKey(barCtx, blockCfg)
-    -- Talent edits land as trait updates, a group switch as a talent update;
-    -- TRAIT_CONFIG_LIST_UPDATED marks the builds readable after login.
+    -- Talent edits land as trait updates, a group switch as a talent update.
     -- K.RegisterInstEvents skips an event the client does not know.
     inst.events = { "PLAYER_ENTERING_WORLD", "ACTIVE_TALENT_GROUP_CHANGED",
         "TRAIT_CONFIG_UPDATED", "TRAIT_TREE_CURRENCY_INFO_UPDATED",
-        "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_LIST_UPDATED" }
+        "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED" }
 
     local _, classFile = UnitClass("player")
     local icons = classFile and TREE_ICONS[classFile]
