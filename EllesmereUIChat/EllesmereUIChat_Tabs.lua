@@ -167,13 +167,11 @@ local floatGhosts = {} -- per-window-id ghosts for undocked windows
 -- Lazily fetched: nil until some addon loads the lib (LibStub registry entry
 -- is identity-stable across minor upgrades, so caching the ref is safe).
 local lcaLib
+-- Blizzard's alert table is unreadable from addon code; mirror it from the
+-- start/stop hooks installed in TabsInit instead.
+local alertMirror = setmetatable({}, { __mode = "k" })
 local function TabAlerting(tab)
-    if tab.alerting then return true end
-    -- Retail since 12.1.5 and WoW Forever keep the alert state off the tab,
-    -- so a tainted message filter cannot taint it, and never write
-    -- tab.alerting: ChatFrameUtil.IsTabAlerting is its reader there.
-    local util = ChatFrameUtil
-    if util and util.IsTabAlerting and util.IsTabAlerting(tab) then return true end
+    if tab.alerting or alertMirror[tab] then return true end
     lcaLib = lcaLib or (LibStub and LibStub("LibChatAnims", true))
     return lcaLib and lcaLib:IsAlerting(tab) and true or false
 end
@@ -1075,10 +1073,18 @@ end
 --  fresh by the module's existing deferred passes (QueueTabPass/QueueFullPass
 --  call TabsRefresh + TabsSweepBlizzard).
 -------------------------------------------------------------------------------
+local function SetAlertMirror(cf, on)
+    local name = cf and cf.GetName and cf:GetName()
+    local tab = name and _G[name .. "Tab"]
+    if tab then alertMirror[tab] = on or nil end
+end
+
 function ECHAT.TabsInit()
     if ECHAT.EngineSetTabObserver then
         ECHAT.EngineSetTabObserver(OnTabMessage)
     end
+    hooksecurefunc("FCF_StartAlertFlash", function(cf) SetAlertMirror(cf, true) end)
+    hooksecurefunc("FCF_StopAlertFlash", function(cf) SetAlertMirror(cf, false) end)
     ECHAT.TabsSweepBlizzard()
     RefreshNow()
 end
