@@ -7035,3 +7035,7 @@ L["Select a Talent"] = "Sélectionner un talent"
 L["Picked"] = "Choisi"
 L["Click: pick this talent"] = "Clic : choisir ce talent"
 L["Click the talent this reminder is for."] = "Cliquez sur le talent concerné par ce rappel."
+-- Search Other Languages (EllesmereUIForeverEssentials_LFGLanguages.lua)
+L["Search Other Languages"] = "Chercher dans d'autres langues"
+L["Choose Languages"] = "Choix des langues"
+L["Adds Choose Languages to the cog menu of the Looking For Group window, to search in other languages than your game's."] = "Ajoute « Choix des langues » au menu du rouage de la fenêtre Recherche de groupe, pour chercher dans d'autres langues que celle de votre jeu."
