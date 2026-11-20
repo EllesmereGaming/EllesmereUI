@@ -905,38 +905,39 @@ initFrame:SetScript("OnEvent", function(self)
             -- Cog on Dialog Keys (left slot): Number Keys (on by default) and
             -- Confirm Popups (off by default). Key picker in the label's slot:
             -- never set = Space; right-click unbinds it (false), leaving only
-            -- the number keys.
-            if not EllesmereUI._prebuilding then
-                local function dialogKeysOff()
-                    return not (EllesmereUIDB and EllesmereUIDB.dialogKeys)
-                end
-                EllesmereUI.BuildInlineCog(dialogKeysRow._leftRegion, {
-                    title = "Dialog Keys Settings",
-                    rows = {
-                        { type="toggle", label="Number Keys",
-                          tooltip="Number keys 1-9 and 0, on the top row or the numpad, press the numbered choice. A quest ready to turn in shows its number in gold. Turn off to leave the keys to your action bars.",
-                          get=function()
-                              return not (EllesmereUIDB and EllesmereUIDB.dialogKeysNumbers == false)
-                          end,
-                          set=function(v)
-                              if not EllesmereUIDB then EllesmereUIDB = {} end
-                              EllesmereUIDB.dialogKeysNumbers = v
-                              if EllesmereUI._applyDialogKeys then EllesmereUI._applyDialogKeys() end
-                          end },
-                        { type="toggle", label="Confirm Popups",
-                          tooltip="The Dialog Key also presses Yes on Abandon Quest. Never on popups the game or other players send you, like summons, invites or duels.",
-                          get=function()
-                              return EllesmereUIDB and EllesmereUIDB.dialogKeysPopups == true
-                          end,
-                          set=function(v)
-                              if not EllesmereUIDB then EllesmereUIDB = {} end
-                              EllesmereUIDB.dialogKeysPopups = v
-                              if EllesmereUI._applyDialogKeys then EllesmereUI._applyDialogKeys() end
-                          end },
-                    },
-                    gap = 9, disabled = dialogKeysOff, disabledTooltip = "Dialog Keys",
-                })
+            -- the number keys. The cog is built in the search pre-build too, so
+            -- Global Search finds its rows; the key picker is not.
+            local function dialogKeysOff()
+                return not (EllesmereUIDB and EllesmereUIDB.dialogKeys)
+            end
+            EllesmereUI.BuildInlineCog(dialogKeysRow._leftRegion, {
+                title = "Dialog Keys Settings",
+                rows = {
+                    { type="toggle", label="Number Keys",
+                      tooltip="Number keys 1-9 and 0, on the top row or the numpad, press the numbered choice. A quest ready to turn in shows its number in gold. Turn off to leave the keys to your action bars.",
+                      get=function()
+                          return not (EllesmereUIDB and EllesmereUIDB.dialogKeysNumbers == false)
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.dialogKeysNumbers = v
+                          if EllesmereUI._applyDialogKeys then EllesmereUI._applyDialogKeys() end
+                      end },
+                    { type="toggle", label="Confirm Popups",
+                      tooltip="The Dialog Key also presses Yes on Abandon Quest. Never on popups the game or other players send you, like summons, invites or duels.",
+                      get=function()
+                          return EllesmereUIDB and EllesmereUIDB.dialogKeysPopups == true
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.dialogKeysPopups = v
+                          if EllesmereUI._applyDialogKeys then EllesmereUI._applyDialogKeys() end
+                      end },
+                },
+                gap = 9, disabled = dialogKeysOff, disabledTooltip = "Dialog Keys",
+            })
 
+            if not EllesmereUI._prebuilding then
                 local rgn = dialogKeysRow._rightRegion
                 local kbBtn, refresh = EllesmereUI.BuildKeybindButton(rgn, {
                     w = 140, h = 30, font = 13,

@@ -323,7 +323,7 @@ local function SyncParkState(frame)
     local was = ffd._shParked or false
     if parked == was then return parked, false end
     ffd._shParked = parked
-    if not Secured(frame) then
+    if not Secured(frame) and not ffd._shGated then
         frame:SetClampedToScreen(not parked)
     end
     return parked, not parked
@@ -711,9 +711,11 @@ local function HookFrame(frame, name)
     -- IsVisible state FindWheelTarget tests. A frame hooked while already
     -- open (LoD addon load, /reload with the map up) counts immediately.
     -- A gated window counts only while it is Shifter's (an ordinary bag
-    -- does not arm the wheel), and comes off the count as it hides.
+    -- does not arm the wheel): from its show, or from the SetPoint that
+    -- places it once the bag after it closes; it comes off as it hides.
+    local Count
     if gate then
-        local function Count()
+        Count = function()
             if not ffd._shCounted and gate(frame) then
                 ffd._shCounted = true
                 WheelArm.Note(1)
@@ -739,17 +741,18 @@ local function HookFrame(frame, name)
     -- cursor-delta path above. SetMovable is only needed for StartMoving, so they
     -- skip it entirely.
     ffd._shParked = IsParked(frame)
-    -- A gated window also shows Blizzard's other bags: it keeps its own clamp.
+    -- A gated window also shows Blizzard's other bags: it keeps its own clamp
+    -- (here, in SyncParkState, InitShifter and _ShutdownShifter).
     ffd._shGated = gate ~= nil
-    if gate and not Secured(frame) then
+    if not Secured(frame) then
         frame:SetMovable(true)
-    elseif not Secured(frame) then
-        frame:SetMovable(true)
-        -- The clamp the window had before us, handed back while Shifter is off
-        -- (_ShutdownShifter). No clamp on a parked window: it would pull it
-        -- back into view.
-        ffd._shClampWas = frame:IsClampedToScreen() and true or false
-        frame:SetClampedToScreen(not ffd._shParked)
+        if not gate then
+            -- The clamp the window had before us, handed back while Shifter is off
+            -- (_ShutdownShifter). No clamp on a parked window: it would pull it
+            -- back into view.
+            ffd._shClampWas = frame:IsClampedToScreen() and true or false
+            frame:SetClampedToScreen(not ffd._shParked)
+        end
     end
 
     local dragging  -- non-protected only: "save" | "temp" | nil
@@ -951,6 +954,10 @@ local function HookFrame(frame, name)
         -- Blizzard strata, possibly buried but never tainted.
         local defaultStrata = frame:GetFrameStrata()
         frame:HookScript("OnHide", function()
+            -- A gated window is handed back only after a lift of ours, so an
+            -- ordinary bag's close writes nothing.
+            if gate and not ffd._shLifted then return end
+            ffd._shLifted = nil
             if liftStrata and not Secured(frame) then frame:SetFrameStrata(defaultStrata) end
         end)
         frame:HookScript("OnShow", function()
@@ -958,7 +965,10 @@ local function HookFrame(frame, name)
             if Secured(frame) or ffd._shParked or Off() then return end
             local cf = _G.CharacterFrame
             if cf and cf:IsShown() and (tempPos[cf] or GetSavedPos("CharacterFrame")) then
-                if liftStrata then frame:SetFrameStrata("DIALOG") end
+                if liftStrata then
+                    frame:SetFrameStrata("DIALOG")
+                    ffd._shLifted = true
+                end
                 frame:Raise()
             end
         end)
@@ -968,6 +978,7 @@ local function HookFrame(frame, name)
         if not IsEnabled() then return end
         if ffd._shIgnoreSP then return end
         if Off() then return end
+        if Count then Count() end
         local parked, returned = SyncParkState(frame)
         if parked then return end
         if secureDrag.frame == frame then return end  -- don't fight an active drag

@@ -38,11 +38,11 @@ local _pendingCastIDs, QueueCustomBuffUpdate = I._pendingCastIDs, I.QueueCustomB
 -- fire Blizzard's TriggerAuraAppliedAlert (they appear on a cast/edge for a
 -- fixed window), so the regular-buff apply-edge hook can't reach them; play the
 -- SAME stored key (ss.buffActiveSoundKey) here, off the cast edge that
--- (re)starts the icon's timer. No loss sound: the real aura is secret/other-cast,
--- so only the gain edge is knowable. The id comes straight from the bar's
--- assignedSpells (clean, never secret), so the lookup is a direct spellSettings
--- hit, no GetCanonicalSpellIDForFrame dance. Gated 0-cost on ns._cdmAnyBuffSound
--- (same flag RescanBuffSoundFlag sets from these spellSettings) and throttled.
+-- (re)starts the icon's timer; the loss sound below plays when that timer runs
+-- out. The id comes straight from the bar's assignedSpells (clean, never
+-- secret), so both resolve the settings by id and bar, no
+-- GetCanonicalSpellIDForFrame dance. Gated 0-cost on ns._cdmAnyBuffSound (the
+-- flag RescanBuffSoundFlag sets from either sound key) and throttled.
 local _presetGainSoundAt = {}
 local _presetLossSoundAt = {}
 local PRESET_GAIN_SOUND_GAP = 0.3

@@ -61,7 +61,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --       preview strip re-solves from the block measurements that pass settled.
 
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI._Pool and EllesmereUI.RequestTimePlayed and EllesmereUI.FormatDuration and EllesmereUI.SetFontFamily and EllesmereUI.Chars and EllesmereUI.CharData and EllesmereUI.CharFieldMap and EllesmereUI.CharGUID and EllesmereUI.ClearCharField and EllesmereUI.ForgetCharField) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Time Played block asks /played through RequestTimePlayed and formats through FormatDuration; the tooltip rows take font families through SetFontFamily; its per-character data is in the parent's roster: Chars, CharData, CharFieldMap, CharGUID, ClearCharField, ForgetCharField)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI._Pool and EllesmereUI.RequestTimePlayed and EllesmereUI.FormatDuration and EllesmereUI.SetFontFamily and EllesmereUI.Chars and EllesmereUI.CharData and EllesmereUI.CharFieldMap and EllesmereUI.CharGUID and EllesmereUI.ClearCharField and EllesmereUI.ForgetCharField and EllesmereUI.ForeverSpecGroupTalents) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Time Played block asks /played through RequestTimePlayed and formats through FormatDuration; the tooltip rows take font families through SetFontFamily; its per-character data is in the parent's roster: Chars, CharData, CharFieldMap, CharGUID, ClearCharField, ForgetCharField; the WoW Forever Dual Spec block reads both spec groups through ForeverSpecGroupTalents)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
@@ -75,6 +75,7 @@ local L = {
     MIDDLE_CLICK         = "|cffFFFFFFMiddle Click:|r",
     SHIFT_MIDDLE_CLICK   = "|cffFFFFFFShift + Middle Click:|r",
     SHIFT_LEFT_CLICK     = "|cffFFFFFFShift + Left Click:|r",
+    SHIFT_RIGHT_CLICK    = "|cffFFFFFFShift + Right Click:|r",
     CTRL_LEFT_CLICK      = "|cffFFFFFFCtrl + Left Click:|r",
     CTRL_RIGHT_CLICK     = "|cffFFFFFFCtrl + Right Click:|r",
     CTRL_SHIFT_RIGHT_CLICK = "|cffFFFFFFCtrl + Shift + Right Click:|r",

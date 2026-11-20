@@ -821,8 +821,8 @@ local function BuildCogPopup(opts)
                 -- An eye left of the swatch (row.eye): the row's own preview
                 -- switch. The caller owns the state -- get reads it, set writes it
                 -- -- and this only draws the eye and reports the click. Above the
-                -- row's disabled overlay (+10), so a greyed entry can still be put
-                -- on a sample: its colour is worth seeing before it is switched on.
+                -- row's disabled overlay (+10), so the eye answers for itself:
+                -- row.eye.enabled and its disabledTooltip (a string or a function).
                 local eyeRefresh
                 if row.eye then
                     local eyeBtn = CreateFrame("Button", nil, pf)
@@ -847,8 +847,10 @@ local function BuildCogPopup(opts)
                     end)
                     eyeBtn:SetScript("OnEnter", function(self)
                         if row.eye.enabled and not row.eye.enabled() then
-                            if row.eye.disabledTooltip then
-                                EllesmereUI.ShowWidgetTooltip(self, row.eye.disabledTooltip, { width = 175 })
+                            local tip = row.eye.disabledTooltip
+                            if type(tip) == "function" then tip = tip() end
+                            if tip then
+                                EllesmereUI.ShowWidgetTooltip(self, tip, { width = 175 })
                             end
                             return
                         end
@@ -1493,7 +1495,12 @@ local function BuildCogPopup(opts)
                 end
             end)
             btn:SetScript("OnClick", function()
+                -- A footer action writes settings (a colour reset): captured by
+                -- Spec Overrides as the rows' and swatches' writes are.
+                local f = popupOwner or opts.captureRegion
+                local snap = EllesmereUI._SOAttribution(f)
                 opts.footer.buttonAction()
+                EllesmereUI._NotifySettingWrite(f, snap)
                 if pf._refresh then pf._refresh() end
             end)
         end

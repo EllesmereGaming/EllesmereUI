@@ -91,6 +91,11 @@ initFrame:SetScript("OnEvent", function(self)
     if p.classColorNames == true then
         ECHAT.ApplyClassColorNames(true)
     end
+    ECHAT.ApplyChatterClassColor()
+    -- Uninstall EUI: the recorder puts the CVar back; the kept value goes too.
+    EllesmereUI.OnUninstall(function()
+        if EllesmereUIDB then EllesmereUIDB.chatClassColorWas = nil end
+    end)
     if ECHAT.EngineIntegrateAll then ECHAT.EngineIntegrateAll() end
     -- Owned tab strip: hides Blizzard's strip, builds ours from the same
     -- window storage, and starts mirroring selection/flash from the engine.
@@ -928,6 +933,15 @@ initFrame:SetScript("OnEvent", function(self)
         -- extension) that did not exist when the house editor opened.
         ECHAT.ApplyPanelHost()
         ECHAT.ApplyWhisperMute()
+        -- Class Colored Names: the new profile's two choices (the message
+        -- names repaint the shown lines only when they changed).
+        local _ccfg = ECHAT.DB()
+        local _ccn = (_ccfg and _ccfg.classColorNames == true) or false
+        if _ccn ~= (ECHAT._ccnApplied or false) then
+            ECHAT.ApplyClassColorNames(_ccn)
+            if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
+        end
+        ECHAT.ApplyChatterClassColor()
     end
 
     ---------------------------------------------------------------------------

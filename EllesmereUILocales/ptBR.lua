@@ -6942,6 +6942,7 @@ L["WoW Forever"] = true
 
 -- == Global Settings / Style ================================================
 L["Blizzard Style"] = "Estilo Blizzard"
+L["WoW Forever Style"] = "Estilo WoW Forever"
 L["Changing the style requires a UI reload to apply."] = "Alterar o estilo requer recarregar a interface para aplicá-lo."
 L["Cooldown Manager Icons"] = "Ícones do Gerenciador de Recarga"
 L["EllesmereUI Style"] = "Estilo EllesmereUI"

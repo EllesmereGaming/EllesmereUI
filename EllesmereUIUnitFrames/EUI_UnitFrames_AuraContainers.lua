@@ -172,7 +172,9 @@ end
 -- friendly[unit] = last assistable answer, watch[unit] = the unit has lists.
 local BuffTrack = { friendly = {}, watch = {} }
 
-local function BuffTrackHasActive(list)
+-- Whether a tri-state Tracked Auras list ({ [spellID] = true|false }) has an
+-- entry switched on. Both sides' lists ask it (HasActiveIncludes below).
+local function AnyActive(list)
     if not list then return false end
     for _, v in pairs(list) do
         if v then return true end
@@ -188,8 +190,8 @@ function BuffTrack.On(unit, s)
     if s.showBuffs == false and not (s.debuffAnchorBuffs == true and (s.debuffAnchor or "none") ~= "none") then
         return false
     end
-    return s.buffTrackedOnly == true or BuffTrackHasActive(s.buffInclude)
-        or BuffTrackHasActive(s.buffExclude)
+    return s.buffTrackedOnly == true or AnyActive(s.buffInclude)
+        or AnyActive(s.buffExclude)
 end
 
 -- Important's SECOND group payload for NON-player frames (see the
@@ -264,12 +266,7 @@ local MODE_VALID = {
     important = true, importantOwn = true, importantOrOwn = true,
 }
 local function HasActiveIncludes(s)
-    local inc = s.debuffInclude
-    if not inc then return false end
-    for _, v in pairs(inc) do
-        if v then return true end
-    end
-    return false
+    return AnyActive(s.debuffInclude)
 end
 local function DebuffFilterMode(s)
     local m = s.debuffFilterMode
@@ -296,12 +293,20 @@ ns.UF_DebuffHasIncludes = HasActiveIncludes
 -- the config sweep -- includeSpellIDs = the actives, excludeSpellIDs = {}
 -- so the shared excludes (which hide the actives from every OTHER group,
 -- see ApplyGroupConfig) never blank these.
-local function AppendIncludeLinks(chain, s, unit)
-    local inc = s.debuffInclude
+-- One builder for both sides, the side's keys in a spec: the debuff lists
+-- (target/focus/boss, the boss any-caster opt-out) and the Buff Tracked Auras
+-- lists (target/focus only: MINE opt-in, no boss map). The group keys are
+-- "<prefix>|" and "<prefix>mine|" ("inc" / "binc").
+local INC_DEBUFF = { list = "debuffInclude", mine = "debuffIncludeMine",
+    anyCaster = "debuffIncludeAnyCaster", token = "HARMFUL", prefix = "inc" }
+local INC_BUFF = { list = "buffInclude", mine = "buffIncludeMine",
+    token = "HELPFUL", prefix = "binc" }
+local function AppendIncludeLinks(chain, s, unit, spec)
+    local inc = s[spec.list]
     if not inc then return end
-    local isBoss = unit:match("^boss") ~= nil
-    local anym = isBoss and s.debuffIncludeAnyCaster or nil
-    local minem = (not isBoss) and s.debuffIncludeMine or nil
+    local isBoss = spec.anyCaster ~= nil and unit:match("^boss") ~= nil
+    local anym = isBoss and s[spec.anyCaster] or nil
+    local minem = (not isBoss) and s[spec.mine] or nil
     local m, mm
     for id, v in pairs(inc) do
         if v then
@@ -319,44 +324,13 @@ local function AppendIncludeLinks(chain, s, unit)
         end
     end
     if m then
-        chain[#chain + 1] = { key = "inc|" .. CandFP({ includeSpellIDs = m }),
-            tokens = { "HARMFUL" },
+        chain[#chain + 1] = { key = spec.prefix .. "|" .. CandFP({ includeSpellIDs = m }),
+            tokens = { spec.token },
             cand = { includeSpellIDs = m, excludeSpellIDs = {} }, inc = true }
     end
     if mm then
-        chain[#chain + 1] = { key = "incmine|" .. CandFP({ includeSpellIDs = mm }),
-            tokens = { "HARMFUL", "PLAYER" },
-            cand = { includeSpellIDs = mm, excludeSpellIDs = {} }, inc = true, mine = true }
-    end
-end
-
--- Buff Tracked Auras include links, split by caster scope like
--- AppendIncludeLinks (MINE opt-in via s.buffIncludeMine). The key carries the
--- id set's fingerprint, so a list edit declares a fresh variant. The cand
--- clears the shared excludes, which keep the tracked spells out of every other
--- group (ApplyGroupConfig).
-local function AppendBuffIncludeLinks(chain, s)
-    local inc = s.buffInclude
-    if not inc then return end
-    local minem = s.buffIncludeMine
-    local m, mm
-    for id, v in pairs(inc) do
-        if v then
-            if minem and minem[id] == true then
-                mm = mm or {}; mm[id] = true
-            else
-                m = m or {}; m[id] = true
-            end
-        end
-    end
-    if m then
-        chain[#chain + 1] = { key = "binc|" .. CandFP({ includeSpellIDs = m }),
-            tokens = { "HELPFUL" },
-            cand = { includeSpellIDs = m, excludeSpellIDs = {} }, inc = true }
-    end
-    if mm then
-        chain[#chain + 1] = { key = "bincmine|" .. CandFP({ includeSpellIDs = mm }),
-            tokens = { "HELPFUL", "PLAYER" },
+        chain[#chain + 1] = { key = spec.prefix .. "mine|" .. CandFP({ includeSpellIDs = mm }),
+            tokens = { spec.token, "PLAYER" },
             cand = { includeSpellIDs = mm, excludeSpellIDs = {} }, inc = true, mine = true }
     end
 end
@@ -394,7 +368,7 @@ local function NonPlayerDebuffChain(s, unit)
         chain[2] = { key = "priorityoth",   tokens = { "HARMFUL", "!PLAYER" }, cand = PRIORITY_CAND, important = true }
         chain[3] = { key = "prioritynpoth", tokens = { "HARMFUL", "!PLAYER" }, cand = PRIORITY_NONPLAYER_CAND, important = true }
     end
-    AppendIncludeLinks(chain, s, unit)
+    AppendIncludeLinks(chain, s, unit, INC_DEBUFF)
     return chain
 end
 
@@ -1224,7 +1198,7 @@ end
 -- gets the include links, at any duration.
 local function BuffTrackAdd(chain, isBuff, unit, s)
     if isBuff and #chain > 0 and BuffTrack.Active(unit, s) then
-        AppendBuffIncludeLinks(chain, s)
+        AppendIncludeLinks(chain, s, unit, INC_BUFF)
     end
     return chain
 end
@@ -1253,7 +1227,7 @@ local function ChainFor(unit, base, s)
         -- skips the show-all fallback in ApplyGroupConfig.
         if isBuff and s.buffTrackedOnly == true and BuffTrack.Active(unit, s) then
             chain = {}
-            AppendBuffIncludeLinks(chain, s)
+            AppendIncludeLinks(chain, s, unit, INC_BUFF)
             if #chain == 0 then chain.none = true end
             return chain
         end

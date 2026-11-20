@@ -1490,15 +1490,19 @@ local function Skin_EncounterJournal()
         end
     end
     -- Search autocomplete popout + full results window: container -> flat dark
-    -- panel; preview rows + "show all results" -> subtle hover + white text;
+    -- panel; "show all results" -> its own panel, subtle hover + white text;
     -- results window -> panel + slim scrollbar + house close button.
+    -- INTENTIONAL, do not "fix": the popout's preview rows (the search box's
+    -- GetButtons()) keep Blizzard's own look on purpose (owner pick 2026-11-19;
+    -- PR #3532 skinned them and was reverted). Never skin those rows or hook
+    -- EncounterJournal_UpdateSearchPreview to restyle them.
     local sbox = f.searchBox
     local prevC = sbox and sbox.searchPreviewContainer
     if prevC then
         WSkin.Panel(prevC)
-        -- framed = the button is its OWN panel (bg + border). Preview rows sit
-        -- inside the container's panel so need none; showAllResults is a SIBLING
-        -- below the container with no backdrop, so it gets its own fill+border.
+        -- framed = the button is its OWN panel (bg + border): showAllResults is
+        -- a SIBLING below the container with no backdrop, so it gets its own
+        -- fill+border.
         local function SkinEJSearchBtn(btn, framed)
             if not btn or btn:IsForbidden() then return end
             local d = GetFFD(btn)
@@ -1528,21 +1532,8 @@ local function Skin_EncounterJournal()
                 if fs and fs.SetTextColor then WSkin.White(fs) end
             end
         end
-        local function SkinAllEJSearch()
-            -- Re-assert the container panel: Blizzard re-raises corner art on popout show, hiding our border.
-            WSkin.Panel(prevC)
-            local rows = sbox.GetButtons and sbox:GetButtons()
-            if rows then
-                for _, b in ipairs(rows) do SkinEJSearchBtn(b) end
-            end
-            SkinEJSearchBtn(sbox.showAllResults, true)
-        end
-        SkinAllEJSearch()
-        -- Preview rows re-populate as you type; re-white after each update.
-        if not GetFFD(sbox).searchHook and type(_G.EncounterJournal_UpdateSearchPreview) == "function" then
-            GetFFD(sbox).searchHook = true
-            hooksecurefunc("EncounterJournal_UpdateSearchPreview", SkinAllEJSearch)
-        end
+        -- Show All Results only: the preview rows stay Blizzard's (see above).
+        SkinEJSearchBtn(sbox.showAllResults, true)
     end
     local sr = _G.EncounterJournalSearchResults
     if sr then
@@ -7612,6 +7603,10 @@ end
 -- section; this table stays empty, and the list and the grid skip it, until the
 -- setting is first on (SetOwnedActive).
 local owned = {}
+-- Other addons' item callbacks (EllesmereUI.RegisterMerchantItemCallback). The
+-- code sits after the Expand Vendor UI section; the list and the grid run them
+-- only while one is registered.
+local itemHooks = { list = {} }
 
 local function UpdateCustomMerchantList(sf, child)
     local isBuyback = MerchantFrame.selectedTab == 2
@@ -7774,6 +7769,7 @@ local function UpdateCustomMerchantList(sf, child)
             if owned.markRow then owned.markRow(row, i, isBuyback) end
 
             row:Show()
+            if itemHooks.list[1] then itemHooks.Run(row.ItemButton, i, row, row.SlotTexture, isBuyback) end
         else
             row:Hide()
         end
@@ -7788,19 +7784,21 @@ end
 EllesmereUI._Merchant_RefreshRowHeight = function()
     local f = _G.MerchantFrame
     if not f then return end
-    if not EllesmereUIDB.merchantShowAsList or not (f.wSkinScrollFrame and f.wSkinScrollChild) then return end
+    local d = FFD[f]
+    local sf, child = d and d.merchantList, d and d.merchantListChild
+    if not EllesmereUIDB.merchantShowAsList or not (sf and child) then return end
 
     local rowHeight = (EllesmereUIDB and EllesmereUIDB.merchantListRowHeight) or 32
     -- Rows are cached, so resize each existing one; rows created later pick up
     -- the new height by default.
-    for _, row in ipairs(f.wSkinScrollFrame.rows or {}) do
+    for _, row in ipairs(sf.rows or {}) do
         row:SetHeight(rowHeight)
         SkinMerchantListItem(row)
     end
 
     -- Force a full update when changed while the merchant frame is open.
     if f:IsVisible() then
-        UpdateCustomMerchantList(f.wSkinScrollFrame, f.wSkinScrollChild)
+        UpdateCustomMerchantList(sf, child)
     end
 end
 
@@ -8086,6 +8084,7 @@ local function EX_FillTile(tile, slot, index, numItems)
     SetItemButtonTextureVertexColor(btn, r, g, b)
     SetItemButtonNormalTextureVertexColor(btn, r, g, b)
     if owned.markTile then owned.markTile(tile, index) end
+    if itemHooks.list[1] then itemHooks.Run(btn, index, tile, btn.icon, false) end
 end
 
 local EX_Update
@@ -8280,6 +8279,63 @@ EllesmereUI._Merchant_RefreshExpand = function()
     if ExpandOn() then EnsureExpand() end
     EX_Update()
 end
+
+-------------------------------------------------------------------------------
+--  Item callbacks (public, EllesmereUI.RegisterMerchantItemCallback). Expand
+--  Vendor UI and Show As List draw the vendor's items on tiles and rows of our
+--  own, so other addons' hooks on Blizzard's ten tiles never reach what shows.
+--  A callback gets each item our layouts show, after every fill (an update, a
+--  page flip, the list's own refresh). Blizzard's own page runs none: the
+--  addon's usual hooks cover it. Developer guide: PLUGINS_API.md.
+-------------------------------------------------------------------------------
+function itemHooks.Run(btn, index, tile, icon, isBuyback)
+    local list = itemHooks.list
+    for i = 1, #list do
+        local ok, err = pcall(list[i].fn, btn, index, tile, icon, isBuyback)
+        if not ok then geterrorhandler()(err) end
+    end
+end
+
+-- Every item our layout shows now, again (a registration, or the addon's own
+-- state changed).
+function itemHooks.RunAll()
+    local f = _G.MerchantFrame
+    if not (itemHooks.list[1] and f and f:IsShown()) then return end
+    if ex.active then
+        for i = 1, ex.perPage do
+            local t = ex.tiles[i]
+            if t and t:IsShown() then
+                local btn = t.ItemButton
+                itemHooks.Run(btn, btn:GetID(), t, btn.icon, false)
+            end
+        end
+        return
+    end
+    local d = FFD[f]
+    local sf = EllesmereUIDB.merchantShowAsList and d and d.merchantList
+    if not (sf and sf.rows) then return end
+    local buyback = f.selectedTab == 2
+    for i = 1, #sf.rows do
+        local row = sf.rows[i]
+        if row:IsShown() then itemHooks.Run(row.ItemButton, i, row, row.SlotTexture, buyback) end
+    end
+end
+
+-- Public: fn(itemButton, index, tile, icon, isBuyback) for each item shown.
+function EllesmereUI.RegisterMerchantItemCallback(id, fn)
+    if type(id) ~= "string" or id == "" or type(fn) ~= "function" then return false end
+    local list = itemHooks.list
+    for i = 1, #list do
+        if list[i].id == id then return false end
+    end
+    list[#list + 1] = { id = id, fn = fn }
+    itemHooks.RunAll()
+    return true
+end
+
+-- Public: run every callback again on the next frame. Built at load, so no
+-- skin callback wraps it.
+EllesmereUI.RefreshMerchantItems = WSkin.Debounce(itemHooks.RunAll)
 
 -------------------------------------------------------------------------------
 --  Flag/Hide Owned Items (Merchant card, EllesmereUIDB.merchantMarkOwned; needs
@@ -8501,7 +8557,8 @@ local function OwnedRedraw()
     if ExpandActive() then
         EX_Update()
     elseif EllesmereUIDB.merchantShowAsList then
-        if f.wSkinScrollFrame then UpdateCustomMerchantList(f.wSkinScrollFrame, f.wSkinScrollChild) end
+        local d = FFD[f]
+        if d and d.merchantList then UpdateCustomMerchantList(d.merchantList, d.merchantListChild) end
     else
         MarkOwnedNative()
     end
@@ -8587,10 +8644,12 @@ local function Skin_Merchant()
     if EllesmereUIDB.merchantShowAsList then
         HideNativeMerchantGrid()
 
-        if not f.wSkinScrollFrame then
+        -- The list's frames live in the frame data, never on MerchantFrame itself.
+        local d = GetFFD(f)
+        if not d.merchantList then
             local sf, child = CreateMerchantScrollList(f)
-            f.wSkinScrollFrame = sf
-            f.wSkinScrollChild = child
+            d.merchantList = sf
+            d.merchantListChild = child
         end
     else
         -- Item tiles (10 merchant, buyback page reuses up to 12) plus the most-recent-buyback slot on the merchant tab.
@@ -8650,8 +8709,9 @@ local function Skin_Merchant()
         if type(_G.MerchantFrame_Update) == "function" then
             hooksecurefunc("MerchantFrame_Update", WSkin.Debounce(function()
                 if f:IsVisible() then
-                    if EllesmereUIDB.merchantShowAsList and f.wSkinScrollFrame then
-                        UpdateCustomMerchantList(f.wSkinScrollFrame, f.wSkinScrollChild)
+                    local d = FFD[f]
+                    if EllesmereUIDB.merchantShowAsList and d and d.merchantList then
+                        UpdateCustomMerchantList(d.merchantList, d.merchantListChild)
                     else
                         for i = 1, 12 do SkinMerchantTile(_G["MerchantItem" .. i]) end
                         SkinMerchantTile(_G.MerchantBuyBackItem)
@@ -8690,7 +8750,8 @@ local function UpdateMerchantItemLevels()
     local numItems
     local prefix = "MerchantItem"
     -- The list and grid only exist once the Merchant reskin built them; else use native tiles.
-    local asList = EllesmereUIDB.merchantShowAsList and f.wSkinScrollFrame
+    local d = FFD[f]
+    local asList = EllesmereUIDB.merchantShowAsList and d and d.merchantList
     if asList then
         -- GetNumBuybackItems is irrelevant: text only shows on the sell tab.
         numItems = GetMerchantNumItems()

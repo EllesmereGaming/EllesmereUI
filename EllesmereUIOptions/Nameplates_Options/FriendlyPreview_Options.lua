@@ -244,17 +244,28 @@ end
 -- compose it (mirrors UpdateNameOnlyText and FriendlyFrame:UpdateName; your
 -- own plate never takes group brackets, so the sample wears the party's): the
 -- Name Format, the title around the name, the brackets, the level. Both modes
--- draw the guild under the name in the guild colour -- on the bar plate as a
--- line of its own (ApplySubText), under Name Only as the name's second line,
--- unless Guild Line Uses Its Own Size is on, which gives it a text of its own
--- at Guild Text Size. When a row's eye previews the player's pet entry the
+-- draw the guild under the name in the guild colour, as a text of its own at
+-- Guild Text Size (ApplySubText; Name Only's WriteNameOnlySub). When a row's
+-- eye previews the player's pet entry the
 -- sample becomes that pet: the pet's sizes and its owner's line. Returns the
 -- sample's height.
-local function PaintPlayer(s, DB, DBVal, nameOnly, key)
+-- The Status Tags eye on the page puts a tag on the sample's name: <AFK> while
+-- AFK is ticked (it wins, as on a live plate), else <DND>.
+local function SampleStatusTag(DBVal)
+    if DBVal("friendlyStatusTagAFK") == true then return " " .. (CHAT_FLAG_AFK or "<AFK>") end
+    if DBVal("friendlyStatusTagDND") == true then return " " .. (CHAT_FLAG_DND or "<DND>") end
+    return nil
+end
+
+local function PaintPlayer(s, DB, DBVal, nameOnly, key, tagged)
     local mode = DBVal("friendlyBelowName") or "none"
     local titled = mode == "title" or mode == "both"
     local name = SampleName(DBVal("friendlyNameFormat"))
     if titled then name = SampleTitled(name) end
+    -- The tag rides the name, inside the group brackets, as UpdateNameOnlyText and
+    -- FriendlyFrame:UpdateName write it.
+    local tag = tagged and SampleStatusTag(DBVal)
+    if tag then name = name .. tag end
     if DBVal("friendlyGroupBrackets") == true then name = "|cffaaaaff[|r" .. name .. "|cffaaaaff]|r" end
     if DBVal("friendlyShowLevel") == true then
         name = ns.GetUnitLevelText("player", DBVal("friendlyLevelDiffColor") == true and "diffAll" or nil) .. " | " .. name
@@ -307,9 +318,8 @@ local function PaintPlayer(s, DB, DBVal, nameOnly, key)
     if guild then
         local gr, gg, gb = gc.r, gc.g, gc.b
         if DBVal("friendlyBelowNameMatchNameColor") == true then gr, gg, gb = nr, ng, nb end
-        -- The guild is the name's second line at the name's size unless the
-        -- separate-line option is on (it draws at Guild Text Size).
-        local gsize = DBVal("friendlyBelowNameSeparateGuild") == true and DBVal("friendlyBelowNameSize") or size
+        -- The guild line, a text of its own at Guild Text Size.
+        local gsize = DBVal("friendlyBelowNameSize")
         ns.SetFSFont(s.sub, gsize, "OUTLINE, SLUG")
         s.sub:SetFormattedText(body, guild)
         s.sub:SetTextColor(gr, gg, gb)
@@ -390,14 +400,17 @@ local function Update(building)
     local playersOn = DBVal("showFriendlyPlayers") ~= false
     local pl, npc = S.player, S.npc
     -- What each sample is previewing: the entry whose eye is on, or nil for the
-    -- plain unit.
+    -- plain unit. An eye left on over an entry that is off or greyed shows
+    -- nothing (its eye reads closed then): FriendlyPage_Options.lua answers.
     local pKey = env.optState.friendlyPlayerPreview
     local nKey = env.optState.friendlyNPCPreview
+    if pKey and ns.NPO_AlliedPreviewOff(pKey) then pKey = nil end
+    if nKey and ns.NPO_AlliedPreviewOff(nKey) then nKey = nil end
     -- The panel's scale compensated: a sample draws at a live plate's size.
     local scale = UIParent:GetEffectiveScale() / hdr:GetEffectiveScale()
     pl:SetScale(scale)
     npc:SetScale(scale)
-    local block = math.max(PaintPlayer(pl, env.DB, DBVal, nameOnly, pKey),
+    local block = math.max(PaintPlayer(pl, env.DB, DBVal, nameOnly, pKey, env.optState.showStatusTagPreview),
         PaintNPC(npc, DBVal, nameOnly, env.optState.showNPCMarkerPreview, nKey)) * scale
     SyncOverlays(pl)
     SyncOverlays(npc)

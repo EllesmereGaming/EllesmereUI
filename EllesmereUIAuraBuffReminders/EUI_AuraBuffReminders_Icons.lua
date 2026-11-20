@@ -376,6 +376,8 @@ local function ShowCombatIcon(m)
         f = GetOrCreateReceiverIcon("HunterTracking")
         f._hunterTracking = m
         f:EnableMouse(not m.hunterTrackingStatus)
+        -- EnableMouse turns clicks back on: an icon built in combat lets
+        -- every click through until HideCombatIcons routes it.
         if not f._routed then f:SetMouseClickEnabled(false) end
         f._icon:SetAlpha(0)
         f._eabrBorderFrame:SetAlpha(0)

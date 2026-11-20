@@ -720,9 +720,10 @@ local BlizzStyle = {}
 EllesmereUI.BlizzStyle = BlizzStyle
 
 local STYLE_VALUES = { eui = "EllesmereUI Style", blizzard = "Blizzard Style", classic = "Classic WoW UI" }
--- The WoW Forever variant exists on the Forever client only.
+-- The WoW Forever variant exists on the Forever client only. Named as a
+-- style, so a requirement tooltip never reads as the game client.
 if IS_FOREVER then
-    STYLE_VALUES.forever = "WoW Forever"
+    STYLE_VALUES.forever = "WoW Forever Style"
 end
 
 local function SupportsStyle(m, styleKey)

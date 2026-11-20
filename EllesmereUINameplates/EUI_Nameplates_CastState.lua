@@ -330,8 +330,10 @@ function ns.FriendlyNameClassCVar(db)
     if mode == "class" or mode == "custom" then
         on = mode == "class"
     else
+        -- The saved style, not ns.FriendlyNameOnlyNow: under Name Only in
+        -- Instances the Nameplate style's names keep their own colour rule.
         on = db.classColorFriendly ~= false
-            or (not ns.FriendlyNameOnlyNow(db) and db.friendlyNameClassColor == true)
+            or (db.friendlyNameOnly == false and db.friendlyNameClassColor == true)
     end
     return on and 1 or 0
 end
@@ -466,9 +468,9 @@ end
 --- Pet and minion nameplate CVars: the two pet toggles' own, never the login or
 --- zone-in pass. Those CVars default ON in the client, and EUI never owned the
 --- minion ones, so writing them on every login (or 0 in every instance) hid
---- minion plates for nearly everyone. A toggle click and a profile apply are
---- explicit, and an unchosen toggle (nil) is never written. kind: "friendly",
---- "enemy", or nil for both.
+--- minion plates for nearly everyone. Only a toggle's click calls it, and an
+--- unchosen toggle (nil) is never written. kind: "friendly", "enemy", or nil
+--- for both.
 function ns.ApplyPetCVars(kind)
     -- Nameplate CVars are protected in combat: run that toggle's write when it
     -- ends (one queued write per side, so flipping both in a fight lands both).

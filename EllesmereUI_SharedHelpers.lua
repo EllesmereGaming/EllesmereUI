@@ -1447,6 +1447,39 @@ do
         return configID, treeID, trees
     end
 
+    -- A dual spec group's talents: the trees of that group's own build in their
+    -- order, each { name, spent } (the points spent in it), and lead, the index
+    -- of the tree with the most points (the leftmost on a tie, nil with none
+    -- spent). nil while the group has no readable build; a read the game
+    -- refuses counts as none. Readers: the Data Bars Dual Spec block and the
+    -- Loadout Manager's spec group names (both list it in their stale-parent
+    -- guards).
+    local NO_GROUPS = {}
+    local function ReadSpecGroup(group)
+        local configID = C_SpecializationInfo.GetCombatConfigIDForSpecGroup(group)
+        if not configID then return nil end
+        local _, _, list = EllesmereUI.ForeverTalentTrees(configID, true)
+        if not list or #list == 0 then return nil end
+        local ids = {}
+        for i = 1, #list do ids[i] = list[i].groupID end
+        local spent = {}
+        for _, g in ipairs(C_Traits.GetGroupCurrencyInfo(configID, ids) or NO_GROUPS) do
+            local c = g.currencyInfos and g.currencyInfos[1]
+            if c then spent[g.traitNodeGroupID] = c.spent end
+        end
+        local trees, lead, best = {}, nil, 0
+        for i = 1, #list do
+            local n = spent[list[i].groupID] or 0
+            trees[i] = { name = list[i].name, spent = n }
+            if n > best then lead, best = i, n end
+        end
+        return { trees = trees, lead = lead }
+    end
+    function EllesmereUI.ForeverSpecGroupTalents(group)
+        local ok, build = pcall(ReadSpecGroup, group)
+        return ok and build or nil
+    end
+
     -- One axis of a tree's grid from its node positions: the first line, the
     -- step, and the last line before any position far beyond the rest. The step
     -- is the smallest gap between neighbouring positions above a quarter of the

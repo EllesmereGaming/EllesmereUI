@@ -1071,7 +1071,8 @@ function EABR.CollectForever(missing, inInstance, inPvP)
     -- The shared bag listener: Weapon Buffs, an owned Sleeping Bag, an owned
     -- censer whose buff is missing. With none of those, a light watcher hears
     -- a missing Sleeping Bag (below max level) or censer arrive.
-    local bagListen = shows and (fo.weapon == true or sleepBag or censer) or false
+    -- A plain boolean: censer is the item ID, and the listener's sync compares by value.
+    local bagListen = shows and (fo.weapon == true or sleepBag or (censer and true)) or false
     EABR.FvSyncSleepBagWatch(wantBag and not sleepBag and not EABR._fvMaxLevel
         and not bagListen or false)
     EABR.FvSyncCenserWatch(censerMissing and not censer and not bagListen or false)

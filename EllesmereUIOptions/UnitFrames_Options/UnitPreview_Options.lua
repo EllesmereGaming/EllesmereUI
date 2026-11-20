@@ -298,7 +298,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 if portraitModel then portraitModel:Hide() end
                 portraitTex:Show()
                 SetPortraitTexture(portraitTex, "player")
-                mirror = mirror and ns.UF_CanMirrorPortrait2D(EnsurePreviewModel(), "player")
+                -- The sample is the player: a player's 2D portrait always flips.
                 if mirror then
                     portraitTex:SetTexCoord(0.85, 0.15, 0.15, 0.85)
                 else
@@ -2777,7 +2777,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 local ppPctVal = optState._previewPowerPct or 0.85
                 local ppPctRaw = math.floor(ppPctVal * 100)
                 local ppSuffix = (s.powerShowPercent == false) and "" or "%"
-                local ppCurFake = ns.AbbreviateNumbers(18200)
+                local ppCurFake = ns.AbbreviateValue(18200, "power")
                 local ppTxt
                 if ppFmt == "custom" then
                     ppTxt = PreviewTextForContent("custom", s, "powerText")
@@ -2786,7 +2786,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 elseif ppFmt == "curpp" then
                     ppTxt = ppCurFake
                 elseif ppFmt == "curmaxpp" then
-                    ppTxt = ppCurFake .. " / " .. ns.AbbreviateNumbers(22000)
+                    ppTxt = ppCurFake .. " / " .. ns.AbbreviateValue(22000, "power")
                 elseif ppFmt == "both" then
                     ppTxt = ppCurFake .. " | " .. ppPctRaw .. ppSuffix
                 else  -- "perpp"

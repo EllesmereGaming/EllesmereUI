@@ -349,7 +349,7 @@ ns.FRIENDLY_Y_BASE = 26
 -- Refresh Y-offset on all visible friendly name-only plates
 function ns.RefreshFriendlyNameOnlyOffset()
     local db = p or defaults
-    local nameOnly = (db.friendlyNameOnly ~= false)
+    local nameOnly = ns.FriendlyNameOnlyNow(db)
     local yOff = nameOnly and ((db.friendlyNameOnlyYOffset or 0) + ns.FRIENDLY_Y_BASE) or 0
     for unit, nameplate in pairs(pendingUnits) do
         if nameplate.UnitFrame then
@@ -383,7 +383,7 @@ manager:SetScript("OnEvent", function(self, event, unit)
             -- pooled; children an earlier enemy parked already came back in the
             -- OnNamePlateAdded hook (ns.NP_ReclaimBlizzardFrame). Friendly NPCs and pets stay suppressed.
             local db = p or defaults
-            if db.friendlyNameOnly ~= false and UnitIsPlayer(unit) then
+            if ns.FriendlyNameOnlyNow(db) and UnitIsPlayer(unit) then
                 local uf = nameplate.UnitFrame
                 if uf then
                     -- Restore alpha in case the recycled UF was suppressed

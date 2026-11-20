@@ -586,13 +586,13 @@ initFrame:SetScript("OnEvent", function(self)
             else txt = pctStr .. "%" end
         else
             local percentText = tostring(pct) .. ((c.showPercent == false) and "" or "%")
-            local curStr = ns.AbbreviateNumbers(math.floor(mx * pct / 100))
+            local curStr = ns.AbbreviateValue(math.floor(mx * pct / 100), "power")
             if fmt == "smart" then
                 local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(ptype)
                 txt = isPercent and percentText or curStr
             elseif fmt == "both" then txt = curStr .. " | " .. percentText
             elseif fmt == "curpp" then txt = curStr
-            elseif fmt == "curmaxpp" then txt = curStr .. " / " .. ns.AbbreviateNumbers(mx)
+            elseif fmt == "curmaxpp" then txt = curStr .. " / " .. ns.AbbreviateValue(mx, "power")
             elseif fmt == "perpp" then txt = percentText
             else txt = curStr end
         end

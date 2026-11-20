@@ -1150,12 +1150,13 @@ local function GetTitledName(unit)
     return titled
 end
 
--- Show AFK/DND Tag: Blizzard's own nameplates print no away or busy tag, so one
--- here is ours to give, and off unless the user asks for it. Read by the compose
--- paths below and by the event pass that arms the flags listener.
+-- Status Tags: Blizzard's own nameplates print no away or busy tag, so one here
+-- is ours to give. Each is its own choice (friendlyStatusTagAFK, Do Not Disturb
+-- friendlyStatusTagDND), both off. Read by the compose paths below and by the
+-- event pass that arms the flags listener.
 local function ShowStatusTag()
     local fp = FP()
-    return fp ~= nil and fp.friendlyShowStatusTag == true
+    return fp ~= nil and (fp.friendlyStatusTagAFK == true or fp.friendlyStatusTagDND == true)
 end
 
 -- Blizzard's own away/busy tag, as its tooltip and unit frames print it
@@ -1166,15 +1167,18 @@ end
 local AFK_TAG = CHAT_FLAG_AFK or "<AFK>"
 local DND_TAG = CHAT_FLAG_DND or "<DND>"
 local function PlayerStatusTag(unit)
-    if not ShowStatusTag() then return nil end
-    if not (unit and UnitIsAFK) then return nil end
-    local afk = UnitIsAFK(unit)
-    if issecretvalue and issecretvalue(afk) then return nil end
-    if afk then return " " .. AFK_TAG end
-    if not UnitIsDND then return nil end
-    local dnd = UnitIsDND(unit)
-    if issecretvalue and issecretvalue(dnd) then return nil end
-    if dnd then return " " .. DND_TAG end
+    local fp = FP()
+    if not (fp and unit) then return nil end
+    if fp.friendlyStatusTagAFK == true and UnitIsAFK then
+        local afk = UnitIsAFK(unit)
+        if issecretvalue and issecretvalue(afk) then return nil end
+        if afk then return " " .. AFK_TAG end
+    end
+    if fp.friendlyStatusTagDND == true and UnitIsDND then
+        local dnd = UnitIsDND(unit)
+        if issecretvalue and issecretvalue(dnd) then return nil end
+        if dnd then return " " .. DND_TAG end
+    end
     return nil
 end
 
@@ -1272,7 +1276,7 @@ do
         titledCount[mode] = titledCount[mode] + 1
         return s
     end
-    local aFormat, aNpcFormat, aMode, aBrackets, aMatch, aLevel, aDiff, aGroupBrackets, aNameEsc, aStatusTag, aSepGuild, stamped
+    local aFormat, aNpcFormat, aMode, aBrackets, aMatch, aLevel, aDiff, aGroupBrackets, aNameEsc, aTagAFK, aTagDND, stamped
     StampFriendlyNames = function()
         local fp = FP()
         if not fp then return end
@@ -1283,8 +1287,7 @@ do
         aMatch = fp.friendlyBelowNameMatchNameColor == true
         aLevel, aDiff = fp.friendlyShowLevel == true, fp.friendlyLevelDiffColor == true
         aGroupBrackets = fp.friendlyGroupBrackets == true
-        aStatusTag = fp.friendlyShowStatusTag == true
-        aSepGuild = fp.friendlyBelowNameSeparateGuild == true
+        aTagAFK, aTagDND = fp.friendlyStatusTagAFK == true, fp.friendlyStatusTagDND == true
         aNameEsc = NameEsc.Get()
     end
     -- The Name Format options rows and every settings re-read (ns.RefreshAllSettings:
@@ -1300,8 +1303,8 @@ do
             and (fp.friendlyShowLevel == true) == aLevel
             and (fp.friendlyLevelDiffColor == true) == aDiff
             and (fp.friendlyGroupBrackets == true) == aGroupBrackets
-            and (fp.friendlyShowStatusTag == true) == aStatusTag
-            and (fp.friendlyBelowNameSeparateGuild == true) == aSepGuild
+            and (fp.friendlyStatusTagAFK == true) == aTagAFK
+            and (fp.friendlyStatusTagDND == true) == aTagDND
             and NameEsc.Get() == aNameEsc then
             return
         end
@@ -1358,14 +1361,6 @@ local hookedNameText = {}   -- nameFS -> true (permanent hooks, applied once)
 -- stamped on Blizzard's frame (a field there taints it).
 local hookedUFEvents = setmetatable({}, { __mode = "k" })
 local _titledNameGuard = false
-
--- Show Guild Line as Its Own Text: the guild as a separate text at Guild Text
--- Size instead of the name's second line. Off keeps today's look (the second
--- line, at the name's size).
-local function SeparateGuildLine()
-    local fp = FP()
-    return fp ~= nil and fp.friendlyBelowNameSeparateGuild == true
-end
 
 -- The guild line under a Name Only name is a text of its own, never a second
 -- line of Blizzard's name string: that string carries one font at one size, so
@@ -1471,7 +1466,7 @@ local function UpdateNameOnlyText(nameFS)
         want = FormatFriendlyName(unit, want, ModeHasTitle(mode))
     end
     -- Blizzard's away/busy tag, on the name itself so it takes the name's colour
-    -- and rides inside the group brackets. Off unless Show AFK/DND Tag asks for
+    -- and rides inside the group brackets. Off unless Status Tags asks for
     -- it (PlayerStatusTag answers nil then).
     if isPlayer then
         local tag = PlayerStatusTag(unit)
@@ -1520,39 +1515,16 @@ local function UpdateNameOnlyText(nameFS)
     st.name, st.guild, st.grp = want, guildKey, gKind
 
     _titledNameGuard = true
-    if guild and not SeparateGuildLine() then
-        -- Today's look: the guild rides the name's own second line, at the
-        -- name's size. The guild is only ever a SetFormattedText argument
-        -- (display sinks accept secrets); the colour escape and brackets are
-        -- literals built from our own values.
-        local r, g, b = GetSubTextColor(unit)
-        local fp = FP()
-        local body = (not fp or fp.friendlyBelowNameGuildBrackets ~= false) and "<%s>" or "%s"
-        -- Word wrap MUST be on for the explicit newline to break a line --
-        -- Blizzard leaves this FontString non-wrapping, which silently drops
-        -- everything after the "\n". Nothing wraps by accident: the width is
-        -- 0 (auto-size), so there is no boundary to wrap against.
-        nameFS:SetWordWrap(true)
-        nameFS:SetMaxLines(2)
-        nameFS:SetFormattedText("%s\n" .. string.format("|cff%02x%02x%02x",
-            math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
-            .. body .. "|r", want, guild)
-    else
-        nameFS:SetMaxLines(1)
-        nameFS:SetText(want)
-    end
+    nameFS:SetMaxLines(1)
+    nameFS:SetText(want)
     _titledNameGuard = false
-    -- The opt-in separate guild line; nil clears a line the option left behind.
-    if SeparateGuildLine() then
-        WriteNameOnlySub(nameFS, unit, guild)
-    else
-        HideNameOnlySub(nameFS)
-    end
+    -- The guild line is a text of its own at Guild Text Size; nil clears it.
+    WriteNameOnlySub(nameFS, unit, guild)
 end
 
 -- Whether this plate's name can differ from the plain name Blizzard writes:
 -- a subtitle, a name format, a level, brackets, a name colour, a target
--- highlight, or the away/busy tag while Show AFK/DND Tag is on. Cheapest test
+-- highlight, or the away/busy tag while a Status Tag is on. Cheapest test
 -- first; the hook asks this on every SetText.
 local function NeedsNameOnlyTextUpdate(unit)
     if GetBelowNameMode() ~= "none" or FriendlyNameFormat() or ShowFriendlyLevel() or ShowFriendlyGroupBrackets() then
@@ -1623,18 +1595,37 @@ local function AttachNameOnlyText(nameFS, unit)
     UpdateNameOnlyText(nameFS)
 end
 
+-- The nameplate token of the friendly plate showing an event's unit, nil with
+-- none. GetNamePlateForUnit refuses group tokens ("party1", "raid12",
+-- "raidpet3": the client raises), so a group token is matched against the live
+-- friendly plates (ns.pendingUnits, the few on screen) with UnitIsUnit, whose
+-- answer is tested for secrecy before it is used; any other token ("target",
+-- "mouseover", a nameplate token) is one call to the API.
+local function FriendlyPlateToken(eventUnit)
+    if type(eventUnit) ~= "string" then return nil end
+    if eventUnit:find("^party") or eventUnit:find("^raid") then
+        local pending = ns.pendingUnits
+        if not pending then return nil end
+        for tok in pairs(pending) do
+            local same = UnitIsUnit(tok, eventUnit)
+            if not issecretvalue(same) and same then return tok end
+        end
+        return nil
+    end
+    local np = C_NamePlate.GetNamePlateForUnit(eventUnit)
+    return np and GetNamePlateUnitToken(np) or nil
+end
+
 -- A unit's away or busy flag changed (PLAYER_FLAGS_CHANGED): the tag is part of
 -- the name we compose, so that unit's plates redraw -- in either friendly style,
 -- Name Only included. The event names the token the client tracks ("target",
 -- "party1") while our plates are keyed by their nameplate token, and
--- GetNamePlateForUnit bridges the two in one call rather than a GUID scan. Cheap
--- by construction: the name-only side dedupes on the composed string and a bar
--- plate compares the tag before running its name pass, so a flag that changes
--- nothing visible costs one compare.
+-- FriendlyPlateToken bridges the two. Cheap by construction: the name-only side
+-- dedupes on the composed string and a bar plate compares the tag before running
+-- its name pass, so a flag that changes nothing visible costs one compare.
 local function RefreshStatusTags(eventUnit)
     if not eventUnit then return end
-    local np = C_NamePlate and C_NamePlate.GetNamePlateForUnit and C_NamePlate.GetNamePlateForUnit(eventUnit)
-    local token = (np and GetNamePlateUnitToken(np)) or eventUnit
+    local token = FriendlyPlateToken(eventUnit) or eventUnit
     if not token then return end
     local swept
     for nameFS, u in pairs(nameFSUnits) do
@@ -1672,14 +1663,14 @@ end
 
 -- One unit's guild name arrived or changed (PLAYER_GUILD_UPDATE carries the
 -- token): repaint that unit's plate alone, in either friendly style. The
--- client's token ("party1", "target") is bridged to the plate's own token in
--- one call, so no GUID scan and no walk over every plate.
+-- client's token ("party1", "target") is bridged to the plate's own token by
+-- FriendlyPlateToken, so no walk over every plate for a non-group token.
 local function RepaintUnitGuild(eventUnit)
     if not eventUnit then return end
-    local np = C_NamePlate and C_NamePlate.GetNamePlateForUnit and C_NamePlate.GetNamePlateForUnit(eventUnit)
+    local token = FriendlyPlateToken(eventUnit)
+    local np = token and ns.pendingUnits and ns.pendingUnits[token]
     if not np then return end
-    local token = GetNamePlateUnitToken(np) or eventUnit
-    local plate = friendlyPlates[token] or friendlyPlates[eventUnit]
+    local plate = friendlyPlates[token]
     if plate then plate:UpdateName() end
     local fs = np.UnitFrame and np.UnitFrame.name
     if fs and nameFSUnits[fs] then
@@ -2507,7 +2498,7 @@ local UnregisterFriendlyManager -- forward declaration
 -------------------------------------------------------------------------------
 --  Away / busy tag events
 --  PLAYER_FLAGS_CHANGED is armed in BOTH friendly styles, since the tag rides
---  either style's name, and only while Show AFK/DND Tag is on: the tag is the
+--  either style's name, and only while a Status Tag is on: the tag is the
 --  one reader, so nothing here is registered while it is off. This is a frame
 --  of its own because the health-bar manager above is only registered in that
 --  style, while Name Only composes the name through Blizzard's own FontString.
@@ -3042,11 +3033,12 @@ local function GuildLineInUse()
     return IsNameOnlyMode() or IsFriendlyEnabled()
 end
 
--- The target and mouseover events answer the NPC overlay (a hovered or targeted
--- NPC is one Blizzard names) and the away/busy tag: armed only while one of
--- them can paint, never for everyone.
+-- The target and mouseover events here answer the away/busy tag alone, armed
+-- only while it can paint. The NPC overlay's target and hover passes run from
+-- the nameplate manager in EUI_Nameplates_Events.lua, which hears both events
+-- anyway (and the hover's end, which has no event).
 local function TargetEventsWanted()
-    return ns.FriendlyOverlayActive() or ShowStatusTag()
+    return ShowStatusTag()
 end
 
 -- Arms the three event surfaces this file owns beyond the plate managers: the
@@ -3301,12 +3293,11 @@ if NamePlateDriverFrame and NamePlateDriverFrame.UpdateNamePlateOptions then
 end
 
 -------------------------------------------------------------------------------
--- Whether the "Recently Played With" bookkeeping can matter: the player
--- relationship entries off, the group roster is not tracked at all.
+-- Whether the "Recently Played With" bookkeeping can matter: with its entry
+-- off, the group roster is not tracked at all.
 local function RecentTrackingOn()
     local fp = FP()
-    return fp ~= nil and fp.nameOnlyStylePlayerRelationships == true
-        and fp.nameOnlyCustomEnabled_FRIENDLY_PLAYER_RECENT == true
+    return fp ~= nil and fp.nameOnlyCustomEnabled_FRIENDLY_PLAYER_RECENT == true
 end
 
 initFrame = CreateFrame("Frame")
@@ -3316,7 +3307,6 @@ initFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 initFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 initFrame:SetScript("OnEvent", function(self, event, unit)
     if event == "PLAYER_TARGET_CHANGED" or event == "UPDATE_MOUSEOVER_UNIT" then
-        OnTargetChangedNPCOverlays()
         -- The client reports a player's away/busy flag for the units it tracks,
         -- so a target or hover is the moment a stranger's plate can catch up.
         if ShowStatusTag() then

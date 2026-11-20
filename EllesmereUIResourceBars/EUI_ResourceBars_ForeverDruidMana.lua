@@ -246,6 +246,11 @@ evf:SetScript("OnEvent", function(_, event, _, powerType)
     end
 end)
 
+-- A Number Format change repaints the text (Paint skips unchanged mana).
+EllesmereUI.RegisterNumberFormatCallback(function()
+    if S.live then Paint(true) end
+end)
+
 -------------------------------------------------------------------------------
 --  Build / look
 -------------------------------------------------------------------------------

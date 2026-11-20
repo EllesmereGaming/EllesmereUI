@@ -316,11 +316,8 @@ local defaults = {
     -- and Border Size effects on friendly plates too.
     friendlyTargetBorderFx = false,
     friendlyBarColor = { r = 0.314, g = 0.800, b = 0.408 },
-    -- Name Only target highlights (EUI_Nameplates_AlliedColors.lua): three master
-    -- toggles, then one toggle + colour per entity type. All off by default.
-    nameOnlyStylePlayerRelationships = false,
-    nameOnlyStyleFriendlyNPCs = false,
-    nameOnlyStyleHostileNPCs = false,
+    -- Name Only target highlights (EUI_Nameplates_AlliedColors.lua): one toggle +
+    -- colour per entity type (below). All off by default.
     -- Show Friendly Pet Nameplates has no default: nil means the user never
     -- chose, and nil reads as off everywhere. Only the option's own click
     -- writes the pet and minion CVars (ns.ApplyPetCVars), so a profile that
@@ -368,21 +365,20 @@ local defaults = {
     friendlyPetOwnerOwnSize = false,
     friendlyNameTextSize = 12,
     friendlyBelowName = "none",
+    -- Guild Text Size: the guild line under a friendly player's name, a text of
+    -- its own in both styles.
     friendlyBelowNameSize = 12,
     friendlyBelowNameColor = { r = 0.8, g = 0.8, b = 0.8 },
     friendlyBelowNameClassColor = false,
     friendlyBelowNameGuildBrackets = true,
     friendlyBelowNameMatchNameColor = false,
-    -- Show Guild Line as Its Own Text: the Name Only guild line as a separate
-    -- text at Guild Text Size. Off keeps the name's second line in that FontString
-    -- (one font, one size), as it has always looked.
-    friendlyBelowNameSeparateGuild = false,
     friendlyShowLevel = false,
     friendlyLevelDiffColor = false,
     friendlyGroupBrackets = false,
-    -- Show AFK/DND Tag: Blizzard's own nameplates print no away or busy tag, so
-    -- one here is a choice of its own and off until asked.
-    friendlyShowStatusTag = false,
+    -- Status Tags (AFK, Do Not Disturb): Blizzard's own nameplates print no away
+    -- or busy tag, so each is a choice of its own and off until asked.
+    friendlyStatusTagAFK = false,
+    friendlyStatusTagDND = false,
     -- Show Enemy Pet Nameplates has no default either: nil means the user never
     -- chose, and nil reads as off. Its click writes nameplateShowEnemyPets alone
     -- (ns.ApplyPetCVars); the enemy minion CVars stay the client's own.

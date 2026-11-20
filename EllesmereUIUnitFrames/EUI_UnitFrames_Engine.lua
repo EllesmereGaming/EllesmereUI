@@ -476,9 +476,6 @@ end
 -- for the same reason).
 local IDENTITY_EVENTS = {
     UNIT_NAME_UPDATE = true, UNIT_LEVEL = true, UNIT_CONNECTION = true, UNIT_FACTION = true,
-    -- The 2D portrait repaints only on this one: a same-frame UNIT_MODEL_CHANGED
-    -- (a shapeshift sends both) must not eat it.
-    UNIT_PORTRAIT_UPDATE = true,
 }
 
 -- Heal prediction's trailing flush: a same-frame repeat can carry state the
@@ -540,6 +537,12 @@ local function Paint(frame, channel, event)
             return
         end
         stamps[channel] = gen
+        -- A painter that returns false leaves the channel open for the rest of
+        -- this hardware frame: a later event of the frame still reaches it (the
+        -- 2D portrait, whose art comes with UNIT_PORTRAIT_UPDATE, which can land
+        -- after UNIT_MODEL_CHANGED in one frame: a shapeshift sends both).
+        if fn(frame, frame._euiUnit, event) == false then stamps[channel] = key end
+        return
     end
     fn(frame, frame._euiUnit, event)
 end

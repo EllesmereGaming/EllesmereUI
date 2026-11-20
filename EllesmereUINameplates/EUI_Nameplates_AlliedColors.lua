@@ -14,8 +14,9 @@ if not ns then return end
 --  from the same list, in the same order. A unit takes the first enabled entry
 --  that matches, so read the catalog top to bottom. Every entry is off by
 --  default: with them all off, a name is coloured by the base fallback in
---  Allied.GetNameColor and nothing here costs more than the master toggles'
---  reads.
+--  Allied.GetNameColor and nothing here costs more than the entries' own
+--  toggle reads -- a unit API call (a matcher, the flag, the combat test) is
+--  made only for an entry that is on.
 --
 --  An entry's toggle only ever colours: off means "no entry paints this unit",
 --  never "paint something else". A player's pet is the one case with a second
@@ -33,6 +34,8 @@ local UnitPlayerOrPetInParty = UnitPlayerOrPetInParty
 local UnitPlayerOrPetInRaid = UnitPlayerOrPetInRaid
 local GetTime = GetTime
 local floor = math.floor
+-- A GUID the game withholds is never compared or used as a table key.
+local issecretvalue = issecretvalue
 
 local Allied = {}
 ns.Allied = Allied
@@ -61,7 +64,7 @@ function Allied.UpdateRecentGroupMembers()
     for i = 1, count do
         local unit = prefix .. i
         local guid = UnitGUID(unit)
-        if guid and guid ~= "" and not UnitIsUnit(unit, "player") then
+        if guid and not issecretvalue(guid) and guid ~= "" and not UnitIsUnit(unit, "player") then
             if not recentGroupPlayers[guid] then recentCount = recentCount + 1 end
             recentGroupPlayers[guid] = GetTime()
         end
@@ -70,7 +73,7 @@ end
 
 local function IsUnitFriend(unit)
     local guid = UnitGUID(unit)
-    if not guid or guid == "" then return false end
+    if not guid or issecretvalue(guid) or guid == "" then return false end
     if C_BattleNet and C_BattleNet.GetGameAccountInfoByGUID and C_BattleNet.GetGameAccountInfoByGUID(guid) then
         return true
     end
@@ -79,7 +82,7 @@ end
 
 local function IsUnitRecent(unit)
     local guid = UnitGUID(unit)
-    if not guid or not recentGroupPlayers[guid] then return false end
+    if not guid or issecretvalue(guid) or not recentGroupPlayers[guid] then return false end
     -- Still grouped: Party & Raid Members covers them, and ranks higher.
     return not (UnitPlayerOrPetInParty(unit) or UnitPlayerOrPetInRaid(unit))
 end
@@ -232,6 +235,8 @@ local titleCount = 0
 local function CachedNPCTitle(unit)
     local guid = UnitGUID(unit)
     if not guid then return Allied.GetNPCTitle(unit) end
+    -- A withheld identity has no subtitle we could read either.
+    if issecretvalue(guid) then return nil end
     local title = titleByGUID[guid]
     if title == nil then
         if titleCount >= 512 then wipe(titleByGUID); titleCount = 0 end
@@ -261,8 +266,7 @@ end
 --  One catalogue, one decision per unit: the enabled entry that paints it, or
 --  nil. nil is not "no colour" -- it is "no entry paints this unit", so the name
 --  keeps the base colour of its side (Allied.GetNameColor, below). An entry's
---  toggle therefore only ever colours; the master toggle above it decides whether
---  there is anything in its section to colour at all.
+--  toggle therefore only ever colours.
 -------------------------------------------------------------------------------
 -- The enabled colour of one catalog key, or nil. A disabled entry paints nothing.
 local function ColorOf(fp, key)
@@ -274,10 +278,10 @@ end
 -- A player's override: the first enabled relationship that matches. A player
 -- you can attack never reaches here: that plate is the enemy system's.
 local function PlayerColor(unit, fp)
-    if fp.nameOnlyStylePlayerRelationships ~= true then return nil end
     for i = 1, #PLAYER_ENTRIES do
         local item = PLAYER_ENTRIES[i]
         -- Entries without a matcher (the pets') answer their own branch below.
+        -- The matcher (a unit API call) runs only for an entry that is on.
         if item.match and On(fp, item) and item.match(unit) then return EntryColor(fp, item) end
     end
     return nil
@@ -299,30 +303,24 @@ local function NPCColor(unit, fp)
     local reaction = UnitReaction(unit, "player")
     if not reaction then return nil end
     if reaction <= 3 then
+        local item = CATALOG_BY_KEY.HOSTILE_NPC_STANDARD
+        if not On(fp, item) then return nil end
         -- A tapped unit keeps the base's desaturated grey: every tapped unit is
         -- attackable, so its plate is the enemy nameplates' and never reaches
         -- this palette.
         if UnitIsTapDenied and UnitIsTapDenied(unit) then return nil end
-        if fp.nameOnlyStyleHostileNPCs ~= true then return nil end
-        return ColorOf(fp, "HOSTILE_NPC_STANDARD")
+        return EntryColor(fp, item)
     end
-    if fp.nameOnlyStyleFriendlyNPCs ~= true then return nil end
     if reaction >= 5 then
-        if UnitAffectingCombat and UnitAffectingCombat(unit) then
+        -- The combat test only while the escort entry is on.
+        if On(fp, CATALOG_BY_KEY.FRIENDLY_NPC_ESCORT)
+           and UnitAffectingCombat and UnitAffectingCombat(unit) then
             local r, g, b = ColorOf(fp, "FRIENDLY_NPC_ESCORT")
             if r then return r, g, b end
         end
         return ColorOf(fp, "FRIENDLY_NPC_STANDARD")
     end
     return ColorOf(fp, "NEUTRAL_NPC_PASSIVE")
-end
-
--- The catalog key of a pet's own row, or nil while its section's master toggle
--- is off: a colour under an off master could never paint. Only a player's pet
--- reaches here (Allied.IsPet), so its row is the player relationships' one.
-local function PetKey(fp)
-    if fp.nameOnlyStylePlayerRelationships ~= true then return nil end
-    return "PET_MINION_FRIENDLY"
 end
 
 -- The colour a player shows for its flag state, i.e. exactly what the owner's own
@@ -333,7 +331,8 @@ end
 -- pet too, and a pet must never wear a guild's colour its owner was never given.
 local PLAYER_DEFAULT_R, PLAYER_DEFAULT_G, PLAYER_DEFAULT_B = 0.467, 0.533, 1.00
 local function FlaggedColor(unit, fp)
-    if fp.nameOnlyStylePlayerRelationships == true then
+    -- The flag is read only while one of its two entries can paint.
+    if On(fp, CATALOG_BY_KEY.FRIENDLY_PLAYER_PVP) or On(fp, CATALOG_BY_KEY.FRIENDLY_PLAYER_UNFLAGGED) then
         local key = IsPvPFlagged(unit) and "FRIENDLY_PLAYER_PVP" or "FRIENDLY_PLAYER_UNFLAGGED"
         local r, g, b = ColorOf(fp, key)
         if r then return r, g, b end
@@ -347,11 +346,10 @@ end
 -- would have reached is an unfriendly pet outside the enemy nameplates' own, and
 -- the NPC section answers for that one.
 local function PetColor(unit, fp)
-    local key = PetKey(fp)
-    if key then
-        local r, g, b = ColorOf(fp, key)
-        if r then return r, g, b end
-    end
+    -- Only a player's pet reaches here (Allied.IsPet), so its row is the player
+    -- relationships' one.
+    local r, g, b = ColorOf(fp, "PET_MINION_FRIENDLY")
+    if r then return r, g, b end
     -- A player's pet only inherits while it is friendly: an attackable pet's plate
     -- is the enemy nameplates' and never reaches this palette, so the flag colours
     -- of the friendly side must not be able to paint one.
@@ -373,7 +371,7 @@ end
 -- probe for the name-only text path's re-stamp test. The pets' entry has no
 -- matcher -- it paints pet plates, never a player's -- so it is not asked.
 function Allied.HasPlayerOverride(fp)
-    if not fp or fp.nameOnlyStylePlayerRelationships ~= true then return false end
+    if not fp then return false end
     for i = 1, #PLAYER_ENTRIES do
         local item = PLAYER_ENTRIES[i]
         if item.match and fp[item.on] == true then return true end
@@ -387,9 +385,9 @@ end
 -- Each entry's eye previews it on one of the two samples at the top of the
 -- Friendly Plates page: the players' entries (a player's pet included) on the
 -- player sample, the NPCs' on the NPC sample. With no eye on, a sample paints the
--- plain unit in the colour the page passes it. The eye previews the entry's
--- colour whatever its toggle says, so a swatch can be picked against a plate
--- before the entry is switched on.
+-- plain unit in the colour the page passes it. An eye works only while its entry
+-- is on and can paint (ns.NPO_AlliedPreviewOff on the Friendly page), so a sample
+-- never shows a colour the live plates would not.
 local PREVIEW_ENTRY = {
     FRIENDLY_PLAYER_FRIEND    = { sample = "player" },
     FRIENDLY_PLAYER_RECENT    = { sample = "player" },

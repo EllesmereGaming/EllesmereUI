@@ -2602,6 +2602,7 @@ local FULL_EXPORT_EXCLUDED = {
     gfxBackup             = true, -- Optimize My FPS and Graphics' Restore values
     friendlyPlateVisSaved = true, -- friendly plates hidden in a follower dungeon
     chatTellMuted         = true, -- whisper sound Chat muted
+    chatClassColorWas     = true, -- the game's chatClassColorOverride before Chat's Name of Chatter hold
     -- Opened inline cogs: their notification dots stay for the importer
     cogSeen               = true,
 }

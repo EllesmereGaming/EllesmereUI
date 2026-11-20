@@ -181,30 +181,11 @@ local function ActiveSpecGroup()
     if ok and type(group) == "number" then return group end
 end
 
--- The tree with the most points in a group's build ("Holy"), or nil. The trees
--- come from the shared WoW Forever reader, names only.
-local function ReadTopTree(group)
-    local configID = C_SpecializationInfo.GetCombatConfigIDForSpecGroup(group)
-    if not configID then return nil end
-    local _, _, trees = EllesmereUI.ForeverTalentTrees(configID, true)
-    if not trees then return nil end
-    local ids = {}
-    for i = 1, #trees do ids[i] = trees[i].groupID end
-    local spentBy = {}
-    for _, g in ipairs(C_Traits.GetGroupCurrencyInfo(configID, ids) or NO_ENTRIES) do
-        local c = g.currencyInfos and g.currencyInfos[1]
-        spentBy[g.traitNodeGroupID] = c and c.spent or 0
-    end
-    local best, bestSpent = nil, 0
-    for i = 1, #trees do
-        local spent = spentBy[trees[i].groupID] or 0
-        if spent > bestSpent then best, bestSpent = trees[i].name, spent end
-    end
-    return best
-end
+-- The tree with the most points in a group's build ("Holy"), or nil, from the
+-- shared WoW Forever reader.
 local function SpecGroupTopTree(group)
-    local ok, name = pcall(ReadTopTree, group)
-    return ok and name or nil
+    local build = EllesmereUI.ForeverSpecGroupTalents(group)
+    return build and build.lead and build.trees[build.lead].name or nil
 end
 
 local function SpecGroupName(group)
