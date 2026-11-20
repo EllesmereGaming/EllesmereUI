@@ -2631,6 +2631,7 @@ EllesmereUI.NewInternals(ns, "_internals", {
     GetSelectedFont = GetSelectedFont, SetFSFont = SetFSFont,
     AbbreviateNumbers = AbbreviateNumbers, GetCastbarColor = GetCastbarColor,
     ClassPowerEntry = ClassPowerEntry, DruidNeedsCatForm = DruidNeedsCatForm, InCatForm = InCatForm,
+    AnchorHealthBg = AnchorHealthBg,
     ApplyBarGradient = ApplyBarGradient, ApplyHealthBarTexture = ApplyHealthBarTexture,
     ApplyHealthBarAlpha = ApplyHealthBarAlpha, ApplyPowerBarAlpha = ApplyPowerBarAlpha,
     SpecHasClassPower = SpecHasClassPower, UF_SecretSafeHealthColor = UF_SecretSafeHealthColor,
