@@ -310,11 +310,19 @@ ns.BlockFactories = {}
 -- (BLOCK_TYPES), the add path refuses them (no default, so the Bottom Info Bar
 -- template skips its spec block) and their Blocks\*.lua files return before
 -- registering a factory, so a bar saved with one shows an empty slot there
--- instead of erroring.
+-- instead of erroring. Dual Spec (its two talent groups) takes the Spec block's
+-- place, after XP / Reputation.
 if EllesmereUI.IS_FOREVER then
     local FOREVER_OFF = { greatvault = true, crests = true, spec = true, mplussummary = true }
     table.insert(ns.BLOCK_TYPES, #ns.BLOCK_TYPES, { key = "supplies", label = "Class Resources" })
     ns.BLOCK_DEFAULTS.supplies = { showIcon = true }
+    for i, t in ipairs(ns.BLOCK_TYPES) do
+        if t.key == "xprep" then
+            table.insert(ns.BLOCK_TYPES, i + 1, { key = "dualspec", label = "Dual Spec" })
+            break
+        end
+    end
+    ns.BLOCK_DEFAULTS.dualspec = { showIcon = true }
     for i = #ns.BLOCK_TYPES, 1, -1 do
         if FOREVER_OFF[ns.BLOCK_TYPES[i].key] then table.remove(ns.BLOCK_TYPES, i) end
     end

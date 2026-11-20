@@ -12,17 +12,6 @@ local L = ns.L
 local K = ns.BlockKit
 local max, min, floor = math.max, math.min, math.floor
 
--- Registered here so the block exists on WoW Forever only. It sits after XP /
--- Reputation, where the retail Spec block is.
-do
-    local pos = #ns.BLOCK_TYPES + 1
-    for i, t in ipairs(ns.BLOCK_TYPES) do
-        if t.key == "xprep" then pos = i + 1 break end
-    end
-    table.insert(ns.BLOCK_TYPES, pos, { key = "dualspec", label = "Dual Spec" })
-    ns.BLOCK_DEFAULTS.dualspec = { showIcon = true }
-end
-
 -- The suite's spec art by talent tree position, for the nine classes WoW
 -- Forever has. Rogue's Combat tree uses the outlaw art.
 local SPEC_MEDIA = ns.MEDIA .. "spec\\"
