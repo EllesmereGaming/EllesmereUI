@@ -384,6 +384,117 @@ local function BuildSelfCombatTextSection(parent, y)
     return y
 end
 
+-------------------------------------------------------------------------------
+--  TARGET COMBAT TEXT section of the QoL page (runtime:
+--  EllesmereUIQoL_TargetCombatText.lua, settings through its TCT_Get/TCT_Set)
+-------------------------------------------------------------------------------
+local function BuildTargetCombatTextSection(parent, y)
+    local W = EllesmereUI.Widgets
+    local qns = EllesmereUI._ModuleNS["EllesmereUIQoL"]
+    local TCTGet, TCTSet = qns.TCT_Get, qns.TCT_Set
+    local _, h, hdr
+
+    hdr, h = W:SectionHeader(parent, "TARGET COMBAT TEXT", y);  y = y - h
+
+    local function tctOff() return not TCTGet("enabled") end
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_TargetCombatText", disabled = tctOff, disabledTooltip = "Target Combat Text" })
+    local function tctToggle(text, key, tooltip)
+        return { type="toggle", text=text, tooltip=tooltip,
+          disabled=tctOff, disabledTooltip="Target Combat Text",
+          getValue=function() return TCTGet(key) end,
+          setValue=function(v) TCTSet(key, v); EllesmereUI:RefreshPage() end }
+    end
+    local function tctDropdown(text, key, values, order)
+        return { type="dropdown", text=text, values=values, order=order,
+          disabled=tctOff, disabledTooltip="Target Combat Text",
+          getValue=function() return TCTGet(key) end,
+          setValue=function(v) TCTSet(key, v) end }
+    end
+    -- A category toggle's colour, locked while the feature or that category is off
+    local function tctSwatch(rgn, key, colorKey, label)
+        if EllesmereUI._prebuilding then return end
+        EllesmereUI.BuildInlineSwatches(rgn, { {
+            disabled = function() return tctOff() or not TCTGet(key) end,
+            disabledTooltip = function() return tctOff() and "Target Combat Text" or label end,
+            getValue = function() local c = TCTGet(colorKey); return c.r, c.g, c.b end,
+            setValue = function(r, g, b) TCTSet(colorKey, { r = r, g = g, b = b }) end,
+        } })
+    end
+
+    local tctRow
+    tctRow, h = W:DualRow(parent, y,
+        { type="toggle", text="Target Combat Text",
+          tooltip="Shows the damage, healing and avoids your target takes as scrolling text above the target frame. The game reports every hit on the target, so in a group your party's damage shows too. Move it in Unlock Mode.",
+          getValue=function() return not tctOff() end,
+          setValue=EllesmereUI.SectionToggleSetValue(function(v) TCTSet("enabled", v) end) },
+        { type="slider", text="Combat Text Size", min=10, max=48, step=1,
+          disabled=tctOff, disabledTooltip="Target Combat Text",
+          getValue=function() return TCTGet("size") end,
+          setValue=function(v) TCTSet("size", v) end });  y = y - h
+    do
+        EllesmereUI.BuildInlineCog(tctRow._leftRegion, { disabled = tctOff, disabledTooltip = "Target Combat Text",
+            title = "Target Combat Text",
+            rows = {
+                { type="slider", label="Scroll Distance", min=20, max=300, step=5,
+                  get=function() return TCTGet("rise") end,
+                  set=function(v) TCTSet("rise", v) end },
+                { type="slider", label="Scroll Duration", min=0.5, max=4, step=0.1,
+                  get=function() return TCTGet("duration") end,
+                  set=function(v) TCTSet("duration", v) end },
+                { type="slider", label="Crit Scale", min=1, max=3, step=0.1,
+                  get=function() return TCTGet("critScale") end,
+                  set=function(v) TCTSet("critScale", v) end },
+                { type="toggle", label="Stagger Hits",
+                  tooltip="Spaces out hits that land together so none hides another.",
+                  get=function() return TCTGet("stagger") end,
+                  set=function(v) TCTSet("stagger", v) end },
+            },
+        })
+    end
+
+    -- Section gate: the rows below exist only while Target Combat Text is on
+    -- (the toggle's SectionToggleSetValue rebuilds the page).
+    if tctOff() then return y end
+
+    _, h = W:DualRow(parent, y,
+        tctDropdown("Animation", "anim",
+            { straight = "Straight", fountain = "Fountain", static = "Static" },
+            { "straight", "fountain", "static" }),
+        tctDropdown("Scroll Direction", "direction",
+            { up = "Up", down = "Down" }, { "up", "down" }));  y = y - h
+
+    local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
+    fontValues["__combat"] = { text = "Combat Text Font" }
+    table.insert(fontOrder, 1, "__combat")
+    _, h = W:DualRow(parent, y,
+        tctDropdown("Font", "font", fontValues, fontOrder),
+        tctDropdown("Outline", "outline",
+            { NONE = "None", OUTLINE = "Outline", THICKOUTLINE = "Thick Outline" },
+            { "NONE", "OUTLINE", "THICKOUTLINE" }));  y = y - h
+
+    _, h = W:DualRow(parent, y,
+        tctToggle("Text Shadow", "shadow"),
+        tctToggle("Abbreviate Numbers", "abbreviate"));  y = y - h
+
+    local tctRow2
+    tctRow2, h = W:DualRow(parent, y,
+        tctToggle("Show Damage Dealt", "damage",
+            "Hits on your target, crits larger. Includes your pet's damage."),
+        tctToggle("Show Healing on Target", "heal"));  y = y - h
+    tctSwatch(tctRow2._leftRegion, "damage", "damageColor", "Show Damage Dealt")
+    tctSwatch(tctRow2._rightRegion, "heal", "healColor", "Show Healing on Target")
+
+    local tctRow3
+    tctRow3, h = W:DualRow(parent, y,
+        tctToggle("Show Avoidance", "avoid",
+            "Misses, dodges, parries, blocks, absorbs, resists and immunes on your target."),
+        tctToggle("Hide in Groups", "hideInGroup",
+            "Hides the text while you are in a party or raid, where it would also show your group's hits."));  y = y - h
+    tctSwatch(tctRow3._leftRegion, "avoid", "avoidColor", "Show Avoidance")
+
+    return y
+end
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
@@ -2383,6 +2494,9 @@ initFrame:SetScript("OnEvent", function(self)
         y = BuildSelfCombatTextSection(parent, y)
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
+        y = BuildTargetCombatTextSection(parent, y)
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+
         ---------------------------------------------------------------------------
         --  GROUP FINDER (INSTANCES on WoW Forever)
         ---------------------------------------------------------------------------
@@ -2848,6 +2962,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._ShutdownShifter then EllesmereUI._ShutdownShifter() end
             if _G._EUI_AutoLogging_Check then _G._EUI_AutoLogging_Check() end
             EllesmereUI._ModuleNS["EllesmereUIQoL"].SCT_Reset()
+            EllesmereUI._ModuleNS["EllesmereUIQoL"].TCT_Reset()
             EllesmereUI:InvalidatePageCache()
         end,
         -- Tears down Duration Warning, Raid Tools, and Movement Alert
