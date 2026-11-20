@@ -412,7 +412,7 @@ local defaults = {
             mode       = "none",   -- "none" | "party" | "raid" | "both"
             textSize   = 12,
             spacing    = 2,        -- vertical space between rows
-            showNames  = true,     -- raid only; party shows the number alone
+            showNames  = true,     -- true/nil = raid only | false = never | "always"
             classNames = true,     -- class colored names
             align      = "LEFT",   -- "LEFT" | "CENTER" | "RIGHT"
             growth     = "DOWN",   -- "DOWN" | "UP" (row stacking direction)

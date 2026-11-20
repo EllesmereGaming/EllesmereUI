@@ -111,7 +111,8 @@ do
         local alignC   = hm.align == "CENTER"
         local growUp   = hm.growth == "UP"
         local inRaid   = IsInRaid()
-        local showNames = (hm.showNames ~= false) and (inRaid or preview)
+        local showNames = hm.showNames == "always"
+            or ((hm.showNames ~= false) and (inRaid or preview))
         local classNames = hm.classNames ~= false
         local powerMode  = hm.colorMode == "power"
         local cc = hm.color

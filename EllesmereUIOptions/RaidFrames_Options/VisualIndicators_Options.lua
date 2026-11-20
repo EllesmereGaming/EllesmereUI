@@ -2061,17 +2061,26 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                   values={ DOWN="Down", UP="Up" }, order={ "DOWN", "UP" },
                   get=function() return HMS().growth == "UP" and "UP" or "DOWN" end,
                   set=function(k) HMS().growth = k; HMRefresh() end },
-                { type="toggle", label="Show Names in Raid",
-                  tooltip="Shows each healer's name before the number while in a raid. In a party the display always shows numbers only.",
-                  get=function() return HMS().showNames ~= false end,
-                  -- if/else, NOT `v and nil or false`: that expression is
-                  -- ALWAYS false (the nil arm falls through the or).
-                  set=function(v)
-                      if v then HMS().showNames = nil
-                      else HMS().showNames = false end
+                { type="dropdown", label="Show Names",
+                  tooltip="When each healer's name is shown before the number.",
+                  values={ never="Never", raid="In Raid", always="In Party & Raid" },
+                  order={ "never", "raid", "always" },
+                  get=function()
+                      local v = HMS().showNames
+                      if v == false then return "never" end
+                      if v == "always" then return "always" end
+                      return "raid"
+                  end,
+                  set=function(k)
+                      local hm = HMS()
+                      if k == "never" then hm.showNames = false
+                      elseif k == "always" then hm.showNames = "always"
+                      else hm.showNames = nil end
                       HMRefresh()
                   end },
                 { type="toggle", label="Class Colored Names",
+                  disabled=function() return HMS().showNames == false end,
+                  disabledTooltip="Show Names",
                   get=function() return HMS().classNames ~= false end,
                   set=function(v)
                       if v then HMS().classNames = nil
