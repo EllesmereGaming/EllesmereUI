@@ -1024,7 +1024,7 @@ do
         if savedEdge.tgtx ~= nil or savedEdge.tgty ~= nil then return end
         local growDir = GetBarGrowDirActual(childKey)
         if not growDir or growDir == "CENTER" then return end
-        local targetBar = UM.GetBarFrame(info.target)
+        local targetBar = UM.GetAnchorTargetFrame(info.target)
         if not targetBar or not targetBar:GetLeft() then return end
         -- A clamp-held target is not at its saved spot: pairing it would make the
         -- child jump once the target is released. Retries next settle.
@@ -1565,6 +1565,9 @@ local _moveCheckScheduled = {}  -- [key] = true (dedupes same-frame checks)
 -- Class Resource rebuild) hit neither emitter and anchored children never learn the target moved.
 local function NotifyElementMoved(key)
     if UM.isUnlocked then return end  -- unlock mode owns positioning
+    -- A bar riding the cursor never cascades: its children sit on its stand-in.
+    local el = registeredElements[key]
+    if el and el.anchorStandIn and el.anchorStandIn() then return end
     if _moveCheckScheduled[key] then return end
     _moveCheckScheduled[key] = true
     C_Timer.After(0, function()
@@ -1908,7 +1911,7 @@ do
             EllesmereUI._AnchorPark.Park(childKey)
             return true
         end
-        local tgt = UM.GetBarFrame(fb.target)
+        local tgt = UM.GetAnchorTargetFrame(fb.target)
         if not tgt or not tgt:GetLeft() then
             -- Fallback target unavailable as well: hold position.
             return true
