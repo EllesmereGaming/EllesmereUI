@@ -429,6 +429,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.customTooltips = v
                   if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end
+                  if EllesmereUI._applyTooltipDisappearance then EllesmereUI._applyTooltipDisappearance() end
                   EllesmereUI:RefreshPage()  -- gray/ungray the rest of the section now
                   EllesmereUI:ShowConfirmPopup({
                       title       = "Reload Required",
@@ -978,6 +979,77 @@ initFrame:SetScript("OnEvent", function(self)
             AttachBorderControls(tooltipBorder,"tooltip",ttReskinOff,true,{ apply = TooltipBorderApply })
             BorderOffsetRow("tooltip",ttReskinOff,TooltipBorderApply)
         end
+
+        local function hideDelayEnabled()
+            return EllesmereUIDB and EllesmereUIDB.tooltipHideDelayEnabled == true
+        end
+        local function fadeEnabled()
+            return EllesmereUIDB and EllesmereUIDB.tooltipFadeEnabled == true
+        end
+        local tooltipDisappearanceRow
+        tooltipDisappearanceRow,h=W:DualRow(parent,y,
+            { type="toggle", text="Hide Delay",
+              tooltip="Waits before a Blizzard world tooltip disappears after you leave its target.",
+              disabled=ttReskinOff,
+              getValue=hideDelayEnabled,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.tooltipHideDelayEnabled = v and true or nil
+                  if EllesmereUI._applyTooltipDisappearance then EllesmereUI._applyTooltipDisappearance() end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="toggle", text="Fade",
+              tooltip="Fades the tooltip when you leave its target, after Hide Delay if enabled.",
+              disabled=ttReskinOff, disabledTooltip="Reskin Tooltip",
+              getValue=fadeEnabled,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.tooltipFadeEnabled = v and true or nil
+                  if EllesmereUI._applyTooltipDisappearance then EllesmereUI._applyTooltipDisappearance() end
+                  EllesmereUI:RefreshPage()
+              end }
+        ); y=y-h
+        EllesmereUI.BuildInlineCog(tooltipDisappearanceRow._leftRegion, {
+            gap = 9,
+            disabled = function() return ttReskinOff() or not hideDelayEnabled() end,
+            disabledTooltip = function()
+                return ttReskinOff() and "Reskin Tooltip" or "Hide Delay"
+            end,
+            title = "Hide Delay",
+            rows = {
+                { type="slider", label="Delay", min=0, max=10, step=0.1,
+                  get=function()
+                      return EllesmereUIDB and EllesmereUIDB.tooltipHideDelay or 1
+                  end,
+                  set=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      v = math.floor(v * 10 + 0.5) / 10
+                      EllesmereUIDB.tooltipHideDelay = (v ~= 1) and v or nil
+                  end },
+            },
+        })
+        EllesmereUI.BuildInlineCog(tooltipDisappearanceRow._rightRegion, {
+            gap = 9,
+            disabled = function()
+                return ttReskinOff() or not fadeEnabled()
+            end,
+            disabledTooltip = function()
+                if ttReskinOff() then return "Reskin Tooltip" end
+                return "Fade"
+            end,
+            title = "Fade",
+            rows = {
+                { type="slider", label="Duration", min=0, max=2, step=0.1,
+                  get=function()
+                      return EllesmereUIDB and EllesmereUIDB.tooltipFadeDuration or 0.3
+                  end,
+                  set=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      v = math.floor(v * 10 + 0.5) / 10
+                      EllesmereUIDB.tooltipFadeDuration = (v ~= 0.3) and v or nil
+                  end },
+            },
+        })
 
         -----------------------------------------------------------------------
         --  Blizzard Bars, Popups & Buttons: on-screen elements that are not
@@ -4938,6 +5010,11 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.tooltipHideHealthStrip = nil
                 EllesmereUIDB.tooltipHealthStripTexture = nil
                 EllesmereUIDB.tooltipHealthStripHeight = nil
+                EllesmereUIDB.tooltipHideDelayEnabled = nil
+                EllesmereUIDB.tooltipHideDelay = nil
+                EllesmereUIDB.tooltipFadeEnabled = nil
+                EllesmereUIDB.tooltipFadeDuration = nil
+                if EllesmereUI._applyTooltipDisappearance then EllesmereUI._applyTooltipDisappearance() end
                 EllesmereUIDB.showItemMaxStacks = nil
                 EllesmereUIDB.itemStackModifier = nil
                 EllesmereUIDB.tooltipShowGuildRank = nil
