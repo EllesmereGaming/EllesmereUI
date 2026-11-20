@@ -3570,6 +3570,10 @@ local function ScheduleBankRefresh()
         end
     end)
 end
+-- A watched tooltip finished loading and changed an item's red tint: repaint.
+EUI_Bank._tintRetry = function()
+    if EUI_Bank:IsVisible() then ScheduleBankRefresh() end
+end
 
 -- Bags closed by hand: a later open is the player's, so it outlives the bank.
 -- Alt-Z also fires OnHide but leaves IsShown true.
