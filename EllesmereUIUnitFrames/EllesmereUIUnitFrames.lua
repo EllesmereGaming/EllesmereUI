@@ -548,6 +548,7 @@ local defaults = {
             healthHeight = 46,
             powerHeight = 6,
             powerPosition = "below",
+            hideEmptyPower = false,  -- Hide Empty Power Bar (WoW Forever, opt-in)
             powerWidth = 0,
             powerX = 0,
             powerY = -4,
@@ -988,6 +989,7 @@ local defaults = {
             healthHeight = 34,
             powerHeight = 6,
             powerPosition = "below",
+            hideEmptyPower = false,  -- Hide Empty Power Bar (WoW Forever, opt-in)
             powerWidth = 0,
             powerX = 0,
             powerY = -4,
@@ -2423,6 +2425,9 @@ local function ApplyDarkTheme(health, unit)
         -- the element has not resolved one yet.
         if health.PostUpdateColor then health:PostUpdateColor(unit, nil) end
     end
+    -- Hide Empty Power Bar's second health bar takes the same paint (WoW
+    -- Forever; EUI_UnitFrames_ForeverEmptyPower.lua). Off: one field read.
+    if health._epMirror then ns.UF_EmptyPowerPaint(health, unit) end
 end
 ns.ApplyDarkTheme = ApplyDarkTheme
 
