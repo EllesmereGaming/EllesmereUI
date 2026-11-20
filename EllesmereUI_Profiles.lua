@@ -1399,6 +1399,7 @@ local REFRESH_ADDON_STEPS = {
         if _G._ECL_ApplyCastCircle then _G._ECL_ApplyCastCircle() end
         if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
         if EllesmereUI._applySelfCombatText then EllesmereUI._applySelfCombatText() end
+        if EllesmereUI._applyTargetCombatText then EllesmereUI._applyTargetCombatText() end
         if EllesmereUI._applyUpgradeTooltips then EllesmereUI._applyUpgradeTooltips() end
         if EllesmereUI._applyFPSDisplay then
             EllesmereUI._applyFPSDisplay()

@@ -77,6 +77,8 @@ qolFrame:SetScript("OnEvent", function(self)
     if EllesmereUIDB.mapSidebarsClear and EllesmereUI._applyMapSidebars then EllesmereUI._applyMapSidebars() end
     -- Self Combat Text (EllesmereUIQoL_SelfCombatText.lua): nothing is built while off.
     ns.SCT_Refresh()
+    -- Target Combat Text (EllesmereUIQoL_TargetCombatText.lua): nothing is built while off.
+    ns.TCT_Refresh()
     if EllesmereUI._applyUpgradeTooltips then EllesmereUI._applyUpgradeTooltips() end
     -- Dialog Keys (EllesmereUIQoL_DialogKeys.lua): nothing is built while off.
     if EllesmereUIDB.dialogKeys and EllesmereUI._applyDialogKeys then EllesmereUI._applyDialogKeys() end
