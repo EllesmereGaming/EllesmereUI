@@ -104,11 +104,12 @@ end
 ns.BlockFactories.dualspec = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = K.InstKey(barCtx, blockCfg)
-    -- Talent edits land as trait updates; SPELLS_CHANGED is the settled
-    -- catch-all. K.RegisterInstEvents skips an event the client does not know.
+    -- Talent edits land as trait updates, a group switch as a talent update;
+    -- TRAIT_CONFIG_LIST_UPDATED marks the builds readable after login.
+    -- K.RegisterInstEvents skips an event the client does not know.
     inst.events = { "PLAYER_ENTERING_WORLD", "ACTIVE_TALENT_GROUP_CHANGED",
         "TRAIT_CONFIG_UPDATED", "TRAIT_TREE_CURRENCY_INFO_UPDATED",
-        "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "SPELLS_CHANGED" }
+        "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_LIST_UPDATED" }
 
     local _, classFile = UnitClass("player")
     local icons = classFile and TREE_ICONS[classFile]
@@ -322,9 +323,19 @@ ns.BlockFactories.dualspec = function(blockCfg, slot, content, barCtx)
         end)
     end
 
-    inst.eventFrame = K.MakeEventFrame(inst, function(self)
+    -- Events only mark the builds stale. A talent change fires several at
+    -- once, so one refresh on the next frame reads both groups and lays the
+    -- block out a single time.
+    local queued = false
+    local function QueuedRefresh()
+        queued = false
+        if not inst._dead then inst:Refresh() end
+    end
+    inst.eventFrame = K.MakeEventFrame(inst, function()
         dirty = true
-        self:Refresh()
+        if queued then return end
+        queued = true
+        C_Timer.After(0, QueuedRefresh)
     end)
 
     -- Showing and hiding the content are protected in combat once the secure
