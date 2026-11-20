@@ -502,6 +502,168 @@ do
 end
 
 -------------------------------------------------------------------------------
+--  Configurable world-tooltip disappearance. Blizzard's world-cursor tooltip
+--  uses FadeOut when its target leaves; other tooltip owners that explicitly
+--  call Hide retain their existing behavior.
+-------------------------------------------------------------------------------
+do
+    local hooksInstalled = false
+    local hideGeneration = 0
+    local fadeGeneration
+    local hideTimer
+    local hidePending = false
+    local fadeGroup
+    local fadeAlpha
+    local fadeNeedsStop = false
+
+    local function Enabled()
+        return EllesmereUIDB
+            and EllesmereUIDB.customTooltips ~= false
+            and (EllesmereUIDB.tooltipHideDelayEnabled == true
+                or EllesmereUIDB.tooltipFadeEnabled == true)
+    end
+
+    local function Seconds(key, fallback, maximum)
+        local value = EllesmereUIDB and EllesmereUIDB[key]
+        if type(value) ~= "number" or value ~= value then return fallback end
+        return math.max(0, math.min(maximum, math.floor(value * 10 + 0.5) / 10))
+    end
+
+    local function TooltipUsable(tooltip)
+        if tooltip:IsForbidden() or tooltip:IsProtected() then return false end
+        local ok, width = pcall(tooltip.GetWidth, tooltip)
+        if not ok then return false end
+        return not (issecretvalue and issecretvalue(width))
+    end
+
+    local function ResetPending()
+        if not hidePending and not fadeNeedsStop then return end
+        hideGeneration = hideGeneration + 1
+        if hideTimer then
+            hideTimer:Cancel()
+            hideTimer = nil
+        end
+        hidePending = false
+        -- Defer stopping a restricted animation until the next usable build.
+        if not TooltipUsable(GameTooltip) then return end
+        if fadeNeedsStop then
+            fadeGroup:Stop()
+            fadeNeedsStop = false
+        end
+        if GameTooltip:IsShown() then
+            GameTooltip:SetAlpha(1)
+        end
+    end
+
+    local function FinishHide(generation)
+        if generation ~= hideGeneration or not hidePending then return end
+        hideTimer = nil
+        -- The tooltip's owner/layout may have become restricted since leave.
+        if not TooltipUsable(GameTooltip) then
+            hidePending = false
+            return
+        end
+        if not Enabled() then
+            hidePending = false
+            if GameTooltip:IsShown() then GameTooltip:Hide() end
+            return
+        end
+        if not GameTooltip:IsShown() then
+            hidePending = false
+            return
+        end
+        if EllesmereUI._tooltipSuppressedByMode
+            and EllesmereUI._tooltipSuppressedByMode(GameTooltip) then
+            hidePending = false
+            return
+        end
+
+        local duration = (EllesmereUIDB.tooltipFadeEnabled == true)
+            and Seconds("tooltipFadeDuration", 0.3, 2) or 0
+        if duration <= 0 then
+            GameTooltip:Hide()
+            return
+        end
+
+        if not fadeGroup then
+            fadeGroup = GameTooltip:CreateAnimationGroup()
+            fadeAlpha = fadeGroup:CreateAnimation("Alpha")
+            fadeAlpha:SetFromAlpha(1)
+            fadeAlpha:SetToAlpha(0)
+            fadeGroup:SetScript("OnFinished", function()
+                if fadeGeneration ~= hideGeneration or not hidePending then return end
+                hidePending = false
+                fadeNeedsStop = false
+                if not TooltipUsable(GameTooltip) then return end
+                if GameTooltip:IsShown() then GameTooltip:Hide() end
+            end)
+        end
+        fadeGeneration = generation
+        fadeAlpha:SetDuration(duration)
+        GameTooltip:SetAlpha(1)
+        fadeNeedsStop = true
+        fadeGroup:Play()
+    end
+
+    local function EnsureHooks()
+        if hooksInstalled then return end
+        hooksInstalled = true
+        GameTooltip:HookScript("OnShow", ResetPending)
+        GameTooltip:HookScript("OnHide", ResetPending)
+        hooksecurefunc(GameTooltip, "Show", ResetPending)
+        hooksecurefunc(GameTooltip, "SetOwner", ResetPending)
+        if GameTooltip.ProcessInfo then
+            hooksecurefunc(GameTooltip, "ProcessInfo", ResetPending)
+        end
+    end
+
+    local function HandleFadeOut(tooltip)
+        if tooltip ~= GameTooltip or not Enabled() then return false end
+        if not TooltipUsable(tooltip) then return false end
+        if EllesmereUI._tooltipSuppressedByMode
+            and EllesmereUI._tooltipSuppressedByMode(tooltip) then return false end
+
+        ResetPending()
+        tooltip:Show() -- cancels Blizzard's built-in fade
+        tooltip:SetAlpha(1)
+        hidePending = true
+        local generation = hideGeneration
+        local delay = EllesmereUIDB.tooltipHideDelayEnabled == true
+            and Seconds("tooltipHideDelay", 1, 10) or 0
+        if delay <= 0 then
+            FinishHide(generation)
+        else
+            hideTimer = C_Timer.NewTimer(delay, function()
+                FinishHide(generation)
+            end)
+        end
+        return true
+    end
+
+    EllesmereUI._applyTooltipDisappearance = function()
+        if Enabled() then
+            EllesmereUI._handleTooltipFadeOut = HandleFadeOut
+            EnsureHooks()
+            if EllesmereUI._ensureTooltipFadeHook then
+                EllesmereUI._ensureTooltipFadeHook()
+            end
+        else
+            EllesmereUI._handleTooltipFadeOut = nil
+            if hidePending then
+                ResetPending()
+                if TooltipUsable(GameTooltip) and GameTooltip:IsShown() then
+                    GameTooltip:Hide()
+                end
+            end
+        end
+    end
+
+    -- Saved settings are available when this file loads; install hooks only
+    -- for users who have opted in.
+    EllesmereUI._applyTooltipDisappearance()
+end
+
+-------------------------------------------------------------------------------
 --  Hide Unit Health Strip. GameTooltipStatusBar is Blizzard's health bar at
 --  the bottom of unit tooltips; suppressed with a single SetAlpha(0) -- fully
 --  taint-safe (only the top-level bar touched, never Shown/Hidden or given

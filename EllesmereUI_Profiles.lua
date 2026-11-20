@@ -2193,6 +2193,8 @@ do
         "tooltipGuildmateColor", "tooltipCompactLevel", "tooltipAFKTag",
         "uberTooltips", "uberTooltipsManual", "tooltipHideHealthStrip",
         "tooltipHealthStripTexture", "tooltipHealthStripHeight",
+        "tooltipHideDelayEnabled", "tooltipHideDelay",
+        "tooltipFadeEnabled", "tooltipFadeDuration",
         "tooltipAnchorCursor", "tooltipCursorPosition",
         "tooltipCursorOffsetX", "tooltipCursorOffsetY",
         "tooltipShowBuffs", "tooltipBuffPosition", "tooltipBuffSize",
