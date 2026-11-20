@@ -1341,10 +1341,33 @@ end
 -- there win). Once a session, as soon as the GUID and the name read: before
 -- login, the game's placeholder for a name it has not loaded is no name.
 local _rosterAdopted
+
+-- This character's name as the roster stores it (with the surname on WoW Forever); nil if unreadable.
+local function RosterName()
+    local Plain = EllesmereUI.PlainString
+    local first, surname = (UnitNameUnmodified or UnitName)("player")
+    first = Plain(first)
+    return first and EllesmereUI.WithSurname(first, Plain(surname), true)
+end
+
 local function AdoptNamedEntries(chars)
     local guid, name = EllesmereUI.CharGUID(), UnitName("player")
     if not guid or not name or issecretvalue(name) or (name == UNKNOWNOBJECT and not IsLoggedIn()) then return end
     _rosterAdopted = true
+    -- GUID changed: rekey the entry with this name and realm (latest seen wins).
+    local full, realm = RosterName(), EllesmereUI.PlainString(EllesmereUI.RealmGroupName())
+    if type(chars[guid]) ~= "table" and full and realm then
+        local oldKey, oldSeen
+        for key, c in pairs(chars) do
+            if type(c) == "table" and c.name == full and c.realm == realm
+                and (not oldKey or (c.seen or 0) > oldSeen) then
+                oldKey, oldSeen = key, c.seen or 0
+            end
+        end
+        if oldKey then
+            chars[guid], chars[oldKey] = chars[oldKey], nil
+        end
+    end
     local mine = chars[guid]
     local realms = { EllesmereUI.RealmGroupName() or "", GetRealmName() or "",
         GetNormalizedRealmName and GetNormalizedRealmName() or "" }
@@ -1409,9 +1432,7 @@ local function RecordIdentity(level)
     local c = EllesmereUI.CharEntry(true)
     if not c then return end
     local Plain = EllesmereUI.PlainString
-    local first, surname = (UnitNameUnmodified or UnitName)("player")
-    first = Plain(first)
-    if first then c.name = EllesmereUI.WithSurname(first, Plain(surname), true) end
+    c.name = RosterName() or c.name
     c.realm = Plain(EllesmereUI.RealmGroupName()) or c.realm
     if EllesmereUI.IS_FOREVER then
         c.realmKey = c.realm
