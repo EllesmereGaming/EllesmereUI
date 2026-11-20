@@ -2,9 +2,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 if not EllesmereUI.IS_FOREVER then return end
 -- Dual Spec block (WoW Forever): the active spec group by its leading talent
 -- tree, or the player's own name for it, and both groups in the tooltip. Left
--- Click opens the talents, Right Click the spellbook, Shift + Left / Right Click
--- activates the primary / secondary group. The switch is a cast that the game
--- refuses in combat, so the block says so instead of trying.
+-- Click opens the talents, Right Click the spellbook (a secure click, so in
+-- combat too), Shift + Left / Right Click activates the primary / secondary
+-- group. The switch is a cast that the game refuses in combat, so the block
+-- says so instead of trying.
 
 local ADDON_NAME, ns = ...
 local L = ns.L
@@ -115,13 +116,11 @@ ns.BlockFactories.dualspec = function(blockCfg, slot, content, barCtx)
     local active, numGroups = 1, 1
     local dirty, hovered = true, false
 
-    local button = CreateFrame("Button", nil, content)
-    button:SetAllPoints()
-    button:EnableMouse(true)
-    button:RegisterForClicks("AnyUp")
     local icon = content:CreateTexture(nil, "OVERLAY")
     local text = content:CreateFontString(nil, "OVERLAY")
     K.AttachTextOffset(inst, text)
+    -- The secure click-through over the block (EnsureButton), made out of combat.
+    local button, EnsureButton
 
     local function Sample()
         dirty = false
@@ -216,6 +215,18 @@ ns.BlockFactories.dualspec = function(blockCfg, slot, content, barCtx)
         text:SetTextColor(tr, tg, tb, 1)
         icon:SetVertexColor(ir, ig, ib, 1)
 
+        -- Sizing and anchoring are protected once the secure button exists (it
+        -- puts the block's bar under protection): in lockdown only the text and
+        -- colors update, and the layout waits for the fight's end.
+        if InCombatLockdown() then
+            ns.DeferUntilOOC("dualspec:" .. inst.key, function()
+                if not inst._dead then inst:Refresh() end
+            end)
+            if hovered then ShowTooltip() end
+            return
+        end
+        EnsureButton()
+
         icon:ClearAllPoints()
         text:ClearAllPoints()
         if vertical then
@@ -247,8 +258,6 @@ ns.BlockFactories.dualspec = function(blockCfg, slot, content, barCtx)
             text:SetPoint("LEFT", content, "LEFT", x, 0)
             content:SetSize(max(10, x + ns.SnapToPixelGrid(text:GetStringWidth()) + 4), barH)
         end
-        button:ClearAllPoints()
-        button:SetAllPoints(content)
         K.MaybeRelayout(inst)
         if hovered then ShowTooltip() end
     end
@@ -271,71 +280,65 @@ ns.BlockFactories.dualspec = function(blockCfg, slot, content, barCtx)
         end
     end
 
-    button:SetScript("OnEnter", function() hovered = true; inst:Refresh() end)
-    button:SetScript("OnLeave", function()
-        hovered = false
-        ns.Tip_Hide(button)
-        inst:Refresh()
-    end)
     -- Forever Essentials' routes first (its Classic windows while those are
-    -- on), then the game's micro buttons, like the Micro Menu block. A plain
-    -- button, so out of combat only.
-    local function ClickFirst(names)
+    -- on), then the game's micro buttons, like the Micro Menu block. Looked up
+    -- when the button is made: Forever Essentials loads after this addon.
+    local function FirstGlobal(names)
         for _, name in ipairs(names) do
-            local b = _G[name]
-            if b and b.Click then
-                b:Click("LeftButton")
-                return true
-            end
-        end
-        return false
-    end
-    local function OpenTalents()
-        if ClickFirst({ "EUI_TalentsRoute", "TalentMicroButton" }) then return end
-        if PlayerSpellsUtil and PlayerSpellsUtil.ToggleClassTalentFrame then
-            PlayerSpellsUtil.ToggleClassTalentFrame()
-        elseif ToggleTalentFrame then
-            ToggleTalentFrame()
-        end
-    end
-    local function OpenSpellbook()
-        if ClickFirst({ "EUI_SpellbookRoute", "SpellbookMicroButton" }) then return end
-        if PlayerSpellsUtil and PlayerSpellsUtil.ToggleSpellBookFrame then
-            PlayerSpellsUtil.ToggleSpellBookFrame()
-        elseif _G.SpellBookFrame then
-            ToggleFrame(_G.SpellBookFrame)
+            if _G[name] then return _G[name] end
         end
     end
 
-    button:SetScript("OnClick", function(_, mouseButton)
-        if mouseButton ~= "LeftButton" and mouseButton ~= "RightButton" then return end
-        if IsShiftKeyDown() then
-            ActivateGroup(mouseButton == "LeftButton" and 1 or 2)
-            return
-        end
-        if InCombatLockdown() then
-            EllesmereUI.PrintError(EllesmereUI.L("Cannot open this during combat."))
-            return
-        end
-        ns.Tip_Hide(button)
-        if mouseButton == "LeftButton" then OpenTalents() else OpenSpellbook() end
-    end)
+    -- Left / Right Click pass through to the talents / spellbook route as a
+    -- secure click, so the game opens its windows from its own code, in combat
+    -- too. type1 / type2 carry no modifier, so a Shift click finds no action
+    -- and PostClick activates a spec group instead. Refresh makes it, out of
+    -- combat; anchored once, it follows the content frame's size.
+    EnsureButton = function()
+        if button then return end
+        button = CreateFrame("Button", "EWB_DUALSPEC_" .. inst.key, content, "SecureActionButtonTemplate")
+        button:SetAllPoints(content)
+        -- Without this, the ActionButtonUseKeyDown CVar makes the secure handler act on key-down only, discarding our "AnyUp" clicks.
+        button:SetAttribute("useOnKeyDown", false)
+        button:SetAttribute("type1", "click")
+        button:SetAttribute("type2", "click")
+        button:SetAttribute("*clickbutton1", FirstGlobal({ "EUI_TalentsRoute", "TalentMicroButton" }))
+        button:SetAttribute("*clickbutton2", FirstGlobal({ "EUI_SpellbookRoute", "SpellbookMicroButton" }))
+        button:EnableMouse(true)
+        button:RegisterForClicks("AnyUp")
+        button:SetScript("OnEnter", function() hovered = true; inst:Refresh() end)
+        button:SetScript("OnLeave", function(self)
+            hovered = false
+            ns.Tip_Hide(self)
+            inst:Refresh()
+        end)
+        button:SetScript("PostClick", function(self, mouseButton)
+            if mouseButton ~= "LeftButton" and mouseButton ~= "RightButton" then return end
+            if IsShiftKeyDown() then
+                ActivateGroup(mouseButton == "LeftButton" and 1 or 2)
+            else
+                ns.Tip_Hide(self)
+            end
+        end)
+    end
 
     inst.eventFrame = K.MakeEventFrame(inst, function(self)
         dirty = true
         self:Refresh()
     end)
 
+    -- Showing and hiding the content are protected in combat once the secure
+    -- button exists.
     function inst:Enable()
         dirty = true
-        content:Show()
+        if not (button and InCombatLockdown()) then content:Show() end
         K.RegisterInstEvents(self)
     end
     function inst:Disable()
         K.UnregisterInstEvents(self)
         hovered = false
-        ns.Tip_Hide(button)
-        content:Hide()
+        if button then ns.Tip_Hide(button) end
+        if not (button and InCombatLockdown()) then content:Hide() end
     end
     function inst:GetAutoLength()
         if barCtx.IsVertical() then return max(content:GetHeight(), 30) end
@@ -344,6 +347,10 @@ ns.BlockFactories.dualspec = function(blockCfg, slot, content, barCtx)
     function inst:Destroy()
         self._dead = true
         self:Disable()
+        if button then
+            K.ParkSecureFrame(button, self.key .. "_dualspec")
+            button = nil
+        end
     end
     return inst
 end
