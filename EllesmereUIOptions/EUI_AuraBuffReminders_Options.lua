@@ -2060,15 +2060,27 @@ initFrame:SetScript("OnEvent", function(self)
                     items[#items + 1] = { key = b.key, label = text, tooltip = tip }
                     byKey[b.key] = b
                 end
+                if class == "HUNTER" then
+                    items[#items + 1] = { key = "hunterTracking", label = "Target Tracking",
+                        tooltip = "In combat, shows the tracking that matches your hostile target's creature type." }
+                end
                 local isOn = _G._EABR_FvClassBuffOn
                 local rgn = classRow._leftRegion
                 local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                     rgn, 170, rgn:GetFrameLevel() + 2, items,
-                    function(key) local f = FDB(); return isOn(byKey[key], f and f.classBuffPicks) end,
+                    function(key)
+                        local f = FDB()
+                        if key == "hunterTracking" then return f and f.hunterTracking == true end
+                        return isOn(byKey[key], f and f.classBuffPicks)
+                    end,
                     function(key, v)
                         local f = FDB(); if not f then return end
-                        f.classBuffPicks = f.classBuffPicks or {}
-                        f.classBuffPicks[key] = v and true or false
+                        if key == "hunterTracking" then
+                            f.hunterTracking = v and true or false
+                        else
+                            f.classBuffPicks = f.classBuffPicks or {}
+                            f.classBuffPicks[key] = v and true or false
+                        end
                         RefreshAll()
                     end)
                 EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)

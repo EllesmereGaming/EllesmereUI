@@ -332,6 +332,67 @@ function EABR.FvTrackingState()
     return EABR._fvTreasureUp, EABR._fvClassUp
 end
 
+-- Public player tracking state chooses a visibility row; the native widget
+-- selects the target's column without Lua inspecting its restricted type.
+local function HunterTrackingState()
+    local needed = EABR._fvHunterMissingSpells
+    if not needed then
+        needed = {}; EABR._fvHunterMissingSpells = needed
+        -- Beast, Dragonkin, Demon, Elemental, Giant, Undead, Humanoid.
+        EABR._fvHunterTrackingTypes = { [1494]=1, [19879]=2, [19878]=3, [19880]=4,
+            [19882]=5, [19884]=6, [19883]=7 }
+    end
+    if EABR._fvHunterMatchMask ~= nil then return needed, EABR._fvHunterMatchMask end
+    wipe(needed)
+    local types, mask, uncertain = EABR._fvHunterTrackingTypes, 0, false
+    for spellID, creatureTypeID in pairs(types) do
+        if not Known(spellID) then mask = bit.bor(mask, 2 ^ (creatureTypeID - 1)) end
+    end
+    for i = 1, C_Minimap.GetNumTrackingTypes() do
+        local info = C_Minimap.GetTrackingInfo(i)
+        if info and info.type == "spell" then
+            if isSecret(info.spellID) then
+                if isSecret(info.active) or info.active then uncertain = true end
+            else
+                local creatureTypeID = types[info.spellID]
+                if creatureTypeID then
+                    if isSecret(info.active) then uncertain = true
+                    elseif info.active then mask = bit.bor(mask, 2 ^ (creatureTypeID - 1))
+                    elseif Known(info.spellID) then needed[creatureTypeID] = info.spellID end
+                end
+            end
+        end
+    end
+    EABR._fvHunterMatchMask = uncertain and 127 or mask
+    return needed, EABR._fvHunterMatchMask
+end
+
+function EABR.CollectHunterTracking(missing)
+    local exists = UnitExists("target")
+    if isSecret(exists) or not exists then return end
+    local attackable = UnitCanAttack("player", "target")
+    if isSecret(attackable) or not attackable then return end
+    local dead = UnitIsDeadOrGhost("target")
+    if isSecret(dead) or dead then return end
+    local _, creatureTypeID = UnitCreatureType("target")
+    local restricted = isSecret(creatureTypeID)
+    if not restricted and (type(creatureTypeID) ~= "number"
+        or creatureTypeID < 1 or creatureTypeID > 7) then return end
+    local needed, mask = HunterTrackingState()
+    local spellID
+    if not restricted then
+        spellID = needed[creatureTypeID]
+        if not spellID then return end
+    end
+    local e = AcquireEntry()
+    e.mode = "texture"; e.spellID = spellID
+    e.cat = "forever"; e.dismissKey = "forever:huntertracking"
+    e.hunterTrackingStatus = restricted
+    e.hunterTargetTypeID = creatureTypeID
+    e.hunterMatchMask = restricted and mask or 0
+    missing[#missing+1] = e
+end
+
 -- A cast-on-click reminder for a WoW Forever spell (gathering, Find Treasure,
 -- the mage armors, class buffs), labelled with the spell's name unless a
 -- label is given.
@@ -975,9 +1036,9 @@ end
 -- textures carrying the spell for the tooltip, except the Sleeping Bag, the
 -- Arcane Censer, the two trackers, the mage armors, the class buffs, the weapon buffs, the spell
 -- groups and the custom spells the character knows, whose click casts the spell
--- or uses the item; presence goes through PlayerHasAuraByID. The section shows
--- nothing in combat (its Where to Show offers no In Combat entry: always
--- unchecked), and Camp Benefits, the Sleeping Bag, Well Fed, the mage armors,
+-- or uses the item; presence goes through PlayerHasAuraByID. Hunter target
+-- tracking is a visual-only combat reminder; every other reminder here is
+-- out of combat. Camp Benefits, the Sleeping Bag, Well Fed, the mage armors,
 -- the class buffs and the trackers nothing in PvP either. The one-slot id
 -- table, the cached families, the kept minimap answer and the dismiss-key memo
 -- keep the pass allocation-free; the weapon pass reads the game's enchant
@@ -985,10 +1046,14 @@ end
 function EABR.CollectForever(missing, inInstance, inPvP)
     local fo = db.profile.forever
     local shows = fo and not InCombat() and EABR.SectionShows(fo.whereToShow, inInstance)
+    local hunterTracking = fo and fo.hunterTracking == true and GetPlayerClass() == "HUNTER"
+        and InCombat() and EABR.SectionShows(fo.whereToShow, inInstance) or false
+    EABR.FvSyncHunterTrackingEvents(hunterTracking)
+    if hunterTracking then EABR.CollectHunterTracking(missing) end
     -- Class trackers and Find Treasure are read from the minimap, whose event
     -- is listened to only while a reminder that reads it can show.
-    EABR.FvSyncTrackingEvent(shows and not inPvP
-        and ((fo.gather == true and fo.gatherClassTrack ~= false) or fo.treasure == true) or false)
+    EABR.FvSyncTrackingEvent(hunterTracking or (shows and not inPvP
+        and ((fo.gather == true and fo.gatherClassTrack ~= false) or fo.treasure == true)) or false)
     EABR.FvSyncWeaponEvents(shows and fo.weapon == true or false)
     local wantBag = shows and fo.sleepingBag == true and not inPvP
     local sleepBag = wantBag and EABR.FvSleepingBagOwned()
@@ -1399,12 +1464,13 @@ function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
 end
 
 -- WoW Forever: what a pass that shows nothing stands down (the Raid Buffs group
--- watch and the minimap, weapon and bag events); the next pass that can show
+-- watch and the minimap, target, weapon and bag events); the next pass that can show
 -- re-arms them.
 function EABR.FvStandDown(keepSleepProgress)
     EABR.SyncForeverFoodWatch(false)
     EABR.FvSyncGroupWatch(nil, false)
     EABR.FvSyncTrackingEvent(false)
+    EABR.FvSyncHunterTrackingEvents(false)
     EABR.FvSyncWeaponEvents(false)
     EABR.FvSyncBagEvent(false)
     EABR.FvSyncSleepBagWatch(false)
@@ -1736,7 +1802,7 @@ local function Refresh()
                             ShowCombatIcon(m)
                             f = combatActiveIcons[#combatActiveIcons]
                         end
-                        if f and not m.isEating then
+                        if f and not m.isEating and not m.hunterTrackingStatus then
                             local p = db.profile.display
                             local baseScale = p.scale or 1.0
                             local sz = floor(ICON_SIZE * baseScale + 0.5)
