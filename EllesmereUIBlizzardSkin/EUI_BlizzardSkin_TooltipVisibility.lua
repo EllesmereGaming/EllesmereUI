@@ -514,6 +514,7 @@ do
     local hidePending = false
     local fadeGroup
     local fadeAlpha
+    local fadeNeedsStop = false
 
     local function Enabled()
         return EllesmereUIDB
@@ -529,31 +530,39 @@ do
     end
 
     local function TooltipUsable(tooltip)
+        if tooltip:IsForbidden() or tooltip:IsProtected() then return false end
         local ok, width = pcall(tooltip.GetWidth, tooltip)
         if not ok then return false end
         return not (issecretvalue and issecretvalue(width))
     end
 
     local function ResetPending()
-        if not hidePending and not Enabled() then return end
-        local wasPending = hidePending
+        if not hidePending and not fadeNeedsStop then return end
         hideGeneration = hideGeneration + 1
         if hideTimer then
             hideTimer:Cancel()
             hideTimer = nil
         end
         hidePending = false
-        if wasPending then
-            if fadeGroup then fadeGroup:Stop() end
-            if GameTooltip:IsShown() and TooltipUsable(GameTooltip) then
-                GameTooltip:SetAlpha(1)
-            end
+        -- Defer stopping a restricted animation until the next usable build.
+        if not TooltipUsable(GameTooltip) then return end
+        if fadeNeedsStop then
+            fadeGroup:Stop()
+            fadeNeedsStop = false
+        end
+        if GameTooltip:IsShown() then
+            GameTooltip:SetAlpha(1)
         end
     end
 
     local function FinishHide(generation)
         if generation ~= hideGeneration or not hidePending then return end
         hideTimer = nil
+        -- The tooltip's owner/layout may have become restricted since leave.
+        if not TooltipUsable(GameTooltip) then
+            hidePending = false
+            return
+        end
         if not Enabled() then
             hidePending = false
             if GameTooltip:IsShown() then GameTooltip:Hide() end
@@ -584,12 +593,15 @@ do
             fadeGroup:SetScript("OnFinished", function()
                 if fadeGeneration ~= hideGeneration or not hidePending then return end
                 hidePending = false
+                fadeNeedsStop = false
+                if not TooltipUsable(GameTooltip) then return end
                 if GameTooltip:IsShown() then GameTooltip:Hide() end
             end)
         end
         fadeGeneration = generation
         fadeAlpha:SetDuration(duration)
         GameTooltip:SetAlpha(1)
+        fadeNeedsStop = true
         fadeGroup:Play()
     end
 
@@ -605,9 +617,8 @@ do
         end
     end
 
-    EllesmereUI._handleTooltipFadeOut = function(tooltip)
+    local function HandleFadeOut(tooltip)
         if tooltip ~= GameTooltip or not Enabled() then return false end
-        if tooltip.IsForbidden and tooltip:IsForbidden() then return false end
         if not TooltipUsable(tooltip) then return false end
         if EllesmereUI._tooltipSuppressedByMode
             and EllesmereUI._tooltipSuppressedByMode(tooltip) then return false end
@@ -631,13 +642,19 @@ do
 
     EllesmereUI._applyTooltipDisappearance = function()
         if Enabled() then
+            EllesmereUI._handleTooltipFadeOut = HandleFadeOut
             EnsureHooks()
             if EllesmereUI._ensureTooltipFadeHook then
                 EllesmereUI._ensureTooltipFadeHook()
             end
-        elseif hidePending then
-            ResetPending()
-            if GameTooltip:IsShown() then GameTooltip:Hide() end
+        else
+            EllesmereUI._handleTooltipFadeOut = nil
+            if hidePending then
+                ResetPending()
+                if TooltipUsable(GameTooltip) and GameTooltip:IsShown() then
+                    GameTooltip:Hide()
+                end
+            end
         end
     end
 
