@@ -2206,7 +2206,12 @@ local function RegisterUnlock()
             local PP = EllesmereUI and EllesmereUI.PP
             p.compactWidth = math.max(COMPACT_MIN_W,
                 PP and PP.Snap(newW) or math.floor(newW + 0.5))
-            if sections.Group then ApplyLayout() end
+            -- An anchor pass can reach this in combat: the layout shows and hides
+            -- protected buttons, so it waits for the regen Apply.
+            if sections.Group then
+                if InCombatLockdown() then applyPending = true; EnsureEvents()
+                else ApplyLayout() end
+            end
         end,
         setHeight = function(_, newH)
             local p = P()
@@ -2214,7 +2219,10 @@ local function RegisterUnlock()
             local PP = EllesmereUI and EllesmereUI.PP
             p.compactHeight = math.max(COMPACT_MIN_H,
                 PP and PP.Snap(newH) or math.floor(newH + 0.5))
-            if sections.Group then ApplyLayout() end
+            if sections.Group then
+                if InCombatLockdown() then applyPending = true; EnsureEvents()
+                else ApplyLayout() end
+            end
         end,
         savePos = function(_, point, relPoint, x, y)
             if not point then return end

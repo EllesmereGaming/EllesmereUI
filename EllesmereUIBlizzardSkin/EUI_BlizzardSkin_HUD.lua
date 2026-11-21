@@ -211,14 +211,16 @@ local GetFFD = I.GetFFD
 
     -- Post-hooks on the ADD functions, not the SHOW ones: ShowProgressBar and
     -- ShowStatusBar both delegate to Add*, and only Add* runs for the second
-    -- and later bars on one tooltip.
+    -- and later bars on one tooltip. Gated by the Reskin Tooltip master.
     if type(_G.GameTooltip_AddProgressBar) == "function" then
         hooksecurefunc("GameTooltip_AddProgressBar", function(self)
+            if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return end
             if self then SweepPool(self.progressBarPool, SkinProgressBar) end
         end)
     end
     if type(_G.GameTooltip_AddStatusBar) == "function" then
         hooksecurefunc("GameTooltip_AddStatusBar", function(self)
+            if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return end
             if self then SweepPool(self.statusBarPool, SkinStatusBar) end
         end)
     end

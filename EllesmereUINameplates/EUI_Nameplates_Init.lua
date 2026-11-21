@@ -197,6 +197,7 @@ function npAddon:OnInitialize()
         ns.healthBarTextures
     )
 end
+
 function npAddon:OnEnable()
     -- Re-read profile: PreSeedSpecProfile may have re-pointed db.profile between OnInitialize and OnEnable.
     SetProfile(ENP.db.profile)

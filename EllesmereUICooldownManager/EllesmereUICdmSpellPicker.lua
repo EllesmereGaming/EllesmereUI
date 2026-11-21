@@ -2164,6 +2164,8 @@ function ns.RemoveTrackedSpell(barKey, idx)
     if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
     if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
     if ns.QueueReanchor then ns.QueueReanchor() end
+    -- Drop a removed aura-tracked custom from its bar's engine strip now.
+    if ns.UpdateCustomBuffAuraTracking then ns.UpdateCustomBuffAuraTracking() end
     return true
 end
 

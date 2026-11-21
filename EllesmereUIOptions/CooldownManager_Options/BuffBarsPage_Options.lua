@@ -4420,7 +4420,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         -- Row 1: Pandemic Glow (dropdown + swatch + cog + sync) | Stack Based
         -- Bar (buff bars only; page rebuilds on selection change, so cd/utility
         -- bars get a blank slot). Stack Based Bar is inert until Max Stacks is
-        -- enabled below.
+        -- enabled below. WoW Forever (ns.CDM_NO_PANDEMIC): Stack Based Bar alone.
         do
             -- Shared glow controls over the bar's pandemic keys (the Glows page's
             -- Tracked Buff Bar descriptor, resolving the selected bar).
@@ -4441,30 +4441,33 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 rightSlot = { type = "label", text = "" }
             end
 
-            -- WoW Forever: the same row is the Anti-Clip Glow (EUI_CDM_ForeverAntiClip.lua).
-            local antiClip = ns.CDM_ANTI_CLIP
-            local tbbPanRow
-            tbbPanRow, h = W:DualRow(parent, y, GO.DropdownSpec(tbbDesc, antiClip and "Anti-Clip Glow" or "Pandemic Glow",
-                antiClip and "Show a glow on the bar when casting the spell next, after your current cast or global cooldown, won't clip it, or it has 1.5 seconds or less left"
-                    or "Show a glow on the bar when the remaining duration is in the pandemic window (last 30%)"), rightSlot);  y = y - h
-            GO.AttachInline(tbbPanRow._leftRegion, tbbDesc)
+            if ns.CDM_NO_PANDEMIC then
+                -- WoW Forever has no pandemic window: Stack Based Bar alone, on buff bars.
+                if rightSlot.type ~= "label" then
+                    _, h = W:DualRow(parent, y, rightSlot, EllesmereUI.BlankRowCfg());  y = y - h
+                end
+            else
+                local tbbPanRow
+                tbbPanRow, h = W:DualRow(parent, y, GO.DropdownSpec(tbbDesc, "Pandemic Glow",
+                    "Show a glow on the bar when the remaining duration is in the pandemic window (last 30%)"), rightSlot);  y = y - h
+                GO.AttachInline(tbbPanRow._leftRegion, tbbDesc)
 
-            -- Apply All
-            if EllesmereUI.BuildSyncIcon and EllesmereUI.ApplyPandemicGlowToAll then
-                EllesmereUI.BuildSyncIcon({
-                    region = tbbPanRow._leftRegion,
-                    tooltip = antiClip and "Apply this glow's look to all CDM bars and other tracking bars. A surface that can't show a style uses its closest match."
-                        or "Apply this pandemic glow to Nameplates, all CDM bars, and other tracking bars. A surface that can't show a style uses its closest match.",
-                    isSynced = function()
-                        local src = SelectedTBB(); if not src then return true end
-                        return EllesmereUI.IsPandemicGlowSyncedToAll(EllesmereUI.PandemicPayloadFromRectBar(src), { skipTbbBar = src })
-                    end,
-                    onClick = function()
-                        local src = SelectedTBB(); if not src then return end
-                        EllesmereUI.ApplyPandemicGlowToAll(EllesmereUI.PandemicPayloadFromRectBar(src), { skipTbbBar = src })
-                        RefreshTBB()
-                    end,
-                })
+                -- Apply All
+                if EllesmereUI.BuildSyncIcon and EllesmereUI.ApplyPandemicGlowToAll then
+                    EllesmereUI.BuildSyncIcon({
+                        region = tbbPanRow._leftRegion,
+                        tooltip = "Apply this pandemic glow to Nameplates, all CDM bars, and other tracking bars. A surface that can't show a style uses its closest match.",
+                        isSynced = function()
+                            local src = SelectedTBB(); if not src then return true end
+                            return EllesmereUI.IsPandemicGlowSyncedToAll(EllesmereUI.PandemicPayloadFromRectBar(src), { skipTbbBar = src })
+                        end,
+                        onClick = function()
+                            local src = SelectedTBB(); if not src then return end
+                            EllesmereUI.ApplyPandemicGlowToAll(EllesmereUI.PandemicPayloadFromRectBar(src), { skipTbbBar = src })
+                            RefreshTBB()
+                        end,
+                    })
+                end
             end
         end
 

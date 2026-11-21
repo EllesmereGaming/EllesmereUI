@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 
 local ADDON_NAME = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI._Pool and EllesmereUI.RAID_PREP_IDS and EllesmereUI.CharData and EllesmereUI.CharEntry and EllesmereUI.ForeverFamilyAura and EllesmereUI.IsInDungeon and EllesmereUI.SplitTalentReminders and EllesmereUI.NewCombatQueue and EllesmereUI.ForeverTalentTrees and EllesmereUI.ForgetCharField and EllesmereUI.CharGUID) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (its per-character data is in the parent's roster: CharData, CharEntry; the WoW Forever Raid Buffs read a member's buffs through its ForeverFamilyAura; the Arcane Censer reminder shows only where IsInDungeon says; the Loadout Manager queues swaps through NewCombatQueue, names WoW Forever's spec groups through ForeverTalentTrees and keeps its loadouts in the roster: ForgetCharField, CharGUID)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI._Pool and EllesmereUI.RAID_PREP_IDS and EllesmereUI.CharData and EllesmereUI.CharEntry and EllesmereUI.ForeverFamilyAura and EllesmereUI.IsInDungeon and EllesmereUI.SplitTalentReminders and EllesmereUI.NewCombatQueue and EllesmereUI.ForeverSpecGroupTalents and EllesmereUI.ForgetCharField and EllesmereUI.CharGUID) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (its per-character data is in the parent's roster: CharData, CharEntry; the WoW Forever Raid Buffs read a member's buffs through its ForeverFamilyAura; the Arcane Censer reminder shows only where IsInDungeon says; the Loadout Manager queues swaps through NewCombatQueue, names WoW Forever's spec groups through ForeverSpecGroupTalents and keeps its loadouts in the roster: ForgetCharField, CharGUID)
 EllesmereUI._ModuleNS[ADDON_NAME] = select(2, ...)  -- LOD options files read this module ns via the registry
 
 local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
@@ -28,7 +28,9 @@ EABR.SLEEPING_BAG_ITEM = 211527
 EABR.SLEEPING_BAG_STACKS = 3
 -- The Arcane Censer (not used up) gives Magical Awareness for 2 hours, which
 -- lets certain casters and powerful enemies drop Motes of Unstable Magic.
+-- The Horde's Elemental Attractor gives the same buff.
 EABR.ARCANE_CENSER_ITEM = 275730
+EABR.ELEMENTAL_ATTRACTOR_ITEM = 281371
 EABR.ARCANE_CENSER_BUFF = 1297774
 -- WoW Forever gathering trackers, in cast preference order: Find Herbs, Find
 -- Minerals. Both are self-buffs there and share one slot with the class

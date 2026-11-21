@@ -526,6 +526,7 @@ local SETTING_BLACKLIST = {
     },
     EllesmereUINameplates = {
         nameplateSize = true, -- reload-gated Blizzard Nameplate Size (the game reads its CVar at load)
+        showFriendlyPets = true, -- its pet and minion CVars are written by the toggle's click alone (ns.ApplyPetCVars)
     },
 }
 

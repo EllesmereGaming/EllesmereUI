@@ -43,7 +43,7 @@ local function Parse(value)
     if states then
         for _, st in ipairs(states) do
             if st.id == id then
-                p = { inside = m.inside, shift = m.shift == true, macro = st.macro .. " 1" }
+                p = { inside = m.inside, shift = m.shift == true, macro = st.macro .. " 1", id = id }
                 break
             end
         end
@@ -64,11 +64,28 @@ function ns.CdmStanceBarOf(settings, frame)
     return v
 end
 
+-- WoW Forever druid: a powershift (casting the form you are in) leaves every
+-- [bonusbar:N] false until the next real form change, while the form itself
+-- still reads. The form then answers for its state, and the player's
+-- UNIT_AURA (the form's aura returning) is the edge, as no page event fires.
+local FOREVER_FORM_STATE = { [768] = "cat", [5487] = "bear", [9634] = "bear" }
+ns.CdmStanceBarFormAura = EllesmereUI.IS_FOREVER == true and select(2, UnitClass("player")) == "DRUID"
+
+local function InFormState(id)
+    local i = GetShapeshiftForm()
+    if issecretvalue(i) or not i or i == 0 then return false end
+    local spellID = select(4, GetShapeshiftFormInfo(i))
+    local state = spellID and not issecretvalue(spellID) and FOREVER_FORM_STATE[spellID]
+    if id == "prowl" then return state == "cat" and IsStealthed() and true or false end
+    return state == id
+end
+
 -- hidden, shift for a stored value right now.
 function ns.CdmStanceBarHidden(value)
     local p = value and Parse(value)
     if not p then return false, false end
     local inState = SecureCmdOptionParse(p.macro) == "1"
+    if not inState and ns.CdmStanceBarFormAura then inState = InFormState(p.id) end
     if inState == p.inside then return true, p.shift end
     return false, false
 end

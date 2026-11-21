@@ -441,7 +441,8 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
     btb._applyBTBPowerColors = ApplyBTBPowerColors
 
     -- Class icon overlay on a high-level frame so it renders above the border.
-    local classIconHolder = CreateFrame("Frame", nil, frame)
+    -- A child of the bar, so it hides with it (Text Bar off, stock looks).
+    local classIconHolder = CreateFrame("Frame", nil, btb)
     classIconHolder:SetAllPoints(textOvr)
     classIconHolder:SetFrameLevel(frame:GetFrameLevel() + 12)
     local classIconTex = classIconHolder:CreateTexture(nil, "ARTWORK")
@@ -452,6 +453,11 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
     local function ApplyBTBClassIcon(s)
         local style = s.btbClassIcon or "none"
         if style == "none" then classIconTex:Hide(); return end
+        -- Players and AI party members only: UnitClass reports most NPCs as
+        -- warriors (the class colour rule of ApplyClassColor).
+        if not (UnitIsPlayer(unit) or (UnitInPartyIsAI and UnitInPartyIsAI(unit))) then
+            classIconTex:Hide(); return
+        end
         local _, classToken = UnitClass(unit)
         if issecretvalue(classToken) or not classToken then classIconTex:Hide(); return end
         if not ApplyClassIconTexture(classIconTex, classToken, style) then classIconTex:Hide(); return end

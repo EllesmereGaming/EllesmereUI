@@ -121,7 +121,9 @@ end
 
 -- Mirror angles (degrees) for playable-race models, whether used by a player or NPC.
 -- Non-playable NPC models are excluded.
--- Unlisted/missing/restricted IDs stay normal; never infer facing from unit type.
+-- Unlisted/missing/restricted IDs stay normal. A 3D model turns only by this
+-- list; a 2D portrait flips for every player (forms included) and, for an NPC,
+-- by this list.
 do
     local mirrorAngles -- Built only when portrait mirroring first needs a model ID.
     local function GetMirrorAngle(id)
@@ -332,12 +334,13 @@ function PortraitOverride(self, event, evtUnit, fallback)
         -- with guid and availability both reading unchanged, field-traced).
         -- Models only: 2D textures survive Hide/Show.
         or (event == "Show" and isModel)
-    -- A changed model can also change 2D mirror eligibility, including class
-    -- mode's NPC fallback: drop the cached answer and repaint, only when opted in.
+    -- A changed model can also change an NPC's 2D mirror eligibility, including
+    -- class mode's NPC fallback: drop the cached answer and repaint, only when
+    -- opted in. A player's flip never depends on the model.
     if event == "UNIT_MODEL_CHANGED" and not isModel then
         local uk = UnitToSettingsKey(self._euiBaseUnit or u)
         local us = uk and db.profile[uk]
-        if us and us.portraitMirror and not ns.UF_Blizz() then
+        if us and us.portraitMirror and not ns.UF_Blizz() and not UnitIsPlayer(u) then
             ns.UF_ForgetPortraitMirror(u)
             hasStateChanged = true
         end
@@ -448,8 +451,13 @@ function PortraitOverride(self, event, evtUnit, fallback)
         element.state = isAvailable
     end
     if hasStateChanged and element.PostUpdate then
-        return element:PostUpdate(u, hasStateChanged)
+        element:PostUpdate(u, hasStateChanged)
     end
+    -- For the engine's same-frame collapse: only a model reload closes the
+    -- portrait channel for the frame. A 2D paint is one texture call, and its
+    -- art comes with UNIT_PORTRAIT_UPDATE, which can follow UNIT_MODEL_CHANGED
+    -- in the same frame (a shapeshift sends both).
+    return isModel and hasStateChanged
 end
 
 -- Portraits: PortraitOverride was already the complete painter (GUID/state
@@ -461,7 +469,7 @@ ns.Engine.SetPainter("portrait", function(frame, unit, event)
         -- before the paint so both read the same unit (no 2D flash between).
         local swap, fb = ns.UF_ClassFallbackNeedsSwap(frame, unit)
         if swap then SwapPortraitMode(frame, true) end
-        PortraitOverride(frame, event or "ForceUpdate", unit, fb)
+        return PortraitOverride(frame, event or "ForceUpdate", unit, fb)
     end
 end)
 -- Element ForceUpdate stamp: the settings code refreshes portraits through
@@ -1562,9 +1570,12 @@ local function CreatePortrait(frame, side, frameHeight, unit)
         -- when the flip state changes (the first on-to-off pass restores the
         -- creation crop). Never under a stock style (its full-art coords
         -- stand), and the unavailable question mark always reads unflipped.
+        -- A player always flips, shapeshift forms and transforms included
+        -- (UnitIsPlayer is never secret); only an NPC asks the model lookup.
         local mir = (uS2 and uS2.portraitMirror and not ns.UF_Blizz()
             and not (hasStateChanged and self.state == false)
-            and ns.UF_CanMirrorPortrait2D(EnsureModel3D(), u, MirrorReady)) and true or false
+            and (UnitIsPlayer(u)
+                or ns.UF_CanMirrorPortrait2D(EnsureModel3D(), u, MirrorReady))) and true or false
         if mir ~= (self._mirrored or false) then
             self._mirrored = mir
             if mir then

@@ -177,11 +177,11 @@ local function Paint(force)
         -- Built only for a format that shows it.
         local pctRaw = UnitPowerPercent and UnitPowerPercent("player", MANA, true, CurveConstants and CurveConstants.ScaleTo100) or 0
         local percentText = format("%d", pctRaw) .. S.suffix
-        txt = (fmt == "both") and (ns.AbbreviateNumbers(cur) .. " | " .. percentText) or percentText
+        txt = (fmt == "both") and (ns.AbbreviateValue(cur, "power") .. " | " .. percentText) or percentText
     elseif fmt == "curmaxpp" then
-        txt = ns.AbbreviateNumbers(cur) .. " / " .. ns.AbbreviateNumbers(UnitPowerMax("player", MANA))
+        txt = ns.AbbreviateValue(cur, "power") .. " / " .. ns.AbbreviateValue(UnitPowerMax("player", MANA), "power")
     else
-        txt = ns.AbbreviateNumbers(cur)
+        txt = ns.AbbreviateValue(cur, "power")
     end
     S.text:SetText(txt)
 end
@@ -244,6 +244,11 @@ evf:SetScript("OnEvent", function(_, event, _, powerType)
         if Plain(powerType) and powerType and powerType ~= "MANA" then return end
         Paint(false)
     end
+end)
+
+-- A Number Format change repaints the text (Paint skips unchanged mana).
+EllesmereUI.RegisterNumberFormatCallback(function()
+    if S.live then Paint(true) end
 end)
 
 -------------------------------------------------------------------------------

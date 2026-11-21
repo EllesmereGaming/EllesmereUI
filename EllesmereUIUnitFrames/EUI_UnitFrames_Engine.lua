@@ -537,6 +537,12 @@ local function Paint(frame, channel, event)
             return
         end
         stamps[channel] = gen
+        -- A painter that returns false leaves the channel open for the rest of
+        -- this hardware frame: a later event of the frame still reaches it (the
+        -- 2D portrait, whose art comes with UNIT_PORTRAIT_UPDATE, which can land
+        -- after UNIT_MODEL_CHANGED in one frame: a shapeshift sends both).
+        if fn(frame, frame._euiUnit, event) == false then stamps[channel] = key end
+        return
     end
     fn(frame, frame._euiUnit, event)
 end

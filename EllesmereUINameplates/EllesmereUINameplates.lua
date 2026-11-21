@@ -290,12 +290,18 @@ local defaults = {
     showCastLockoutAsCrowdControl = false,
     healthBarHeight = 17,
     friendlyNameOnly = true,
+    friendlyNameOnlyInInstances = false,
     friendlyNameOnlyYOffset = -20,
     friendlyNameSize = 15,
     friendlyPlateYOffset = 0,
     friendlyHealthBarHeight = 17,
     friendlyHealthBarWidth = 150,
     showFriendlyNPCs = false,
+    -- Always Show Marked NPCs: a raid-marked friendly NPC gets a plate -- name and
+    -- marker -- even with its nameplate toggle off or Blizzard's NPC-names
+    -- filter against it. Off by default: a mark never brings up a plate the
+    -- user switched off.
+    friendlyShowMarkedNPCs = false,
     showNPCTitles = true,
     showNPCRaidMarker = true,
     showFriendlyPlayers = true,
@@ -310,21 +316,72 @@ local defaults = {
     -- and Border Size effects on friendly plates too.
     friendlyTargetBorderFx = false,
     friendlyBarColor = { r = 0.314, g = 0.800, b = 0.408 },
+    -- Name Only target highlights (EUI_Nameplates_AlliedColors.lua): one toggle +
+    -- colour per entity type (below). All off by default.
+    -- Show Friendly Pet Nameplates has no default: nil means the user never
+    -- chose, and nil reads as off everywhere. Only the option's own click
+    -- writes the pet and minion CVars (ns.ApplyPetCVars), so a profile that
+    -- never touched it leaves the client's settings alone.
+    nameOnlyCustomEnabled_FRIENDLY_PLAYER_FRIEND = false,
+    nameOnlyCustomColor_FRIENDLY_PLAYER_FRIEND = { r = 1.00, g = 0.84, b = 0.00 },
+    nameOnlyCustomEnabled_FRIENDLY_PLAYER_RECENT = false,
+    nameOnlyCustomColor_FRIENDLY_PLAYER_RECENT = { r = 0.70, g = 0.53, b = 1.00 },
+    nameOnlyCustomEnabled_FRIENDLY_PARTY_RAID = false,
+    nameOnlyCustomColor_FRIENDLY_PARTY_RAID = { r = 0.616, g = 0.651, b = 1.00 },
+    nameOnlyCustomEnabled_FRIENDLY_GUILD = false,
+    nameOnlyCustomColor_FRIENDLY_GUILD = { r = 0.25, g = 0.88, b = 0.55 },
+    nameOnlyCustomEnabled_FRIENDLY_PLAYER_UNFLAGGED = false,
+    nameOnlyCustomColor_FRIENDLY_PLAYER_UNFLAGGED = { r = 0.467, g = 0.533, b = 1.00 },
+    nameOnlyCustomEnabled_FRIENDLY_PLAYER_PVP = false,
+    nameOnlyCustomColor_FRIENDLY_PLAYER_PVP = { r = 0.00, g = 1.00, b = 0.00 },
+    nameOnlyCustomEnabled_FRIENDLY_NPC_STANDARD = false,
+    nameOnlyCustomColor_FRIENDLY_NPC_STANDARD = { r = 0.00, g = 1.00, b = 0.00 },
+    nameOnlyCustomEnabled_FRIENDLY_NPC_ESCORT = false,
+    nameOnlyCustomColor_FRIENDLY_NPC_ESCORT = { r = 0.00, g = 1.00, b = 0.00 },
+    nameOnlyCustomEnabled_NEUTRAL_NPC_PASSIVE = false,
+    nameOnlyCustomColor_NEUTRAL_NPC_PASSIVE = { r = 1.00, g = 1.00, b = 0.00 },
+    nameOnlyCustomEnabled_HOSTILE_NPC_STANDARD = false,
+    nameOnlyCustomColor_HOSTILE_NPC_STANDARD = { r = 0.949, g = 0.549, b = 0.098 },
+    nameOnlyCustomEnabled_PET_MINION_FRIENDLY = false,
+    nameOnlyCustomColor_PET_MINION_FRIENDLY = { r = 0.467, g = 0.533, b = 1.00 },
     friendlyNPCColor = { r = 0, g = 1, b = 0 },
     friendlyNPCNameColor = { r = 0, g = 1, b = 0 },
     friendlyNPCTitleColor = { r = 0, g = 1, b = 0, a = 0.7 },
+    -- The subtitle under a friendly NPC's name keeps its own swatch by default;
+    -- Match NPC Name Color is the opt-in that makes the line follow the name
+    -- above it. The swatch's alpha sets the line apart either way.
+    friendlyNPCTitleMatchNameColor = false,
     friendlyNPCNameSize = 13,
+    friendlyPetNameSize = 13,
     friendlyNPCTitleSize = 10,
+    friendlyPetTitleSize = 10,
+    -- A pet's owner line has settings of its own, so a pet never depends on what
+    -- the friendly NPCs are configured to show. It always shows its owner, with
+    -- the name in Blizzard's own white and the softer alpha a subtitle takes.
+    friendlyPetOwnerColor = { r = 1, g = 1, b = 1, a = 0.7 },
+    friendlyPetOwnerMatchNameColor = false,
+    -- Owner Text Uses Its Own Size: off, the owner line under a pet's name takes
+    -- the pet name's size; on, Owner Text Size sets it.
+    friendlyPetOwnerOwnSize = false,
     friendlyNameTextSize = 12,
     friendlyBelowName = "none",
+    -- Guild Text Size: the guild line under a friendly player's name, a text of
+    -- its own in both styles.
     friendlyBelowNameSize = 12,
     friendlyBelowNameColor = { r = 0.8, g = 0.8, b = 0.8 },
     friendlyBelowNameClassColor = false,
     friendlyBelowNameGuildBrackets = true,
+    friendlyBelowNameMatchNameColor = false,
     friendlyShowLevel = false,
     friendlyLevelDiffColor = false,
     friendlyGroupBrackets = false,
-    showEnemyPets = false,
+    -- Status Tags (AFK, Do Not Disturb): Blizzard's own nameplates print no away
+    -- or busy tag, so each is a choice of its own and off until asked.
+    friendlyStatusTagAFK = false,
+    friendlyStatusTagDND = false,
+    -- Show Enemy Pet Nameplates has no default either: nil means the user never
+    -- chose, and nil reads as off. Its click writes nameplateShowEnemyPets alone
+    -- (ns.ApplyPetCVars); the enemy minion CVars stay the client's own.
     -- Blizzard's nameplateSize CVar (1 Small .. 5 Huge), applied on load; 3 = Large, the old forced value.
     nameplateSize = 3,
     font = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF",

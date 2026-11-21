@@ -661,6 +661,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
             -- The minimap's trackers, the Sleeping Bag and the Arcane Censer
             -- are read afresh after a loading screen.
             EABR._fvTrackDirty = true
+            if EABR._fvHunterTrackingEvents then EABR._fvHunterMatchMask = nil end
             EABR._fvSleepBag, EABR._fvCenser = nil, nil
             local guid = EllesmereUI.CharGUID()
             local saved = guid and EllesmereUI.CharData("sleepingBagProgress")
@@ -789,9 +790,11 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
     if e == "LEARNED_SPELL_IN_SKILL_LINE" or (EABR.FOREVER and e == "SPELLS_CHANGED") then
         EABR._fvFamDirty = true
         EABR._fvClassPickerGroups = nil
+        if EABR._fvHunterTrackingEvents then EABR._fvHunterMatchMask = nil end
         if e == "LEARNED_SPELL_IN_SKILL_LINE" then EABR._fvTrackDirty = true end
     elseif e == "MINIMAP_UPDATE_TRACKING" then
         EABR._fvTrackDirty = true
+        if EABR._fvHunterTrackingEvents then EABR._fvHunterMatchMask = nil end
     elseif e == "PLAYER_EQUIPMENT_CHANGED" and arg1 ~= 16 and arg1 ~= 17 then
         -- Weapon Buffs (its only registration): only a weapon slot matters.
         return
@@ -842,7 +845,8 @@ if EABR.FOREVER then
     -- families, a raid buff becomes castable). Raid Buffs adds its group
     -- events itself (EABR.FvSyncGroupWatch), the two trackers their minimap
     -- event (EABR.FvSyncTrackingEvent), the Action Picker its spellbook event
-    -- (EABR.FvSyncPickerSpellEvents).
+    -- (EABR.FvSyncPickerSpellEvents), Hunter tracking its target events
+    -- (EABR.FvSyncHunterTrackingEvents).
     mainFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
     mainFrame:RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE")
     mainFrame:RegisterEvent("ENCOUNTER_START")
@@ -869,6 +873,20 @@ if EABR.FOREVER then
             mainFrame:RegisterEvent("MINIMAP_UPDATE_TRACKING")
         else
             mainFrame:UnregisterEvent("MINIMAP_UPDATE_TRACKING")
+        end
+    end
+    function EABR.FvSyncHunterTrackingEvents(want)
+        if want == (EABR._fvHunterTrackingEvents or false) then return end
+        EABR._fvHunterTrackingEvents = want
+        EABR._fvHunterMatchMask = nil
+        if want then
+            mainFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+            mainFrame:RegisterUnitEvent("UNIT_FLAGS", "target")
+            mainFrame:RegisterUnitEvent("UNIT_FACTION", "target")
+        else
+            mainFrame:UnregisterEvent("PLAYER_TARGET_CHANGED")
+            mainFrame:UnregisterEvent("UNIT_FLAGS")
+            mainFrame:UnregisterEvent("UNIT_FACTION")
         end
     end
     -- The Action Picker's choices follow the spellbook: SPELLS_CHANGED is
@@ -921,8 +939,9 @@ if EABR.FOREVER then
                     if EABR._fvSleepWatch and (C_Item.GetItemCount(EABR.SLEEPING_BAG_ITEM) or 0) > 0 then
                         EABR._fvSleepBag, EABR._fvSleepWatch, came = true, false, true
                     end
-                    if EABR._fvCenserWatch and (C_Item.GetItemCount(EABR.ARCANE_CENSER_ITEM) or 0) > 0 then
-                        EABR._fvCenser, EABR._fvCenserWatch, came = true, false, true
+                    local censer = EABR._fvCenserWatch and EABR.FvCenserInBags()
+                    if censer then
+                        EABR._fvCenser, EABR._fvCenserWatch, came = censer, false, true
                     end
                     if came then
                         SyncArrivalWatch()

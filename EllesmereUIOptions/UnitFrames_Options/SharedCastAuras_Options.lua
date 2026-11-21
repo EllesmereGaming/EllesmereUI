@@ -1709,15 +1709,29 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
             -- Non-player buff vocabulary is just these three (the engine gates
             -- every other class off for these units; stale keys from retired
             -- checkboxes stay inert).
-            buffFilterItems = {
-                -- AND-modifier (engine: ChainFor), not a class: never locks a lane.
-                { key = "__hasDuration", label = "Has Duration",
-                  tooltip = "Only show buffs that have a duration, excluding permanent ones. Combines with the filters below." },
-                { isHeader = true, label = "Show", rightLabel = "Hide" },
-                { key = "stealable",         label = "Stealable",          dual = true, tooltip = "Buffs you can spellsteal or purge" },
-                { key = "bigDefensive",      label = "Big Defensive",      dual = true, tooltip = "Major defensive cooldowns" },
-                { key = "dispellable",       label = "Dispellable",        dual = true, tooltip = "Auras with a dispel type you can dispel" },
-            }
+            -- Target/focus add Buff Tracked Auras: an "Edit Tracked Auras"
+            -- action and an "Only Tracked Auras" row (friendly units only;
+            -- engine: BuffTrack in EUI_UnitFrames_AuraContainers.lua).
+            local buffTrackUnit = (optState.selectedUnit == "target" or optState.selectedUnit == "focus")
+                and optState.selectedUnit or nil
+            buffFilterItems = {}
+            if buffTrackUnit then
+                buffFilterItems[#buffFilterItems + 1] = { isTopAction = true, label = "Edit Tracked Auras",
+                    onClick = function()
+                        if ns.UFOpt_ShowBuffTrackedAuras then ns.UFOpt_ShowBuffTrackedAuras(buffTrackUnit) end
+                    end }
+            end
+            -- AND-modifier (engine: ChainFor), not a class: never locks a lane.
+            buffFilterItems[#buffFilterItems + 1] = { key = "__hasDuration", label = "Has Duration",
+                  tooltip = "Only show buffs that have a duration, excluding permanent ones. Combines with the filters below." }
+            if buffTrackUnit then
+                buffFilterItems[#buffFilterItems + 1] = { key = "__trackedOnly", label = "Only Tracked Auras",
+                    tooltip = "On a friendly unit, show only the buffs in Edit Tracked Auras. Enemy buffs cannot be filtered by spell, so on an enemy the filters below apply instead." }
+            end
+            buffFilterItems[#buffFilterItems + 1] = { isHeader = true, label = "Show", rightLabel = "Hide" }
+            buffFilterItems[#buffFilterItems + 1] = { key = "stealable",         label = "Stealable",          dual = true, tooltip = "Buffs you can spellsteal or purge" }
+            buffFilterItems[#buffFilterItems + 1] = { key = "bigDefensive",      label = "Big Defensive",      dual = true, tooltip = "Major defensive cooldowns" }
+            buffFilterItems[#buffFilterItems + 1] = { key = "dispellable",       label = "Dispellable",        dual = true, tooltip = "Auras with a dispel type you can dispel" }
             BUFF_FILTER_KEYS   = { ownOnly = "onlyPlayerBuffs",   raidFrames = "buffRaid",   raidInCombat = "buffRaidInCombat",   dispellable = "buffDispellable",   crowdControl = "buffCrowdControl",   bigDefensive = "buffBigDefensive",   externalDefensive = "buffExternalDefensive",   cancelable = "buffCancelable", stealable = "buffStealable" }
             -- Hide-lane storage skeys (per-class entries in s.buffNegClasses);
             -- only dual rows appear here.
@@ -1927,10 +1941,14 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                         EllesmereUI.L("You are displaying NO buffs at all."),
                         function() return BuffDisabled() or ps.buffShowAll ~= false or ps.buffHasDuration == true or OtherContent() end)
                 else
+                    -- Warns when Only Tracked Auras has no active buff, like
+                    -- the Debuff Filter (AttachEmptyFilterWarn below).
+                    local warnClosed
                     cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                         rgn, 210, rgn:GetFrameLevel() + 2, buffFilterItems,
                         function(k, neg)
                             if k == "__hasDuration" then return SDB().buffDurOnly == true end
+                            if k == "__trackedOnly" then return SDB().buffTrackedOnly == true end
                             if neg then
                                 local m = SDB().buffNegClasses
                                 local sk = BUFF_NEG_SKEYS[k]
@@ -1945,6 +1963,13 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                                 -- mode, which copies can have left on this unit.
                                 db.buffDurOnly = v or nil
                                 ReloadAndUpdate(); UpdatePreview()
+                                return
+                            end
+                            if k == "__trackedOnly" then
+                                db.buffTrackedOnly = v or nil
+                                ReloadAndUpdate(); UpdatePreview()
+                                -- Non-force: re-reads the empty warning in place.
+                                EllesmereUI:RefreshPage()
                                 return
                             end
                             local sk = BUFF_NEG_SKEYS[k]
@@ -1962,7 +1987,24 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                                 if not next(db.buffNegClasses) then db.buffNegClasses = nil end
                             end
                             SSetSupported(BUFF_FILTER_KEYS[k], v)
-                        end)
+                        end,
+                        nil, nil, nil, nil, function() if warnClosed then warnClosed() end end)
+                    if buffTrackUnit then
+                        warnClosed = EllesmereUI.AttachEmptyFilterWarn(rgn, cbDD,
+                            EllesmereUI.L("Only Tracked Auras has no buffs: none show on a friendly unit."),
+                            function()
+                                if BuffDisabled() then return true end
+                                local s = SDB()
+                                if s.buffTrackedOnly ~= true then return true end
+                                local inc = s.buffInclude
+                                if inc then
+                                    for _, on in pairs(inc) do
+                                        if on then return true end
+                                    end
+                                end
+                                return false
+                            end)
+                    end
                 end
                 PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                 rgn._control = cbDD; rgn._lastInline = nil

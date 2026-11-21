@@ -70,14 +70,15 @@ local UpdateGCDBar
 I.UpdateGCDBarSetters[#I.UpdateGCDBarSetters + 1] = function(v) UpdateGCDBar = v end
 
 -- Update functions (event-driven)
--- WoW Forever: no health/power number under 10,000 abbreviates
--- (EllesmereUI_NumberFormat.lua). On ns, not a local:
--- the druid mana bar file reads it too.
-ns.AbbreviateNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateNumbers) or AbbreviateNumbers
--- Health text: the global Number Format for valueType (power text keeps the
--- default above). On ns for the options preview.
+-- Health and power text: the global Number Format for valueType (power follows
+-- only the Unit Style). On ns for the options preview and the druid mana bar.
 ns.AbbreviateValue = EllesmereUI.AbbreviateValue
-EllesmereUI.RegisterNumberFormatCallback(function() I.UpdateHealthBar() end)
+-- The power text memo names no Number Format input, so a format change drops it.
+EllesmereUI.RegisterNumberFormatCallback(function()
+    I.UpdateHealthBar()
+    if primaryBar then primaryBar._txtGen = nil end
+    I.UpdatePrimaryBar()
+end)
 local function UpdateHealthBar()
     if not healthBar or not healthBar:IsShown() then return end
     local hp = _G._ERB_ResolveHealthCfg()
@@ -495,17 +496,17 @@ local function UpdatePrimaryBar()
             local txt
             if fmt == "smart" then
                 local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(cachedPrimary)
-                txt = isPercent and percentText or ns.AbbreviateNumbers(cur)
+                txt = isPercent and percentText or ns.AbbreviateValue(cur, "power")
             elseif fmt == "both" then
-                txt = ns.AbbreviateNumbers(cur) .. " | " .. percentText
+                txt = ns.AbbreviateValue(cur, "power") .. " | " .. percentText
             elseif fmt == "curpp" then
-                txt = ns.AbbreviateNumbers(cur)
+                txt = ns.AbbreviateValue(cur, "power")
             elseif fmt == "curmaxpp" then
-                txt = ns.AbbreviateNumbers(cur) .. " / " .. ns.AbbreviateNumbers(mx)
+                txt = ns.AbbreviateValue(cur, "power") .. " / " .. ns.AbbreviateValue(mx, "power")
             elseif fmt == "perpp" then
                 txt = percentText
             else
-                txt = ns.AbbreviateNumbers(cur)
+                txt = ns.AbbreviateValue(cur, "power")
             end
             primaryBar._text:SetText(txt)
         end

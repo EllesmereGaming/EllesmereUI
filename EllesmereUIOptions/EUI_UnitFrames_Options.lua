@@ -704,20 +704,27 @@ local function TrackedList(unitKey, field)
     if not s[field] then s[field] = {} end
     return s[field]
 end
-function ns.UFOpt_ShowTrackedAuras(unitKey)
+-- Shared by the debuff and buff Tracked Auras popups: the units the Copy row
+-- offers (every other unit of the list), and the reapply after every edit.
+local function TrackedChoices(units, unitKey)
     local choices = {}
-    for i = 1, #TRACKED_UNITS do
-        local u = TRACKED_UNITS[i]
+    for i = 1, #units do
+        local u = units[i]
         if u.key ~= unitKey then choices[#choices + 1] = u end
     end
-    local function Changed()
-        if ns.ReloadFrames then ns.ReloadFrames() end
-        if ns.UpdatePreview then ns.UpdatePreview() end
-        -- Non-force: the Debuff Filter dropdown's empty warning (Only Tracked
-        -- Auras with its list emptied) re-reads live, without rebuilding the
-        -- page under the popup.
-        EllesmereUI:RefreshPage()
-    end
+    return choices
+end
+local function TrackedChanged()
+    if ns.ReloadFrames then ns.ReloadFrames() end
+    if ns.UpdatePreview then ns.UpdatePreview() end
+    -- Non-force: the filter dropdown's empty warning (Only Tracked Auras with
+    -- its list emptied) re-reads live, without rebuilding the page under the
+    -- popup.
+    EllesmereUI:RefreshPage()
+end
+function ns.UFOpt_ShowTrackedAuras(unitKey)
+    local choices = TrackedChoices(TRACKED_UNITS, unitKey)
+    local Changed = TrackedChanged
     EllesmereUI.ShowTrackedAurasPopup({
         eyebrow = "UNIT FRAME AURA FILTERS",
         title = TRACKED_TITLES[unitKey] or "Tracked Auras",
@@ -744,12 +751,7 @@ function ns.UFOpt_ShowTrackedAuras(unitKey)
                 local src = db and db.profile and db.profile[srcKey]
                 local dst = db and db.profile and db.profile[unitKey]
                 if not (src and dst) then return end
-                local function Clone(t)
-                    if not t then return nil end
-                    local c = {}
-                    for k, v in pairs(t) do c[k] = v end
-                    return c
-                end
+                local Clone = EllesmereUI.Lite.DeepCopy
                 dst.debuffInclude = Clone(src.debuffInclude)
                 dst.debuffExclude = Clone(src.debuffExclude)
                 -- The caster-scope maps have opposite polarity per unit kind (boss:
@@ -774,6 +776,53 @@ function ns.UFOpt_ShowTrackedAuras(unitKey)
                         dst.debuffIncludeAnyCaster = nil
                     end
                 end
+                Changed()
+            end,
+        },
+    })
+end
+
+-- Buff Tracked Auras popup: the target/focus Buff Filter's "Edit Tracked
+-- Auras" action. The engine applies the lists only while the unit is friendly
+-- (BuffTrack in EUI_UnitFrames_AuraContainers.lua). No boss entry: boss frames
+-- are hostile.
+local BUFF_TRACKED_UNITS = {
+    { key = "target", label = "Target" },
+    { key = "focus",  label = "Focus" },
+}
+local BUFF_TRACKED_TITLES = {
+    target = "Target Tracked Buffs",
+    focus  = "Focus Tracked Buffs",
+}
+function ns.UFOpt_ShowBuffTrackedAuras(unitKey)
+    local choices = TrackedChoices(BUFF_TRACKED_UNITS, unitKey)
+    local Changed = TrackedChanged
+    EllesmereUI.ShowTrackedAurasPopup({
+        eyebrow = "UNIT FRAME AURA FILTERS",
+        title = BUFF_TRACKED_TITLES[unitKey] or "Tracked Buffs",
+        subtitle = "Friendly units only. Included buffs show on top of your Buff Filter (or alone with Only Tracked Auras).",
+        includeGet = function() return TrackedList(unitKey, "buffInclude") end,
+        excludeGet = function() return TrackedList(unitKey, "buffExclude") end,
+        includeMine = {
+            mineGet = function() return TrackedList(unitKey, "buffIncludeMine") end,
+        },
+        includeTitle = "INCLUDED BUFFS",
+        excludeTitle = "EXCLUDED BUFFS",
+        includePrompt = "Enter the spell ID of the buff to always show on this frame.",
+        excludePrompt = "Enter the spell ID of the buff to hide on this frame.",
+        onChanged = Changed,
+        copyFrom = {
+            label = "Copy Included/Excluded Buffs From:",
+            choices = choices,
+            apply = function(srcKey)
+                local db = ns.db
+                local src = db and db.profile and db.profile[srcKey]
+                local dst = db and db.profile and db.profile[unitKey]
+                if not (src and dst) then return end
+                local Clone = EllesmereUI.Lite.DeepCopy
+                dst.buffInclude = Clone(src.buffInclude)
+                dst.buffExclude = Clone(src.buffExclude)
+                dst.buffIncludeMine = Clone(src.buffIncludeMine)
                 Changed()
             end,
         },

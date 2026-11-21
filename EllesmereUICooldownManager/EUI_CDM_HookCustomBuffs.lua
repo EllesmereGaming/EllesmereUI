@@ -38,11 +38,11 @@ local _pendingCastIDs, QueueCustomBuffUpdate = I._pendingCastIDs, I.QueueCustomB
 -- fire Blizzard's TriggerAuraAppliedAlert (they appear on a cast/edge for a
 -- fixed window), so the regular-buff apply-edge hook can't reach them; play the
 -- SAME stored key (ss.buffActiveSoundKey) here, off the cast edge that
--- (re)starts the icon's timer. No loss sound: the real aura is secret/other-cast,
--- so only the gain edge is knowable. The id comes straight from the bar's
--- assignedSpells (clean, never secret), so the lookup is a direct spellSettings
--- hit, no GetCanonicalSpellIDForFrame dance. Gated 0-cost on ns._cdmAnyBuffSound
--- (same flag RescanBuffSoundFlag sets from these spellSettings) and throttled.
+-- (re)starts the icon's timer; the loss sound below plays when that timer runs
+-- out. The id comes straight from the bar's assignedSpells (clean, never
+-- secret), so both resolve the settings by id and bar, no
+-- GetCanonicalSpellIDForFrame dance. Gated 0-cost on ns._cdmAnyBuffSound (the
+-- flag RescanBuffSoundFlag sets from either sound key) and throttled.
 local _presetGainSoundAt = {}
 local _presetLossSoundAt = {}
 local PRESET_GAIN_SOUND_GAP = 0.3
@@ -65,10 +65,10 @@ end
 -- Loss counterpart to PlayPresetBuffGainSound for self-timed preset/custom buffs
 -- (no real aura-removed alert): fired when the displayed timer runs out. Separate
 -- throttle table so gain/loss never suppress each other.
-local function PlayPresetBuffLossSound(sd, sid, now)
+local function PlayPresetBuffLossSound(sd, barKey, sid, now)
     if not ns._cdmAnyBuffSound then return end
     if ns._cdmSoundSuppressed and ns._cdmSoundSuppressed() then return end
-    local ss = sd and sd.spellSettings and sd.spellSettings[sid]
+    local ss = ResolveSpellSettings(nil, sid, sd, barKey)
     local key = ss and ss.buffLostSoundKey
     if not key or key == "none" then return end
     local last = _presetLossSoundAt[sid]
@@ -754,7 +754,7 @@ local function UpdateCustomBuffBars()
 
                             -- Loss edge: displayed timer ran out -> fire once, drop it.
                             if timer and (now - timer.start) >= timer.duration then
-                                PlayPresetBuffLossSound(sd, sid, now)
+                                PlayPresetBuffLossSound(sd, barKey, sid, now)
                                 _customAuraTimers[timerKey] = nil
                                 timer = nil
                             end
@@ -865,7 +865,7 @@ local function UpdateCustomBuffBars()
                             -- Loss edge: displayed window ran out -> fire once, drop timer.
                             local t = _customAuraTimers[tkey]
                             if t and (now - t.start) >= t.duration then
-                                PlayPresetBuffLossSound(sd, sid, now)
+                                PlayPresetBuffLossSound(sd, barData.key, sid, now)
                                 _customAuraTimers[tkey] = nil
                                 needBuffReanchor = true
                             end
