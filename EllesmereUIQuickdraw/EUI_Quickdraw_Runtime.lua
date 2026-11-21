@@ -376,8 +376,13 @@ local function PushPalette(index)
     -- the same list, and the memo behind UsableSlots is what pins the two
     -- together between this push and any open that follows it.
     local slotsEff = UsableSlots(palette, p)
+    -- A toggled menu only fires on the Select key, and Select over nothing
+    -- has always meant take nothing, so it never gets a default.
+    local useDefault = palette.useDefault and not p.toggleMode
+    local def
     for i = 1, MAX_SLOTS do
         PushCell(btn, i, slotsEff[i], p)
+        if not def and useDefault and slotsEff[i] and slotsEff[i].isDefault then def = i end
         -- Ahead of the first open rather than at it: a load is a server round
         -- trip, and this runs at login and on every spellbook or macro change,
         -- so the palette has its icons long before anyone holds the key.
@@ -401,6 +406,7 @@ local function PushPalette(index)
     local model = LayoutModel(index)
     btn:SetAttribute("eqdMode", model)
     btn:SetAttribute("eqdShown", n)
+    btn:SetAttribute("eqdDefault", def)
     btn:SetAttribute("eqdInvert", p.fanInvert == true)
 
     -- Toggle Menu Open, and the key a latched menu answers to. Both are read by

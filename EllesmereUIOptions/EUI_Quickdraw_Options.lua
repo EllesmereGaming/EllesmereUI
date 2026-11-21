@@ -695,6 +695,8 @@ initFrame:SetScript("OnEvent", function(self)
         if widget.isPlaceholder then
             if not ns.AddSlot(palette, slot) then return end
         else
+            -- Swapping the action keeps the entry's place as the default.
+            slot.isDefault = palette.slots[widget.index].isDefault
             palette.slots[widget.index] = slot
         end
         ClearCursor()
@@ -1337,6 +1339,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- every removal path closes the picker, but a guard is cheaper
             -- than the certainty.
             if not palette.slots[pickerReplaceIndex] then return false end
+            slot.isDefault = palette.slots[pickerReplaceIndex].isDefault
             palette.slots[pickerReplaceIndex] = slot
         elseif not ns.AddSlot(palette, slot) then
             -- ns.AddSlot refuses a full palette. Unreachable from here -- a
@@ -3448,6 +3451,90 @@ initFrame:SetScript("OnEvent", function(self)
                 -- this is for.
                 plainMouse = true,
             })
+            y = y - h
+        end
+
+        -- The pick lives on the entry so it survives reordering, and it stays
+        -- put while the toggle is off so turning it back on restores it.
+        do
+            local function UseDefault()
+                local pal = PaletteRead(editPalette)
+                return pal and pal.useDefault == true or false
+            end
+            local ddValues, ddOrder, shownSig = {}, {}, nil
+            -- The dropdown keeps these same tables, so refill them in place.
+            local function Fill()
+                local pal = PaletteRead(editPalette)
+                local slots = pal and type(pal.slots) == "table" and pal.slots or {}
+                wipe(ddValues)
+                wipe(ddOrder)
+                ddValues._noLoc = true
+                ddValues[0] = "Choose Action..."
+                ddOrder[1] = 0
+                local sig = ""
+                for i = 1, #slots do
+                    -- A nested menu's entry fires nothing on release, so it can't be the default.
+                    if slots[i].kind ~= "palette" then
+                        local icon, label = ns.SlotDisplay(slots[i])
+                        label = label or ("Entry " .. i)
+                        ddValues[i] = icon and ("|T" .. icon .. ":14:14|t " .. label) or label
+                        ddOrder[#ddOrder + 1] = i
+                        sig = sig .. "\1" .. ddValues[i]
+                    end
+                end
+                local changed = sig ~= shownSig
+                shownSig = sig
+                return changed
+            end
+            Fill()
+            -- What is holding the row back, if anything. Toggled menus never use a
+            -- default, so the row greys out instead of looking like it works.
+            local function Blocker()
+                if Disabled() then return "the module", "enabled" end
+                if ACfg("toggleMode") == true then return "Toggle Menu Open", "disabled" end
+                if not UseDefault() then return "Use Default Action", "enabled" end
+            end
+            local function BlockerTip() return (Blocker()) end
+            local function BlockerState() return select(2, Blocker()) end
+            local useCfg = { type="toggle", text="Use Default Action",
+                disabled=function() return Disabled() or ACfg("toggleMode") == true end,
+                disabledTooltip=BlockerTip, requireState=BlockerState,
+                tooltip="Letting go of this menu's keybind without choosing anything uses the Default Action.\n"
+                    .. "Escape and the Menu Cancel Action still close it without using anything.\n"
+                    .. "Does not apply to menus with Toggle Menu Open.",
+                getValue=UseDefault,
+                setValue=function(v)
+                    local pal = Palette(editPalette)
+                    if not pal then return end
+                    pal.useDefault = v or nil
+                    Refresh()
+                end }
+            local pickCfg = { type="dropdown", text="Default Action",
+                disabled=function() return Blocker() ~= nil end,
+                disabledTooltip=BlockerTip, requireState=BlockerState,
+                values=ddValues, order=ddOrder,
+                getValue=function()
+                    local pal = PaletteRead(editPalette)
+                    local slots = pal and pal.slots
+                    for i = 1, (type(slots) == "table" and #slots or 0) do
+                        if type(slots[i]) == "table" and slots[i].isDefault then return i end
+                    end
+                    return 0
+                end,
+                setValue=function(v)
+                    local pal = Palette(editPalette)
+                    if not pal then return end
+                    for i, slot in ipairs(pal.slots) do slot.isDefault = (i == v) or nil end
+                    Refresh()
+                end }
+            row, h = W:DualRow(parent, y, useCfg, pickCfg)
+            -- Entries can change in the preview without a page rebuild.
+            local dd = row._rightRegion and row._rightRegion._control
+            if dd and dd._invalidateMenu and not EllesmereUI._prebuilding then
+                EllesmereUI.RegisterWidgetRefresh(function()
+                    if Fill() then dd._invalidateMenu() end
+                end)
+            end
             y = y - h
         end
 
