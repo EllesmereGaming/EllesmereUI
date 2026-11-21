@@ -590,6 +590,19 @@ local function LeaveTurnedOff()
     if EUI_Bags._scrollFrame then EUI_Bags._scrollFrame:SetVerticalScroll(0) end
 end
 
+-- Item totals of the gathered items (bags 0-5) for the hold's put-in check
+local holdTotals = {}
+local function HoldBagTotals(tempItems)
+    wipe(holdTotals)
+    for i = 1, #tempItems do
+        local info = tempItems[i].info
+        local id = info.itemID
+        if id then holdTotals[id] = (holdTotals[id] or 0) + (info.stackCount or 1) end
+    end
+    return holdTotals
+end
+local holdWasOn = false  -- the last pass ran the hold: an off pass drops its recording
+
 function EUI_Bags:RefreshInventory()
     if not EUI_Bags:IsVisible() then return end
     ns.ApplySlotMetrics()
@@ -620,6 +633,8 @@ function EUI_Bags:RefreshInventory()
     local regularUsed, regularTotal = 0, 0
     local reagentUsed, reagentTotal = 0, 0
     local special = ns.SpecialBags()
+    -- the option read first: an off pass makes no Hold call
+    local holdOn = BP().bagHoldLayout == true and ns.Hold.On("bags")
 
     for bag = 0, 5 do
         local numSlots = C_Container.GetContainerNumSlots(bag)
@@ -742,6 +757,16 @@ function EUI_Bags:RefreshInventory()
     local isAllItems = selectedCategoryIndex == 0 and not selectedGroupName
     local swapDetected = DetectAndApplySwaps(tempItems, isAllItems)
     TakeBagSnapshot(tempItems)
+
+    -- Only an item-event pass with no put-in holds
+    local held = false
+    if holdOn then
+        holdWasOn = true
+        held = ns.Hold.BeginPass("bags", HoldBagTotals(tempItems))
+    elseif holdWasOn then
+        holdWasOn = false
+        ns.Hold.BeginPass("bags")
+    end
 
     -- Show blocked-swap tooltip in category/group views (not All Items, not OneBag)
     if swapDetected and not isAllItems and selectedCategoryIndex ~= -1 and selectedCategoryIndex ~= -2 then
@@ -1038,7 +1063,10 @@ function EUI_Bags:RefreshInventory()
         local maxCols = math.max(baseCols, math.floor(maxGridW / (SLOT_SIZE + SPACING)))
         if ideal < baseCols then ideal = baseCols end
         if ideal > maxCols then ideal = maxCols end
-        EUI_Bags._asCols = EUI_Bags.AutoSizeNext(ideal, EUI_Bags._asCols)
+        local cols = EUI_Bags.AutoSizeNext(ideal, EUI_Bags._asCols)
+        -- Shrink would reflow the held groups: a held pass keeps the columns
+        if held and EUI_Bags._asCols and cols < EUI_Bags._asCols then cols = EUI_Bags._asCols end
+        EUI_Bags._asCols = cols
     end
 
     local columns = GetColumns()
@@ -1128,6 +1156,9 @@ function EUI_Bags:RefreshInventory()
     end
 
     FinishRefresh(curY, gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount)
+
+    -- A held group outgrew its cells: lay out once more without the hold
+    if held and ns.Hold.ReleaseOutgrown("bags") then EUI_Bags:RefreshInventory() end
 end
 
 -------------------------------------------------------------------------------

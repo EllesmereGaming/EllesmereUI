@@ -17,6 +17,7 @@ EllesmereUIBags_Categories.lua
 EllesmereUIBags.lua
 EUI_Bags_Style.lua
 EUI_Bags_Data.lua
+EUI_Bags_Hold.lua
 EUI_Bags_Header.lua
 EUI_Bags_Footer.lua
 EUI_Bags_Shared.lua

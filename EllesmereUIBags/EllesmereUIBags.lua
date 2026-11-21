@@ -13,6 +13,8 @@ EUI_Bags:Hide()
 -- Auto-size state: reset on close (next open sizes from its first/active tab);
 -- while open it only grows, and shrinks too with Auto-Size's Shrink on.
 EUI_Bags:HookScript("OnHide", function(self)
+    -- A close ends the layout hold; a hidden UI (Alt-Z) is not a close
+    if ns.Hold and not self:IsShown() then ns.Hold.Release("bags") end
     -- WoW Forever and the Compact display size every open to its content: a hidden UI (Alt-Z) is not a close, keep the size.
     if (EllesmereUI.IS_FOREVER or EUI_Bags.IsCompactMode()) and self:IsShown() then return end
     self._asCols  = nil

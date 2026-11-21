@@ -100,15 +100,17 @@ I.anyItemPanelOpenSetters[#I.anyItemPanelOpenSetters + 1] = function(v) _anyItem
 -- (Merge Duplicates, or Recent Items showing picked-up amounts), so the caller
 -- can refresh. A view that does not merge paints the same either way: its
 -- painted state just follows, so neither this nor OnShow repaints.
+-- A panel change ends a held bags layout: then true too.
 local function SetItemPanelOpen(key, open)
+    local refresh = ns.Hold and _openItemPanels[key] ~= (open or nil) and ns.Hold.ReleaseHeld("bags")
     _openItemPanels[key] = open or nil
     local any = next(_openItemPanels) ~= nil
-    if any == _anyItemPanelOpen then return false end
+    if any == _anyItemPanelOpen then return refresh end
     SetAnyItemPanelOpen(any)
     local bp = BP()
     local merges = bp.bagMergeDuplicates ~= false or bp.bagRecentShowGained == true
     if not merges then SetPaintedPanelOpen(any) end
-    return merges
+    return merges or refresh
 end
 
 -- Pre-cache sort fields onto item data tables to avoid API calls in comparator.
@@ -786,7 +788,10 @@ UpdatePawnArrow = function(btn, itemLink)
 end
 
 local function RefreshPawnArrows()
-    if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
+    if EUI_Bags:IsVisible() then
+        if ns.Hold then ns.Hold.events.bags = true end
+        EUI_Bags:RefreshInventory()
+    end
     if EUI_BagsReagent:IsVisible() then EUI_BagsReagent:RefreshInventory() end
 end
 
