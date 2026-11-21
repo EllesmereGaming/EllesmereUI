@@ -937,14 +937,21 @@ local function Player_OverPortrait(self)
     return pt and pt:IsVisible() and pt:IsMouseOver()
 end
 
+-- Self Ping Only (player.pingSelfOnly) pings the whole frame like the portrait.
+local function Player_HealthPing(self)
+    if self._euiUnit ~= "player" or Player_OverPortrait(self) then return false end
+    local s = ns.db and ns.db.profile.player
+    return not (s and s.pingSelfOnly)
+end
+
 local function Player_GetAllowRadialWheel(self)
-    return self._euiUnit ~= "player" or Player_OverPortrait(self)
+    return not Player_HealthPing(self)
 end
 
 local function Player_GetTargetInfo(self)
     return {
         guid = UnitGUID("player"),
-        isPlayerResource = self._euiUnit == "player" and not Player_OverPortrait(self),
+        isPlayerResource = Player_HealthPing(self),
     }
 end
 
