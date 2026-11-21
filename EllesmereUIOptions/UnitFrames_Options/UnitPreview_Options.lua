@@ -298,7 +298,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 if portraitModel then portraitModel:Hide() end
                 portraitTex:Show()
                 SetPortraitTexture(portraitTex, "player")
-                mirror = mirror and ns.UF_CanMirrorPortrait2D(EnsurePreviewModel(), "player")
+                -- The sample is the player: a player's 2D portrait always flips.
                 if mirror then
                     portraitTex:SetTexCoord(0.85, 0.15, 0.15, 0.85)
                 else
@@ -557,18 +557,18 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         elseif content == "curpp" then
             local maxPP = UnitPowerMax("player") or 100
             local ppPct = optState._previewPowerPct or 0.85
-            return ns.AbbreviateNumbers(math.floor(maxPP * ppPct))
+            return ns.AbbreviateValue(math.floor(maxPP * ppPct), "power")
         elseif content == "curmaxpp" then
             local maxPP = UnitPowerMax("player") or 100
             local ppPct = optState._previewPowerPct or 0.85
-            return ns.AbbreviateNumbers(math.floor(maxPP * ppPct)) .. " / " .. ns.AbbreviateNumbers(maxPP)
+            return ns.AbbreviateValue(math.floor(maxPP * ppPct), "power") .. " / " .. ns.AbbreviateValue(maxPP, "power")
         elseif content == "curhp_curpp" then
             local maxHP = UnitHealthMax("player") or 1
             local pct = optState._previewHealthPct or 0.70
             local curHP = math.floor(maxHP * pct)
             local maxPP = UnitPowerMax("player") or 100
             local ppPct2 = optState._previewPowerPct or 0.85
-            return _pvAbbrev(curHP, "health") .. " | " .. ns.AbbreviateNumbers(math.floor(maxPP * ppPct2))
+            return _pvAbbrev(curHP, "health") .. " | " .. ns.AbbreviateValue(math.floor(maxPP * ppPct2), "power")
         elseif content == "perhp_perpp" then
             local pct = optState._previewHealthPct or 0.70
             local ppPct3 = optState._previewPowerPct or 0.85
@@ -611,9 +611,9 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 elseif key == "hp:max:abr" then v = _pvAbbrev(maxHP, "maxHealth")
                 elseif key == "hp:pct" then v = _pvPct(optState._previewHealthPct or 0.70)
                 elseif key == "pp" then v = tostring(curPP)
-                elseif key == "pp:abr" then v = ns.AbbreviateNumbers(curPP)
+                elseif key == "pp:abr" then v = ns.AbbreviateValue(curPP, "power")
                 elseif key == "pp:max" then v = tostring(maxPP)
-                elseif key == "pp:max:abr" then v = ns.AbbreviateNumbers(maxPP)
+                elseif key == "pp:max:abr" then v = ns.AbbreviateValue(maxPP, "power")
                 elseif key == "pp:pct" then v = tostring(math.floor(ppPct * 100))
                 elseif key == "absorb" then v = PreviewTextForContent("absorb", s, prefix)
                 elseif key == "absorb:abr" then v = PreviewTextForContent("absorbshort", s, prefix)
@@ -1606,6 +1606,13 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
     local factionInd = combatIndHolder:CreateTexture(nil, "OVERLAY", nil, 6)
     factionInd:Hide()
     pf._factionIndicator = factionInd
+    -- PvP Flagged Timer sample beside it (player), behind its row's eye toggle.
+    if unitKey == "player" then
+        pf._pvPvpTimer = combatIndHolder:CreateFontString(nil, "OVERLAY", nil, 7)
+        pf._pvPvpTimer:SetTextColor(1, 1, 1)
+        pf._pvPvpTimer:SetWordWrap(false)
+        pf._pvPvpTimer:Hide()
+    end
     -- Raid marker / leader / elite previews, each behind its row's eye toggle
     -- (pf fields, not locals: this builder is long).
     pf._pvRaid = combatIndHolder:CreateTexture(nil, "OVERLAY", nil, 6)
@@ -2770,7 +2777,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 local ppPctVal = optState._previewPowerPct or 0.85
                 local ppPctRaw = math.floor(ppPctVal * 100)
                 local ppSuffix = (s.powerShowPercent == false) and "" or "%"
-                local ppCurFake = ns.AbbreviateNumbers(18200)
+                local ppCurFake = ns.AbbreviateValue(18200, "power")
                 local ppTxt
                 if ppFmt == "custom" then
                     ppTxt = PreviewTextForContent("custom", s, "powerText")
@@ -2779,7 +2786,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 elseif ppFmt == "curpp" then
                     ppTxt = ppCurFake
                 elseif ppFmt == "curmaxpp" then
-                    ppTxt = ppCurFake .. " / " .. ns.AbbreviateNumbers(22000)
+                    ppTxt = ppCurFake .. " / " .. ns.AbbreviateValue(22000, "power")
                 elseif ppFmt == "both" then
                     ppTxt = ppCurFake .. " | " .. ppPctRaw .. ppSuffix
                 else  -- "perpp"
@@ -3758,8 +3765,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 if ns.GetBossSimpleDebuffMode(s) ~= "none" then
                     showCDText = s.simpleDebuffShowCooldownText
                     cdTextSize = s.simpleDebuffCooldownTextSize or 14
-                    cdTOffX = s.simpleDebuffCooldownTextOffsetX or 0
-                    cdTOffY = s.simpleDebuffCooldownTextOffsetY or 0
+                    cdTOffX, cdTOffY = ns.GetBossSimpleCdTextOffset(s, false)
                 else
                     showCDText = s.debuffShowCooldownText
                     cdTextSize = s.debuffCooldownTextSize or 10
@@ -4182,9 +4188,13 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         -- Faction indicator preview, behind its row's eye toggle: your own faction
         -- on the player frame, the other faction on the target frame (what
         -- Opposite Faction shows).
+        -- The PvP Flagged Timer's eye shows the badge too: its sample sits beside it.
         if factionInd then
             local fMode = s.factionIndicatorMode or "off"
-            local fEye = ns._ufPvEyes and ns._ufPvEyes.faction
+            local fTimer = pf._pvPvpTimer
+            local fSide = fTimer and ns._ufPvEyes and ns._ufPvEyes.pvpTimer and s.factionIndicatorTimer
+            if fSide == "none" then fSide = nil end
+            local fEye = ns._ufPvEyes and (ns._ufPvEyes.faction or fSide)
             if (unitKey == "player" or unitKey == "target") and fMode ~= "off" and fEye then
                 local mine = UnitFactionGroup("player")
                 local fac = mine
@@ -4195,10 +4205,11 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 local fSz = s.factionIndicatorSize or 18
                 local fPos = s.factionIndicatorPosition or "topright"
                 local fOx, fOy = s.factionIndicatorX or 0, s.factionIndicatorY or 0
-                local fStyle = s.factionIndicatorStyle or "pvp"
+                local fStyle = s.factionIndicatorStyle or "crest"
                 -- The preview shows your own badge on both frames.
                 EllesmereUI.SetFactionArt(factionInd, fStyle, fac, EllesmereUI.FactionBadgeFor(fStyle, "player"))
-                factionInd:SetSize(fSz, fSz)
+                -- As live: an fSz box, the art centred in it at its own proportions.
+                EllesmereUI.FitFactionArt(factionInd, fSz)
                 factionInd:ClearAllPoints()
                 if fPos == "portrait" and portraitFrame and (sp or blizzG) then
                     factionInd:SetPoint("CENTER", portraitFrame, "CENTER", fOx, fOy)
@@ -4208,11 +4219,30 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                         (fPos == "bottomleft"  and "BOTTOMLEFT")  or
                         (fPos == "bottomright" and "BOTTOMRIGHT") or
                         "TOPRIGHT"
-                    factionInd:SetPoint(anchor, pf, anchor, fOx, fOy)
+                    local bx, by = EllesmereUI.FactionBoxCenter(anchor, fSz)
+                    factionInd:SetPoint("CENTER", pf, anchor, fOx + bx, fOy + by)
                 end
                 factionInd:Show()
+                -- The live text's anchors (TIMER_SIDES in EUI_UnitFrames_Init.lua).
+                local tp = (fSide == "left" and "RIGHT") or (fSide == "right" and "LEFT")
+                    or (fSide == "top" and "BOTTOM") or (fSide == "bottom" and "TOP")
+                if tp then
+                    local rp = (fSide == "left" and "LEFT") or (fSide == "right" and "RIGHT")
+                        or (fSide == "top" and "TOP") or "BOTTOM"
+                    local gx = (fSide == "left" and -2) or (fSide == "right" and 2) or 0
+                    local gy = (fSide == "top" and 2) or (fSide == "bottom" and -2) or 0
+                    SetPVFont(fTimer, PREVIEW_FONT, s.factionIndicatorTimerSize or 12)
+                    fTimer:SetText("4:59")
+                    fTimer:ClearAllPoints()
+                    fTimer:SetPoint(tp, factionInd, rp,
+                        gx + (s.factionIndicatorTimerX or 0), gy + (s.factionIndicatorTimerY or 0))
+                    fTimer:Show()
+                elseif fTimer then
+                    fTimer:Hide()
+                end
             else
                 factionInd:Hide()
+                if fTimer then fTimer:Hide() end
             end
         end
         -- Raid marker / leader / elite previews, shown by their rows' eye toggles

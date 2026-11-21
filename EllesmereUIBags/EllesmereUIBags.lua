@@ -2,7 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EllesmereUIBags.lua -- Enhanced Bags System for EllesmereUI (Midnight): sidebar category filter + flat item grid layout.
 -------------------------------------------------------------------------------
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.CreateQuantityDialog and EllesmereUI.ReleaseStaleHold and EllesmereUI.ForeverLookMajority and EllesmereUI.ForeverHeavyOK and EllesmereUI.ForeverHeavy and EllesmereUI.ForeverHeavySeat and EllesmereUI.ForeverHeavyTitle and EllesmereUI.ForeverBorder and EllesmereUI.ForeverBorderSeat and EllesmereUI.ForeverBorderPaint and EllesmereUI.CharData and EllesmereUI.CharGUID) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the stack splitter is the parent's quantity window; ReleaseStaleHold / DropHold, the sort's sound effects mute; the WoW Forever style draws the parent's Forever frames and follows its look majority; its per-character data is in the parent's roster: CharData, CharGUID)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.CreateQuantityDialog and EllesmereUI.ReleaseStaleHold and EllesmereUI.ForeverLookMajority and EllesmereUI.ForeverHeavyOK and EllesmereUI.ForeverHeavy and EllesmereUI.ForeverHeavySeat and EllesmereUI.ForeverHeavyTitle and EllesmereUI.ForeverBorder and EllesmereUI.ForeverBorderSeat and EllesmereUI.ForeverBorderPaint and EllesmereUI.CharData and EllesmereUI.CharGUID and EllesmereUI.ShowIconPicker) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the stack splitter is the parent's quantity window; ReleaseStaleHold / DropHold, the sort's sound effects mute; the WoW Forever style draws the parent's Forever frames and follows its look majority; its per-character data is in the parent's roster: CharData, CharGUID; Change Icon opens the parent's icon picker: ShowIconPicker)
 local ns = select(2, ...)
 EllesmereUI._ModuleNS["EllesmereUIBags"] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
@@ -11,7 +11,7 @@ EUI_Bags = CreateFrame("Frame", "EUI_MainBagFrame", UIParent)
 EUI_Bags:SetToplevel(true)
 EUI_Bags:Hide()
 -- Auto-size state: reset on close (next open sizes from its first/active tab);
--- while open it only grows, never shrinks.
+-- while open it only grows, and shrinks too with Auto-Size's Shrink on.
 EUI_Bags:HookScript("OnHide", function(self)
     -- WoW Forever and the Compact display size every open to its content: a hidden UI (Alt-Z) is not a close, keep the size.
     if (EllesmereUI.IS_FOREVER or EUI_Bags.IsCompactMode()) and self:IsShown() then return end
@@ -119,7 +119,10 @@ end
 -- family. Like the reagent bag they get their own category and sections and
 -- stay out of Main Bags, the header count, OneBag's sort, Auto Split and drop
 -- placement. nil on retail or with none equipped; the next call reuses the
--- set, so read it right away.
+-- set, so read it right away. A bag in the fifth slot (bag 5) is not in the
+-- set: it keeps the reagent bag's section, sort and split paths, and the
+-- header count leaves out only a quiver, ammo pouch or soul bag there
+-- (families 1, 2, 4; EUI_Bags:RefreshInventory).
 do
     local special = {}
     function ns.SpecialBags()
@@ -131,6 +134,16 @@ do
             if family and family ~= 0 then special[bag] = true; any = true end
         end
         return any and special or nil
+    end
+
+    -- WoW Forever: the bag family of the fifth slot's bag, the one read the
+    -- header count and OneBag's reagent routing share; each applies its own
+    -- rule (the count keeps families 1, 2, 4 out, the routing skips any
+    -- non-zero family). nil on retail.
+    function ns.FifthSlotFamily()
+        if not EllesmereUI.IS_FOREVER then return nil end
+        local _, family = C_Container.GetContainerNumFreeSlots(5)
+        return family
     end
 
     -- Auto Split's target bags for a stack in bag, in order: the reagent bag
@@ -297,14 +310,49 @@ local function PinnedItems(create)
 end
 ns.PinnedItems = PinnedItems
 
--- Default bag-type view ("all"|"onebag"|"multibag"), falling back to legacy
--- bagDefaultOneBag bool (imports converted in ApplyProfileData before DeepMergeDefaults masks it); exposed on EUI so bank file matches.
+-- The three bag views at the top of the sidebar, in their order, and the
+-- selection index of each (selectedCategoryIndex while no group is open).
+local BAG_VIEWS = { "all", "onebag", "multibag" }
+local BAG_VIEW_INDEX = { all = 0, onebag = -1, multibag = -2 }
+
+-- A view's sidebar row shows unless the sidebar's views menu hid it
+-- (bagHiddenViews: { all = true, onebag = true, multibag = true }, sparse, a
+-- shown view absent; in no defaults table). One of the three always shows: a
+-- profile that marks all three shows All Items.
+local function BagViewShown(key)
+    local hidden = BP().bagHiddenViews
+    if type(hidden) ~= "table" or hidden[key] ~= true then return true end
+    return key == "all" and hidden.onebag == true and hidden.multibag == true
+end
+-- The same by selection index: false only for a view whose row is hidden
+local function BagViewIndexShown(idx)
+    for i = 1, #BAG_VIEWS do
+        local key = BAG_VIEWS[i]
+        if BAG_VIEW_INDEX[key] == idx then return BagViewShown(key) end
+    end
+    return true
+end
+
+-- The view the bags open on ("all"|"onebag"|"multibag"): the Default Selected
+-- Bag (bagDefaultBagType, else the legacy bagDefaultOneBag bool, which imports
+-- convert in ApplyProfileData before DeepMergeDefaults masks it) while its
+-- sidebar row shows, else the first view that shows, in the order above. The
+-- setting itself is never written here. Exposed on EUI so the bank file matches.
 local function GetDefaultBagType()
-    local v = BP().bagDefaultBagType
-    if v == "all" or v == "onebag" or v == "multibag" then return v end
-    return BP().bagDefaultOneBag and "onebag" or "all"
+    local p = BP()
+    local v = p.bagDefaultBagType
+    if v ~= "all" and v ~= "onebag" and v ~= "multibag" then
+        v = p.bagDefaultOneBag and "onebag" or "all"
+    end
+    if p.bagHiddenViews == nil or BagViewShown(v) then return v end
+    for i = 1, #BAG_VIEWS do
+        if BagViewShown(BAG_VIEWS[i]) then return BAG_VIEWS[i] end
+    end
+    return "all"
 end
 EUI._GetBagDefaultType = GetDefaultBagType
+-- Its selection index: where the bags go when the open view or category goes
+function ns.OpenBagViewIndex() return BAG_VIEW_INDEX[GetDefaultBagType()] end
 
 -- Bag display mode ("grid" | "list" | "compact"), latched on the first read
 -- after the profile loads: switching needs a reload, so only one mode ever
@@ -330,12 +378,32 @@ end
 function EUI_Bags.AutoSizeOn()
     return BP().bagAutoSize == true and not EUI_Bags.IsListMode()
 end
+-- Auto-Size's height cap in the bag window's own scale: the Max Height share of
+-- the screen (Auto-Size cog, bagAutoSizeMaxPct), 95% when unset or screenOnly.
+-- The second return is true when the player's Max Height applies, so it also
+-- wins over the normal-size floor.
+function EUI_Bags.AutoSizeMaxH(screenOnly)
+    local sc = EUI_Bags:GetScale(); if not sc or sc <= 0 then sc = 1 end
+    local pct = not screenOnly and BP().bagAutoSizeMaxPct or nil
+    return (UIParent:GetHeight() / sc) * (pct or 95) / 100, pct ~= nil
+end
+-- Auto-Size's Shrink (its cog): the window follows the active tab down as well
+-- as up while open. Off: columns and height keep their running max until close.
+-- Takes the new size and the running max (nil before the first refresh). WoW
+-- Forever's content fit without Auto-Size stays grow-only.
+function EUI_Bags.AutoSizeNext(size, runningMax)
+    if not runningMax or (BP().bagAutoSizeShrink == true and EUI_Bags.AutoSizeOn()) then return size end
+    return math.max(runningMax, size)
+end
 
 local function ApplyBagScale()
     local s = BP().bagScale or 1
     if EUI_Bags then EUI_Bags:SetScale(s) end
     if EUI_BagsReagent then EUI_BagsReagent:SetScale(s) end
     if EUI_BagsWindow then EUI_BagsWindow:SetScale(s) end
+    -- WoW Forever's keyring popup, once it has been opened (EUI_Bags_Keyring.lua)
+    local keyring = EUI_Bags and EUI_Bags._keyringWin
+    if keyring then keyring:SetScale(s) end
 end
 
 -- Locale-safe gear detection: GetItemInfo type strings are localized ("Armor" only on enUS), so use GetItemInfoInstant's numeric classID.
@@ -459,6 +527,8 @@ end
 -- it set, and the files behind it return at their first lines.
 EllesmereUI.NewInternals(ns, "_bagsInternals", {
     _bankRouted = _bankRouted, AbbrevDungeon = AbbrevDungeon, ApplyBagScale = ApplyBagScale,
+    BAG_VIEW_INDEX = BAG_VIEW_INDEX, BAG_VIEWS = BAG_VIEWS, BagViewShown = BagViewShown,
+    BagViewIndexShown = BagViewIndexShown,
     BagsItemUnusable = BagsItemUnusable, BP = BP, CurrencyOrder = CurrencyOrder,
     GetAccentRGB = GetAccentRGB, GetCatTitleSize = GetCatTitleSize, GetColumns = GetColumns,
     GetDefaultBagType = GetDefaultBagType, GetFont = GetFont,

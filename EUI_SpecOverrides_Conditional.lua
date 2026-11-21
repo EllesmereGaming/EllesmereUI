@@ -72,7 +72,6 @@ local EXCLUDED_CONTEXTS = {
     ["EllesmereUIAuraBuffReminders"] = true,
     ["EllesmereUIForeverEssentials"] = true,
     ["EllesmereUIQuickdraw"]         = true,
-    ["EllesmereUILoadoutManager"]    = true,
     ["EllesmereUIGroupFinder"]       = true,
     ["EllesmereUISimpleLootCouncil"] = true,
     -- CDM: module eligible (bar settings override); these two tabs are

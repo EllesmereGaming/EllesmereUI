@@ -266,6 +266,7 @@ local function ApplyMinimap()
         end
     end
     minimap:SetHitRectInsets(0, 0, crop, crop)
+    EBS._ApplyPinCrop(mapSize, crop)
     if crop > 0 and not GetFFD(minimap).layoutFrame then
         local layout = CreateFrame("Frame", nil, UIParent)
         layout:EnableMouse(false)

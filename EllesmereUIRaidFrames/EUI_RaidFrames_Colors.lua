@@ -28,7 +28,7 @@ local UnitGetTotalHealAbsorbs = UnitGetTotalHealAbsorbs
 local InCombatLockdown      = InCombatLockdown
 local issecretvalue         = issecretvalue
 
-local AbbreviateNumbers, ApplyFont, defaults = I.AbbreviateNumbers, I.ApplyFont, I.defaults
+local ApplyFont, defaults = I.ApplyFont, I.defaults
 local DISPEL_COLORS, GetFFD, PixelSnap = I.DISPEL_COLORS, I.GetFFD, I.PixelSnap
 local unitToButton = I.unitToButton
 
@@ -911,7 +911,7 @@ do
         local max, abr = sfind(key, ":max", 1, true) ~= nil, sfind(key, ":abr", 1, true) ~= nil
         local status = kind == "hp" and not max
         local pctKey, perKey, sample = kind .. "Pct", kind .. "Per", SCHEMA[key].sample
-        local valueType = kind == "hp" and (max and "maxHealth" or "health") or nil
+        local valueType = kind == "hp" and (max and "maxHealth" or "health") or "power"
         return function(unit, s, pv)
             local st = status and Status(unit, pv)
             if st then return st end
@@ -923,10 +923,7 @@ do
             else
                 return sample
             end
-            if abr then
-                if valueType then return AbbreviateValue(v, valueType) end
-                return AbbreviateNumbers(v)
-            end
+            if abr then return AbbreviateValue(v, valueType) end
             return sformat("%d", v)
         end
     end
@@ -1081,14 +1078,10 @@ function ns.RF_HealthTextInto(fs, mode, pct, unit, perPct)
         fs:SetFormattedText("%.0f", pct)
     elseif mode == "number" then
         if unit then v = UnitHealth(unit, true) else v = pct * perPct end
-        if v and AbbreviateNumbers then
-            fs:SetText(AbbreviateValue(v, "health"))
-        elseif v then
-            fs:SetFormattedText("%s", v)
-        end
+        if v then fs:SetText(AbbreviateValue(v, "health")) end
     elseif mode == "numberPercent" or mode == "percentNumber" then
         if unit then v = UnitHealth(unit, true) else v = pct * perPct end
-        local numStr = (v and AbbreviateNumbers) and AbbreviateValue(v, "health") or tostring(v or 0)
+        local numStr = v and AbbreviateValue(v, "health") or "0"
         if mode == "numberPercent" then
             fs:SetFormattedText("%s | %.0f%%", numStr, pct)
         else
@@ -1097,13 +1090,7 @@ function ns.RF_HealthTextInto(fs, mode, pct, unit, perPct)
     elseif mode == "missing" then
         if unit then v = UnitHealthMissing(unit, true) else v = (100 - pct) * perPct end
         fs:SetText(C_StringUtil.TruncateWhenZero(v))
-        if fs:GetText() then
-            if v and AbbreviateNumbers then
-                fs:SetText(AbbreviateValue(v, "health"))
-            elseif v then
-                fs:SetFormattedText("%s", v)
-            end
-        end
+        if v and fs:GetText() then fs:SetText(AbbreviateValue(v, "health")) end
     else
         fs:SetText("")
         return false
@@ -1120,7 +1107,7 @@ function ns.FormatHealAbsorbInto(fs, amt, mode)
     if not fs then return end
     if not mode or mode == "none" then fs:SetText(""); return end
     fs:SetText(C_StringUtil.TruncateWhenZero(amt or 0))
-    if mode == "short" and AbbreviateNumbers and fs:GetText() then
+    if mode == "short" and fs:GetText() then
         fs:SetText(AbbreviateValue(amt or 0, "absorb"))
     end
 end
@@ -1200,7 +1187,7 @@ end
 -- (UnitPowerPercent, which can be secret in combat: it only ever reaches a format setter).
 -- unit + pType: the live unit, blank while dead or offline like Health Text (both checks return
 -- clean booleans for group units); its amount is read only in the modes that show it and goes
--- straight through AbbreviateNumbers into the setter, never compared. A preview (unit nil)
+-- straight through AbbreviateValue into the setter, never compared. A preview (unit nil)
 -- shows made-up amounts, perPct per percent. Returns false when it blanks the text (dead,
 -- offline, None or an unknown mode), otherwise true.
 function ns.RF_PowerTextInto(fs, mode, pct, unit, pType, perPct)
@@ -1214,7 +1201,7 @@ function ns.RF_PowerTextInto(fs, mode, pct, unit, pType, perPct)
         fs:SetFormattedText("%.0f", pct)
     elseif mode == "number" or mode == "numberPercent" or mode == "percentNumber" then
         local num
-        if unit then num = AbbreviateNumbers(UnitPower(unit, pType)) else num = AbbreviateNumbers(pct * perPct) end
+        if unit then num = AbbreviateValue(UnitPower(unit, pType), "power") else num = AbbreviateValue(pct * perPct, "power") end
         if mode == "number" then
             fs:SetText(num)
         elseif mode == "numberPercent" then

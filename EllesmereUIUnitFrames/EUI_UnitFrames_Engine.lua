@@ -537,6 +537,12 @@ local function Paint(frame, channel, event)
             return
         end
         stamps[channel] = gen
+        -- A painter that returns false leaves the channel open for the rest of
+        -- this hardware frame: a later event of the frame still reaches it (the
+        -- 2D portrait, whose art comes with UNIT_PORTRAIT_UPDATE, which can land
+        -- after UNIT_MODEL_CHANGED in one frame: a shapeshift sends both).
+        if fn(frame, frame._euiUnit, event) == false then stamps[channel] = key end
+        return
     end
     fn(frame, frame._euiUnit, event)
 end
@@ -924,6 +930,24 @@ local function Frame_DisableElement(self, elementName)
     if elementName == "Power" then ns.UF_PowerValSync(self) end
 end
 
+-- Player frame pings match Blizzard's PlayerFrame: off the portrait they
+-- call out the player's health instead of just the name.
+local function Player_OverPortrait(self)
+    local pt = self.Portrait and self.Portrait.backdrop
+    return pt and pt:IsVisible() and pt:IsMouseOver()
+end
+
+local function Player_GetAllowRadialWheel(self)
+    return self._euiUnit ~= "player" or Player_OverPortrait(self)
+end
+
+local function Player_GetTargetInfo(self)
+    return {
+        guid = UnitGUID("player"),
+        isPlayerResource = self._euiUnit == "player" and not Player_OverPortrait(self),
+    }
+end
+
 --- Spawns one secure unit button. The caller styles it and attaches engine
 --- channels afterward; RegisterUnitWatch owns show/hide from here on.
 function Engine.SpawnUnitFrame(unit, name)
@@ -936,8 +960,10 @@ function Engine.SpawnUnitFrame(unit, name)
     -- the whole chain secure, so secrets pass and enemy pings work exactly
     -- like the default frames (field-proven 2026-08-20). Hence the live
     -- token lives in `_euiUnit`, and GetIsPingable/GetTargetInfo are never
-    -- overridden here (raw override = securecopy error, secrecy-guarded
-    -- override = pings dead in all restricted content; both field-failed).
+    -- overridden for a unit that can be secret (raw override = securecopy
+    -- error, secrecy-guarded override = pings dead in all restricted
+    -- content; both field-failed). The player frame is the one exception:
+    -- it only reads the player's own GUID, which is never secret.
     local frame = CreateFrame("Button", name, petBattleHider,
         "SecureUnitButtonTemplate, PingableUnitFrameTemplate")
     frame._euiBaseUnit = unit
@@ -945,6 +971,10 @@ function Engine.SpawnUnitFrame(unit, name)
     frame.IsElementEnabled = Frame_IsElementEnabled
     frame.EnableElement = Frame_EnableElement
     frame.DisableElement = Frame_DisableElement
+    if unit == "player" then
+        frame.GetAllowRadialWheel = Player_GetAllowRadialWheel
+        frame.GetTargetInfo = Player_GetTargetInfo
+    end
     frame:SetAttribute("unit", unit)
     EllesmereUI.SetLeftClickTarget(frame)
     frame:SetAttribute("toggleForVehicle", true)

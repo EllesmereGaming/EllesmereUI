@@ -1487,7 +1487,7 @@ local function CollectAndReanchor()
                                 if base and base > 0 and _globalClaimSet[base] then hasClaim = true end
                             end
                             -- An entry an aura icon of ours draws (EUI_CDM_AuraIcons.lua:
-                            -- the WoW Forever Seals stand-in), native-first like a racial.
+                            -- a registered provider's spell ID), native-first like a racial.
                             local auraF = not hasClaim and ns.CDM_AuraIconFor
                                 and ns.CDM_AuraIconFor(barKey, sid)
                             if auraF then
@@ -2289,6 +2289,18 @@ local function CollectAndReanchor()
     -- WoW Forever: buff icons Blizzard draws without a timer
     -- (EUI_CDM_ForeverLinkedAura.lua).
     if ns.CDM_LinkedAuraPlaced then ns.CDM_LinkedAuraPlaced() end
+    -- Buff stacks on cooldown icons (EUI_CDM_CdBuffStacks.lua).
+    if ns.CDM_CdBuffStacksPlaced then ns.CDM_CdBuffStacksPlaced() end
+    -- An override's range tint follows its spell onto the frame Blizzard
+    -- gave it this time (EUI_CDM_Rotation.lua).
+    if ns.ReapplyOverrideRanges then ns.ReapplyOverrideRanges() end
+    -- A settings apply asked for one buff ticker pass after the placement it
+    -- queued (_ECME_Apply): the placeholders shown here take Desaturate Off CD.
+    if ns._btDirtyOnPlace then
+        ns._btDirtyOnPlace = nil
+        ns._btDirty = true
+        if ns.ArmBuffTicker then ns.ArmBuffTicker() end
+    end
 
     if not ns._initialReanchorDone then ns._initialReanchorDone = true end
 
@@ -2457,6 +2469,8 @@ local function CollectAndReanchor()
         for bk in pairs(ns._missingFlipBars) do ns.QueueShiftLayout(bk) end
         wipe(ns._missingFlipBars)
     end
+    -- WoW Forever: the Swing Timer swipe follows the icons this pass placed.
+    if ns.CDM_SwingSweepSync then ns.CDM_SwingSweepSync() end
 end
 
 -- Also Show Below (EllesmereUICdmHooks.lua): a deadline or the buff ticker

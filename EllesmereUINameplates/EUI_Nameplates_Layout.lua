@@ -495,10 +495,6 @@ local function GetRaidMarkerSize()
     return ns.NP_ElementSize("raidmarker")
 end
 ns.GetRaidMarkerSize = GetRaidMarkerSize
-local function GetRaidMarkerYOffset()
-    return 0
-end
-ns.GetRaidMarkerYOffset = GetRaidMarkerYOffset
 local function GetClassificationSlot()
     return (p and p.classificationSlot) or defaults.classificationSlot
 end
@@ -1336,6 +1332,31 @@ end
 function ns.GetClassPowerBorderSize()
     return (p and p.classPowerBorderSize) or defaults.classPowerBorderSize
 end
+function ns.GetClassPowerEnergyBar()
+    local v = p and p.classPowerEnergyBar
+    if v == nil then return defaults.classPowerEnergyBar end
+    return v
+end
+function ns.GetClassPowerEnergyHeight()
+    return (p and p.classPowerEnergyHeight) or defaults.classPowerEnergyHeight
+end
+function ns.GetClassPowerEnergyWidth()
+    return (p and p.classPowerEnergyWidth) or defaults.classPowerEnergyWidth
+end
+function ns.GetClassPowerEnergyAnchor()
+    return (p and p.classPowerEnergyAnchor) or defaults.classPowerEnergyAnchor
+end
+function ns.GetClassPowerEnergyXOffset()
+    return (p and p.classPowerEnergyXOffset) or defaults.classPowerEnergyXOffset
+end
+function ns.GetClassPowerEnergyYOffset()
+    return (p and p.classPowerEnergyYOffset) or defaults.classPowerEnergyYOffset
+end
+function ns.GetClassPowerEnergyHideFull()
+    local v = p and p.classPowerEnergyHideFull
+    if v == nil then return defaults.classPowerEnergyHideFull end
+    return v
+end
 local function IsBorderEnabled()
     -- The stock styles carry their own art instead of an EUI border: the
     -- stock background art (Blizzard Style), the vanilla border sheets
@@ -1496,6 +1517,8 @@ function ns.ApplyCastIconBorder(plate)
         bf:SetAllPoints(icon)
         bf:EnableMouse(false)
         plate._castIconBorder = bf
+        -- Built as the plate spawns: snap at the nameplate's settled scale.
+        EllesmereUI.SetBorderSnapHost(bf, plate)
     end
     local tex = p.customBorderTexture or defaults.customBorderTexture
     local sz = p.customBorderSize or defaults.customBorderSize
@@ -1606,6 +1629,9 @@ function ns.ApplySlotStrata(plate)
     end
     if plate.classFrame then
         plate.classFrame:SetFrameStrata(StrataFor(GetClassificationSlot()))
+    end
+    if plate.questFrame then
+        plate.questFrame:SetFrameStrata(StrataFor(GetClassificationSlot()))
     end
     if plate.factionFrame then
         plate.factionFrame:SetFrameStrata(StrataFor(ns.NP_GetFactionSlot()))
@@ -1856,6 +1882,8 @@ local function PlaceArrow(plate, arrow, side, extent, aw, ah)
     elseif row and ry < a1 and a0 < ry + rh then
         local icon = ns.NP_FullIconPush(plate, side, a0, a1)
         if icon > 0 and ns.NP_FullIconPush(plate, side, ry, ry + rh) == 0 then x = x + icon end
+        -- The row starts the side aura gap off the bar: an empty one leaves the arrow where a bare side puts it.
+        x = x - GetSideAuraXOffset()
         local cy = barH / 2 - ry
         local corner = (side == "left") and "BOTTOMLEFT" or "BOTTOMRIGHT"
         if side == "left" then x = -x end
@@ -1876,7 +1904,7 @@ local function PlaceArrow(plate, arrow, side, extent, aw, ah)
 end
 
 -- Position target arrows outside the side elements they meet: the cast icon, the side-slot
--- icons (raid marker, classification, faction, Quest Objective Text) and a side aura row. An
+-- icons (raid marker, Elite/Rare and Quest indicators, faction, Quest Objective Text) and a side aura row. An
 -- element its slot's Y offset moved clear of the arrows (above or below them) is passed over.
 local function PositionArrowsOutsideAuras(plate)
     if not plate.leftArrow then return end
@@ -1894,21 +1922,28 @@ local function PositionArrowsOutsideAuras(plate)
         local r = ArrowSideReach(plate, rmPos, ry, GetRaidMarkerSize(), rx, ah)
         if rmPos == "left" then leftExtent = math.max(leftExtent, r) else rightExtent = math.max(rightExtent, r) end
     end
-    -- The Rare/Quest icon at the size its update set (elite/rare mark or quest icon).
+    -- The elite/rare mark and the quest icon, each at the size its update set.
     local clSlot = GetClassificationSlot()
-    local cf = plate.classFrame
-    if (clSlot == "left" or clSlot == "right") and cf and cf:IsShown() then
+    if clSlot == "left" or clSlot == "right" then
         local cx, cy = GetAuraSlotOffsets("classification")
-        local r = ArrowSideReach(plate, clSlot, cy, cf._npSz or GetRareEliteIconSize(), cx, ah)
+        local cf, qi = plate.classFrame, plate.questFrame
+        local r = 0
+        if cf and cf:IsShown() then
+            r = ArrowSideReach(plate, clSlot, cy, cf._npSz or GetRareEliteIconSize(), cx, ah)
+        end
+        if qi and qi:IsShown() then
+            r = math.max(r, ArrowSideReach(plate, clSlot, cy, qi._npSz or GetRareEliteIconSize(), cx, ah))
+        end
         if clSlot == "left" then leftExtent = math.max(leftExtent, r) else rightExtent = math.max(rightExtent, r) end
     end
     -- The faction badge (its own, or Rare/Quest + Faction, stacked higher behind a showing
-    -- Rare/Quest icon as UpdateFaction places it).
+    -- indicator as UpdateFaction places it).
     local fcSlot = ns.NP_GetFactionSlot()
     if (fcSlot == "left" or fcSlot == "right") and plate.factionFrame and plate.factionFrame:IsShown() then
         local fx, fy = GetSlotOffsets(fcSlot)
-        if p and p.classificationIncludeFaction and cf:IsShown() then
-            fy = fy + math.floor((cf._npSz or GetRareEliteIconSize()) * 0.6 + 0.5)
+        local ride = p and p.classificationIncludeFaction and ns.NP_RideFrame(plate)
+        if ride then
+            fy = fy + math.floor((ride._npSz or GetRareEliteIconSize()) * 0.6 + 0.5)
         end
         local r = ArrowSideReach(plate, fcSlot, fy, ns.NP_GetFactionIconSize(), fx, ah)
         if fcSlot == "left" then leftExtent = math.max(leftExtent, r) else rightExtent = math.max(rightExtent, r) end

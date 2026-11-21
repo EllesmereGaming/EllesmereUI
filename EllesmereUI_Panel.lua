@@ -4424,7 +4424,6 @@ do
         EllesmereUIBags = true,
         EllesmereUIDataBars = true,
         EllesmereUIQuickdraw = true,
-        EllesmereUILoadoutManager = true,
         EllesmereUIGroupFinder = true,
         EllesmereUIForeverEssentials = true,
         EllesmereUISimpleLootCouncil = true,
@@ -4697,6 +4696,8 @@ local function PagePassBody(cacheKey, pageName, config, refresh)
     local ok, totalH = true, 0
     if config.buildPage then
         EllesmereUI._passReadSearchFlag = nil
+        -- A card context left set by a build that errored.
+        EllesmereUI._searchContext = nil
         EllesmereUI._buildingModule = activeModule
         EllesmereUI._buildingPage = pageName
         local h
@@ -5110,7 +5111,8 @@ end
 --  Reset EUI Module Settings (Global Settings): the suite's module resets
 --  in one menu, each behind the typed confirm. A module's config may set
 --  resetScope ("account": settings every profile shares, "character": this
---  character's own; default: the current profile) and resetMessage (a
+--  character's own; default: the current profile), resetDisclaimer (its own
+--  scope line, for a module whose settings mix those) and resetMessage (a
 --  string, or a function returning one, in place of the standard question).
 --  The reset runs as RequestReload's pre-reload work, as Reset ALL's wipe does.
 -------------------------------------------------------------------------------
@@ -5129,7 +5131,7 @@ local function ConfirmModuleReset(key, name)
     EllesmereUI:ShowConfirmPopup({
         title         = title,
         message       = msg or EllesmereUI.Lf("Are you sure you want to reset all %1$s settings to their defaults? This will reload your UI.", name),
-        disclaimer    = EllesmereUI.L(RESET_SCOPE_TEXT[config.resetScope] or RESET_SCOPE_TEXT.profile),
+        disclaimer    = EllesmereUI.L(config.resetDisclaimer or RESET_SCOPE_TEXT[config.resetScope] or RESET_SCOPE_TEXT.profile),
         typeToConfirm = "Confirm",
         confirmText   = "Reset & Reload",
         cancelText    = "Cancel",
@@ -5723,7 +5725,7 @@ end
 --  (a module can opt out of the latter with searchPrebuild = false).
 --  Developer guide: PLUGINS_API.md.
 -------------------------------------------------------------------------------
-EllesmereUI.PLUGIN_API_VERSION = 5
+EllesmereUI.PLUGIN_API_VERSION = 6
 
 do
     local PREFIX          = EUI_NS.PLUGIN_PREFIX

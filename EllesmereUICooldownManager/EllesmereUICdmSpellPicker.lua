@@ -122,16 +122,84 @@ ns.IsVariantOf         = IsVariantOf
 -- one entry (the highest rank known), so a bar lists a spell once, under any
 -- of its ranks: list presence (FindVariantIndex below), the options normalize
 -- pass, the keep/drop pass and the picker's on-bar mark all match ranks by
--- this name. nil off Forever. Names are client spell data, the same all
--- session; a name the client has not loaded yet is not kept.
+-- this key: the name plus the spell's original icon, since some languages give
+-- two different spells one name (Blood Fury and Bloodrage on zhCN) and their
+-- icons tell them apart. The icon only ever parts spells of DIFFERENT catalogue
+-- entries: icons of one name that one entry lists together (its spell and its
+-- linked spells: its ranks, and auras such as Stormstrike's or Mark of the
+-- Wild's that carry another icon) are one class, read once Blizzard's catalogue
+-- has loaded (ns._cdmDataLoaded), so whatever one entry lists matches by name
+-- alone, as before the icon. nil off Forever. Names are client spell data, the
+-- same all session; a name the client has not loaded yet is not kept.
 local RankName
 if EllesmereUI.IS_FOREVER then
     local names = {}
+    -- "name|icon" -> the key of its class; nil until the catalogue is read.
+    local iconClass
+    local function OwnKey(id)
+        local n = C_Spell.GetSpellName(id)
+        if not n then return nil end
+        local _, icon = C_Spell.GetSpellTexture(id)
+        if not icon then return nil end
+        return n .. "|" .. icon, n
+    end
+    -- Every entry of the character's static catalogue (all categories, unlearned
+    -- and hidden-by-default ones included: the set Blizzard's settings build
+    -- from), spells of one name in one entry joined. Classes chain (union-find).
+    local function BuildIconClasses()
+        local classes, parent, anchor = {}, {}, {}
+        local function Find(k)
+            local p = parent[k]
+            while p do k = p; p = parent[k] end
+            return k
+        end
+        local function Member(sid)
+            if not _IsUsableSID(sid) then return end
+            local k, n = OwnKey(sid)
+            if not k then return end
+            local a = anchor[n]
+            if a == nil then
+                anchor[n] = k
+            else
+                local ra, rk = Find(a), Find(k)
+                if ra ~= rk then parent[rk] = ra end
+            end
+            classes[k] = true
+        end
+        local CV = C_CooldownViewer
+        local getSet = CV and CV.GetCooldownViewerCategorySet
+        local getInfo = CV and CV.GetCooldownViewerCooldownInfo
+        if getSet and getInfo then
+            for cat = 0, 8 do
+                local ok, ids = pcall(getSet, cat, true)
+                if ok and type(ids) == "table" then
+                    for i = 1, #ids do
+                        local okI, info = pcall(getInfo, ids[i])
+                        if okI and type(info) == "table" then
+                            wipe(anchor)
+                            Member(info.spellID)
+                            local linked = info.linkedSpellIDs
+                            if type(linked) == "table" then
+                                for j = 1, #linked do Member(linked[j]) end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        for k in pairs(classes) do classes[k] = Find(k) end
+        return classes
+    end
     RankName = function(id)
         if not _IsUsableSID(id) then return nil end
+        if not iconClass and ns._cdmDataLoaded then
+            iconClass = BuildIconClasses()
+            wipe(names)
+        end
         local n = names[id]
         if n == nil then
-            n = C_Spell.GetSpellName(id)
+            n = OwnKey(id)
+            if n and iconClass then n = iconClass[n] or n end
             if n then names[id] = n end
         end
         return n
@@ -664,8 +732,8 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
     local isBuffType = ns.IsBarBuffFamily and ns.IsBarBuffFamily(barKey) or false
 
     -- Variant-keyed lookup of spells already on THIS bar (for onEUIBar flag).
-    -- WoW Forever: plus their names, so a spell listed under another rank
-    -- reads as on the bar (RankName above).
+    -- WoW Forever: plus their rank keys, so a spell listed under another rank
+    -- reads as on the bar (RankName above; read with RankName, never the name).
     local ourPool = {}
     local ourNames = RankName and {}
     local sd = ns.GetBarSpellData(barKey)
@@ -689,7 +757,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
         local tex  = C_Spell.GetSpellTexture(sid)
         if name then
             local isOnThisBar = (ResolveVariantValue(ourPool, sid) == true)
-                or (ourNames ~= nil and ourNames[name] == true)
+                or (ourNames ~= nil and ourNames[RankName(sid) or false] == true)
             spells[#spells + 1] = {
                 cdID        = e.cdID,
                 spellID     = sid,
@@ -734,7 +802,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                             cdmCat      = (evc and ce.category == evc.Utility) and 10000 or 0,
                             cdmCatGroup = "cooldown",
                             onEUIBar    = (ResolveVariantValue(ourPool, ce.sid) == true)
-                                or (ourNames ~= nil and ourNames[name] == true),
+                                or (ourNames ~= nil and ourNames[RankName(ce.sid) or false] == true),
                             isKnown     = known,
                         }
                         StoreVariantValue(seenSid, ce.sid, true, false)
@@ -771,7 +839,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                             cdmCat      = 0,  -- single buff viewer bucket
                             cdmCatGroup = "buff",
                             onEUIBar    = (ResolveVariantValue(ourPool, ce.sid) == true)
-                                or (ourNames ~= nil and ourNames[name] == true),
+                                or (ourNames ~= nil and ourNames[RankName(ce.sid) or false] == true),
                             isKnown     = known,
                         }
                         StoreVariantValue(seenSid, ce.sid, true, false)
@@ -1657,6 +1725,8 @@ local _cdmSpellCacheDirty = true
 
 function ns.MarkCDMSpellCacheDirty()
     _cdmSpellCacheDirty = true
+    -- Buff Stacks' eligibility (EUI_CDM_CdBuffStacks.lua, loaded later).
+    if ns.CdBuffStacksInvalidate then ns.CdBuffStacksInvalidate() end
 end
 
 local function RebuildCDMSpellCaches()
@@ -2094,6 +2164,8 @@ function ns.RemoveTrackedSpell(barKey, idx)
     if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
     if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
     if ns.QueueReanchor then ns.QueueReanchor() end
+    -- Drop a removed aura-tracked custom from its bar's engine strip now.
+    if ns.UpdateCustomBuffAuraTracking then ns.UpdateCustomBuffAuraTracking() end
     return true
 end
 

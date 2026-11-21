@@ -15,11 +15,8 @@ if not EllesmereUI._ModuleNS["EllesmereUIQoL"] then return end  -- module disabl
 local function AlertCogRows(prefix, applyFrame, preview)
     local D = (EllesmereUI.Alerts and EllesmereUI.Alerts.DEFAULTS[prefix])
         or { text = "", color = { r = 1, g = 1, b = 1 } }
-    local function db(k) return EllesmereUIDB and EllesmereUIDB[prefix .. k] end
-    local function put(k, v)
-        if not EllesmereUIDB then EllesmereUIDB = {} end
-        EllesmereUIDB[prefix .. k] = v
-    end
+    local function db(k) return EllesmereUI.QoLExtrasGet(prefix .. k) end
+    local function put(k, v) EllesmereUI.QoLExtrasSet(prefix .. k, v) end
     return {
         { type="input", label="Text", inputWidth=130,
           get=function() return db("Text") or D.text end,
@@ -62,22 +59,20 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
         { type="toggle", text="Combat Alert",
           tooltip="Shows a large on-screen text when you enter and/or leave combat (e.g. \"+Combat\" / \"-Combat\"). Use the cog to set the display text, size, colors and which transitions are shown; use Unlock Mode to reposition the alert.",
           getValue=function()
-              return EllesmereUIDB and EllesmereUIDB.combatAlertEnabled or false
+              return EllesmereUI.QoLExtrasGet("combatAlertEnabled") or false
           end,
           setValue=function(v)
-              if not EllesmereUIDB then EllesmereUIDB = {} end
-              EllesmereUIDB.combatAlertEnabled = v
+              EllesmereUI.QoLExtrasSet("combatAlertEnabled", v)
               if EllesmereUI._applyCombatAlert then EllesmereUI._applyCombatAlert() end
               EllesmereUI:RefreshPage()
           end },
         { type="toggle", text="Potion Ready Alert",
           tooltip="Shows on-screen text when a potion you used is off cooldown again. Use the cog to set the text, size and color; use Unlock Mode to reposition the alerts.",
           getValue=function()
-              return EllesmereUIDB and EllesmereUIDB.potionAlertEnabled or false
+              return EllesmereUI.QoLExtrasGet("potionAlertEnabled") or false
           end,
           setValue=function(v)
-              if not EllesmereUIDB then EllesmereUIDB = {} end
-              EllesmereUIDB.potionAlertEnabled = v
+              EllesmereUI.QoLExtrasSet("potionAlertEnabled", v)
               if EllesmereUI._applyPotionAlert then EllesmereUI._applyPotionAlert() end
               EllesmereUI:RefreshPage()
           end }
@@ -88,38 +83,36 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
         { type="toggle", text="Unspent Talents Alert",
           tooltip="Shows on-screen text while you have unspent talent points. It stays up until you spend them or open your talents, and returns after a level-up. Use the cog to set the text, size and color; use Unlock Mode to reposition the alerts.",
           getValue=function()
-              return EllesmereUIDB and EllesmereUIDB.talentAlertEnabled or false
+              return EllesmereUI.QoLExtrasGet("talentAlertEnabled") or false
           end,
           setValue=function(v)
-              if not EllesmereUIDB then EllesmereUIDB = {} end
-              EllesmereUIDB.talentAlertEnabled = v
+              EllesmereUI.QoLExtrasSet("talentAlertEnabled", v)
               if EllesmereUI._applyTalentAlert then EllesmereUI._applyTalentAlert() end
               EllesmereUI:RefreshPage()
           end },
         { type="toggle", text="Announce Group Deaths",
           tooltip="Shows a large on-screen alert (e.g. \"Player DIED!\") whenever a party or raid member dies, so you immediately notice deaths during dungeons and raids. Use Unlock Mode to reposition the alert.",
           getValue=function()
-              return EllesmereUIDB and EllesmereUIDB.announceGroupDeaths or false
+              return EllesmereUI.QoLExtrasGet("announceGroupDeaths") or false
           end,
           setValue=function(v)
-              if not EllesmereUIDB then EllesmereUIDB = {} end
-              EllesmereUIDB.announceGroupDeaths = v
+              EllesmereUI.QoLExtrasSet("announceGroupDeaths", v)
               if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
               EllesmereUI:RefreshPage()
           end }
     );  y = y - h
 
     -- Inline cog (text, size, colors, mode) on the Combat Alert toggle.
-    if not EllesmereUI._prebuilding then
+    do
         local leftRgn = row1._leftRegion
         local function caOff()
-            return not (EllesmereUIDB and EllesmereUIDB.combatAlertEnabled)
+            return not EllesmereUI.QoLExtrasGet("combatAlertEnabled")
         end
         local function enterClassOn()
-            return EllesmereUIDB and EllesmereUIDB.combatAlertEnterUseClassColor
+            return EllesmereUI.QoLExtrasGet("combatAlertEnterUseClassColor")
         end
         local function leaveClassOn()
-            return EllesmereUIDB and EllesmereUIDB.combatAlertLeaveUseClassColor
+            return EllesmereUI.QoLExtrasGet("combatAlertLeaveUseClassColor")
         end
 
         local caModeValues = {
@@ -135,76 +128,68 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
             rows = {
                 { type="dropdown", label="Show On",
                   values=caModeValues, order=caModeOrder,
-                  get=function() return (EllesmereUIDB and EllesmereUIDB.combatAlertMode) or "both" end,
+                  get=function() return EllesmereUI.QoLExtrasGet("combatAlertMode") or "both" end,
                   set=function(v)
-                    if not EllesmereUIDB then EllesmereUIDB = {} end
-                    EllesmereUIDB.combatAlertMode = v
+                    EllesmereUI.QoLExtrasSet("combatAlertMode", v)
                   end },
                 { type="slider", label="Text Size",
                   min=14, max=64, step=1,
                   get=function()
-                    return (EllesmereUIDB and EllesmereUIDB.combatAlertTextSize) or 22
+                    return EllesmereUI.QoLExtrasGet("combatAlertTextSize") or 22
                   end,
                   set=function(v)
-                    if not EllesmereUIDB then EllesmereUIDB = {} end
-                    EllesmereUIDB.combatAlertTextSize = v
+                    EllesmereUI.QoLExtrasSet("combatAlertTextSize", v)
                     if EllesmereUI._applyCombatAlertFrame then EllesmereUI._applyCombatAlertFrame() end
                     if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("enter") end
                   end },
                 { type="input", label="Enter Text", inputWidth=90,
                   get=function()
-                    return (EllesmereUIDB and EllesmereUIDB.combatAlertEnterText) or "+Combat"
+                    return EllesmereUI.QoLExtrasGet("combatAlertEnterText") or "+Combat"
                   end,
                   set=function(v)
-                    if not EllesmereUIDB then EllesmereUIDB = {} end
-                    EllesmereUIDB.combatAlertEnterText = v
+                    EllesmereUI.QoLExtrasSet("combatAlertEnterText", v)
                     if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("enter") end
                   end },
                 { type="colorpicker", label="Enter Color",
                   disabled=enterClassOn,
                   disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
                   get=function()
-                    local c = (EllesmereUIDB and EllesmereUIDB.combatAlertEnterColor) or { r=1.00, g=1.00, b=1.00 }
+                    local c = EllesmereUI.QoLExtrasGet("combatAlertEnterColor") or { r=1.00, g=1.00, b=1.00 }
                     return c.r, c.g, c.b
                   end,
                   set=function(r, g, b)
-                    if not EllesmereUIDB then EllesmereUIDB = {} end
-                    EllesmereUIDB.combatAlertEnterColor = { r=r, g=g, b=b }
+                    EllesmereUI.QoLExtrasSet("combatAlertEnterColor", { r=r, g=g, b=b })
                     if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("enter") end
                   end },
                 { type="toggle", label="Enter Class Color",
                   get=function() return enterClassOn() end,
                   set=function(v)
-                    if not EllesmereUIDB then EllesmereUIDB = {} end
-                    EllesmereUIDB.combatAlertEnterUseClassColor = v
+                    EllesmereUI.QoLExtrasSet("combatAlertEnterUseClassColor", v)
                     if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("enter") end
                   end },
                 { type="input", label="Leave Text", inputWidth=90,
                   get=function()
-                    return (EllesmereUIDB and EllesmereUIDB.combatAlertLeaveText) or "-Combat"
+                    return EllesmereUI.QoLExtrasGet("combatAlertLeaveText") or "-Combat"
                   end,
                   set=function(v)
-                    if not EllesmereUIDB then EllesmereUIDB = {} end
-                    EllesmereUIDB.combatAlertLeaveText = v
+                    EllesmereUI.QoLExtrasSet("combatAlertLeaveText", v)
                     if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("leave") end
                   end },
                 { type="colorpicker", label="Leave Color",
                   disabled=leaveClassOn,
                   disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
                   get=function()
-                    local c = (EllesmereUIDB and EllesmereUIDB.combatAlertLeaveColor) or { r=1.00, g=1.00, b=1.00 }
+                    local c = EllesmereUI.QoLExtrasGet("combatAlertLeaveColor") or { r=1.00, g=1.00, b=1.00 }
                     return c.r, c.g, c.b
                   end,
                   set=function(r, g, b)
-                    if not EllesmereUIDB then EllesmereUIDB = {} end
-                    EllesmereUIDB.combatAlertLeaveColor = { r=r, g=g, b=b }
+                    EllesmereUI.QoLExtrasSet("combatAlertLeaveColor", { r=r, g=g, b=b })
                     if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("leave") end
                   end },
                 { type="toggle", label="Leave Class Color",
                   get=function() return leaveClassOn() end,
                   set=function(v)
-                    if not EllesmereUIDB then EllesmereUIDB = {} end
-                    EllesmereUIDB.combatAlertLeaveUseClassColor = v
+                    EllesmereUI.QoLExtrasSet("combatAlertLeaveUseClassColor", v)
                     if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("leave") end
                   end },
             },
@@ -214,14 +199,14 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
     end
 
 
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(row1._rightRegion, {
             title = "Potion Ready Alert Settings",
             minWidth = 300,
             rows = AlertCogRows("potionAlert", "_potionAlertFrame", "_potionAlertPreview"),
             footer = { unlockKey = "EUI_CombatAlert" },
             gap = 9,
-            disabled = function() return not (EllesmereUIDB and EllesmereUIDB.potionAlertEnabled) end,
+            disabled = function() return not EllesmereUI.QoLExtrasGet("potionAlertEnabled") end,
             disabledTooltip = "Potion Ready Alert",
         })
         EllesmereUI.BuildInlineCog(row2._leftRegion, {
@@ -230,13 +215,13 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
             rows = AlertCogRows("talentAlert", "_talentAlertFrame", "_talentAlertPreview"),
             footer = { unlockKey = "EUI_CombatAlert" },
             gap = 9,
-            disabled = function() return not (EllesmereUIDB and EllesmereUIDB.talentAlertEnabled) end,
+            disabled = function() return not EllesmereUI.QoLExtrasGet("talentAlertEnabled") end,
             disabledTooltip = "Unspent Talents Alert",
         })
 
         -- Inline cog (Text Size, Sound) on the Announce Group Deaths toggle
         local function deathOff()
-            return not (EllesmereUIDB and EllesmereUIDB.announceGroupDeaths)
+            return not EllesmereUI.QoLExtrasGet("announceGroupDeaths")
         end
 
         -- Sound dropdown: the group death sounds with a click-to-preview
@@ -249,22 +234,20 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
                 { type="slider", label="Text Size",
                   min=14, max=64, step=1,
                   get=function()
-                    return (EllesmereUIDB and EllesmereUIDB.groupDeathTextSize) or 34
+                    return EllesmereUI.QoLExtrasGet("groupDeathTextSize") or 34
                   end,
                   set=function(v)
-                    if not EllesmereUIDB then EllesmereUIDB = {} end
-                    EllesmereUIDB.groupDeathTextSize = v
+                    EllesmereUI.QoLExtrasSet("groupDeathTextSize", v)
                     if EllesmereUI._applyGroupDeathAlert then EllesmereUI._applyGroupDeathAlert() end
                     if EllesmereUI._groupDeathShowVisual then EllesmereUI._groupDeathShowVisual() end
                   end },
                 { type="dropdown", label="Sound",
                   values=gdSoundValues, order=gdSoundOrder,
                   get=function()
-                    return (EllesmereUIDB and EllesmereUIDB.groupDeathSoundKey) or "none"
+                    return EllesmereUI.QoLExtrasGet("groupDeathSoundKey") or "none"
                   end,
                   set=function(v)
-                    if not EllesmereUIDB then EllesmereUIDB = {} end
-                    EllesmereUIDB.groupDeathSoundKey = v
+                    EllesmereUI.QoLExtrasSet("groupDeathSoundKey", v)
                     if v ~= "none" and EllesmereUI._groupDeathPlaySound then
                         EllesmereUI._groupDeathPlaySound()
                     end

@@ -24,6 +24,8 @@ local SIDEBAR_PAD, SIDEBAR_W_COLLAPSED = I.SIDEBAR_PAD, I.SIDEBAR_W_COLLAPSED
 local SIDEBAR_W_EXPANDED, PinnedItems = I.SIDEBAR_W_EXPANDED, I.PinnedItems
 local SetSelectedCategoryIndex = I.SetSelectedCategoryIndex
 local SetSelectedGroupName = I.SetSelectedGroupName
+local BAG_VIEWS, BAG_VIEW_INDEX, BagViewShown = I.BAG_VIEWS, I.BAG_VIEW_INDEX, I.BagViewShown
+local BagViewIndexShown, _slotCategories = I.BagViewIndexShown, I._slotCategories
 
 -- Shared state: one copy per file. A write goes through the Set<Name>
 -- function of ns._bagsInternals, which hands the value to every copy.
@@ -39,13 +41,17 @@ local _sidebarBtns = {}  -- array of sidebar button frames
 
 -- 0 while collapsed under Hide Sidebar Icons When Collapsed (default off): the
 -- sidebar hides and its expand arrow sits left of the window title.
--- fixed views up top: all items, onebag, multibag, plus bank when offline bank is on
+-- fixed views up top: all items, onebag and multibag while their rows show
+-- (the views menu hides them), plus bank when offline bank is on
 local function OfflineBankOn()
     return (ns.Offline and ns.Offline.Enabled()) and true or false
 end
 -- ...and one entry per virtual view another addon registered (none: no cost)
 local function FixedViewCount()
-    local n = OfflineBankOn() and 4 or 3
+    local n = OfflineBankOn() and 1 or 0
+    for i = 1, #BAG_VIEWS do
+        if BagViewShown(BAG_VIEWS[i]) then n = n + 1 end
+    end
     local views = EUI_CategoryManager:GetViews()
     return views and (n + #views) or n
 end
@@ -737,19 +743,25 @@ local function CreateSidebar()
     titleArrow._icon:SetRotation(math.pi)
     titleArrow:Hide()
 
+    -- With Anchor to Nearest Corner a window parked on the right keeps its right
+    -- edge by its anchor. Without it, a window right of the screen's middle is
+    -- moved to keep that edge and pinned there by its top-left corner.
     local function ToggleSidebar()
-        local center = EUI_Bags:GetCenter()
-        local screenW = UIParent:GetWidth()
-        local onRightSide = center and screenW and (center > screenW / 2)
-        local oldRight = onRightSide and EUI_Bags:GetRight() or nil
-        local oldTop = onRightSide and EUI_Bags:GetTop() or nil
+        local oldRight, oldTop
+        if not ns.WindowCornerOn() then
+            local center = EUI_Bags:GetCenter()
+            local screenW = UIParent:GetWidth()
+            if center and screenW and center > screenW / 2 then
+                oldRight, oldTop = EUI_Bags:GetRight(), EUI_Bags:GetTop()
+            end
+        end
 
         BP().bagSidebarCollapsed = not BP().bagSidebarCollapsed
         UpdateCollapseArrow()
         sidebar:SetWidth(GetSidebarContentWidth(sidebar))
         EUI_Bags:RefreshInventory()
 
-        if onRightSide and oldRight and oldTop then
+        if oldRight and oldTop then
             local left = oldRight - EUI_Bags:GetWidth()
             EUI_Bags:ClearAllPoints()
             EUI_Bags:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, oldTop)
@@ -842,6 +854,105 @@ function ns.ShowCategoryTip()
     tip:SetPoint("LEFT", target, "RIGHT", 12, 0)
     if not tip:IsShown() then EllesmereUI.ShowTipCallout(tip) end
 end
+
+-------------------------------------------------------------------------------
+--  The views menu: a right click on the All Items, OneBag, MultiBag, Pinned
+--  Items or Recent Items row lists those five, each ticked while its row
+--  shows. Pinned Items and Recent Items are their Show switches
+--  (bagShowPinnedItems / bagShowRecentItems, as in the options); the three
+--  views hide from the sidebar alone (bagHiddenViews), and the last of them
+--  that shows cannot be unticked. On the Pinned Items and Recent Items rows
+--  the category's own entries follow (ShowCategoryContextMenu).
+-------------------------------------------------------------------------------
+local VIEW_ICONS = { all = 133633, onebag = 133634, multibag = 133635 }
+-- The two categories' Show switches, each with the flag its category carries
+local SHOW_SWITCHES = {
+    { key = "bagShowPinnedItems", flag = "isPinned", label = "Pinned Items" },
+    { key = "bagShowRecentItems", flag = "isRecent", label = "Recent Items" },
+}
+
+-- A view's name, translated where it is drawn
+local function ViewLabel(key)
+    if key == "onebag" then return EllesmereUI.L("OneBag") end
+    if key == "multibag" then return EllesmereUI.L("MultiBag") end
+    return EllesmereUI.L("All Items")
+end
+
+-- A view's sidebar entry (one per shown view and sidebar build)
+local function ViewEntry(key, count)
+    return { catIdx = BAG_VIEW_INDEX[key], name = ViewLabel(key), icon = VIEW_ICONS[key], count = count }
+end
+
+-- A view's box can change while it is hidden or another of the three shows
+local function ViewBoxEnabled(key)
+    if not BagViewShown(key) then return true end
+    for i = 1, #BAG_VIEWS do
+        local other = BAG_VIEWS[i]
+        if other ~= key and BagViewShown(other) then return true end
+    end
+    return false
+end
+
+-- The open row was just hidden: the bags show the view they open on
+local function LeaveOpenRow()
+    SetSelectedCategoryIndex(ns.OpenBagViewIndex())
+    if EUI_Bags._scrollFrame then EUI_Bags._scrollFrame:SetVerticalScroll(0) end
+end
+
+local function ToggleViewBox(key)
+    local p = BP()
+    local hidden = p.bagHiddenViews
+    if BagViewShown(key) then
+        if not ViewBoxEnabled(key) then return end
+        if type(hidden) ~= "table" then
+            hidden = {}
+            p.bagHiddenViews = hidden
+        end
+        hidden[key] = true
+    else
+        hidden[key] = nil
+        -- every view shows again: no table left in the profile
+        if next(hidden) == nil then p.bagHiddenViews = nil end
+    end
+    -- the open view lost its row (All Items too, when it showed only because
+    -- all three were marked and another view is shown now)
+    if not selectedGroupName and not BagViewIndexShown(selectedCategoryIndex) then LeaveOpenRow() end
+    EUI_Bags:RefreshInventory()
+end
+
+local function ShowSwitchOn(switch) return BP()[switch.key] ~= false end
+local function ToggleShowSwitch(switch)
+    local p = BP()
+    local on = p[switch.key] == false
+    p[switch.key] = on
+    if not on and not selectedGroupName then
+        local open = EUI_CategoryManager:GetCategories()[selectedCategoryIndex]
+        if open and open[switch.flag] then LeaveOpenRow() end
+    end
+    EUI_Bags:RefreshInventory()
+    -- an open options page shows the switch as it is now
+    EllesmereUI:RefreshPage()
+end
+
+-- The five boxes, into a menu (a click keeps the menu open and re-reads them)
+local function AddViewBoxes(root)
+    for i = 1, #BAG_VIEWS do
+        local key = BAG_VIEWS[i]
+        local box = root:CreateCheckbox(ViewLabel(key), BagViewShown, ToggleViewBox, key)
+        box:SetEnabled(function() return ViewBoxEnabled(key) end)
+    end
+    -- the two categories under the names their rows show
+    local cats = EUI_CategoryManager:GetCategories()
+    for i = 1, #SHOW_SWITCHES do
+        local switch = SHOW_SWITCHES[i]
+        local name
+        for c = 1, #cats do
+            if cats[c][switch.flag] then name = cats[c].name; break end
+        end
+        root:CreateCheckbox(name or EllesmereUI.L(switch.label), ShowSwitchOn, ToggleShowSwitch, switch)
+    end
+end
+local function ViewsMenu(_, root) AddViewBoxes(root) end
 
 -- Controller cursor: a pad has no middle click and no drag, so while one is in
 -- use the category menu also offers unpinning, removing assigned items and
@@ -968,6 +1079,221 @@ local function PadCategoryEntries(root, btn, cat, catIdx, isGroupHeader, isGroup
     end
 end
 
+-------------------------------------------------------------------------------
+--  Rename, Change Icon and Delete: one ask each, for the sidebar menu and the
+--  category view's links. A category is known by its key and found again when
+--  the popup answers, since indexes move while it is open.
+-------------------------------------------------------------------------------
+-- A category the user made or a default one, by its key (never a set child
+-- or another addon's category)
+local function CategoryIndex(key)
+    local cats = EUI_CategoryManager:GetCategories()
+    for i = 1, #cats do
+        local c = cats[i]
+        if c._defaultName == key and not (c.isEquipSet or c.isVirtual) then return i, cats end
+    end
+end
+
+function ns.AskRenameCategory(key)
+    local idx, cats = CategoryIndex(key)
+    if not idx then return end
+    local name = cats[idx].name
+    EUI:ShowInputPopup({
+        title = "Rename Category",
+        message = EllesmereUI.Lf("Enter a new name for \"%1$s\":", name),
+        placeholder = name,
+        confirmText = "Rename",
+        cancelText = "Cancel",
+        onConfirm = function(newName)
+            newName = newName and strtrim(newName) or ""
+            local i, list = CategoryIndex(key)
+            if not i or newName == "" or newName == list[i].name then return end
+            -- A group named after its members takes the new name: an open one follows it
+            local group = list[i].groupName
+            EUI_CategoryManager:RenameCategory(i, newName)
+            if group and selectedGroupName == group and list[i].groupName ~= group then
+                SetSelectedGroupName(list[i].groupName)
+            end
+            EUI_Bags:RefreshInventory()
+            ns.RefreshOpenBank()
+        end,
+    })
+end
+
+-- The icons of the items a category holds now, each once, added to lead
+-- (seen: the icons it holds already). Pinned Items and Recent Items hold the
+-- pinned and the recent items, the Reagent Bag the reagent bag's (bag 5), the
+-- Item Set Gear anchor its set children's items too; the bags' last refresh
+-- says where every other item is filed.
+local function AddItemIcons(lead, seen, idx, cat)
+    local pinned = cat.isPinned and PinnedItems()
+    local recent = cat.isRecent and EUI_Bags._recentItems
+    local withSets = cat.isSetGear and not cat.isEquipSet
+    local cats = EUI_CategoryManager:GetCategories()
+    for bag = 0, 5 do
+        for slot = 1, C_Container.GetContainerNumSlots(bag) or 0 do
+            local info = C_Container.GetContainerItemInfo(bag, slot)
+            local icon = info and info.iconFileID
+            if icon and not seen[icon] then
+                local held
+                if cat.isPinned then
+                    held = pinned and IsItemPinned(pinned, C_Container.GetContainerItemLink(bag, slot), info.itemID)
+                elseif cat.isRecent then
+                    held = recent and EUI_Bags.IsRecentEntry({ bag = bag, slot = slot, info = info })
+                elseif cat.isReagentBag then
+                    -- the bag's own items, also while Categorize Reagent Bag Items
+                    -- files them under their item categories
+                    held = bag == 5
+                else
+                    local ci = _slotCategories[bag * 1000 + slot]
+                    held = ci == idx or (withSets and ci and cats[ci] and cats[ci].isEquipSet)
+                end
+                if held then
+                    seen[icon] = true
+                    lead[#lead + 1] = icon
+                end
+            end
+        end
+    end
+end
+
+-- The picker lists a default category's own icon first (picking it goes back
+-- to it), then the icons of the category's items.
+function ns.AskCategoryIcon(key)
+    local idx, cats = CategoryIndex(key)
+    if not idx then return end
+    local cat = cats[idx]
+    local lead, seen, atlas = {}, {}, nil
+    local builtin = cat.builtinIcon
+    if builtin ~= nil then
+        if cat.builtinIsAtlas then
+            atlas = { [builtin] = true }
+            lead[1] = builtin
+        else
+            lead[1] = EllesmereUI.ClientIcon(builtin)
+        end
+        seen[lead[1]] = true
+    end
+    AddItemIcons(lead, seen, idx, cat)
+    local subtitle
+    if builtin ~= nil then
+        subtitle = EllesmereUI.Lf("Choose an icon for \"%1$s\". Its own icon comes first, then the icons of its items.", cat.name)
+    else
+        subtitle = EllesmereUI.Lf("Choose an icon for \"%1$s\". The icons of its items come first.", cat.name)
+    end
+    EllesmereUI.ShowIconPicker({
+        title = EllesmereUI.L("Change Icon"),
+        subtitle = subtitle,
+        current = cat.isAtlas and cat.icon or EllesmereUI.ClientIcon(cat.icon),
+        lead = lead,
+        atlas = atlas,
+        customID = true,  -- any file id, as the New Category popup takes
+        onPick = function(icon)
+            local i = CategoryIndex(key)
+            if not i then return end
+            -- A bare texture name from the game's list is a file under Interface\Icons
+            if type(icon) == "string" and not (atlas and atlas[icon]) and not icon:find("\\", 1, true) then
+                icon = "Interface\\Icons\\" .. icon
+            end
+            if EUI_CategoryManager:SetCategoryIcon(i, icon) then
+                EUI_Bags:RefreshInventory()
+                ns.RefreshOpenBank()
+            end
+        end,
+    })
+end
+
+-- Delete takes the categories the Enabled Categories list offers
+-- (CanDisableCategory): one the user made is removed, a default one is
+-- turned off and comes back under Enabled Categories.
+local function DeletableIndex(key)
+    local i, cats = CategoryIndex(key)
+    if i and EUI_CategoryManager:CanDisableCategory(cats[i]) then return i, cats end
+end
+
+local function RemoveUserCategory(key)
+    local idx, cats = DeletableIndex(key)
+    if not idx or not cats[idx].isUserCreated then return end
+    -- What is open now, by reference: the indexes shift with the removal
+    local selected = selectedCategoryIndex > 0 and cats[selectedCategoryIndex] or nil
+    local groupMate
+    if selectedGroupName then
+        for i = 1, #cats do
+            if i ~= idx and cats[i].groupName == selectedGroupName then groupMate = cats[i]; break end
+        end
+    end
+    -- Out of its group first: a group left with one member disbands
+    local gone, group = cats[idx], cats[idx].groupName
+    if group then
+        ClearGroupOrder(group)
+        EUI_CategoryManager:UngroupCategory(idx)
+    end
+    if not EUI_CategoryManager:RemoveCustomCategory(idx) then return end
+    if selectedGroupName then
+        -- The open group under the name it has now; once it is gone, the view
+        -- the bags open on
+        local name = groupMate and groupMate.groupName or nil
+        if name ~= selectedGroupName then
+            SetSelectedGroupName(name)
+            if not name then LeaveOpenRow() end
+        end
+    elseif selected == gone then
+        LeaveOpenRow()
+    elseif selected then
+        for i = 1, #cats do
+            if cats[i] == selected then
+                if i ~= selectedCategoryIndex then SetSelectedCategoryIndex(i) end
+                break
+            end
+        end
+    end
+    EUI_Bags:RefreshInventory()
+    ns.RefreshOpenBank()
+end
+
+-- Its saved group and order stay, so turning it back on puts it where it was.
+-- An open category or group that goes leaves for the view the bags open on
+-- (RefreshInventory); an open options page shows it unticked.
+local function TurnOffCategory(key)
+    local idx, cats = DeletableIndex(key)
+    if not idx or cats[idx].isUserCreated then return end
+    local p = BP()
+    local dc = p.bagDisabledCategories
+    if type(dc) ~= "table" then
+        dc = {}
+        p.bagDisabledCategories = dc
+    end
+    dc[key] = true
+    EUI_Bags:RefreshInventory()
+    ns.RefreshOpenBank()
+    EllesmereUI:RefreshPage()
+end
+
+function ns.AskDeleteCategory(key)
+    local idx, cats = DeletableIndex(key)
+    if not idx then return end
+    local cat = cats[idx]
+    if cat.isUserCreated then
+        EUI:ShowConfirmPopup({
+            title = "Delete Category",
+            message = EllesmereUI.Lf("Are you sure you want to delete \"%1$s\"? All item assignments will be removed.", cat.name),
+            confirmText = "Delete",
+            cancelText = "Cancel",
+            onConfirm = function() RemoveUserCategory(key) end,
+        })
+        return
+    end
+    local catchAll = EUI_CategoryManager:GetCatchAll()
+    EUI:ShowConfirmPopup({
+        title = "Delete Category",
+        message = EllesmereUI.Lf("Are you sure you want to delete \"%1$s\"? Its items move to \"%2$s\". You can turn it back on under Enabled Categories in the Bags options.",
+            cat.name, catchAll and catchAll.name or EllesmereUI.L("Miscellaneous")),
+        confirmText = "Delete",
+        cancelText = "Cancel",
+        onConfirm = function() TurnOffCategory(key) end,
+    })
+end
+
 -- Show context menu for grouping categories
 local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember)
     local cats = EUI_CategoryManager:GetCategories()
@@ -977,6 +1303,11 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
     if cat.isEquipSet or cat.isVirtual then return end
 
     MenuUtil.CreateContextMenu(btn, function(_, rootDescription)
+        -- Pinned Items and Recent Items: the views menu's boxes come first
+        if cat.isPinned or cat.isRecent then
+            AddViewBoxes(rootDescription)
+            rootDescription:CreateDivider()
+        end
         local myGroup = cat.groupName
 
         if not BP().bagHiddenInAllItems then BP().bagHiddenInAllItems = {} end
@@ -984,7 +1315,6 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
 
         if isGroupHeader and myGroup then
             rootDescription:CreateButton(EllesmereUI.L("Rename"), function()
-                if not EUI.ShowInputPopup then return end
                 EUI:ShowInputPopup({
                     title = "Rename Group",
                     message = EllesmereUI.L("Enter a new name for this group:"),
@@ -1004,7 +1334,7 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
             rootDescription:CreateButton(EllesmereUI.L("Disband Group"), function()
                 ClearGroupOrder(myGroup)
                 EUI_CategoryManager:DisbandGroup(myGroup)
-                if selectedGroupName == myGroup then SetSelectedGroupName(nil); SetSelectedCategoryIndex(0) end
+                if selectedGroupName == myGroup then SetSelectedGroupName(nil); LeaveOpenRow() end
                 EUI_Bags:RefreshInventory()
             end)
             local groupHidden = hiddenSet[myGroup]
@@ -1014,20 +1344,10 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
             end)
         elseif isGroupMember and myGroup then
             rootDescription:CreateButton(EllesmereUI.L("Rename"), function()
-                if not EUI.ShowInputPopup then return end
-                EUI:ShowInputPopup({
-                    title = "Rename Category",
-                    message = EllesmereUI.Lf("Enter a new name for \"%1$s\":", cat.name),
-                    placeholder = cat.name,
-                    confirmText = "Rename",
-                    cancelText = "Cancel",
-                    onConfirm = function(newName)
-                        newName = newName and strtrim(newName) or ""
-                        if newName == "" or newName == cat.name then return end
-                        EUI_CategoryManager:RenameCategory(catIdx, newName)
-                        EUI_Bags:RefreshInventory()
-                    end,
-                })
+                ns.AskRenameCategory(cat._defaultName)
+            end)
+            rootDescription:CreateButton(EllesmereUI.L("Change Icon"), function()
+                ns.AskCategoryIcon(cat._defaultName)
             end)
             rootDescription:CreateButton(EllesmereUI.Lf("Ungroup %1$s", cat.name), function()
                 ClearGroupOrder(myGroup)
@@ -1035,32 +1355,22 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                 EUI_Bags:RefreshInventory()
             end)
         else
-            -- Equip-set categories are named by the set; renames would not persist
-            if not cat.isEquipSet then
             rootDescription:CreateButton(EllesmereUI.L("Rename"), function()
-                if not EUI.ShowInputPopup then return end
-                EUI:ShowInputPopup({
-                    title = "Rename Category",
-                    message = EllesmereUI.Lf("Enter a new name for \"%1$s\":", cat.name),
-                    placeholder = cat.name,
-                    confirmText = "Rename",
-                    cancelText = "Cancel",
-                    onConfirm = function(newName)
-                        newName = newName and strtrim(newName) or ""
-                        if newName == "" or newName == cat.name then return end
-                        EUI_CategoryManager:RenameCategory(catIdx, newName)
-                        EUI_Bags:RefreshInventory()
-                    end,
-                })
+                ns.AskRenameCategory(cat._defaultName)
             end)
-            end
+            rootDescription:CreateButton(EllesmereUI.L("Change Icon"), function()
+                ns.AskCategoryIcon(cat._defaultName)
+            end)
 
             if not cat.noGroup then
-                local groupSub = rootDescription:CreateButton(EllesmereUI.L("Create Group With"))
-                local hasOptions = false
+                -- A turned-off category shows nowhere, a group whose members are
+                -- all off neither; each list shows only when it has an entry
+                local dc = BP().bagDisabledCategories
+                local groupSub
                 for ci, other in ipairs(cats) do
-                    if ci ~= catIdx and not other.groupName and not other.noGroup then
-                        hasOptions = true
+                    if ci ~= catIdx and not other.groupName and not other.noGroup
+                        and not EUI_CategoryManager:IsCategoryOff(other, dc) then
+                        groupSub = groupSub or rootDescription:CreateButton(EllesmereUI.L("Create Group With"))
                         groupSub:CreateButton(other.name, function()
                             EUI_CategoryManager:GroupCategories({ catIdx, ci })
                             EUI_Bags:RefreshInventory()
@@ -1068,10 +1378,10 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                     end
                 end
 
-                local groupNames = EUI_CategoryManager:GetGroupNames()
-                if #groupNames > 0 then
-                    local addSub = rootDescription:CreateButton(EllesmereUI.L("Add to Group"))
-                    for _, gn in ipairs(groupNames) do
+                local addSub
+                for _, gn in ipairs(EUI_CategoryManager:GetGroupNames()) do
+                    if EUI_CategoryManager:FirstOnMember(gn, dc) then
+                        addSub = addSub or rootDescription:CreateButton(EllesmereUI.L("Add to Group"))
                         addSub:CreateButton(EUI_CategoryManager:GroupDisplayName(gn), function()
                             EUI_CategoryManager:AddToGroup(catIdx, gn)
                             EUI_Bags:RefreshInventory()
@@ -1080,9 +1390,10 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                 end
             end
 
-            -- Equip-set children don't render standalone in All Items (they fold
-            -- into their anchor's section), so hide/show doesn't apply to them.
-            if not cat.noMove and not cat.isEquipSet then
+            -- Equip-set children fold into their anchor in All Items. With
+            -- categorized reagents, the bag's items use their item sections.
+            if not cat.noMove and not cat.isEquipSet
+                and not (cat.isReagentBag and BP().bagCategorizeReagents == true) then
                 local catKey = cat._defaultName
                 local catHidden = hiddenSet[catKey]
                 rootDescription:CreateButton(catHidden and EllesmereUI.L("Show in All Items") or EllesmereUI.L("Hide in All Items"), function()
@@ -1090,6 +1401,14 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                     EUI_Bags:RefreshInventory()
                 end)
             end
+        end
+
+        -- Delete: one the user made is removed, a default one turned off (never
+        -- from a group's header row, which stands for the whole group)
+        if not isGroupHeader and EUI_CategoryManager:CanDisableCategory(cat) then
+            rootDescription:CreateButton(EllesmereUI.L("Delete"), function()
+                ns.AskDeleteCategory(cat._defaultName)
+            end)
         end
 
         -- Controller cursor: unpin / remove / move entries (no middle click or drag on a pad).
@@ -1131,16 +1450,16 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
 
     -- Build display list: { catIdx, name, icon, count, isGroupHeader, groupName, indent }
     local displayList = {}
-    -- Three fixed views; the configured default type first, then canonical order.
-    local _fixedViews = {
-        all      = { catIdx = 0,  name = EllesmereUI.L("All Items"), icon = 133633, count = totalCount },
-        onebag   = { catIdx = -1, name = EllesmereUI.L("OneBag"),    icon = 133634, count = totalCount },
-        multibag = { catIdx = -2, name = EllesmereUI.L("MultiBag"),  icon = 133635, count = totalCount },
-    }
-    local _dbt = GetDefaultBagType()
-    displayList[#displayList + 1] = _fixedViews[_dbt] or _fixedViews.all
-    for _, _k in ipairs({ "all", "onebag", "multibag" }) do
-        if _k ~= _dbt then displayList[#displayList + 1] = _fixedViews[_k] end
+    -- The three views whose rows show (the views menu hides a row): the one
+    -- the bags open on first, then the others in their order.
+    local openView = GetDefaultBagType()
+    displayList[1] = ViewEntry(openView, totalCount)
+    local anyHidden = BP().bagHiddenViews ~= nil
+    for i = 1, #BAG_VIEWS do
+        local key = BAG_VIEWS[i]
+        if key ~= openView and (not anyHidden or BagViewShown(key)) then
+            displayList[#displayList + 1] = ViewEntry(key, totalCount)
+        end
     end
     -- virtual views (EUI_CategoryManager:RegisterVirtualView), after the three
     local views = EUI_CategoryManager:GetViews()
@@ -1180,50 +1499,60 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
     end
     local function IsSetAnchor(c) return c and c.isSetGear and not c.isEquipSet end
 
+    -- A turned-off category (Enabled Categories, or Delete on a default one)
+    -- shows no row, and a group whose members are all off no header
+    local dc = BP().bagDisabledCategories
     local renderedGroups = {}
     for ci, cat in ipairs(cats) do
         if cat.groupName then
             if not renderedGroups[cat.groupName] then
                 renderedGroups[cat.groupName] = true
-                -- Group header: sum counts of all members (+ set children on the anchor)
+                -- Group header: sum counts of its members (+ set children on the anchor)
                 local members = EUI_CategoryManager:GetGroupMembers(cat.groupName)
                 local groupCount = 0
-                for _, mi in ipairs(members) do
-                    groupCount = groupCount + (categoryCounts and categoryCounts[mi] or 0)
-                    if IsSetAnchor(cats[mi]) then groupCount = groupCount + setChildTotal end
-                end
-                -- Use first member's icon for group
-                local firstCat = cats[members[1]]
-                local groupIcon = firstCat and firstCat.icon or 134400
-                local groupIsAtlas = firstCat and firstCat.isAtlas
+                -- The first member that is on lends the group its icon
+                local firstCat
                 -- Check if any member is user-created (keep group visible if so)
                 local groupHasUserCreated = false
                 for _, mi in ipairs(members) do
-                    if cats[mi] and cats[mi].isUserCreated then groupHasUserCreated = true; break end
+                    local mc = cats[mi]
+                    if not EUI_CategoryManager:IsCategoryOff(mc, dc) then
+                        groupCount = groupCount + (categoryCounts and categoryCounts[mi] or 0)
+                        if IsSetAnchor(mc) then groupCount = groupCount + setChildTotal end
+                        firstCat = firstCat or mc
+                        if mc.isUserCreated then groupHasUserCreated = true end
+                    end
                 end
-                displayList[#displayList + 1] = {
-                    catIdx = members[1], name = EUI_CategoryManager:GroupDisplayName(cat.groupName), icon = groupIcon, isAtlas = groupIsAtlas,
-                    count = groupCount, isGroupHeader = true, groupName = cat.groupName,
-                    isUserCreated = groupHasUserCreated,
-                }
-                -- Indented members (hidden when collapsed)
-                if not collapsed then
-                    for _, mi in ipairs(members) do
-                        local mc = cats[mi]
-                        local anchor = IsSetAnchor(mc)
-                        displayList[#displayList + 1] = {
-                            catIdx = mi, name = mc.name, icon = mc.icon or 134400, isAtlas = mc.isAtlas,
-                            count = (categoryCounts and categoryCounts[mi] or 0) + (anchor and setChildTotal or 0),
-                            indent = true, groupName = cat.groupName, isGroupMember = true,
-                            isUserCreated = mc.isUserCreated,
-                        }
-                        -- Set children: third level under a grouped anchor
-                        if anchor then EmitSetChildren(2) end
+                if firstCat then
+                    displayList[#displayList + 1] = {
+                        catIdx = members[1], name = EUI_CategoryManager:GroupDisplayName(cat.groupName),
+                        icon = firstCat.icon or 134400, isAtlas = firstCat.isAtlas,
+                        count = groupCount, isGroupHeader = true, groupName = cat.groupName,
+                        isUserCreated = groupHasUserCreated,
+                    }
+                    -- Indented members (hidden when collapsed)
+                    if not collapsed then
+                        for _, mi in ipairs(members) do
+                            local mc = cats[mi]
+                            if not EUI_CategoryManager:IsCategoryOff(mc, dc) then
+                                local anchor = IsSetAnchor(mc)
+                                displayList[#displayList + 1] = {
+                                    catIdx = mi, name = mc.name, icon = mc.icon or 134400, isAtlas = mc.isAtlas,
+                                    count = (categoryCounts and categoryCounts[mi] or 0) + (anchor and setChildTotal or 0),
+                                    indent = true, groupName = cat.groupName, isGroupMember = true,
+                                    isUserCreated = mc.isUserCreated,
+                                }
+                                -- Set children: third level under a grouped anchor
+                                if anchor then EmitSetChildren(2) end
+                            end
+                        end
                     end
                 end
             end
         elseif cat.isEquipSet then
             -- Emitted by EmitSetChildren under the anchor
+        elseif EUI_CategoryManager:IsCategoryOff(cat, dc) then
+            -- Turned off: no row
         else
             local anchor = IsSetAnchor(cat)
             local count = (categoryCounts and categoryCounts[ci] or 0) + (anchor and setChildTotal or 0)
@@ -1311,16 +1640,28 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
             btn:SetScript("OnClick", function(self, button)
                 if button == "RightButton" then
-                    if self._catIdx > 0 then ShowCategoryContextMenu(self, self._catIdx, self._isGroupHeader, self._isGroupMember) end
+                    local idx = self._catIdx
+                    if idx > 0 then
+                        ShowCategoryContextMenu(self, idx, self._isGroupHeader, self._isGroupMember)
+                    elseif idx >= -2 then
+                        -- All Items, OneBag, MultiBag (not the offline Bank or another addon's view)
+                        MenuUtil.CreateContextMenu(self, ViewsMenu)
+                    end
                     return
                 end
-                -- Drag-to-sidebar: if the cursor holds an item, assign it to this category
+                -- Drag-to-sidebar: if the cursor holds an item, assign it to this
+                -- category; a group's header files it in the group's first member
+                -- that is on (the header row's own index stays its first member)
                 if self._catIdx and self._catIdx > 0 then
                     local cursorType, cursorItemID = GetCursorInfo()
                     if cursorType == "item" and cursorItemID then
-                        if EUI_CategoryManager and EUI_CategoryManager:CanAssignToCategory(self._catIdx) then
+                        local target = self._catIdx
+                        if self._isGroupHeader and self._groupName then
+                            target = EUI_CategoryManager:FirstOnMember(self._groupName, BP().bagDisabledCategories)
+                        end
+                        if target and EUI_CategoryManager:CanAssignToCategory(target) then
                             local cats = EUI_CategoryManager:GetCategories()
-                            local cat = cats[self._catIdx]
+                            local cat = cats[target]
                             if cat then
                                 EUI_CategoryManager:AssignItem(cursorItemID, cat._defaultName)
                                 ClearCursor()

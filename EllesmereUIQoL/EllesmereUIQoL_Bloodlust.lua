@@ -517,8 +517,10 @@ local function _lustBuffIcon()
     if _lustIconResolved then return _lustIconCache end
     for i = 1, #LUST_SPELLS do
         local sid = LUST_SPELLS[i]
-        local known = (IsPlayerSpell and IsPlayerSpell(sid))
-            or (IsSpellKnown and IsSpellKnown(sid))
+        -- The spellbook itself: the IsPlayerSpell / IsSpellKnown globals are Blizzard's
+        -- deprecation fallbacks and exist only while loadDeprecationFallbacks is on.
+        local known = C_SpellBook.IsSpellKnown(sid)
+            or C_SpellBook.IsSpellInSpellBook(sid, Enum.SpellBookSpellBank.Player, false)
         if known then
             local tex = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)
             if tex then

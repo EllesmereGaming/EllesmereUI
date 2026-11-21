@@ -136,9 +136,11 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
             local xpOff = IsXPUserDisabled and IsXPUserDisabled()
             if atMax or xpOff then
                 if D().mode ~= "xp" then return nil end
+                -- Bar text goes straight through SetText, which does not route through
+                -- the locale like the Tip_* helpers do, so translate by hand.
                 return {
-                    label = xpOff and "XP Off (Right-Click: Rep)"
-                                   or "Max Level (Right-Click: Rep)",
+                    label = xpOff and EllesmereUI.L("XP Off (Right-Click: Rep)")
+                                   or EllesmereUI.L("Max Level (Right-Click: Rep)"),
                     minV = 0, maxV = 1, curV = 0,
                     r = 0.5, g = 0.5, b = 0.5, rested = 0,
                 }
@@ -169,7 +171,7 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
             -- block ate every later click.
             if D().mode ~= "rep" then return nil end
             return {
-                label = "No Rep Tracked",
+                label = EllesmereUI.L("No Rep Tracked"),
                 minV = 0, maxV = 1, curV = 0,
                 r = 0.5, g = 0.5, b = 0.5, rested = 0,
             }

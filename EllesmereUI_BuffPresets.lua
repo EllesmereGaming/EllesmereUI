@@ -89,6 +89,9 @@ local function ForeverCatalogue()
                 -- Regrowth (rank 2 primary: retail curates rank 1 unchecked)
                 [8938] = { class = "DRUID", alts = { 8936, 8939, 8940, 8941, 9750, 9856, 9857,
                     9858 } },
+                -- Riptide (ranks 1 to 3; the heal over time lands under the rank's
+                -- own id)
+                [408521] = { class = "SHAMAN", alts = { 1239242, 1239243 } },
             },
             offensive = {
                 [1719] = { class = "WARRIOR" },  -- Recklessness
@@ -574,8 +577,10 @@ EllesmereUI.BUFF_PRESET_OTHER_FILTERS = OTHER.filters
 -- whose (localized) names cover every rank and the group version; single /
 -- group = the trainable ranks of the buff and of its group version, lowest
 -- first; ids = every spell that applies it (ranks, group version, NPC and
--- item casts, i.e. every spell of those names on the client). Built on WoW
--- Forever only.
+-- item casts, i.e. every spell of those names on the client). A family may
+-- also carry amounts (what each trainable rank gives of its stat) and
+-- stronger (other buffs of that stat which the game does not let a weaker
+-- rank replace: spell -> what it gives). Built on WoW Forever only.
 if EllesmereUI.IS_FOREVER == true then
     EllesmereUI.FOREVER_BUFF_FAMILIES = {
         fort = { names = { 1243, 21562 },
@@ -614,6 +619,9 @@ if EllesmereUI.IS_FOREVER == true then
         ai = { names = { 1459, 23028 },
             single = { 1459, 1460, 1461, 10156, 10157 }, group = { 23028 },
             ids = { 1459, 1460, 1461, 10156, 10157, 13326, 16876, 364161, 23028 },
+            -- Intellect per rank, and the Elixir of Greater Intellect's buff.
+            amounts = { [1459] = 2, [1460] = 7, [1461] = 15, [10156] = 22, [10157] = 31, [23028] = 31 },
+            stronger = { [11396] = 25 },
             beneficiaries = { DRUID = true, HUNTER = true, MAGE = true, PALADIN = true, PRIEST = true,
                 SHAMAN = true, WARLOCK = true } },
         bshout = { names = { 6673 },
@@ -621,6 +629,70 @@ if EllesmereUI.IS_FOREVER == true then
             ids = { 6673, 5242, 6192, 11549, 11550, 11551, 25289, 9128, 24438, 25101, 26043, 26099,
                     27578 } },
     }
+end
+
+-- Whether a unit carries a buff of a WoW Forever buff family (an entry of
+-- FOREVER_BUFF_FAMILIES, or a table with its names list): the aura's data,
+-- false while none is up, nil while the answer cannot be read. The family's
+-- names are asked (one or two lookups cover every rank and the group
+-- version, other casters' included). While a name has not loaded the list
+-- is read again on the next call, and a unit that no loaded name finds a
+-- buff on reads unknown: the buff could be up under the missing name. A unit
+-- without the buff still counts as having it while it carries one of the
+-- family's stronger buffs that gives more than the best rank the player
+-- knows: the game refuses that cast, so there is nothing to remind (that
+-- buff's aura is returned; a player who knows no rank is never answered this
+-- way, and a stronger buff that cannot be read counts as not there). Under
+-- the game's aura restriction a caller reads a family only while none of its
+-- ranks is secret. Defined on every client (the modules list it in their
+-- stale-parent guards); only WoW Forever calls it.
+local famNames = {}  -- family -> its localized names; done once every one has loaded
+local bestAt, bestVal = {}, {}  -- family -> the frame its best known amount was read in, and that amount
+local function BestAmount(fam)
+    local now = GetTime()
+    if bestAt[fam] ~= now then
+        bestAt[fam] = now
+        local best
+        for id, amount in pairs(fam.amounts) do
+            if (not best or amount > best) and C_SpellBook.IsSpellKnown(id) then best = amount end
+        end
+        bestVal[fam] = best
+    end
+    return bestVal[fam]
+end
+local function FamilyNames(fam)
+    local list = famNames[fam]
+    if list and list.done then return list end
+    if not list then list = {}; famNames[fam] = list end
+    local src, n = fam.names, 0
+    for i = 1, #src do
+        local name = C_Spell.GetSpellName(src[i])
+        if name then n = n + 1; list[n] = name end
+    end
+    list.done = (n == #src) or nil
+    return list
+end
+function EllesmereUI.ForeverFamilyAura(unit, fam)
+    local names = FamilyNames(fam)
+    local byName = C_UnitAuras.GetAuraDataBySpellName
+    for n = 1, #names do
+        local ok, aura = pcall(byName, unit, names[n], "HELPFUL")
+        if not ok or issecretvalue(aura) then return nil end
+        if aura then return aura end
+    end
+    if not names.done then return nil end
+    local stronger = fam.stronger
+    local best = stronger and BestAmount(fam)
+    if best then
+        local byID = C_UnitAuras.GetUnitAuraBySpellID
+        for id, amount in pairs(stronger) do
+            if amount > best then
+                local ok, aura = pcall(byID, unit, id)
+                if ok and aura and not issecretvalue(aura) then return aura end
+            end
+        end
+    end
+    return false
 end
 
 -- WoW Forever on-next-swing attacks per class (base spell IDs; every rank
@@ -633,6 +705,54 @@ if EllesmereUI.IS_FOREVER == true then
         DRUID   = { 6807 },     -- Maul
         HUNTER  = { 2973 },     -- Raptor Strike
     }
+end
+
+-- The one lookup of those attacks for the readers that need one (the Swing
+-- Timer swipes on Cooldown Manager icons and on action buttons, the Bar Glows
+-- swing window). Defined on every client (no attack off WoW Forever), so a
+-- module's stale-parent guard can list it.
+--   EllesmereUI.ForeverNextSwingNames() -> the player class's attack names,
+--     nil while a name has not loaded (asked again on the next call), false
+--     for a class with none. The list is shared: never modify it.
+--   EllesmereUI.ForeverNextSwingOf(spellID) -> the swing type the spell rides
+--     (Enum.PlayerSwingType.MainHand) when it is one of those attacks, any rank
+--     (matched by name), else false.
+do
+    local names        -- the list; false = none; nil = not built yet
+    local nameSet = {}
+    local bySid = {}   -- [spellID] = swing type, or false
+    local function Names()
+        if names ~= nil then return names end
+        local _, class = UnitClass("player")
+        local ids = EllesmereUI.FOREVER_NEXT_SWING and EllesmereUI.FOREVER_NEXT_SWING[class]
+        if not ids then
+            names = false
+            return false
+        end
+        local list = {}
+        for i = 1, #ids do
+            local n = EllesmereUI.PlainString(C_Spell.GetSpellName(ids[i]))
+            if not n then return nil end
+            list[i] = n
+        end
+        for i = 1, #list do nameSet[list[i]] = true end
+        names = list
+        return list
+    end
+    EllesmereUI.ForeverNextSwingNames = Names
+    function EllesmereUI.ForeverNextSwingOf(sid)
+        if type(sid) ~= "number" or issecretvalue(sid) or sid <= 0 then return false end
+        local s = bySid[sid]
+        if s ~= nil then return s end
+        local list = Names()
+        if list == false then return false end
+        local n = EllesmereUI.PlainString(C_Spell.GetSpellName(sid))
+        -- A name not loaded yet is asked again on the next call.
+        if not (list and n) then return false end
+        s = nameSet[n] and Enum.PlayerSwingType.MainHand or false
+        bySid[sid] = s
+        return s
+    end
 end
 
 -- SEASON UPDATE: a potion tier a new season adds joins its family below.

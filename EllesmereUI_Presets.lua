@@ -282,6 +282,13 @@ do
         return live ~= 0 and specID == live
     end
 
+    --- Forever druid who has not learned Cat Form (768): no combo points yet,
+    --- so the class resource options stay locked. False everywhere else.
+    function EllesmereUI.ForeverDruidLacksCat()
+        if not EllesmereUI.IS_FOREVER or PlayerClass() ~= "DRUID" then return false end
+        return not C_SpellBook.IsSpellKnown(768)
+    end
+
     --- Forever only (callers gate): class tokens in SPEC_DATA order; a Forever
     --- class's retail spec IDs in class order (shared tables, read only); the
     --- class owning a retail spec ID of ANY class or a Forever spec ID; the

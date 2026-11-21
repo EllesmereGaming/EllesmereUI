@@ -667,8 +667,15 @@ local SyncTimeText
 
 -- The auto attack and auto-repeat edges are tracked while a feature reads them:
 -- Attack State Full, or the Movement Guide for a wand or Auto Shot class.
+-- Idle Behavior "Hidden per Type" (hideWhenIdle with idleHidePerType): a row
+-- is drawn only while its own attack is on or its swing runs, and gives up its
+-- slot otherwise, so the stack closes up. The whole timer still hides while no
+-- swing runs (hideWhenIdle).
+local function PerType(cfg)
+    return (cfg.hideWhenIdle and cfg.idleHidePerType == true) and true or false
+end
 local function TracksAttack(cfg)
-    return StateFull(cfg) or (GuideOn(cfg) and S.aimClass) or false
+    return StateFull(cfg) or (GuideOn(cfg) and S.aimClass) or PerType(cfg)
 end
 
 -- The row's attack is on right now (melee rows: Auto Attack; Ranged: the
@@ -702,6 +709,7 @@ local function IdleRow(row, cfg)
     if row._live then
         row._live = nil
         S.live = S.live - 1
+        S.stackDirty = true
         UpdateSpark(row, cfg)
     end
     row._end = nil
@@ -717,6 +725,9 @@ end
 
 -- Defined below the waiting state; ArmEdges schedules it at a swing's edges.
 local EndEdge
+-- Defined with the layout: restacks the rows after a row went live or idle or
+-- an attack went on or off (S.stackDirty), under Hidden per Type alone.
+local FlushStack
 
 -- A deadline that fires a frame early still counts as its edge: the countdown
 -- already reads blank in a swing's last 0.05s.
@@ -858,6 +869,7 @@ local function StartRow(row, dur, cfg)
     if not row._live then
         row._live = true
         S.live = S.live + 1
+        S.stackDirty = true
         UpdateSpark(row, cfg)
     end
     local obj = row._durObj
@@ -882,6 +894,7 @@ local function EnterWaiting(row, cfg)
     if not row._live then
         row._live = true
         S.live = S.live + 1
+        S.stackDirty = true
     end
     local obj = row._durObj
     obj:SetTimeFromStart(GetTime() - 1, 1)
@@ -908,6 +921,7 @@ local function EnterAim(row, cfg, from, to)
     if not row._live then
         row._live = true
         S.live = S.live + 1
+        S.stackDirty = true
     end
     local obj = row._durObj
     obj:SetTimeFromStart(from, to - from)
@@ -954,6 +968,7 @@ function EndEdge()
         end
     end
     if not running and cfg.hideWhenIdle and ns.ST_UpdateVisibility then ns.ST_UpdateVisibility() end
+    if S.stackDirty then FlushStack(cfg) end
 end
 
 -------------------------------------------------------------------------------
@@ -1114,24 +1129,52 @@ end
 -- Stack the applicable rows and size the frame to them; a combined off-hand
 -- row is laid over the Main Hand row instead of taking a slot. Returns true
 -- when the frame height changed (anchored neighbours need a nudge).
+-- Hidden per Type: whether a row is drawn now. Its attack on (a row between
+-- two swings keeps its slot) or its swing running; the two hands of a combined
+-- row count as one.
+local function RowDrawn(row)
+    if row._live or AttackOn(row._def) then return true end
+    local oh = S.byType[SWING.OffHand]
+    if oh and oh._merged and row._def.melee then
+        local mh = S.byType[SWING.MainHand]
+        return ((mh and mh._live) or oh._live) and true or false
+    end
+    return false
+end
+
 local function Layout(cfg)
     local h = cfg.height or 12
     local sp = RowGap(cfg)
     local w = cfg.width or 220
+    -- Unlock Mode's sample draws every row.
+    local perType = PerType(cfg) and not S.sample
     local idx = 0
     for i = 1, #S.rows do
         local row = S.rows[i]
         if row:IsShown() then
-            row:ClearAllPoints()
-            if row._merged then
-                row:SetAllPoints(S.byType[SWING.MainHand])
-            else
-                row:SetPoint("TOPLEFT", shell, "TOPLEFT", 0, -idx * (h + sp))
-                row:SetSize(w, h)
-                idx = idx + 1
+            -- A row that is not drawn keeps running (a swing brings it back):
+            -- it only turns invisible and gives up its slot.
+            local drawn = not perType or RowDrawn(row)
+            if drawn ~= (row._drawn ~= false) then
+                row._drawn = drawn
+                row:SetAlpha(drawn and 1 or 0)
+            end
+            if drawn then
+                row:ClearAllPoints()
+                if row._merged then
+                    row:SetAllPoints(S.byType[SWING.MainHand])
+                else
+                    row:SetPoint("TOPLEFT", shell, "TOPLEFT", 0, -idx * (h + sp))
+                    row:SetSize(w, h)
+                    idx = idx + 1
+                end
             end
         end
     end
+    S.stackDirty = nil
+    -- Nothing drawn (the timer itself is hidden then): the frame keeps the
+    -- size of its last stack, so what is anchored to it stays put.
+    if perType and idx == 0 and S.shown then return false end
     S.shown = idx
     local n = math.max(idx, 1)
     local totalH = n * h + (n - 1) * sp
@@ -1139,6 +1182,16 @@ local function Layout(cfg)
     local changed = S.lastH ~= nil and S.lastH ~= totalH
     S.lastH = totalH
     return changed
+end
+
+-- Hidden per Type alone: the rows restack after a row went live or idle or an
+-- attack went on or off, and what is anchored to the frame hears a new height.
+function FlushStack(cfg)
+    S.stackDirty = nil
+    if not (cfg and S.built and PerType(cfg)) then return end
+    if Layout(cfg) and EllesmereUI.NotifyElementResized then
+        EllesmereUI.NotifyElementResized(UNLOCK_KEY)
+    end
 end
 
 -- Stock styles: the row's stock frame round its bar (the Blizzard Style panel
@@ -1483,6 +1536,19 @@ shell:SetScript("OnEvent", function(self, event, a1, a2, a3)
     end
 end)
 
+-- Hidden per Type: one restack per event, after everything the event changed.
+-- The attack edges change which rows are drawn without any row going live.
+local STACK_EDGE = {
+    START_AUTOREPEAT_SPELL = true, STOP_AUTOREPEAT_SPELL = true,
+    PLAYER_ENTER_COMBAT = true, PLAYER_LEAVE_COMBAT = true,
+    PLAYER_DEAD = true, PLAYER_ENTERING_WORLD = true,
+}
+shell:HookScript("OnEvent", function(_, event)
+    if not (S.stackDirty or STACK_EDGE[event]) then return end
+    local cfg = P()
+    if cfg and cfg.enabled then FlushStack(cfg) end
+end)
+
 local function RegisterEvents()
     if S.events then return end
     S.events = true
@@ -1685,6 +1751,8 @@ local function Resume(cfg)
     PaintQueue(cfg)
     PaintActive(cfg)
     PaintRows(cfg)
+    -- The rows took their state after the stack was laid out.
+    FlushStack(cfg)
 end
 
 -- Visibility pass: runs from the main file's UpdateVisibility on every edge it
@@ -1773,6 +1841,8 @@ function ns.ST_Apply()
     PaintQueue(cfg)
     PaintActive(cfg)
     PaintRows(cfg)
+    -- The rows took their state after the stack was laid out.
+    FlushStack(cfg)
     ns.ST_UpdateVisibility()
 end
 

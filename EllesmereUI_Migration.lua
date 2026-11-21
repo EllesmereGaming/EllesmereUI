@@ -3490,6 +3490,124 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+--------------------------------------------------------------------------------
+--  AuraBuff Reminders: Talent Reminders are kept per spec (owner 2026-11-17).
+--  A reminder that names its class but no spec (a class-tree talent, or one
+--  saved before its tree was known) applied to every spec of its class:
+--  SplitTalentReminders puts one copy per retail spec of that class in its
+--  place, so every spec keeps the reminder it had. A copy the list already
+--  holds (same spec, talent, zones and Not Needed choice) is not added twice.
+--  A reminder with no class (saved before reminders knew their class) stays:
+--  the runtime names its class once a character knows the talent, then splits
+--  it. Copies carry talentSource = "spec", which an older version reads too.
+--  Static spec data only (EllesmereUI._SPEC_DATA): migrations run before the
+--  game's spec APIs can be trusted. Called by the migration below and by the
+--  Talent Reminders runtime (listed in the AuraBuff Reminders guard).
+--------------------------------------------------------------------------------
+do
+    local specsOf
+    local function SpecsOf(class)
+        if not specsOf then
+            specsOf = {}
+            for _, c in ipairs(EllesmereUI._SPEC_DATA or {}) do
+                local ids = {}
+                for j = 1, #c.specs do ids[j] = c.specs[j].id end
+                specsOf[c.class] = ids
+            end
+        end
+        return specsOf[class]
+    end
+
+    -- A set's keys, sorted and joined (an activity set of a reminder).
+    local function SetText(set)
+        local ks = {}
+        if type(set) == "table" then
+            for k, v in pairs(set) do
+                if v then ks[#ks + 1] = tostring(k) end
+            end
+        end
+        table.sort(ks)
+        return table.concat(ks, ",")
+    end
+    local function CopySet(set)
+        local c = {}
+        for k, v in pairs(set) do c[k] = v end
+        return c
+    end
+
+    -- A reminder's identity for one spec: talent, zones (in any order), its
+    -- activities, and where its Not Needed reminder shows (the old checkbox
+    -- read as the runtime does, or its activities).
+    local function Key(r, specID)
+        local zs = {}
+        if type(r.zoneNames) == "table" and #r.zoneNames > 0 then
+            for i = 1, #r.zoneNames do zs[i] = tostring(r.zoneNames[i]) end
+        elseif r.zoneName then
+            zs[1] = tostring(r.zoneName)
+        end
+        table.sort(zs)
+        local mode = r.notNeededMode or (r.showNotNeeded and "season" or "never")
+        return tostring(specID) .. "|" .. tostring(r.spellID) .. "|" .. tostring(mode) .. "|" .. table.concat(zs, ",")
+            .. "|" .. SetText(r.acts) .. "|" .. SetText(r.notNeededActs)
+    end
+
+    --- Splits every class-wide reminder of `list` in place into one reminder
+    --- per spec of its class. Returns true when the list changed.
+    function EllesmereUI.SplitTalentReminders(list)
+        if type(list) ~= "table" then return false end
+        local seen = {}
+        for _, r in ipairs(list) do
+            if type(r) == "table" and r.specID then seen[Key(r, r.specID)] = true end
+        end
+        local out, changed = {}, false
+        for _, r in ipairs(list) do
+            local specs = type(r) == "table" and r.specID == nil and type(r.class) == "string" and SpecsOf(r.class)
+            if specs and #specs > 0 then
+                changed = true
+                for _, specID in ipairs(specs) do
+                    local k = Key(r, specID)
+                    if not seen[k] then
+                        seen[k] = true
+                        local c = {}
+                        for f, v in pairs(r) do c[f] = v end
+                        if type(r.zoneNames) == "table" then
+                            local zs = {}
+                            for i = 1, #r.zoneNames do zs[i] = r.zoneNames[i] end
+                            c.zoneNames = zs
+                        end
+                        -- Each copy its own sets: an edit of one spec's reminder
+                        -- must not change another's.
+                        if type(r.acts) == "table" then c.acts = CopySet(r.acts) end
+                        if type(r.notNeededActs) == "table" then c.notNeededActs = CopySet(r.notNeededActs) end
+                        c.specID = specID
+                        c.talentSource = "spec"
+                        out[#out + 1] = c
+                    end
+                end
+            else
+                out[#out + 1] = r
+            end
+        end
+        if changed then
+            for i = #list, 1, -1 do list[i] = nil end
+            for i = 1, #out do list[i] = out[i] end
+        end
+        return changed
+    end
+end
+
+EllesmereUI.RegisterMigration({
+    id          = "abr_talent_reminders_per_spec_v1",
+    scope       = "profile",
+    description = "AuraBuff Reminders: every Talent Reminder saved for a whole class becomes one reminder per spec of that class, so each spec keeps what it had (owner 2026-11-17).",
+    body = function(ctx)
+        -- Idempotent: a split list holds no class-wide reminder.
+        local abr = ctx.profile.addons and ctx.profile.addons.EllesmereUIAuraBuffReminders
+        if type(abr) ~= "table" then return end
+        EllesmereUI.SplitTalentReminders(abr.talentReminders)
+    end,
+})
+
 local migrationFrame = CreateFrame("Frame")
 migrationFrame:RegisterEvent("ADDON_LOADED")
 migrationFrame:SetScript("OnEvent", function(self, event, addonName)

@@ -27,6 +27,40 @@ local UnitFrame_OnEnter, UnitFrame_OnLeave = I.UnitFrame_OnEnter, I.UnitFrame_On
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 
+-- The Rested Indicator's settings follow profiles: this module's profile holds them
+-- (profile.restedIndicator, a sparse table under the names the account-wide keys had), and
+-- a profile that never set one reads the account-wide value saved before. The options row,
+-- shared by the Unit Frames and Quality of Life pages, reads and writes through these two.
+function EllesmereUI.RestedGet(k)
+    local p = db and db.profile
+    local t = p and p.restedIndicator
+    if t and t[k] ~= nil then return t[k] end
+    return EllesmereUIDB and EllesmereUIDB[k]
+end
+function EllesmereUI.RestedSet(k, v)
+    local p = db and db.profile
+    if not p then
+        if not EllesmereUIDB then EllesmereUIDB = {} end
+        EllesmereUIDB[k] = v
+        return
+    end
+    local t = p.restedIndicator
+    if not t then
+        t = {}
+        p.restedIndicator = t
+    end
+    t[k] = v
+end
+local RestedGet = EllesmereUI.RestedGet
+-- A profile switch: the indicator takes the shown profile's spot and style.
+function EllesmereUI._applyRestedIndicator()
+    local pf = frames.player
+    if pf and pf._restPlace then
+        pf._restPlace()
+        pf._restUpdate()
+    end
+end
+
 local function InitializeFrames()
     -- The engine's shared class and power colors from the suite palette, before any
     -- frame spawns. Only the sync: a full colors pass here would repaint every module
@@ -186,7 +220,7 @@ local function InitializeFrames()
         local pf = frames.player
         if pf and pf.Health then
             if not pf._restHolder then
-                pf._restHolder = CreateFrame("Frame", nil, pf.Health)
+                pf._restHolder = CreateFrame("Frame", nil, pf)
                 local restText = pf._restHolder:CreateFontString(nil, "OVERLAY")
                 SetFSFont(restText, 9)
                 restText:SetTextColor(1, 1, 1)
@@ -196,28 +230,50 @@ local function InitializeFrames()
 
                 -- The cog's X / Y offsets.
                 local function RestOffsets()
-                    local db = EllesmereUIDB
-                    return (db and db.restedIndicatorXOffset) or 0, (db and db.restedIndicatorYOffset) or 0
+                    return RestedGet("restedIndicatorXOffset") or 0, RestedGet("restedIndicatorYOffset") or 0
                 end
-                local function PlaceRest(region)
+                -- Anchor Portrait: the shown portrait backdrop, else nil (the health bar).
+                local function RestPortrait()
+                    if RestedGet("restedIndicatorAnchor") ~= "portrait" then return nil end
+                    local bd = pf.Portrait and pf.Portrait.backdrop
+                    if bd and bd:IsShown() then return bd end
+                    return nil
+                end
+                local function PlaceRest(region, anchor)
                     local rx, ry = RestOffsets()
                     region:ClearAllPoints()
-                    region:SetPoint("TOPLEFT", pf.Health, "TOPLEFT", 3 + rx, -2 + ry)
+                    region:SetPoint("TOPLEFT", anchor, "TOPLEFT", 3 + rx, -2 + ry)
                 end
                 -- Places the text, and the animated icon once built, at the cog's X/Y
                 -- offsets (and the icon at its Size). The icon's spot depends on the
                 -- frame's art: the stock layout pass runs this again when that changes
-                -- (ns.UF_RestFollowArt).
+                -- (ns.UF_RestFollowArt). Both sit outside the bar clip, above the border
+                -- or the portrait; portrait passes re-run this via _restFollowPortrait.
                 pf._restPlace = function()
-                    PlaceRest(pf._restText)
+                    local bd = RestPortrait()
+                    local host = bd or pf.Health
+                    local holder = pf._restHolder
+                    -- On the bar: parented to the frame so the bar clip cannot cut it off.
+                    local parent = bd or pf
+                    if holder:GetParent() ~= parent then holder:SetParent(parent) end
+                    holder:ClearAllPoints()
+                    holder:SetAllPoints(host)
+                    -- +11: above the frame border at its usual level (frame + 10; an
+                    -- Inside 3D portrait lifts the border to + 20, over the indicator).
+                    holder:SetFrameLevel(bd and (bd:GetFrameLevel() + 10) or (pf:GetFrameLevel() + 11))
+                    PlaceRest(pf._restText, host)
                     local a = pf._restAnim
                     if a then
-                        local size = (EllesmereUIDB and EllesmereUIDB.restedIndicatorAnimatedSize) or 24
+                        local size = RestedGet("restedIndicatorAnimatedSize") or 24
                         local tex = pf._restAnimTex
+                        local clipLevel = (pf._barClip or pf):GetFrameLevel()
                         if ns.UF_Forever() and pf._blizzGeom == ns.UF_BLIZZ.player then
                             -- WoW Forever's own PlayerRestLoop: a 20x20 frame at (64, -6) of
                             -- the stock box, the 30x30 flipbook centred on it. The Size
-                            -- setting scales both, 24 being the stock look.
+                            -- setting scales both, 24 being the stock look. The stock spot
+                            -- is the same for both anchors, one level above the resting glow
+                            -- (the stock portrait sits under the bar clip).
+                            a:SetFrameLevel(clipLevel + 10)
                             local k = size / 24
                             local rx, ry = RestOffsets()
                             a:SetSize(20 * k, 20 * k)
@@ -227,19 +283,26 @@ local function InitializeFrames()
                             tex:SetPoint("CENTER", a, "CENTER")
                             tex:SetSize(30 * k, 30 * k)
                         else
+                            a:SetFrameLevel(bd and (bd:GetFrameLevel() + 10) or (clipLevel + 11))
                             a:SetSize(size, size)
-                            PlaceRest(a)
+                            PlaceRest(a, host)
                             tex:ClearAllPoints()
                             tex:SetAllPoints(a)
                         end
+                    end
+                end
+                -- For the passes that show, hide or re-level the portrait: only an
+                -- indicator anchored to the portrait has anything to follow.
+                pf._restFollowPortrait = function()
+                    if RestedGet("restedIndicatorAnchor") == "portrait" then
+                        pf._restPlace()
                     end
                 end
 
                 -- Shows the style the settings pick (or neither) and hides the other.
                 -- The animated icon is built the first time it is needed.
                 pf._restUpdate = function()
-                    local db = EllesmereUIDB
-                    local enabled = db and db.showRestedIndicator == true or false
+                    local enabled = RestedGet("showRestedIndicator") == true
                     -- Rest changes are listened to only while the indicator is on.
                     if enabled ~= pf._restListening then
                         pf._restListening = enabled
@@ -252,13 +315,13 @@ local function InitializeFrames()
                         end
                     end
                     local on = enabled and IsResting() or false
-                    local animated = db and db.restedIndicatorAnimated == true or false
+                    local animated = RestedGet("restedIndicatorAnimated") == true
                     if on and animated and not pf._restAnim then
                         -- On the unit frame, not the health bar: the bar sits in the frame's
                         -- bar clip, which would cut off the z's as they float up past its edge.
-                        -- Its level keeps it above that clip, which draws as one group.
+                        -- Its level (set by _restPlace) keeps it above that clip, which
+                        -- draws as one group.
                         local restAnim = CreateFrame("Frame", nil, pf)
-                        restAnim:SetFrameLevel(((pf._barClip or pf):GetFrameLevel()) + 10)
                         restAnim:Hide()
                         local restTex = restAnim:CreateTexture(nil, "OVERLAY")
                         EllesmereUI.AddRestFlipbook(restAnim, restTex)
@@ -307,8 +370,6 @@ local function InitializeFrames()
                 pf._restEventFrame = CreateFrame("Frame", nil, pf)
                 pf._restEventFrame:SetScript("OnEvent", function() pf._restUpdate() end)
             end
-            pf._restHolder:SetAllPoints(pf.Health)
-            pf._restHolder:SetFrameLevel(pf.Health:GetFrameLevel() + 5)
             pf._restPlace()
             pf._restUpdate()
         end
@@ -852,6 +913,28 @@ local function InitializeFrames()
         end)
     end)
 
+    -- Forever druid without Cat Form: build the combo row once it is learned.
+    if EllesmereUI.ForeverDruidLacksCat() then
+        local catWatcher = CreateFrame("Frame")
+        catWatcher:RegisterEvent("SPELLS_CHANGED")
+        local function BuildCatRow()
+            if ns.ReloadFrames then ns.ReloadFrames() end
+            if frames._toggleClassPower then frames._toggleClassPower() end
+            -- The class resource rows were not built while locked: build the page
+            -- again (a closed panel takes it at its next show).
+            EllesmereUI:RefreshPage(true)
+        end
+        catWatcher:SetScript("OnEvent", function(self)
+            if EllesmereUI.ForeverDruidLacksCat() then return end
+            self:UnregisterAllEvents()
+            if InCombatLockdown() then
+                ns.CombatQueue.Defer("UF_CatFormRow", BuildCatRow)
+            else
+                BuildCatRow()
+            end
+        end)
+    end
+
     -- Durably suppress a live Blizzard child frame (target-of-target/focus-target).
     -- These are PROTECTED CHILDREN of TargetFrame/FocusFrame: when the parent uses
     -- Blizzard's source it stays alive and re-drives the child (TargetOfTargetMixin:
@@ -982,9 +1065,36 @@ local function InitializeFrames()
         pf._combatHolder:SetFrameLevel(pf:GetFrameLevel() + 20)
         local combat = pf._combatIndicator
 
-        -- Helper: resolve which texture file + coords to use
+        -- Event frame for combat state changes (built once): its events are
+        -- registered only while the unit's style is not None. Player: the exact
+        -- regen events; target: UNIT_FLAGS (its combat flag flips) and
+        -- PLAYER_TARGET_CHANGED (re-evaluates the new unit).
+        if not pf._combatEventFrame then
+            pf._combatEventFrame = CreateFrame("Frame", nil, pf)
+        end
+        local combatFrame = pf._combatEventFrame
+        local function SyncCombatEvents(on)
+            if on == combatFrame._armed then return end
+            combatFrame._armed = on
+            if not on then
+                combatFrame:UnregisterAllEvents()
+            elseif ciUnit == "player" then
+                combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+                combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+            else
+                combatFrame:RegisterUnitEvent("UNIT_FLAGS", ciUnit)
+                combatFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+            end
+        end
+
+        -- Helper: resolve which texture file + coords to use. Every settings
+        -- change runs it (ReloadFrames), so it also arms or drops the events.
         local function ApplyCombatTexture()
+            -- Re-read by unit key: a profile switch (RepointAllDBs) swaps
+            -- db.profile, so the table captured at setup would go stale.
+            ps = db.profile[ciUnit] or ps
             local style = ps.combatIndicatorStyle or ciDefStyle
+            SyncCombatEvents(style ~= "none")
             if style == "none" then combat:Hide(); return end
 
             local colorMode = ps.combatIndicatorColor or "custom"
@@ -1056,21 +1166,8 @@ local function InitializeFrames()
         end
         pf._applyCombatTexture = ApplyCombatTexture
 
-        -- Event frame for combat state changes (reuse existing)
-        if not pf._combatEventFrame then
-            pf._combatEventFrame = CreateFrame("Frame", nil, pf)
-            if ciUnit == "player" then
-                pf._combatEventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-                pf._combatEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-            else
-                -- UNIT_FLAGS fires on the unit's combat flag flips; target
-                -- change re-evaluates for the new unit.
-                pf._combatEventFrame:RegisterUnitEvent("UNIT_FLAGS", ciUnit)
-                pf._combatEventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
-            end
-        end
-        local combatFrame = pf._combatEventFrame
         combatFrame:SetScript("OnEvent", function()
+            ps = db.profile[ciUnit] or ps
             local style = ps.combatIndicatorStyle or ciDefStyle
             if style ~= "none" and UnitAffectingCombat(ciUnit) then
                 ApplyCombatTexture()
@@ -1082,6 +1179,7 @@ local function InitializeFrames()
 
         -- Set correct initial state
         local style = ps.combatIndicatorStyle or ciDefStyle
+        SyncCombatEvents(style ~= "none")
         if style ~= "none" and UnitAffectingCombat(ciUnit) then
             ApplyCombatTexture()
             combat:Show()
@@ -1141,6 +1239,10 @@ local function InitializeFrames()
             uf._leaderSettings = settings
 
             local function ApplyLeaderIndicator()
+                -- Re-read by unit key: a profile switch (RepointAllDBs) swaps
+                -- db.profile, so the table captured at setup would go stale.
+                settings = db.profile[uf._euiBaseUnit] or settings
+                uf._leaderSettings = settings
                 local sz  = settings.leaderIndicatorSize or 16
                 local pos = settings.leaderIndicatorPosition or "topleft"
                 local ox  = settings.leaderIndicatorX or 0
@@ -1278,6 +1380,10 @@ local function InitializeFrames()
             uf._eliteSettings = settings
 
             local function ApplyEliteIndicator()
+                -- Re-read by unit key: a profile switch (RepointAllDBs) swaps
+                -- db.profile, so the table captured at setup would go stale.
+                settings = db.profile[uf._euiBaseUnit] or settings
+                uf._eliteSettings = settings
                 local sz  = settings.eliteIndicatorSize or 16
                 local pos = settings.eliteIndicatorPosition or "topleft"
                 local ox  = settings.eliteIndicatorX or 0
@@ -1346,12 +1452,97 @@ local function InitializeFrames()
     -- "only" hides it on them (Blizzard's own rule; the player frame's default, which
     -- makes it a PvP-flagged indicator there), "ignore" draws both alike.
     -- UNIT_FACTION also fires on PvP flag changes. Art: the Icon Style setting, drawn
-    -- by EllesmereUI.SetFactionArt (shared with the nameplates).
+    -- by EllesmereUI.SetFactionArt (shared with the nameplates). The options page shows
+    -- mode and PvP flag as one dropdown (Never / When PvP Flagged / Always (Dim
+    -- Unflagged) / Always), a view over these two keys.
+    --
+    -- PvP Flagged Timer (player frame only: the countdown is the player's own): the
+    -- time left before the player's PvP flag drops, on the side of the badge that
+    -- factionIndicatorTimer names ("left" / "right" / "top" / "bottom"; unset or
+    -- "none" = off). PVP_TIMER_UPDATE (player) says when the countdown starts or
+    -- stops and GetPVPTimer is read there once; one-shot timers repaint the text as
+    -- each shown second changes, only while the countdown runs and the badge shows.
+    -- Nothing is built, registered or scheduled while it is off.
     do
         local _factionFrames = {}
         local factionEvents
 
-        local function _factionRefresh(uf)
+        local TIMER_SIDES = {
+            left   = { "RIGHT",  "LEFT",   -2,  0 },
+            right  = { "LEFT",   "RIGHT",   2,  0 },
+            top    = { "BOTTOM", "TOP",     0,  2 },
+            bottom = { "TOP",    "BOTTOM",  0, -2 },
+        }
+        local pvpTimerUF     -- the player frame while its timer is on
+        local pvpTimerEnd    -- GetTime() at which the flag drops, while the countdown runs
+        local pvpTickQueued  -- a repaint is scheduled
+
+        local function _pvpTimerRead()
+            pvpTimerEnd = nil
+            if IsPVPTimerRunning() then
+                local ms = GetPVPTimer()
+                if type(ms) == "number" and not issecretvalue(ms) and ms > 0 then
+                    pvpTimerEnd = GetTime() + ms / 1000
+                end
+            end
+        end
+
+        local _pvpTimerPaint
+        local function _pvpTimerTick()
+            pvpTickQueued = false
+            _pvpTimerPaint()
+        end
+        _pvpTimerPaint = function()
+            local uf = pvpTimerUF
+            local fs = uf and uf._pvpTimerText
+            if not fs then return end
+            local left = pvpTimerEnd and (pvpTimerEnd - GetTime())
+            if left and left <= 0 then pvpTimerEnd, left = nil, nil end
+            if not left or not uf._factionIndicator:IsShown() then
+                fs:Hide()
+                return
+            end
+            local secs = math.ceil(left)
+            if fs._pvpSecs ~= secs then
+                fs._pvpSecs = secs
+                fs:SetFormattedText("%d:%02d", math.floor(secs / 60), secs % 60)
+            end
+            fs:Show()
+            if not pvpTickQueued then
+                pvpTickQueued = true
+                -- Just past the moment the shown second changes.
+                C_Timer.After(left - (secs - 1) + 0.01, _pvpTimerTick)
+            end
+        end
+
+        -- Builds (once), styles and places the player's timer text while it is on;
+        -- hides it and forgets the countdown while it is off.
+        local function _pvpTimerApply(uf, s)
+            local side = TIMER_SIDES[s.factionIndicatorTimer]
+            if side and (s.factionIndicatorMode or "off") ~= "off" then
+                local tex = uf._factionIndicator
+                local fs = uf._pvpTimerText
+                if not fs then
+                    fs = tex:GetParent():CreateFontString(nil, "OVERLAY")
+                    fs:SetWordWrap(false)
+                    fs:Hide()
+                    uf._pvpTimerText = fs
+                end
+                SetFSFont(fs, s.factionIndicatorTimerSize or 12)
+                fs:SetTextColor(1, 1, 1)
+                fs:ClearAllPoints()
+                fs:SetPoint(side[1], tex, side[2],
+                    side[3] + (s.factionIndicatorTimerX or 0), side[4] + (s.factionIndicatorTimerY or 0))
+                -- Turned on now: the countdown may already be running.
+                if not pvpTimerUF then _pvpTimerRead() end
+                pvpTimerUF = uf
+            else
+                pvpTimerUF, pvpTimerEnd = nil, nil
+                if uf._pvpTimerText then uf._pvpTimerText:Hide() end
+            end
+        end
+
+        local function _factionPaint(uf)
             local s = uf and uf._factionSettings
             if not (uf and uf._factionIndicator and s) then return end
             local tex = uf._factionIndicator
@@ -1403,7 +1594,7 @@ local function InitializeFrames()
                 -- Paint only on a real change: faction, style, dim and the honor
                 -- badge are the paint's only inputs (the texture is ours, so the
                 -- memo lives on it).
-                local style = s.factionIndicatorStyle or "pvp"
+                local style = s.factionIndicatorStyle or "crest"
                 local badge = EllesmereUI.FactionBadgeFor(style, unit)
                 if tex._facFac ~= fac or tex._facStyle ~= style or tex._facDim ~= dim or tex._facBadge ~= badge then
                     tex._facFac, tex._facStyle, tex._facDim, tex._facBadge = fac, style, dim, badge
@@ -1415,6 +1606,12 @@ local function InitializeFrames()
             else
                 tex:Hide()
             end
+        end
+
+        -- The badge, then the player's timer beside it (it follows the badge).
+        local function _factionRefresh(uf)
+            _factionPaint(uf)
+            if uf == pvpTimerUF then _pvpTimerPaint() end
         end
 
         -- Events are registered only while the feature is on somewhere (zero cost
@@ -1436,6 +1633,13 @@ local function InitializeFrames()
                     -- the target badge; the player's own flip and a world load touch
                     -- both (Opposite compares against the player's faction).
                     factionEvents:SetScript("OnEvent", function(_, event, unit)
+                        -- The countdown starting or stopping changes the timer only.
+                        if event == "PVP_TIMER_UPDATE" then
+                            _pvpTimerRead()
+                            _pvpTimerPaint()
+                            return
+                        end
+                        if event == "PLAYER_ENTERING_WORLD" and pvpTimerUF then _pvpTimerRead() end
                         local all = event == "PLAYER_ENTERING_WORLD" or unit == "player"
                         for i = 1, #_factionFrames do
                             local uf = _factionFrames[i]
@@ -1453,6 +1657,12 @@ local function InitializeFrames()
                     factionEvents:RegisterUnitEvent("UNIT_FACTION", "target", "player")
                 else
                     factionEvents:RegisterUnitEvent("UNIT_FACTION", "player")
+                end
+                -- The PvP Flagged Timer's own edge, only while it is on.
+                if pvpTimerUF then
+                    factionEvents:RegisterUnitEvent("PVP_TIMER_UPDATE", "player")
+                else
+                    factionEvents:UnregisterEvent("PVP_TIMER_UPDATE")
                 end
                 factionEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
             elseif factionEvents then
@@ -1482,7 +1692,8 @@ local function InitializeFrames()
                 local ox  = settings.factionIndicatorX or 0
                 local oy  = settings.factionIndicatorY or 0
                 local tex = uf._factionIndicator
-                tex:SetSize(sz, sz)
+                -- An sz x sz box; the art sits centred in it at its own proportions.
+                EllesmereUI.FitFactionArt(tex, sz)
                 tex:ClearAllPoints()
                 -- Never centred on a hidden backdrop (ns.UF_PortraitShown).
                 if pos == "portrait" and ns.UF_PortraitShown(settings)
@@ -1496,8 +1707,10 @@ local function InitializeFrames()
                         "TOPRIGHT"
                     -- Corners of the whole frame (portrait included), so "Top Left"
                     -- is the frame's top-left whichever side the portrait is on.
-                    tex:SetPoint(anchor, uf, anchor, ox, oy)
+                    local dx, dy = EllesmereUI.FactionBoxCenter(anchor, sz)
+                    tex:SetPoint("CENTER", uf, anchor, ox + dx, oy + dy)
                 end
+                if uf._euiBaseUnit == "player" then _pvpTimerApply(uf, settings) end
                 _factionArmEvents()
                 _factionRefresh(uf)
             end
@@ -2153,6 +2366,10 @@ local function InitializeFrames()
         local frame = frames[unitKey]
         if frame and (unitKey == "target" or unitKey == "focus") then
             ns.UF_RecolorTexts(frame, unitKey, db.profile[unitKey])
+            local s, btb = db.profile[unitKey], frame._btb
+            if btb and btb._applyBTBClassIcon and s and s.bottomTextBar then
+                btb._applyBTBClassIcon(s)
+            end
         end
         if not frame or not frame.Portrait then return end
         local backdrop = frame.Portrait.backdrop

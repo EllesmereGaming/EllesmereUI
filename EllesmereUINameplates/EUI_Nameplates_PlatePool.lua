@@ -250,7 +250,8 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     PP.Size(plate.classFrame, _reIconSz, _reIconSz)
     PP.Point(plate.classFrame, "LEFT", plate.health, "LEFT", 2, 0)
     -- INDICATOR TIER (see raidFrame). MEDIUM strata + low level (health+3=13) so the
-    -- classification/elite/rare/quest indicator sits below auras/text but above the flattened bar.
+    -- Elite/Rare Indicator sits below auras/text but above the flattened bar. The Quest
+    -- Indicator's frame (plate.questFrame) is built on first use by UpdateClassification.
     plate.classFrame:SetFrameStrata("MEDIUM")
     plate.classFrame:SetFrameLevel(plate.health:GetFrameLevel() + 3)
     plate.classFrame:Hide()
@@ -749,16 +750,17 @@ function ns.RefreshCastBorderColor()
     if ns.GetWrapBorderCastbar() then ns.ApplyBorderWrapToAll() end
 end
 
+-- Height of the rectangle an enemy plate is stacked by: the name, the health bar and the cast
+-- bar, times Stacked Nameplate Spacing.
+function ns.NP_StackHeight()
+    return (4 + GetEnemyNameTextSize() + GetHealthBarHeight() + GetCastBarHeight()) * GetStackSpacingScale() / 100
+end
+
 function ns.RefreshStackingBounds()
-    local scale = GetStackSpacingScale() / 100
-    local barH = GetHealthBarHeight()
-    local castH2 = GetCastBarHeight()
-    local nameGap = 4 + GetEnemyNameTextSize()
-    local totalH = nameGap + barH + castH2
-    local w = GetHealthBarWidth()
+    local w, h = GetHealthBarWidth(), ns.NP_StackHeight()
     for _, plate in pairs(ns.plates) do
         if plate._stackBounds then
-            plate._stackBounds:SetSize(w, totalH * scale)
+            plate._stackBounds:SetSize(w, h)
         end
     end
 end
@@ -919,6 +921,9 @@ function ns.RefreshAllSettings()
     -- mode or its guild brackets reaches the live friendly names (one compare
     -- while they are unchanged).
     if ns.NP_SyncFriendlyNameFormat then ns.NP_SyncFriendlyNameFormat() end
+    -- The away/busy tag and the target/hover events follow the profile's own
+    -- switches (a no-op while they are unchanged).
+    if ns.RefreshFriendlyTagWatch then ns.RefreshFriendlyTagWatch() end
 end
 
 I.frameCache, I.GetActiveKickSpell = frameCache, GetActiveKickSpell

@@ -542,6 +542,8 @@ end
 local function FilterToggleTip()
     return Cfg("filterEnabled") and "Quest Filters On" or "Quest Filters Off"
 end
+-- The custom tracker draws the same button on its own header (Custom.lua).
+EQT.FilterToggleTip = FilterToggleTip
 
 local function ApplyFilterToggle()
     local want = Exp() and Cfg("filterHeaderToggle") == true

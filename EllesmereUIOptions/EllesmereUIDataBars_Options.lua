@@ -3317,6 +3317,26 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       setValue = function(v) s.precision = v; Apply() end },
                 }
+            elseif b.type == "dualspec" then
+                -- The player's own names for the two spec groups. Empty shows
+                -- the group's leading talent tree.
+                local function NameInput(label, key, tip)
+                    return { type = "input", text = label, inputStyle = "popup",
+                        inputWidth = 140, placeholder = "Talent tree name", tooltip = tip,
+                        getValue = function() return s[key] or "" end,
+                        setValue = function(text)
+                            text = strtrim(text or "")
+                            if text == "" then s[key] = nil else s[key] = text:sub(1, 32) end
+                            Apply()
+                        end }
+                end
+                typeRows = {
+                    NameInput("Primary Name", "primaryLabel",
+                        "Your name for the primary talents (Shift + Left Click activates them). Leave it empty to show the talent tree with the most points."),
+                    NameInput("Secondary Name", "secondaryLabel",
+                        "Your name for the secondary talents (Shift + Right Click activates them). Leave it empty to show the talent tree with the most points."),
+                    MkToggleOn("Show Icon", "showIcon", "Shows the icon of the active talents' leading tree."),
+                }
             elseif b.type == "ldb" then
                 -- Rebuilt on every page draw, never cached: plugins register on
                 -- their own schedule and some only appear once their addon has

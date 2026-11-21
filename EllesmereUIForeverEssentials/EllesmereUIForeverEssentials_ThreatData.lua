@@ -105,7 +105,9 @@ function ns.NewCollector()
         local e = entries[count]
         if not e then e = {}; entries[count] = e end
         e.key, e.unit, e.raw, e.scaled, e.tanking = unit, unit, raw, scaled, tanking
-        e.rawPct = Readable(rawPct) and rawPct or nil
+        -- The unit that holds aggro is the tank: 100% of the tank's threat. The
+        -- game's own percent for it can read stale or capped (255).
+        e.rawPct = tanking and 100 or (Readable(rawPct) and rawPct or nil)
         e.isPet, e.pull, e.own, e.order = isPet, false, false, count
         list[#list + 1] = e
     end

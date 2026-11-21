@@ -545,6 +545,8 @@ local function BuildColorPickerPopup()
         opacityBox:SetText(tostring(pct))
     end
     -- Parse the box and apply as alpha. commit=true snaps back to the live value when unparseable (Enter/focus loss).
+    -- The commit that runs once the box has lost focus writes a clamped value back ("150" reads 100); unfocused, the
+    -- write does not come back through OnTextChanged.
     local function ApplyOpacityText(commit)
         local n = tonumber(opacityBox:GetText())
         if n then
@@ -552,6 +554,9 @@ local function BuildColorPickerPopup()
             currentA = n / 100
             lastOpacityPct = n
             UpdateAllControls(); FireCallbacks()
+            if commit and not opacityBox:HasFocus() and opacityBox:GetText() ~= tostring(n) then
+                opacityBox:SetText(tostring(n))
+            end
             return true
         elseif commit then
             opacityBox:SetText(tostring(math.floor(currentA * 100 + 0.5)))
@@ -768,6 +773,9 @@ local function BuildColorPickerPopup()
         popup:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x, y)
         EllesmereUI._colorPickerOpen = true
         RefreshSwatchRows()
+        -- A hex typed then cancelled with Escape leaves this cache on the old colour: reset it
+        -- so each open writes the box from the colour being edited.
+        lastHexR, lastHexG, lastHexB = -1, -1, -1
         popup:Show(); UpdateAllControls()
         -- Controller cursor: into the picker, on OK (its first stop would be the close box).
         if EllesmereUI.PadCursorShown() then EllesmereUI.PadFocus(okBtn) end

@@ -264,8 +264,7 @@ local function SetupOptionsPanel()
         if simple then
             showCD = settings.simpleDebuffShowCooldownText
             cdSize = settings.simpleDebuffCooldownTextSize or 14
-            cdOffX = settings.simpleDebuffCooldownTextOffsetX or 0
-            cdOffY = settings.simpleDebuffCooldownTextOffsetY or 0
+            cdOffX, cdOffY = ns.GetBossSimpleCdTextOffset(settings, false)
         else
             showCD = settings.debuffShowCooldownText
             cdSize = settings.debuffCooldownTextSize or 10

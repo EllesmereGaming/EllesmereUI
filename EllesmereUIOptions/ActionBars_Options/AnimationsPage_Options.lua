@@ -450,16 +450,18 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
                   UpdateHighlightPreview(_highlightPreview)
                   EllesmereUI:RefreshPage()
               end })
-        -- Preview chrome: the search pre-build's absorber row cannot host frames.
-        if not EllesmereUI._prebuilding then
+        do
             local leftRgn = row._leftRegion
-            _pushedPreview = CreatePreviewIcon(leftRgn)
-            if _pushedPreview._icon then
-                _pushedPreview._icon:SetTexture(GetNthActionButtonIcon(1))
-                _pushedPreview._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            -- Preview chrome: the search pre-build's absorber row cannot host frames.
+            if not EllesmereUI._prebuilding then
+                _pushedPreview = CreatePreviewIcon(leftRgn)
+                if _pushedPreview._icon then
+                    _pushedPreview._icon:SetTexture(GetNthActionButtonIcon(1))
+                    _pushedPreview._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                end
+                UpdatePushedPreview(_pushedPreview)
+                EllesmereUI.RegisterWidgetRefresh(function() UpdatePushedPreview(_pushedPreview) end)
             end
-            UpdatePushedPreview(_pushedPreview)
-            EllesmereUI.RegisterWidgetRefresh(function() UpdatePushedPreview(_pushedPreview) end)
 
             EllesmereUI.BuildInlineCog(leftRgn, {
                 title = "Pushed Border Settings",
@@ -486,13 +488,15 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
             })
 
             local rightRgn = row._rightRegion
-            _highlightPreview = CreatePreviewIcon(rightRgn)
-            if _highlightPreview._icon then
-                _highlightPreview._icon:SetTexture(GetNthActionButtonIcon(2))
-                _highlightPreview._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            if not EllesmereUI._prebuilding then
+                _highlightPreview = CreatePreviewIcon(rightRgn)
+                if _highlightPreview._icon then
+                    _highlightPreview._icon:SetTexture(GetNthActionButtonIcon(2))
+                    _highlightPreview._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                end
+                UpdateHighlightPreview(_highlightPreview)
+                EllesmereUI.RegisterWidgetRefresh(function() UpdateHighlightPreview(_highlightPreview) end)
             end
-            UpdateHighlightPreview(_highlightPreview)
-            EllesmereUI.RegisterWidgetRefresh(function() UpdateHighlightPreview(_highlightPreview) end)
 
             EllesmereUI.BuildInlineCog(rightRgn, {
                 title = "Highlight Border Settings",
@@ -576,6 +580,20 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
         })
         y = y - h
 
+        -- WoW Forever, a class with on-next-swing attacks: the weapon swing as a
+        -- swipe on their buttons (EUI_ActionBars_ForeverSwingSweep.lua).
+        if ns.AB_SwingSweepApply then
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Show Swing Timer on Attacks",
+                  tooltip="Shows your weapon swing as a cooldown swipe on your on-next-swing attack buttons, starting again on every swing.",
+                  getValue=function() return p.swingTimerSwipe or false end,
+                  setValue=function(v)
+                      p.swingTimerSwipe = v
+                      ns.AB_SwingSweepApply()
+                  end },
+                EllesmereUI.BlankRowCfg());  y = y - h
+        end
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         -------------------------------------------------------------------
@@ -589,9 +607,9 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
         end
         -- Row 1: Custom Proc Glow | its color swatches.
         row, h = W:DualRow(parent, y, procSpec, { type="label", text="Glow Color" })
+        GO.AttachInline(row._leftRegion, procGlowDesc, row._rightRegion)
         if not EllesmereUI._prebuilding then
             local leftRgn = row._leftRegion
-            GO.AttachInline(leftRgn, procGlowDesc, row._rightRegion)
             _procGlowPreview = CreatePreviewIcon(leftRgn)
             -- Joins the inline chain left of the glow cog.
             _procGlowPreview:ClearAllPoints()

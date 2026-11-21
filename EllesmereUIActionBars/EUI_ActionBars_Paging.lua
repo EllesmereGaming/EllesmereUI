@@ -82,6 +82,16 @@ function EAB_VTABLE.HasCustomPaging(bs)
     return false
 end
 
+-- True when a modifier or target state holds a page and its group is on.
+function EAB_VTABLE.HasActiveModTargetPaging(bs)
+    local p = bs and bs.paging
+    if not p then return false end
+    for id, group in pairs(EAB_VTABLE.MOD_TARGET_PAGING) do
+        if p[id] and not EAB_VTABLE.PagingGroupOff(bs, group) then return true end
+    end
+    return false
+end
+
 -- Auto-paging opt-outs for MainBar. Returns noForm, noSky: suppress implicit bonusbar
 -- swaps for forms/stealth/stance (bonusbar 1-4) and skyriding (bonusbar 5). Does NOT
 -- cover vehicle/override/possess or a temporary transformation's bar -- those replace
@@ -281,6 +291,48 @@ local function GetClassPagingConditions()
 
     return conditions
 end
+
+-- Native Action Bar 1 page (what ACTIONBUTTONn fires), in the order
+-- ActionBarController_UpdateAll writes it: bonus bar only on page 1.
+function I.GetNativeMainPageConditions()
+    local V = EAB_VTABLE
+    local parts = {
+        "[vehicleui][possessbar] " .. V.GetVehicleBarIndex(),
+        "[overridebar] " .. V.GetOverrideBarIndex(),
+        "[shapeshift] " .. V.GetTempShapeshiftBarIndex(),
+    }
+    for i = 2, NUM_AB_PAGES do parts[#parts + 1] = "[bar:" .. i .. "] " .. i end
+    for i = 1, 5 do parts[#parts + 1] = "[bonusbar:" .. i .. "] " .. (NUM_AB_PAGES + i) end
+    parts[#parts + 1] = "1"
+    return table.concat(parts, "; ")
+end
+
+-- Custom-paged Action Bar 1 keys ride the native command while our page
+-- matches the native one (hold-to-cast works), the click route otherwise.
+ns._eabDynBindSnippet = [[
+    local n = self:GetAttribute("eabdynn") or 0
+    local click = false
+    if n > 0 then
+        -- Both pages read fresh: the drivers fire one after the other.
+        local cur = SecureCmdOptionParse(self:GetAttribute("eabpageconds") or "")
+        local nat = SecureCmdOptionParse(self:GetAttribute("eabnativeconds") or "")
+        click = (tonumber(cur) or 1) ~= (tonumber(nat) or 1)
+    end
+    if self:GetAttribute("eabdynclick") == click then return end
+    self:SetAttribute("eabdynclick", click)
+    self:ClearBindings()
+    for i = 1, n do
+        local k1, k2 = self:GetAttribute("eabdk1-" .. i), self:GetAttribute("eabdk2-" .. i)
+        local btn, cmd = self:GetAttribute("eabdbtn" .. i), self:GetAttribute("eabdcmd" .. i)
+        if click then
+            if k1 then self:SetBindingClick(false, k1, btn) end
+            if k2 then self:SetBindingClick(false, k2, btn) end
+        else
+            if k1 then self:SetBinding(false, k1, cmd) end
+            if k2 then self:SetBinding(false, k2, cmd) end
+        end
+    end
+]]
 
 -------------------------------------------------------------------------------
 --  Action Bar 1 Paging Arrows + Page Number

@@ -15,6 +15,7 @@ local BAGS_DEFAULTS = {
         bagSlotSpacing        = 4,       -- gap between slots
         bagColumns            = 12,
         bagAutoSize           = false,
+        bagAnchorCorner       = true,    -- Anchor to Nearest Corner (the Window Scale cog), bags and bank
         bagCatTitleSize       = 11,
         bagCountFontSize      = 11,
         bagSlotCountFormat    = "used_total",
@@ -25,6 +26,7 @@ local BAGS_DEFAULTS = {
         bagShowTrackRank      = false,
         itemlevelUseCustomColor = false,
         bagHideEmptyCategories = true,
+        bagCategorizeReagents = false,
         bagSplitSetGearBySet  = false,
         bagShowSetGearName    = false,
         bagSetNameFontSize    = 9,
@@ -43,11 +45,14 @@ local BAGS_DEFAULTS = {
         bagDimPinnedInOneBag  = false,   -- Dim Items in OneBag/MultiBag (the Pinned Items cog)
         bagRecentInOneBag     = false,
         bagShowRecentClear    = false,
-        -- Bag Top Bar Icons: the header's Show Bags, Junk Marker, Quick Actions and Sort icons
+        bagRecentNewOnly      = false,   -- Recent Items: only items not carried before (gear, mail, trade always)
+        bagRecentShowGained   = false,   -- Recent Items: one entry per stackable with the amount picked up
+        -- Bag Top Bar Icons: the header's Show Bags, Junk Marker, Quick Actions, Sort and Keyring icons
         bagShowBagsIcon       = true,
         bagShowJunkIcon       = true,    -- the Junk Marker: header coin, Junk category, Sell Junk at merchants
         bagShowQuickIcon      = false,   -- Quick Actions: dim all but items a spell works on; click or Alt-click casts it
         bagShowSortIcon       = true,
+        bagShowKeyringIcon    = false,   -- WoW Forever only: opens the keyring above the icon
         bagSortToBottom       = false,
         -- Show Coins: the coins the gold summary shows, "gold" | "silver" (gold and silver) |
         -- "copper" (all three); Gold and Silver on WoW Forever
@@ -77,6 +82,8 @@ local BAGS_DEFAULTS = {
         enhancedBags          = true,
         bagDesaturateJunkItems = false,  -- Junk Item Visuals: grey items and Junk Marker junk, every display
         bagShowJunkCoin       = false,   -- Junk Item Visuals: the coin badge on junk (Grid and Compact)
+        bagReagentBadge       = "none",  -- Reagent Bag Icon: badge style key on reagent bag items (Grid, Compact and List), see BAG_REAGENT_BADGES
+        bagReagentBadgeSize   = 12,      -- Reagent Bag Icon cog: the badge size (8..24; List view draws it at 10/12)
         bagQualityBorder      = true,    -- Quality Item Border, every display
         bagDisplayBindType    = false,
         bagBindTypeFontSize   = 11,

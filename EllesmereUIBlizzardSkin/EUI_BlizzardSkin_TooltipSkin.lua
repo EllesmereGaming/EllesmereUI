@@ -140,6 +140,68 @@ local FFD, GetFFD = I.FFD, I.GetFFD
     end
     EllesmereUI._getPopupMenuButtonTextColor = _getElementColor
 
+    -- Rounded corners (tooltipRoundedCorners, on unless false) for a solid
+    -- border: a rounded outline in the configured colour and width on our own
+    -- pixel layer, our bg masked to the same shape (state in FFD, nothing on
+    -- the tooltip). A textured style keeps its square art. Returns true while
+    -- the rounded outline stands in for the configured border.
+    local function _ttRefit(layer)
+        local o = FFD[layer] and FFD[layer].outline
+        if o then o:Fit() end
+    end
+
+    local function _ttRound(tt, legacySize)
+        local db = EllesmereUIDB or {}
+        local o = FFD[tt] and FFD[tt].round
+        local on = db.tooltipRoundedCorners ~= false
+            and (db.tooltipBorderTexture or "solid") == "solid"
+        local size, color, alpha, w
+        if on then
+            local _
+            _, size, _, color, alpha = _resolveConfiguredBorder("tooltip", legacySize)
+            -- The solid line's width in whole pixels, as the square border draws it.
+            w = size > 0 and (EllesmereUI.BorderPx(db.tooltipBorderThicknessPx, size, "solid") or size) or 1
+            w = math.max(1, math.floor(w + 0.5))
+            -- The radius needs w + 1 and the art stops at ROUNDED_MAX_RADIUS:
+            -- a wider line keeps the square border.
+            on = w < EllesmereUI.ROUNDED_MAX_RADIUS
+        end
+        if not on then
+            if o then o:SetShown(false) end
+            return false
+        end
+        local fitted = not o or o.width ~= w
+        if o then
+            o:SetWidth(w)
+        else
+            local data = GetFFD(tt)
+            o = EllesmereUI.MakeRoundedBorder(tt, 1, 1, 1, 1, data.bg, nil, nil, w)
+            GetFFD(o._frame).outline = o
+            -- The tooltip grows with its lines while shown (no OnShow then).
+            o._frame:SetScript("OnSizeChanged", _ttRefit)
+            data.round = o
+        end
+        -- Show Behind, as _applyConfiguredBorder places the square border.
+        local lvl = tt:GetFrameLevel()
+        o._frame:SetFrameLevel(db.tooltipBorderBehind and math.max(0, lvl - 1) or (lvl + 4))
+        o:SetColor(color.r, color.g, color.b, size > 0 and alpha or 0)
+        o:SetShown(true)
+        -- MakeRoundedBorder and SetWidth have just fitted a new shape.
+        if not fitted then o:Fit() end
+        return true
+    end
+
+    -- The health strip's side inset: clear of the rounded corners while the
+    -- outline shows (the bar is Blizzard's, so it moves in instead of taking a
+    -- mask), 1 on the square border. _sbInset: the live bar's, nil until the
+    -- reskin has anchored it.
+    local function _ttStripInset(tt)
+        local o = FFD[tt] and FFD[tt].round
+        if not o or o.off then return 1 end
+        return o.br or o.radius
+    end
+    local _sbInset
+
     local function _ttSkin(tt, _, isEmbedded)
         if not tt or tt:IsForbidden() or not _enabled() then return end
         -- Embedded tooltips (EmbeddedItemTooltip, reward block inside a world-quest tooltip) render INSIDE a parent; skip bg/border to avoid a nested-tooltip look.
@@ -156,7 +218,22 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         GetFFD(tt).bg:Show()
         -- Border size/color (Blizz UI Enhanced > Blizzard Tooltip > Border), same reapply-every-call pattern; size 0 hides the border.
         local _, _, _, _, legacySize = EllesmereUI.GetTooltipBorder()
-        _applyConfiguredBorder(tt, "tooltip", legacySize)
+        if _ttRound(tt, legacySize) then
+            EllesmereUI._hideBlizzardConfiguredBorder(tt)
+        else
+            -- Back from the rounded path: shown first, so a size 0 apply still hides it.
+            local cb = FFD[tt] and FFD[tt].configBorder
+            if cb then cb:Show() end
+            _applyConfiguredBorder(tt, "tooltip", legacySize)
+        end
+        if _sbInset and tt == _GameTooltip then
+            local x = _ttStripInset(tt)
+            if x ~= _sbInset then
+                _sbInset = x
+                GameTooltipStatusBar:SetPoint("BOTTOMLEFT", _GameTooltip, "BOTTOMLEFT", x, 1)
+                GameTooltipStatusBar:SetPoint("BOTTOMRIGHT", _GameTooltip, "BOTTOMRIGHT", -x, 1)
+            end
+        end
     end
     -- The same look for Blizzard's tooltip-like frames that are not GameTooltips
     -- (their window packs call it on show).
@@ -377,9 +454,11 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             end
         end
         -- Append only while the tooltip still shows this GUID and the line is not already present.
+        -- No primary info means a world-unit tooltip is fading out; re-Showing it would cancel the fade.
         local cached = _ilvlCache[guid]
         local ttd = GetFFD(_GameTooltip)
         if cached and _GameTooltip:IsShown() and _tipShownGUID == guid
+            and _GameTooltip:GetPrimaryTooltipInfo()
             and not ttd.ilvlShown
             and not _tipHasLine(_GameTooltip, EllesmereUI.L("Item Level")) then
             local nBefore = _GameTooltip:NumLines() or 0
@@ -1061,6 +1140,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             GameTooltipStatusBar:ClearAllPoints()
             GameTooltipStatusBar:SetPoint("BOTTOMLEFT", _GameTooltip, "BOTTOMLEFT", 1, 1)
             GameTooltipStatusBar:SetPoint("BOTTOMRIGHT", _GameTooltip, "BOTTOMRIGHT", -1, 1)
+            _sbInset = 1  -- _ttSkin moves it clear of rounded corners on the next show
             -- Texture + height (the Show Health Strip cog); unset keeps UI-StatusBar at 3px.
             EllesmereUI._applyTooltipHealthStripStyle(true)
         end
@@ -1077,6 +1157,13 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         _ttDataInited = true
         -- Clear the recorded identity on hide so a late inspect result can never append to a closed/switched tooltip. HookScript (never SetScript) keeps the secure OnHide handler intact.
         _GameTooltip:HookScript("OnHide", function() _tipShownGUID = nil end)
+        -- A fading tooltip no longer shows its unit either. Blizzard's own unit
+        -- frames fade it with its info kept (UnitFrame_OnLeave), where the
+        -- primary-info test in _onInspectReady cannot tell; and the dwell drops
+        -- a request for a unit the cursor has left.
+        if _GameTooltip.FadeOut then
+            hooksecurefunc(_GameTooltip, "FadeOut", function() _tipShownGUID = nil end)
+        end
         -- Item level inspect pacing starts at login, so the request history from other
         -- addons is already being tracked before the first hover.
         if not EllesmereUIDB or EllesmereUIDB.tooltipItemLevel ~= false then _insp.Activate() end
@@ -1317,14 +1404,9 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         local eb = popup.editBox or (popup.GetName and _G[popup:GetName() .. "EditBox"])
         if eb and not GetFFD(eb).skinned then
             GetFFD(eb).skinned = true
-            local regions = { eb:GetRegions() }
-            for j = 1, #regions do
-                local r = regions[j]
-                if r and r:IsObjectType("Texture") then
-                    r:SetTexture(nil)
-                    if r.SetAtlas then r:SetAtlas("") end
-                end
-            end
+            -- Never strip this box's Texture regions: the template declares none, so they
+            -- are the engine's own (its blinking caret among them), and SetTexture(nil)
+            -- erases them for the session.
             -- Midnight edit boxes carry their art on a NineSlice child.
             if eb.NineSlice and eb.NineSlice.SetAlpha then
                 eb.NineSlice:SetAlpha(0)
@@ -1599,6 +1681,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             if tt.NineSlice then tt.NineSlice:SetAlpha(1) end
             if data.bg then data.bg:Hide() end
             if data.configBorder then data.configBorder:Hide() end
+            if data.round then data.round:SetShown(false) end
             local nm = tt:GetName()
             for i = 1, tt:NumLines() do
                 local left, right = _G[nm .. "TextLeft" .. i], _G[nm .. "TextRight" .. i]
@@ -1624,8 +1707,9 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             strip:SetValue(1)
             strip:ClearAllPoints()
             if on then
-                strip:SetPoint("BOTTOMLEFT", tt, "BOTTOMLEFT", 1, 1)
-                strip:SetPoint("BOTTOMRIGHT", tt, "BOTTOMRIGHT", -1, 1)
+                local x = _ttStripInset(tt)
+                strip:SetPoint("BOTTOMLEFT", tt, "BOTTOMLEFT", x, 1)
+                strip:SetPoint("BOTTOMRIGHT", tt, "BOTTOMRIGHT", -x, 1)
                 strip:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
                 strip:SetHeight(3)
                 strip.bg:Show()

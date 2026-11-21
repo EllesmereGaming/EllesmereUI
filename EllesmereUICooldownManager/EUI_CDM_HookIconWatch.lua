@@ -333,8 +333,8 @@ function ns.CdmDurationHideFor(frame, barKey, baseHide)
     local fcd = _ecmeFC[frame]
     local sidD = (ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(frame))
         or (fcd and fcd.spellID)
-    if not (sidD and barKey and ns.ResolveSpellSettings) then return baseHide end
-    local ssD = ns.ResolveSpellSettings(frame, sidD, ns.GetBarSpellData(barKey), barKey)
+    if not (sidD and barKey and ns.ResolveBuffSettings) then return baseHide end
+    local ssD = ns.ResolveBuffSettings(frame, sidD, ns.GetBarSpellData(barKey), barKey)
     if ssD and ssD.showCooldownText ~= nil then return not ssD.showCooldownText end
     return baseHide
 end
@@ -682,9 +682,11 @@ end
 -- for any reason but missing power, so a reactive spell (Overpower, Victory
 -- Rush, Execute) shows once its proc or condition is up, tinted by Blizzard
 -- while rage / energy / mana is short, and power ticks never flip the answer.
--- IsSpellUsable returns plain booleans on every client.
-function ns.CdmSpellNotUsable(liveSid)
+-- IsSpellUsable returns plain booleans on every client. requirePower (a Bar
+-- Glow's Require Resource) counts missing power as unavailable too.
+function ns.CdmSpellNotUsable(liveSid, requirePower)
     local usable, noPower = C_Spell.IsSpellUsable(liveSid)
+    if requirePower then return not usable end
     return not (usable or noPower)
 end
 
@@ -1324,7 +1326,7 @@ end
 do
     local watch = setmetatable({}, { __mode = "k" })  -- icon frame -> the spell ID it was watched with
     local eventFrame, flushFrame
-    local usableOn, formOn, auraOn, stanceOn = false, false, false, false
+    local usableOn, formOn, auraOn, stanceOn, unitAuraOn = false, false, false, false, false
     local flushedForm  -- the form ID the last pass evaluated
 
     local function SyncEvents(usable, form, aura, stance)
@@ -1369,12 +1371,17 @@ do
             if form then
                 eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
                 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-                eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
             else
                 eventFrame:UnregisterEvent("UPDATE_SHAPESHIFT_FORM")
                 eventFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                eventFrame:UnregisterEvent("UNIT_AURA")
             end
+        end
+        -- The stance bar too, for a WoW Forever druid (ns.CdmStanceBarFormAura).
+        local unitAura = form or (stanceOn and ns.CdmStanceBarFormAura == true)
+        if unitAura ~= unitAuraOn then
+            unitAuraOn = unitAura
+            if unitAura then eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+            else eventFrame:UnregisterEvent("UNIT_AURA") end
         end
     end
 

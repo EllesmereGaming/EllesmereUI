@@ -2,8 +2,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EllesmereUIBags_Categories.lua
 --  Category system based on Enum.ItemClass numeric IDs (locale-safe).
---  Categories are hardcoded definitions. Users can rename, reorder, and group
---  them via sidebar context menus. Icons and type rules are not customizable.
+--  Categories are hardcoded definitions. Users can rename, reorder, group,
+--  turn off and change the icon of them via sidebar context menus. Type rules
+--  are not customizable.
 -------------------------------------------------------------------------------
 
 local CategoryManager = {}
@@ -134,6 +135,12 @@ DEFAULT_CATEGORIES[#DEFAULT_CATEGORIES + 1] = {
 -- order then id; nil until the first registration.
 local _virtual
 
+-- A category icon is a file id, a texture path or an atlas name: a string
+-- with no path separator is an atlas.
+local function IconIsAtlas(icon)
+    return type(icon) == "string" and not icon:find("\\", 1, true) and not icon:find("/", 1, true)
+end
+
 -------------------------------------------------------------------------------
 --  Init
 --  Builds the runtime category list from hardcoded defaults + saved user state
@@ -248,7 +255,7 @@ function CategoryManager:InitCategories()
             if uc then
                 local ucState = userState[uc.key]
                 local ucIcon = uc.icon or 134400
-                local ucIsAtlas = type(ucIcon) == "string"
+                local ucIsAtlas = IconIsAtlas(ucIcon)
                 cats[#cats + 1] = {
                     _defaultName  = uc.key,
                     name          = (ucState and ucState.rename) or uc.name,
@@ -272,13 +279,22 @@ function CategoryManager:InitCategories()
             elseif def.defaultGroupName then
                 groupName = def.defaultGroupName
             end
+            -- An icon the user picked (Change Icon), kept while it differs from
+            -- the built-in one (SaveState)
+            local icon, isAtlas = def.icon, def.isAtlas
+            local picked = state and state.icon
+            if type(picked) == "number" or type(picked) == "string" then
+                icon, isAtlas = picked, IconIsAtlas(picked) or nil
+            end
             cats[#cats + 1] = {
                 _defaultName      = def.name,
                 name              = (state and state.rename) or EllesmereUI.L(def.name),
                 types             = def.types,
                 itemIDs           = def.itemIDs,
-                icon              = def.icon,
-                isAtlas           = def.isAtlas,
+                icon              = icon,
+                isAtlas           = isAtlas,
+                builtinIcon       = def.icon,
+                builtinIsAtlas    = def.isAtlas,
                 equipSlots        = def.equipSlots,
                 excludeEquipSlots = def.excludeEquipSlots,
                 isCatchAll        = def.isCatchAll,
@@ -336,7 +352,7 @@ function CategoryManager:InitCategories()
             if not customInserted[uc.key] then
                 local ucState = userState[uc.key]
                 local ucIcon = uc.icon or 134400
-                local ucIsAtlas = type(ucIcon) == "string"
+                local ucIsAtlas = IconIsAtlas(ucIcon)
                 table.insert(cats, catchIdx, {
                     _defaultName  = uc.key,
                     name          = (ucState and ucState.rename) or uc.name,
@@ -433,6 +449,12 @@ function CategoryManager:SaveState()
             end
             if cat.groupNameCustom then
                 entry.groupNameCustom = cat.groupNameCustom
+                hasState = true
+            end
+            -- A default category's picked icon, while it is not its own (a
+            -- user-created category keeps its icon in bagUserCategories)
+            if cat.builtinIcon ~= nil and cat.icon ~= nil and cat.icon ~= cat.builtinIcon then
+                entry.icon = cat.icon
                 hasState = true
             end
             if hasState then
@@ -573,13 +595,12 @@ local _asking = false
 -- Classify a single item. Returns category index (1-based) or nil for empty slots.
 -- bag/slot are needed for C_Container.GetContainerItemQuestInfo; quality is
 -- optional (resolved from the link when nil)
-function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot, quality)
+function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot, quality, separateReagentBag)
     if not itemLink then return nil end
 
     local cats = self:GetCategories()
 
-    -- Reagent bag items always go to the Reagent Bag category
-    if bag == 5 then
+    if bag == 5 and (separateReagentBag or BP().bagCategorizeReagents ~= true) then
         for i, cat in ipairs(cats) do
             if cat.isReagentBag then return i end
         end
@@ -724,11 +745,12 @@ end
 
 -- Classify all items and return counts per category + total.
 -- Each item in the array gets a .categoryIndex field set.
+-- Physical sorting can keep the reagent bag in its own category.
 -- Reusable tables for ClassifyAll (wiped each call, avoids per-refresh allocation)
 local _claCounts = {}
 local _claDisabledIdxSet = {}
 
-function CategoryManager:ClassifyAll(items)
+function CategoryManager:ClassifyAll(items, separateReagentBag)
     BuildSetGearLookup()
     _classifySpecial = ns.SpecialBags()
     local cats = self:GetCategories()
@@ -779,7 +801,8 @@ function CategoryManager:ClassifyAll(items)
     local stampNames = BP().bagShowSetGearName == true
     for _, data in ipairs(items) do
         if data.info and data.itemLink then
-            local idx = self:ClassifyItem(data.itemLink, data.info.itemID, data.bag, data.slot, data.info.quality)
+            local idx = self:ClassifyItem(data.itemLink, data.info.itemID,
+                data.bag, data.slot, data.info.quality, separateReagentBag)
             if stampNames then
                 local sid = _setGearLookup[data.bag * 1000 + data.slot]
                 data._setName = sid and _setNames[sid] or nil
@@ -875,8 +898,13 @@ end
 function CategoryManager:AddToGroup(catIndex, groupName)
     local cats = self:GetCategories()
     if not cats[catIndex] or not groupName then return end
+    -- A hand-named or built-in group keeps its name; the new member takes the flag
+    local custom = self:IsGroupNameCustom(groupName)
     cats[catIndex].groupName = groupName
-    self:RegenerateGroupName(groupName)
+    cats[catIndex].groupNameCustom = custom or nil
+    if not custom then
+        self:RegenerateGroupName(groupName)
+    end
     self:SaveState()
 end
 
@@ -931,11 +959,16 @@ function CategoryManager:GroupDisplayName(groupName)
     return groupName
 end
 
--- Check if the group name was manually customized by the user.
+-- Check if the group name was manually customized by the user, or is a
+-- member's built-in group (WoW Forever's Adventure Prep comes from
+-- defaultGroupName alone on a profile the default-groups seed never reached).
 function CategoryManager:IsGroupNameCustom(groupName)
     local cats = self:GetCategories()
     for _, cat in ipairs(cats) do
-        if cat.groupName == groupName and cat.groupNameCustom then return true end
+        if cat.groupName == groupName
+            and (cat.groupNameCustom or cat.defaultGroupName == groupName) then
+            return true
+        end
     end
     return false
 end
@@ -1015,11 +1048,17 @@ function CategoryManager:AddCustomCategory(name)
 
     BP().bagUserCategories[#BP().bagUserCategories + 1] = { key = key, name = name }
 
-    -- Insert into runtime list before catch-all
+    -- Insert into runtime list before catch-all. The saved item orders are
+    -- keyed by category index: every later category's order moves up with it.
     local cats = self:GetCategories()
     local catchIdx = #cats + 1
     for i, c in ipairs(cats) do
         if c.isCatchAll then catchIdx = i; break end
+    end
+    local order = BP().bagVisualOrder
+    if order then
+        for i = #cats, catchIdx, -1 do order[i + 1] = order[i] end
+        order[catchIdx] = nil
     end
     table.insert(cats, catchIdx, {
         _defaultName  = key,
@@ -1055,14 +1094,95 @@ function CategoryManager:RemoveCustomCategory(catIndex)
         end
     end
 
-    -- Remove from runtime list
+    -- Remove from runtime list. The saved item orders are keyed by category
+    -- index: every later category's order moves down with it.
+    local count = #cats
     table.remove(cats, catIndex)
+    local order = BP().bagVisualOrder
+    if order then
+        for i = catIndex, count do order[i] = order[i + 1] end
+    end
 
-    -- Remove from disabled list
+    -- Remove from the disabled and the hidden list, and its List display
+    -- sections from the collapsed ones (its key comes back on the next new
+    -- category)
     if BP().bagDisabledCategories then
         BP().bagDisabledCategories[key] = nil
     end
+    if BP().bagHiddenInAllItems then
+        BP().bagHiddenInAllItems[key] = nil
+    end
+    local collapsed = BP().bagListCollapsed
+    if collapsed then
+        collapsed[key] = nil
+        local sub = key .. "/"
+        for k in pairs(collapsed) do
+            if type(k) == "string" and k:sub(1, #sub) == sub then collapsed[k] = nil end
+        end
+    end
 
+    self:SaveState()
+    return true
+end
+
+-------------------------------------------------------------------------------
+--  Turning off, and icons
+-------------------------------------------------------------------------------
+-- The categories the Enabled Categories list offers and Delete may turn off
+-- or remove: every one but the catch-all, Pinned Items, Recent Items, the
+-- Reagent Bag, Special Bags, the set children (the split toggle governs those)
+-- and other addons' categories (their addon owns them). Delete removes a
+-- user-created category and turns a default one off (bagDisabledCategories).
+function CategoryManager:CanDisableCategory(cat)
+    if not cat then return false end
+    return not (cat.isCatchAll or cat.isPinned or cat.isRecent or cat.isReagentBag
+        or cat.isSpecialBag or cat.isEquipSet or cat.isVirtual)
+end
+
+-- A category that is turned off (dc: bagDisabledCategories, nil = none) shows
+-- nowhere; its items go to the catch-all (ClassifyAll). The set children are
+-- off with the Item Set Gear anchor.
+function CategoryManager:IsCategoryOff(cat, dc)
+    if not dc or not cat then return false end
+    if cat.isEquipSet then return dc["Item Set Gear"] and true or false end
+    return (dc[cat._defaultName] and self:CanDisableCategory(cat)) and true or false
+end
+
+-- The first member of a group that is on (its index and category); nil when
+-- every member is off, and a group like that shows nowhere either
+function CategoryManager:FirstOnMember(groupName, dc)
+    local cats = self:GetCategories()
+    for i = 1, #cats do
+        local c = cats[i]
+        if c.groupName == groupName and not self:IsCategoryOff(c, dc) then return i, c end
+    end
+end
+
+-- The catch-all category (Miscellaneous), where a turned-off category's items go
+function CategoryManager:GetCatchAll()
+    local cats = self:GetCategories()
+    for i = 1, #cats do
+        if cats[i].isCatchAll then return cats[i], i end
+    end
+end
+
+-- A category's icon (Change Icon): a file id, a texture path or an atlas name.
+-- A default category given its built-in icon (or nil) goes back to it, and
+-- saves none; a user-created category keeps its icon in bagUserCategories.
+-- Set children and other addons' categories take none.
+function CategoryManager:SetCategoryIcon(index, icon)
+    local cat = self:GetCategories()[index]
+    if not cat or cat.isEquipSet or cat.isVirtual then return false end
+    if type(icon) == "string" and tonumber(icon) then icon = tonumber(icon) end
+    if icon ~= nil and type(icon) ~= "number" and type(icon) ~= "string" then return false end
+    local builtin = cat.builtinIcon
+    if builtin ~= nil and (icon == nil or icon == builtin or icon == EllesmereUI.ClientIcon(builtin)) then
+        cat.icon, cat.isAtlas = builtin, cat.builtinIsAtlas
+    elseif icon ~= nil then
+        cat.icon, cat.isAtlas = icon, IconIsAtlas(icon) or nil
+    else
+        return false
+    end
     self:SaveState()
     return true
 end
@@ -1203,9 +1323,9 @@ end
 --    def.classify  function(itemLink, itemID, bag, slot, quality) -> true to
 --                  claim the item. bag and slot are nil for another character's
 --                  items; quality may be nil. The first claim by order wins.
---  Items the user filed or marked, junk (grey items while the Junk Marker is
---  on) and reagent / special bag items are not offered to providers. A change
---  repaints the bags once, on the next frame. A provider cannot register,
+--  Filed and marked items, junk (grey items while the Junk Marker is on), and
+--  items in separate reagent or special bag categories skip providers. A
+--  change repaints the bags once, on the next frame. A provider cannot register,
 --  unregister or ask for a repaint from inside its own classify call.
 -------------------------------------------------------------------------------
 -- One repaint for every change made in a frame: a request shows a hidden frame
@@ -1341,12 +1461,12 @@ local function ViewBefore(a, b)
     return a.id < b.id
 end
 
--- The list changed: an open view that left falls back to All Items; repaint
--- the bags (their sidebar lists the views).
+-- The list changed: an open view that left gives way to the view the bags
+-- open on; repaint the bags (their sidebar lists the views).
 local function ViewsChanged(self)
     if ns.GetSelection and ns.SetSelection then
         local sel = ns.GetSelection()
-        if sel and sel <= VIEW_FIRST and not self:GetViewByIndex(sel) then ns.SetSelection(0, nil) end
+        if sel and sel <= VIEW_FIRST and not self:GetViewByIndex(sel) then ns.SetSelection(ns.OpenBagViewIndex(), nil) end
     end
     QueueRepaint(true)
 end

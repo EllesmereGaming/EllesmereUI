@@ -7,7 +7,9 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  the game's TaxiPath data (EllesmereUIForeverEssentials_FlightTimerData.lua);
 --  the client exposes no flight duration, so time is length / speed, with the
 --  speed corrected by every flight that lands normally. The options page shows
---  the same display flying a sample route on a loop.
+--  the same display flying a sample route on a loop. Flight Time on the Map
+--  (always on, whatever the timer's setting) puts the same estimate in a
+--  destination's tooltip on the flight map.
 --
 --  Known issue: a reload, relog or crash mid-flight drops the bar for the rest
 --  of that flight. The client gives no destination or progress for a flight
@@ -613,7 +615,31 @@ local function OnTakeTaxiNode(slot)
     pending = { yards = yards, points = points, clicked = GetTime() }
 end
 
+-------------------------------------------------------------------------------
+--  Flight Time on the Map (always on, no setting; owner 2026-11-17): a
+--  destination's tooltip on the flight map shows how long the flight takes,
+--  from the same lengths and speed as the bar, whether or not the timer is
+--  on (the speed is learned only from flights the timer follows; until then
+--  it is the built-in one). The line goes in the Taxi frame, the flight map
+--  WoW Forever's flight masters open (Blizzard_FlightMap is not covered).
+--  The hook is set up once at login and runs only on a destination's hover.
+-------------------------------------------------------------------------------
+local tipHooked = false
+
+local function AddFlightTime(button)
+    -- The current node and an unreachable one have no route: no line.
+    local yards = RouteInfo(button:GetID())
+    if not yards then return end
+    local secs = yards / (Speed() * SpeedMultiplier())
+    GameTooltip:AddLine(EllesmereUI.Lf("Flight time: %s", FormatTime(secs)), 1, 1, 1)
+    GameTooltip:Show()
+end
+
 local function Apply()
+    if not tipHooked then
+        hooksecurefunc("TaxiNodeOnButtonEnter", AddFlightTime)
+        tipHooked = true
+    end
     if Enabled() then
         if not hooked then
             hooksecurefunc("TakeTaxiNode", OnTakeTaxiNode)

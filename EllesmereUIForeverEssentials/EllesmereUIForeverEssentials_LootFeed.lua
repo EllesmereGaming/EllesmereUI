@@ -837,11 +837,11 @@ local AuctionPrice = module.AuctionPrice
 
 -- What one of the item counts for: nothing for a quest-bound item, the vendor
 -- price for one that binds when picked up (it cannot be auctioned) and for
--- every item with Use Auctionator Prices off.
+-- every item with Use Auction Prices off.
 local function ItemValue(link, sellPrice, bindType)
     if bindType == Enum.ItemBind.Quest then return 0 end
     if bindType == Enum.ItemBind.OnAcquire then return sellPrice or 0 end
-    return Get("auctionPrices") and AuctionPrice(link) or sellPrice or 0
+    return Get("auctionPrices") and AuctionPrice(link, Get("priceSource")) or sellPrice or 0
 end
 
 local RESET_DIM = 0.7
@@ -1007,7 +1007,7 @@ local function ShowItem(link, count, retried, looted, earned)
         won = EllesmereUI.Lf("Won: %s", won)
         sub = sub and (won .. "  " .. sub) or won
     end
-    -- The row shows the tracker's price; the plain vendor one with Use Auctionator Prices off.
+    -- The row shows the tracker's price; the plain vendor one with Use Auction Prices off.
     local value
     if Get("showPrice") then
         local price = Get("auctionPrices") and (each or ItemValue(link, sellPrice, bindType)) or sellPrice or 0
@@ -1199,7 +1199,7 @@ local function OnFaction(text)
 end
 
 local function OnSkill(text)
-    local skill, rank = Match("SKILL_RANK_UP", text)
+    local skill, rank = Match("ERR_SKILL_UP_SI", text)
     if skill then ShowSkill(skill, tonumber(rank)) end
 end
 
@@ -1274,7 +1274,9 @@ local function Apply()
         SyncClock()
         return
     end
-    CreateAnchor()
+    -- A first build paints the summary in ApplyStyle; a kept anchor repaints it,
+    -- since turning the feed off hid it.
+    if anchor then UpdateSummary() else CreateAnchor() end
     if not events then
         events = CreateFrame("Frame")
         events:SetScript("OnEvent", OnEvent)

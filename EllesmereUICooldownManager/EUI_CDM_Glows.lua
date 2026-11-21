@@ -195,10 +195,9 @@ end
 
 -- Apply a canonical payload to all sync surfaces (CDM icon bars, Tracked Buff Bars,
 -- Nameplates), best-effort. opts.skipCdmKey/opts.skipNameplates exclude the source surface; opts.skipTbbBar excludes one TBB (its source bar table).
--- Nameplates are no surface on WoW Forever, where they have no pandemic glow (ns.CDM_ANTI_CLIP).
 function EllesmereUI.ApplyPandemicGlowToAll(payload, opts)
     opts = opts or {}
-    if not opts.skipNameplates and not ns.CDM_ANTI_CLIP then
+    if not opts.skipNameplates then
         local np = PG_GetNPProfile()
         if np and EllesmereUI.NameplatePandemicGlowStyles then
             PG_Write(np, payload, PG_NameplateIndexFromName, "pandemicGlowPick")
@@ -231,7 +230,7 @@ end
 -- True when every (non-skipped) surface already matches the payload.
 function EllesmereUI.IsPandemicGlowSyncedToAll(payload, opts)
     opts = opts or {}
-    if not opts.skipNameplates and not ns.CDM_ANTI_CLIP then
+    if not opts.skipNameplates then
         local np = PG_GetNPProfile()
         if np and EllesmereUI.NameplatePandemicGlowStyles
            and not PG_Matches(np, payload, PG_NameplateIndexFromName, PG_NameplateStyle, "custom") then
@@ -363,7 +362,7 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
             -- below the stack threshold. The overlay is SetAllPoints on the icon,
             -- so anchoring there is identical geometry; ungated callers keep the
             -- icon parenting they have always had.
-            anchorFrame = (opts and opts.maskWith) and overlay or nil,
+            anchorFrame = (opts and (opts.maskWith or opts.maskWith3)) and overlay or nil,
         })
     elseif entry.procedural then
         -- Pixel Glow params. Pandemic glow and the buff ticker pass explicit opts; per-button
@@ -433,16 +432,24 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
     if opts and opts.maskWith and _G_Glows.ApplyMaskWith then
         _G_Glows.ApplyMaskWith(overlay, opts.maskWith)
     end
-    -- Second gate mask (two-gate threshold glows). ApplyMaskWith dedupes on one
-    -- key per region, so a second mask needs a key of its own and cannot go
-    -- through the core helper. Data rather than a callback, so the combat replay
-    -- below re-binds it on the textures that replay creates fresh.
+    -- Further gate masks (the second stack gate; the Bar Glow health gate).
+    -- ApplyMaskWith dedupes on one key per region, so each needs a key of its
+    -- own and cannot go through the core helper. Data rather than a callback,
+    -- so the combat replay below re-binds them on the textures that replay
+    -- creates fresh.
     local mask2 = opts and opts.maskWith2
-    if mask2 then
+    local mask3 = opts and opts.maskWith3
+    if mask2 or mask3 then
         for _, r in ipairs({ overlay:GetRegions() }) do
-            if r.AddMaskTexture and r._euiTGMask2 ~= mask2 then
-                r._euiTGMask2 = mask2
-                r:AddMaskTexture(mask2)
+            if r.AddMaskTexture then
+                if mask2 and r._euiTGMask2 ~= mask2 then
+                    r._euiTGMask2 = mask2
+                    r:AddMaskTexture(mask2)
+                end
+                if mask3 and r._euiTGMask3 ~= mask3 then
+                    r._euiTGMask3 = mask3
+                    r:AddMaskTexture(mask3)
+                end
             end
         end
     end

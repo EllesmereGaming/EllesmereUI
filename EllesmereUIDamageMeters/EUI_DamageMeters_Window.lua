@@ -125,6 +125,7 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
         local row = EnsureMenuRow(menu, idx)
         row._sep:Hide(); row._arrow:Hide(); row._hl:SetColorTexture(1, 1, 1, 0)
         if row._timer then row._timer:SetText("") end
+        if row._editBox then row._editBox:Hide() end
         if item == "---" then
             row:SetSize(menuW, CTX_SEP_H); row:ClearAllPoints(); row:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, y)
             row._lbl:SetText(""); row._sep:Show(); row:EnableMouse(false)
@@ -168,6 +169,9 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
                     local boxBg = box:CreateTexture(nil, "BACKGROUND")
                     boxBg:SetAllPoints(); boxBg:SetColorTexture(0, 0, 0, 0.4)
                     box:SetAutoFocus(false)
+                    -- A hidden box keeps the keyboard: release it whenever the box hides,
+                    -- the menu closing for combat while the player types included.
+                    box:SetScript("OnHide", box.ClearFocus)
                     box:SetNumeric(true)
                     box:SetMaxLetters(5)
                     row._editBox = box
@@ -225,7 +229,6 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
                     if onDismiss then onDismiss() end
                 end)
             end
-            if row._editBox then row._editBox:Hide() end
             row:Show(); y = y - rowH
             end -- close isInput else
         end

@@ -63,6 +63,10 @@ local function NewSample()
     local bg = s.health:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0.12, 0.12, 0.12, 1)
+    -- Read as a plate by the live stock-style builders (PaintBar): the bar's
+    -- background, and the unit whose level the level art shows.
+    s.healthBG = bg
+    s.unit = "player"
     s.border = NewFrame("Frame", nil, s.health)
     s.border:SetAllPoints()
     s.hpText = s.health:CreateFontString(nil, "OVERLAY")
@@ -110,13 +114,14 @@ end
 -- texture, the enemy plates' Basic or custom border, the percent text and the
 -- name's size and lift (mirrors the friendly plate pool's build with its
 -- plate:ApplyBorder, FriendlyFrame:UpdateHealth and the anchors of
--- FriendlyFrame:UpdateSubText). The stock styles' plate art and Corner Radius
--- are not drawn. guild: a guild line sits between the name and the bar.
+-- FriendlyFrame:UpdateSubText). Under a stock style the live builders draw
+-- its art on the sample; Corner Radius is not drawn. guild: a guild line sits
+-- between the name and the bar.
 -- Returns the plate's height.
-local function PaintBar(s, DBVal, guild)
+local function PaintBar(s, DBVal, lineSize)
     local w, h = ns.GetFriendlyHealthBarWidth(), ns.GetFriendlyHealthBarHeight()
     local nameSize = DBVal("friendlyNameTextSize")
-    local off = 4 + (guild and (DBVal("friendlyBelowNameSize") + 2) or 0)
+    local off = 4 + (lineSize and (lineSize + 2) or 0)
     local total = h + off + nameSize
     local health, bf = s.health, s.border
     health:SetSize(w, h)
@@ -139,6 +144,20 @@ local function PaintBar(s, DBVal, guild)
     else
         EllesmereUI.ApplyBorderStyle(bf, 0)
     end
+    -- The stock styles (Global Settings > Style, latched for the session as on
+    -- the live plates, where both border tests above read false): the art the
+    -- friendly plate's ApplyHealthBarTexture, ApplyBorder and selection pass
+    -- give it, through the same builders.
+    local style = ns.NP_Style()
+    if style == "blizzard" then
+        ns.NP_ApplyBlizzBarArt(s)
+        ns.NP_ApplyBlizzSelection(s, false)
+        s.hpText:SetDrawLayer("OVERLAY", 7)
+        -- WoW Forever: the level box right of the bar.
+        if ns.NP_Forever() then ns.NP_ApplyForeverLevelBox(s, h) end
+    elseif style == "classic" then
+        ns.NP_ApplyClassicHealthArt(s, h)
+    end
     ns.SetFSFont(s.hpText, 10, "OUTLINE, SLUG")
     s.hpText:SetText(DBVal("friendlyHideHealthText") and "" or "100%")
     -- On the side of the bar the live plates put it (Show Health Percent).
@@ -149,6 +168,59 @@ local function PaintBar(s, DBVal, guild)
     s.sub:ClearAllPoints()
     s.sub:SetPoint("TOP", health, "TOP", 0, off - 1)
     return total
+end
+
+-------------------------------------------------------------------------------
+--  What the samples stand for
+-------------------------------------------------------------------------------
+-- A row's eye in the highlight cogs puts that entry on a sample: the players'
+-- entries on the player sample, the NPCs' and their pets' on the NPC sample,
+-- which becomes a pet for a pet entry. The colour comes from the catalog by
+-- that key (EUI_Nameplates_AlliedColors.lua), so a sample can never disagree
+-- with a live plate; with no eye on, the sample is the plain unit. Name Only
+-- only -- the health bar plate colours its name by its own settings.
+local function PreviewIsPet(key)
+    if not (key and ns.Allied and ns.Allied.PreviewTarget) then return false end
+    local _, pet = ns.Allied.PreviewTarget(key)
+    return pet
+end
+local function PreviewColor(key, base)
+    if key and ns.Allied and ns.Allied.PreviewNameColor then
+        return ns.Allied.PreviewNameColor(key, base)
+    end
+    return base.r, base.g, base.b
+end
+-- The line under a pet's or an NPC's name, as the overlay paints it. A pet's owner
+-- line answers its own switches (Show Owner Name, Owner Text Color, Match Pet Name
+-- Color); an NPC's subtitle answers the NPC ones (Show NPC Titles, NPC Title
+-- Color, Match NPC Name Color). sizeKey is the row that sizes it. Returns the
+-- height it adds.
+local function PaintNameLine(s, DBVal, text, sizeKey, nameR, nameG, nameB, petLine)
+    local colorKey = petLine and "friendlyPetOwnerColor" or "friendlyNPCTitleColor"
+    local matchKey = petLine and "friendlyPetOwnerMatchNameColor" or "friendlyNPCTitleMatchNameColor"
+    -- A pet's owner line always shows; an NPC's subtitle saves only when turned off.
+    if not petLine and DBVal("showNPCTitles") == false then
+        s.sub:SetText("")
+        return 0
+    end
+    local size = DBVal(sizeKey)
+    EllesmereUI.SetFontFamily(s.sub, ns.GetFont(), size, "OUTLINE", ns.GetNPUseShadow())
+    local t = DBVal(colorKey)
+    if DBVal(matchKey) == true then
+        s.sub:SetTextColor(nameR, nameG, nameB, t.a or 1)
+    else
+        s.sub:SetTextColor(t.r, t.g, t.b, t.a or 1)
+    end
+    s.sub:SetText("<" .. text .. ">")
+    s.sub:ClearAllPoints()
+    s.sub:SetPoint("TOP", s.name, "BOTTOM", 0, -1)
+    return 1 + size
+end
+
+-- A pet's owner line: Owner Text Uses Its Own Size off, it takes the pet name's
+-- size (as the live overlay does in GetNPCTitleSize).
+local function PetOwnerSizeKey(DBVal)
+    return DBVal("friendlyPetOwnerOwnSize") == true and "friendlyPetTitleSize" or "friendlyPetNameSize"
 end
 
 -- The player sample's name under the Name Format. A retail character's name
@@ -171,16 +243,29 @@ end
 -- class and level, with a set title and guild. Its name is composed as both friendly modes
 -- compose it (mirrors UpdateNameOnlyText and FriendlyFrame:UpdateName; your
 -- own plate never takes group brackets, so the sample wears the party's): the
--- Name Format, the title around the name, the brackets, the level. Name Only
--- (Blizzard's own name text under our font, size and class colour setting)
--- carries the guild as a second line of the name in the guild colour; the
--- health bar plate draws it as a line of its own (ApplySubText) and takes its
--- bar and name colours from the plates' painter. Returns the sample's height.
-local function PaintPlayer(s, DB, DBVal, nameOnly)
+-- Name Format, the title around the name, the brackets, the level. Both modes
+-- draw the guild under the name in the guild colour, as a text of its own at
+-- Guild Text Size (ApplySubText; Name Only's WriteNameOnlySub). When a row's
+-- eye previews the player's pet entry the
+-- sample becomes that pet: the pet's sizes and its owner's line. Returns the
+-- sample's height.
+-- The Status Tags eye on the page puts a tag on the sample's name: <AFK> while
+-- AFK is ticked (it wins, as on a live plate), else <DND>.
+local function SampleStatusTag(DBVal)
+    if DBVal("friendlyStatusTagAFK") == true then return " " .. (CHAT_FLAG_AFK or "<AFK>") end
+    if DBVal("friendlyStatusTagDND") == true then return " " .. (CHAT_FLAG_DND or "<DND>") end
+    return nil
+end
+
+local function PaintPlayer(s, DB, DBVal, nameOnly, key, tagged)
     local mode = DBVal("friendlyBelowName") or "none"
     local titled = mode == "title" or mode == "both"
     local name = SampleName(DBVal("friendlyNameFormat"))
     if titled then name = SampleTitled(name) end
+    -- The tag rides the name, inside the group brackets, as UpdateNameOnlyText and
+    -- FriendlyFrame:UpdateName write it.
+    local tag = tagged and SampleStatusTag(DBVal)
+    if tag then name = name .. tag end
     if DBVal("friendlyGroupBrackets") == true then name = "|cffaaaaff[|r" .. name .. "|cffaaaaff]|r" end
     if DBVal("friendlyShowLevel") == true then
         name = ns.GetUnitLevelText("player", DBVal("friendlyLevelDiffColor") == true and "diffAll" or nil) .. " | " .. name
@@ -189,9 +274,13 @@ local function PaintPlayer(s, DB, DBVal, nameOnly)
     local body = DBVal("friendlyBelowNameGuildBrackets") ~= false and "<%s>" or "%s"
     local _, class = UnitClass("player")
     local cc = EllesmereUI.GetClassColor(class)
-    local gc = DBVal("friendlyBelowNameClassColor") and cc or DBVal("friendlyBelowNameColor")
+    -- The guild line's colour: Match Player Name Color makes it the name's own
+    -- colour, else Class Colored the class colour, else the Custom one.
+    local plateName = ns.FriendlyNameClass(DB(), false) and cc or DBVal("friendlyNameColor") or WHITE
+    local gc = DBVal("friendlyBelowNameMatchNameColor") == true and plateName
+        or (DBVal("friendlyBelowNameClassColor") and cc or DBVal("friendlyBelowNameColor"))
     if not nameOnly then
-        local h = PaintBar(s, DBVal, guild)
+        local h = PaintBar(s, DBVal, guild and DBVal("friendlyBelowNameSize"))
         ns.NP_PaintFriendlyColors(s, "player", DB())
         s.name:SetText(name)
         if guild then
@@ -203,31 +292,56 @@ local function PaintPlayer(s, DB, DBVal, nameOnly)
         end
         return h
     end
-    local size = DBVal("friendlyNameSize")
-    -- Name Color, as Name Only shows it: the class colour, else the Custom colour.
+    -- Name Only: Blizzard's name text under our font, size and colour. The
+    -- player's pet entry makes it the overlay's pet plate: the pet's own sizes,
+    -- and the owner's line under the name.
+    local pet = PreviewIsPet(key)
+    local size = pet and DBVal("friendlyPetNameSize") or DBVal("friendlyNameSize")
+    -- Name Color, as Name Only shows it: the class colour, else the Custom
+    -- colour, then the previewed entry's own.
     local nc = ns.FriendlyNameClass(DB(), true) and cc or DBVal("friendlyNameColor") or WHITE
+    local nr, ng, nb = PreviewColor(key, nc)
     s.health:Hide()
-    s.sub:SetText("")
     ns.SetFSFont(s.name, size, "OUTLINE, SLUG")
-    s.name:SetTextColor(nc.r, nc.g, nc.b)
+    s.name:SetTextColor(nr, ng, nb)
     s.name:ClearAllPoints()
-    s.name:SetPoint("CENTER", s, "CENTER")
-    if guild then
-        s.name:SetFormattedText("%s\n" .. EllesmereUI.HexColor(gc.r, gc.g, gc.b) .. body .. "|r", name, guild)
-        return size * 2 + 2
+    if pet then
+        s.name:SetText(EllesmereUI.L("Pet"))
+        local extra = PaintNameLine(s, DBVal, EllesmereUI.L("Friendly Player"),
+            PetOwnerSizeKey(DBVal), nr, ng, nb, true)
+        -- The name and its line sit as one block, as the overlay's do on a plate.
+        s.name:SetPoint("TOP", s, "CENTER", 0, math.floor((size + extra) / 2))
+        return size + extra
     end
+    s.name:SetPoint("CENTER", s, "CENTER")
     s.name:SetText(name)
+    if guild then
+        local gr, gg, gb = gc.r, gc.g, gc.b
+        if DBVal("friendlyBelowNameMatchNameColor") == true then gr, gg, gb = nr, ng, nb end
+        -- The guild line, a text of its own at Guild Text Size.
+        local gsize = DBVal("friendlyBelowNameSize")
+        ns.SetFSFont(s.sub, gsize, "OUTLINE, SLUG")
+        s.sub:SetFormattedText(body, guild)
+        s.sub:SetTextColor(gr, gg, gb)
+        s.sub:ClearAllPoints()
+        s.sub:SetPoint("TOP", s.name, "BOTTOM", 0, -1)
+        local extra = 1 + gsize
+        s.name:SetPoint("TOP", s, "CENTER", 0, math.floor((size + extra) / 2))
+        return size + extra
+    end
+    s.sub:SetText("")
     return size
 end
 
--- The NPC sample. Name Only: the name-only overlay of a friendly NPC (mirrors
+-- The NPC sample. Name Only: the name-only overlay of an NPC (mirrors
 -- ShowNPCOverlay, ApplyOverlayStyle, FormatNPCName and UpdateOverlayRaidIcon):
 -- the name in its format, size and colour, the title under it and, while the
--- page's eye asks for one (marked), a raid marker above it. Otherwise the
--- health bar plate in the NPC colour, its name whole and with no title (the
--- tail of PaintFriendlyColors and FriendlyFrame:UpdateName). Returns the
--- sample's height.
-local function PaintNPC(s, DBVal, nameOnly, marked)
+-- page's eye asks for one (marked), a raid marker in the Raid Marker slot. A
+-- row's eye previewing a pet entry makes it that pet: the pet's sizes and its
+-- owner's line. Otherwise the health bar plate in the NPC colour, its name
+-- whole and with no title (the tail of PaintFriendlyColors and
+-- FriendlyFrame:UpdateName). Returns the sample's height.
+local function PaintNPC(s, DBVal, nameOnly, marked, key)
     local name = EllesmereUI.L("Friendly NPC")
     s.raid:Hide()
     if not nameOnly then
@@ -239,32 +353,33 @@ local function PaintNPC(s, DBVal, nameOnly, marked)
         s.sub:SetText("")
         return h
     end
-    local font, outline, shadow = ns.GetFont(), ns.GetNPOutline(), ns.GetNPUseShadow()
-    local h, top = DBVal("friendlyNPCNameSize"), 0
-    local c = DBVal("friendlyNPCNameColor")
+    local pet = PreviewIsPet(key)
+    local font, outline, shadow = ns.GetFont(), "OUTLINE", ns.GetNPUseShadow()
+    local h, top = pet and DBVal("friendlyPetNameSize") or DBVal("friendlyNPCNameSize"), 0
+    -- The overlay's own base colour, then the previewed entry's.
+    local nr, ng, nb = PreviewColor(key, DBVal("friendlyNPCNameColor"))
     s.health:Hide()
     EllesmereUI.SetFontFamily(s.name, font, h, outline, shadow)
-    s.name:SetTextColor(c.r, c.g, c.b)
-    s.name:SetText(EllesmereUI.ShortName(name, DBVal("friendlyNPCNameFormat")))
-    if DBVal("showNPCTitles") ~= false then
-        local size, t = DBVal("friendlyNPCTitleSize"), DBVal("friendlyNPCTitleColor")
-        EllesmereUI.SetFontFamily(s.sub, font, size, outline, shadow)
-        s.sub:SetTextColor(t.r, t.g, t.b, t.a or 1)
-        s.sub:SetText("<" .. EllesmereUI.L("Merchant") .. ">")
-        s.sub:ClearAllPoints()
-        s.sub:SetPoint("TOP", s.name, "BOTTOM", 0, -1)
-        h = h + 1 + size
-    else
-        s.sub:SetText("")
-    end
-    if marked and DBVal("showNPCRaidMarker") ~= false and ns.GetRaidMarkerPos() ~= "none" then
-        local size = ns.GetRaidMarkerSize()
-        SetRaidTargetIconTexture(s.raid, 8)
-        s.raid:SetSize(size, size)
-        s.raid:ClearAllPoints()
-        s.raid:SetPoint("BOTTOM", s.name, "TOP", 0, 2)
-        s.raid:Show()
-        top = size + 2
+    s.name:SetTextColor(nr, ng, nb)
+    s.name:SetText(EllesmereUI.ShortName(pet and EllesmereUI.L("Pet") or name, DBVal("friendlyNPCNameFormat")))
+    -- A pet's line names its owner; an NPC's is its own subtitle.
+    h = h + PaintNameLine(s, DBVal,
+        pet and EllesmereUI.L("Friendly NPC") or EllesmereUI.L("Merchant"),
+        pet and PetOwnerSizeKey(DBVal) or "friendlyNPCTitleSize", nr, ng, nb, pet)
+    if marked and DBVal("showNPCRaidMarker") ~= false then
+        local pos = ns.GetRaidMarkerPos()
+        if pos ~= "none" then
+            local size = ns.GetRaidMarkerSize()
+            local xOff, yOff = ns.GetAuraSlotOffsets("raidMarker")
+            SetRaidTargetIconTexture(s.raid, 8)
+            s.raid:SetSize(size, size)
+            s.raid:ClearAllPoints()
+            -- Centred above the name, as the live overlay draws it: a name-only
+            -- plate has no bar for a slot's alignment to hang off.
+            s.raid:SetPoint("BOTTOM", s.name, "TOP", xOff, 2 + yOff)
+            s.raid:Show()
+            top = size + 2 + yOff
+        end
     end
     s.name:ClearAllPoints()
     s.name:SetPoint("TOP", s, "CENTER", 0, math.floor((h + top) / 2) - top)
@@ -284,12 +399,19 @@ local function Update(building)
     local nameOnly = DBVal("friendlyNameOnly") ~= false
     local playersOn = DBVal("showFriendlyPlayers") ~= false
     local pl, npc = S.player, S.npc
+    -- What each sample is previewing: the entry whose eye is on, or nil for the
+    -- plain unit. An eye left on over an entry that is off or greyed shows
+    -- nothing (its eye reads closed then): FriendlyPage_Options.lua answers.
+    local pKey = env.optState.friendlyPlayerPreview
+    local nKey = env.optState.friendlyNPCPreview
+    if pKey and ns.NPO_AlliedPreviewOff(pKey) then pKey = nil end
+    if nKey and ns.NPO_AlliedPreviewOff(nKey) then nKey = nil end
     -- The panel's scale compensated: a sample draws at a live plate's size.
     local scale = UIParent:GetEffectiveScale() / hdr:GetEffectiveScale()
     pl:SetScale(scale)
     npc:SetScale(scale)
-    local block = math.max(PaintPlayer(pl, env.DB, DBVal, nameOnly),
-        PaintNPC(npc, DBVal, nameOnly, env.optState.showNPCMarkerPreview)) * scale
+    local block = math.max(PaintPlayer(pl, env.DB, DBVal, nameOnly, pKey, env.optState.showStatusTagPreview),
+        PaintNPC(npc, DBVal, nameOnly, env.optState.showNPCMarkerPreview, nKey)) * scale
     SyncOverlays(pl)
     SyncOverlays(npc)
     local H = math.max(MIN_H, math.ceil(PAD + block + PAD))
@@ -302,9 +424,17 @@ local function Update(building)
     pl:SetPoint("CENTER", hdr, "TOP", -x, y)
     npc:ClearAllPoints()
     npc:SetPoint("CENTER", hdr, "TOP", x, y)
-    -- Dimmed while EllesmereUI does not draw that plate.
-    pl:SetAlpha(playersOn and 1 or 0.3)
-    npc:SetAlpha((playersOn and DBVal("showFriendlyNPCs") == true) and 1 or 0.3)
+    -- Dimmed while EllesmereUI does not draw that plate: the previewed kind's
+    -- own toggle decides (a pet entry dims with Show Friendly Pet Nameplates).
+    local pOn = playersOn and (not PreviewIsPet(pKey) or DBVal("showFriendlyPets") == true)
+    local nOn
+    if PreviewIsPet(nKey) then
+        nOn = playersOn and DBVal("showFriendlyPets") == true
+    else
+        nOn = playersOn and DBVal("showFriendlyNPCs") == true
+    end
+    pl:SetAlpha(pOn and 1 or 0.3)
+    npc:SetAlpha(nOn and 1 or 0.3)
     -- The header builder adds the hint line itself.
     if building then return H end
     -- The hint line's height while it shows; H is the height the header takes

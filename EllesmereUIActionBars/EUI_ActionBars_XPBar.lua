@@ -1152,8 +1152,12 @@ end
 -- The XP of every quest in the log that is ready to hand in (the quest
 -- texts), then the Quest XP Overlay's completed and incomplete XP, filtered
 -- by Completed Quests Only (s.questOverlayCompleted) and Current Zone Only
--- (s.questOverlayZone).
+-- (s.questOverlayZone). Hidden log entries (tracking entries the quest log
+-- never lists) count for nothing; a bonus objective in progress counts.
 local GetQuestLogRewardXP = GetQuestLogRewardXP  -- missing on a client: reads 0
+-- Whether a quest's log entry is hidden, read once per quest ID: GetInfo makes
+-- a table per call, and a quest's hidden flag does not change.
+local xpQuestHidden = {}
 local function XPQuestXP(s)
     if not GetQuestLogRewardXP then return 0, 0, 0 end
     local QL = C_QuestLog
@@ -1163,12 +1167,23 @@ local function XPQuestXP(s)
     for i = 1, QL.GetNumQuestLogEntries() do
         local q = QL.GetQuestIDForLogIndex(i)
         if q and q > 0 then
-            local complete = QL.IsComplete(q)
-            if complete or all then
-                local xp = GetQuestLogRewardXP(q) or 0
-                if complete then total = total + xp end
-                if ov and (not onlyZone or QL.IsOnMap(q)) then
-                    if complete then done = done + xp else inc = inc + xp end
+            local hidden = xpQuestHidden[q]
+            if hidden == nil then
+                -- an entry whose info is not readable yet counts, and is read again next scan
+                local info = QL.GetInfo(i)
+                if info then
+                    hidden = info.isHidden and true or false
+                    xpQuestHidden[q] = hidden
+                end
+            end
+            if not hidden then
+                local complete = QL.IsComplete(q)
+                if complete or all then
+                    local xp = GetQuestLogRewardXP(q) or 0
+                    if complete then total = total + xp end
+                    if ov and (not onlyZone or QL.IsOnMap(q)) then
+                        if complete then done = done + xp else inc = inc + xp end
+                    end
                 end
             end
         end

@@ -385,7 +385,8 @@ end
 
 -- EllesmereUI.AbbreviateValue(v, valueType) -> string
 --   v as valueType under the Number Format (health, max health, absorb and boss
---   health text). Precision "standard" keeps the default call: the client's own
+--   health text). "power" has no Precision row, so it follows only the Unit
+--   Style. Precision "standard" keeps the default call: the client's own
 --   format, on WoW Forever this file's table with its 10,000 cut. v goes straight
 --   to the C function, so a secret value stays secret-safe.
 local IS_FOREVER = EllesmereUI.IS_FOREVER

@@ -43,6 +43,12 @@ local function EnsureFocusKickBar()
         if bars[existingIdx].suppressGCD == nil then
             bars[existingIdx].suppressGCD = true
         end
+        -- The per-class interrupt picks' table exists before any pick, so a first
+        -- pick made inside a Spec or Conditional Override session is banked into
+        -- that group like any other field (ns.SetFocusKickPick).
+        if type(bars[existingIdx].focusKickInterruptByClass) ~= "table" then
+            bars[existingIdx].focusKickInterruptByClass = {}
+        end
         if existingIdx == targetIdx or existingIdx == targetIdx - 1 then
             -- Already in the right spot relative to "buffs"
             return
@@ -91,7 +97,8 @@ local function EnsureFocusKickBar()
         focusKickUseTarget = false,
         -- FocusKick-specific: focus-cast sound trigger
         focusCastSoundKey = "none",
-        focusKickInterruptSpellID = nil,
+        focusKickInterruptSpellID = nil,  -- read only: the pick per class lives below
+        focusKickInterruptByClass = {},   -- class token (or "<CLASS>:HEALER") = spell id, "any" or 0
         -- Sound-only mode: play on every tracked-unit cast, no interrupt or
         -- cooldown gate, so the bar can stay empty (no icon, kick stays on CDM).
         focusCastSoundAnyCast = false,
@@ -312,9 +319,9 @@ function ns.IsSpellInPlayerBook(id, includeOverrides)
 end
 
 -- Returns the id of the stored interrupt in the form this character can actually cast, or nil.
--- Validate on READ and never write: focusKickInterruptSpellID is profile-level while the spellbook
--- behind it is per-spec, so the id stays correct for the spec that set it -- clearing it here would
--- destroy that spec's setting the first time the player logged in on another one. Asks the
+-- Validate on READ and never write: the stored pick is per class (or the old profile-wide id) while
+-- the spellbook behind it is per-spec, so the id stays correct for the spec that set it -- clearing it
+-- here would destroy that setting the first time the player logged in on another spec. Asks the
 -- SPELLBOOK, never a class/spec table (a hardcoded list goes stale on a patch). Pet-bank interrupts
 -- (a Warlock's Axe Toss, a Hunter's pet kick) are legitimate picks IsPlayerSpell cannot see, so
 -- check both banks. Returning the resolved id (not a boolean) is the point: a talent swap moves an
@@ -341,6 +348,53 @@ function ns.ResolveCastableInterrupt(sid)
         return sid
     end
     return nil
+end
+
+-- Healer specs that have no kick (Resto Shaman has Wind Shear, so excluded)
+local _HEALER_NO_KICK = {
+    [65]  = true, -- Holy Paladin
+    [256] = true, -- Discipline Priest
+    [257] = true, -- Holy Priest
+    [105] = true, -- Restoration Druid
+    [270] = true, -- Mistweaver Monk
+    [1468] = true, -- Preservation Evoker
+}
+
+function ns.IsNoKickHealerSpec()
+    -- Retail only: Forever healers keep their kick (and have no specs).
+    if EllesmereUI.IS_FOREVER then return false end
+    local specIndex = C_SpecializationInfo.GetSpecialization()
+    local specID = specIndex and specIndex > 0 and C_SpecializationInfo.GetSpecializationInfo(specIndex)
+    return specID and _HEALER_NO_KICK[specID] or false
+end
+
+-- Interrupt pick is stored per class: one profile serves every class, a single id gets overwritten.
+-- No-kick healer specs get their own slot so they never inherit the class's kick.
+local function FocusKickPickKey()
+    local _, cls = UnitClass("player")
+    if cls and ns.IsNoKickHealerSpec() then return cls .. ":HEALER" end
+    return cls
+end
+
+-- Map value: spell id, "any" or 0 (None); no entry falls back to the old profile-wide fields.
+function ns.GetFocusKickPick(bd)
+    if not bd then return nil, false end
+    local key = FocusKickPickKey()
+    local v = key and bd.focusKickInterruptByClass and bd.focusKickInterruptByClass[key]
+    if v == nil then
+        if ns.IsNoKickHealerSpec() then return nil, bd.focusCastSoundAnyCast == true end
+        return bd.focusKickInterruptSpellID, bd.focusCastSoundAnyCast == true
+    end
+    if v == "any" then return nil, true end
+    if type(v) == "number" and v > 0 then return v, false end
+    return nil, false
+end
+
+function ns.SetFocusKickPick(bd, v)
+    local key = FocusKickPickKey()
+    if not (bd and key) then return end
+    if type(bd.focusKickInterruptByClass) ~= "table" then bd.focusKickInterruptByClass = {} end
+    bd.focusKickInterruptByClass[key] = v or 0
 end
 
 local function EnsureFocusCastProxy()
@@ -372,15 +426,15 @@ local function EnsureFocusCastProxy()
         local soundKey = bd.focusCastSoundKey or "none"
         if soundKey == "none" then return end
         -- Sound-only mode ("Any Cast"): no interrupt lookup, no cooldown gate.
-        if bd.focusCastSoundAnyCast == true then
+        local spellID, anyCast = ns.GetFocusKickPick(bd)
+        if anyCast then
             local anyPath = FOCUSKICK_SOUND_PATHS[soundKey]
             if anyPath then PlaySoundFile(anyPath, "Master") end
             return
         end
-        local spellID = bd.focusKickInterruptSpellID
-        -- An explicit pick is only trusted while this character can cast it: a stale profile-level
+        -- An explicit pick is only trusted while this character can cast it: a stale class-level
         -- id sails through the cooldown gate below forever (a spell you do not know is never on
-        -- cooldown), so a Holy Paladin inheriting a Ret's Rebuke would be pinged on every focus
+        -- cooldown), so a spec inheriting a kick it lacks would be pinged on every focus
         -- cast. Deliberately checked HERE and not at arming time: arming runs during loading
         -- screens, when the spellbook reads empty for reasons unrelated to spec, and folding "not
         -- loaded yet" into "cannot cast it" silently unregisters a working proxy. This handler only runs on a live cast, by which point the spellbook is settled.
@@ -802,22 +856,10 @@ _G._ECME_RefreshFocusReminders = RefreshFocusReminders
 
 -- Refresh the cached context flags (instance type + role) and trigger a visual refresh if either
 -- flag transitioned. Called on PLAYER_ENTERING_WORLD, ZONE_CHANGED_NEW_AREA, and PLAYER_SPECIALIZATION_CHANGED.
--- Healer specs that have no kick (Resto Shaman has Wind Shear, so excluded)
-local _HEALER_NO_KICK = {
-    [65]  = true, -- Holy Paladin
-    [256] = true, -- Discipline Priest
-    [257] = true, -- Holy Priest
-    [105] = true, -- Restoration Druid
-    [270] = true, -- Mistweaver Monk
-    [1468] = true, -- Preservation Evoker
-}
-
 local function UpdateFocusKickContext()
     local _, instanceType = IsInInstance()
     local nowInDungeon = (instanceType == "party")
-    local specIndex = C_SpecializationInfo.GetSpecialization()
-    local specID = specIndex > 0 and C_SpecializationInfo.GetSpecializationInfo(specIndex)
-    local nowNoKick = specID and _HEALER_NO_KICK[specID] or false
+    local nowNoKick = ns.IsNoKickHealerSpec()
     local changed = (nowInDungeon ~= _focusKickInDungeon) or (nowNoKick ~= _focusKickNoKick)
     _focusKickInDungeon = nowInDungeon
     _focusKickNoKick    = nowNoKick
@@ -899,12 +941,12 @@ function ns.RefreshFocusKickProxies()
         end
         -- The cast SOUND has a weaker requirement than the rest of the family: its handler needs a
         -- configured sound plus an interrupt id for the readiness check, and the bar's assigned
-        -- spells are only the FALLBACK source for that id -- an explicit focusKickInterruptSpellID
-        -- satisfies it alone. Gating the sound on hasContent made a legitimate setup impossible: the focus-cast sound WITHOUT the kick icon.
+        -- spells are only the FALLBACK source for that id -- the class's own pick
+        -- (ns.GetFocusKickPick) satisfies it alone. Gating the sound on hasContent made a legitimate setup impossible: the focus-cast sound WITHOUT the kick icon.
         local sk = bd.focusCastSoundKey
         if sk and sk ~= "none" then
-            local pick = bd.focusKickInterruptSpellID
-            soundWanted = (bd.focusCastSoundAnyCast == true)
+            local pick, anyCast = ns.GetFocusKickPick(bd)
+            soundWanted = anyCast
                 or (type(pick) == "number" and pick > 0) or hasContent
         end
     end

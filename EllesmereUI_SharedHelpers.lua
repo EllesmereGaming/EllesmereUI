@@ -827,8 +827,13 @@ end
 --  "coords" crops a file whose art does not fill it (the Classic banner sits in the
 --  top-left 42 of 64 pixels).
 --  Unknown styles fall back to "pvp", the default.
+--  Proportions: a caller's square is a box (EllesmereUI.FitFactionArt), and the art
+--  sits centred inside it at its own width and height: an atlas's, read from the game
+--  (the PvP Emblem's Alliance art is 28 x 41, the crest 82 x 92 / 88 x 101); the file
+--  styles are square (game icons, and the Classic banner's square crop).
 -------------------------------------------------------------------------------
 EllesmereUI.FACTION_ART = {
+    crest     = { atlas = "talenttree-%s-cornerlogo", lower = true },
     pvp       = { atlas = "UI-HUD-UnitFrame-Player-PVP-%sIcon" },
     honor     = { atlas = "honorsystem-portrait-%s", lower = true, badge = true },
     poi       = { atlas = "poi-%s", lower = true },
@@ -837,9 +842,9 @@ EllesmereUI.FACTION_ART = {
     honoricon = { file = "Interface\\Icons\\PVPCurrency-Honor-%s" },
     friends   = { file = "Interface\\FriendsFrame\\PlusManz-%s" },
 }
-EllesmereUI.FACTION_ART_ORDER = { "pvp", "honor", "poi", "classic", "banner", "honoricon", "friends" }
+EllesmereUI.FACTION_ART_ORDER = { "crest", "pvp", "honor", "poi", "classic", "banner", "honoricon", "friends" }
 EllesmereUI.FACTION_ART_LABELS = {
-    pvp = "PvP Emblem", honor = "Honor Portrait", poi = "Map Flag", classic = "Classic Banner",
+    crest = "Faction Crest", pvp = "PvP Emblem", honor = "Honor Portrait", poi = "Map Flag", classic = "Classic Banner",
     banner = "Banner Icon", honoricon = "Honor Icon", friends = "Friends Crest",
 }
 -- Honor Portrait is an empty hexagon; the unit's honor badge is drawn on top (30 on 50).
@@ -904,6 +909,44 @@ local function SetBadge(tex, file)
     if tex:IsShown() then host:Show() end
 end
 
+-- width / height of an atlas, read once per name (1 for a name the client lacks).
+local atlasAspect = {}
+local function AtlasAspect(name)
+    local a = atlasAspect[name]
+    if a == nil then
+        local info = C_Texture.GetAtlasInfo(name)
+        local w, h = info and info.width, info and info.height
+        a = (w and h and w > 0 and h > 0) and (w / h) or 1
+        atlasAspect[name] = a
+    end
+    return a
+end
+
+-- The art's size inside its box: the longer side fills it.
+local function FitArt(tex)
+    local box = tex._facBox
+    if not box then return end
+    local a = tex._facAspect or 1
+    if a >= 1 then tex:SetSize(box, box / a) else tex:SetSize(box * a, box) end
+end
+
+-- Sizes a faction texture for an sz x sz box. The caller anchors the texture by its
+-- CENTER on the box's centre (EllesmereUI.FactionBoxCenter for a box placed by a
+-- corner or an edge), so art narrower or shorter than the box stays centred in it.
+function EllesmereUI.FitFactionArt(tex, sz)
+    tex._facBox = sz
+    FitArt(tex)
+end
+
+-- The offset from a box's anchor point to its centre, for an sz x sz box anchored
+-- by `point` ("TOPLEFT", "RIGHT", "CENTER", ...).
+function EllesmereUI.FactionBoxCenter(point, sz)
+    local half = sz / 2
+    local dx = point:find("LEFT", 1, true) and half or (point:find("RIGHT", 1, true) and -half) or 0
+    local dy = point:find("TOP", 1, true) and -half or (point:find("BOTTOM", 1, true) and half) or 0
+    return dx, dy
+end
+
 function EllesmereUI.SetFactionArt(tex, style, faction, badgeFile)
     SetBadge(tex, badgeFile)
     local art = EllesmereUI.FACTION_ART[style] or EllesmereUI.FACTION_ART.pvp
@@ -925,11 +968,14 @@ function EllesmereUI.SetFactionArt(tex, style, faction, badgeFile)
         -- unless told to reset it, so clear it first and ask for the reset too.
         tex:SetTexCoord(0, 1, 0, 1)
         tex:SetAtlas(name, false, nil, true)
+        tex._facAspect = AtlasAspect(name)
     else
         tex:SetTexture(name)
         local c = art.coords
         if c then tex:SetTexCoord(c[1], c[2], c[3], c[4]) else tex:SetTexCoord(0, 1, 0, 1) end
+        tex._facAspect = 1
     end
+    FitArt(tex)
 end
 
 -------------------------------------------------------------------------------
@@ -1168,10 +1214,33 @@ end
 do
     local floor, format = math.floor, string.format
 
+    -- A stopped batch (cancel, movement) drops its count, so the next batch is
+    -- not read as the rest of it. Watched only while a batch is tracked.
+    local tracked, watch = {}, nil
+    local function WatchBatchStop(f)
+        if not watch then
+            watch = CreateFrame("Frame")
+            watch:SetScript("OnEvent", function(self)
+                if UnitCastingInfo("player") then return end
+                for bar in pairs(tracked) do bar._craftLeft = nil end
+                wipe(tracked)
+                self:UnregisterAllEvents()
+            end)
+        end
+        tracked[f] = true
+        watch:RegisterEvent("UPDATE_TRADESKILL_CAST_STOPPED")
+    end
+
     function EllesmereUI.SetCraftBatch(f, on, spellID, castID, castDur)
         local getLeft = C_TradeSkillUI and C_TradeSkillUI.GetRemainingRecasts
         if not (on and getLeft) then
             f._craftExtra, f._craftLeft = nil, nil
+            -- Nothing left to drop for this bar: the stop watch lets go with
+            -- the last tracked bar.
+            if tracked[f] then
+                tracked[f] = nil
+                if not next(tracked) then watch:UnregisterAllEvents() end
+            end
             return
         end
         local left = getLeft() or 0
@@ -1187,6 +1256,7 @@ do
             f._craftExtra = nil
             return
         end
+        WatchBatchStop(f)
         local done = f._craftDone
         local total = floor((done + 1 + left) * castDur)
         f._craftExtra = left * castDur
@@ -1344,11 +1414,13 @@ end
 do
     local function ByOrder(a, b) return a.orderIndex < b.orderIndex end
 
-    -- The active config ID and tree ID, and the trees in their order, each
+    -- The config ID (the active one unless another is given: a dual spec group's build)
+    -- and tree ID, and the trees in their order, each
     -- { groupID, name, nodes = { nodeID, ... } } with its visible talents
     -- (name: the game's own). The list is nil while there is no tree.
-    function EllesmereUI.ForeverTalentTrees()
-        local configID = C_ClassTalents.GetActiveConfigID()
+    -- namesOnly: the node lists stay empty (no walk of the tree).
+    function EllesmereUI.ForeverTalentTrees(configID, namesOnly)
+        configID = configID or C_ClassTalents.GetActiveConfigID()
         local config = configID and C_Traits.GetConfigInfo(configID)
         local treeID = config and config.treeIDs[1]
         if not treeID then return configID, nil, nil end
@@ -1359,6 +1431,7 @@ do
             trees[i] = { groupID = g.groupID, name = g.displayName, nodes = {} }
             byGroup[g.groupID] = trees[i]
         end
+        if namesOnly then return configID, treeID, trees end
         for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID)) do
             local info = C_Traits.GetNodeInfo(configID, nodeID)
             if info and info.isVisible and info.entryIDs[1] then
@@ -1372,6 +1445,39 @@ do
             end
         end
         return configID, treeID, trees
+    end
+
+    -- A dual spec group's talents: the trees of that group's own build in their
+    -- order, each { name, spent } (the points spent in it), and lead, the index
+    -- of the tree with the most points (the leftmost on a tie, nil with none
+    -- spent). nil while the group has no readable build; a read the game
+    -- refuses counts as none. Readers: the Data Bars Dual Spec block and the
+    -- Loadout Manager's spec group names (both list it in their stale-parent
+    -- guards).
+    local NO_GROUPS = {}
+    local function ReadSpecGroup(group)
+        local configID = C_SpecializationInfo.GetCombatConfigIDForSpecGroup(group)
+        if not configID then return nil end
+        local _, _, list = EllesmereUI.ForeverTalentTrees(configID, true)
+        if not list or #list == 0 then return nil end
+        local ids = {}
+        for i = 1, #list do ids[i] = list[i].groupID end
+        local spent = {}
+        for _, g in ipairs(C_Traits.GetGroupCurrencyInfo(configID, ids) or NO_GROUPS) do
+            local c = g.currencyInfos and g.currencyInfos[1]
+            if c then spent[g.traitNodeGroupID] = c.spent end
+        end
+        local trees, lead, best = {}, nil, 0
+        for i = 1, #list do
+            local n = spent[list[i].groupID] or 0
+            trees[i] = { name = list[i].name, spent = n }
+            if n > best then lead, best = i, n end
+        end
+        return { trees = trees, lead = lead }
+    end
+    function EllesmereUI.ForeverSpecGroupTalents(group)
+        local ok, build = pcall(ReadSpecGroup, group)
+        return ok and build or nil
     end
 
     -- One axis of a tree's grid from its node positions: the first line, the

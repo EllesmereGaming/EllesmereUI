@@ -247,7 +247,12 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
     local addCfg = { type="button", text="+ Add Text Slot", width=220,
         onClick=function() if addOpen then addOpen() end end,
         disabled=function() return Full() or Candidate() == nil end,
-        disabledTooltip="Every text position is full." }
+        -- Whole sentences: shown as they are, not inside the requirement wrapper.
+        disabledTooltip=function()
+            if Full() then return "Every text position is full." end
+            return "Every text is already shown."
+        end,
+        rawTooltip=true }
     cells[#cells + 1] = addCfg
     local function Config(c)
         if not c then return EllesmereUI.BlankRowCfg() end
@@ -268,7 +273,8 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
         end
         if not cell.key then return end
         targets[cell.key] = { row=row, side=side }
-        if EllesmereUI._prebuilding then return end
+        -- Index pass: only the slot's cogs, for search
+        if EllesmereUI._prebuilding then pcall(cell.decorate, rgn) return end
         EllesmereUI.BuildRowLabelMenu(rgn, { order=order, values=values,
             getValue=function() return cell.key end,
             setValue=function(v) Move(cell.key, v) end,

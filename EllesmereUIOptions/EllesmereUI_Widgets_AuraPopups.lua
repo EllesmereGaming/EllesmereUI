@@ -25,6 +25,8 @@ local POPUPS = {}
 --     fontPath           (optional; defaults to the options font)
 --     includeGet/excludeGet  -> tri-state map { [spellID] = true|false }
 --     includePrompt/excludePrompt  (Add Spell ID popup messages)
+--     includeTitle/excludeTitle    (optional column titles; default "INCLUDED DEBUFFS" /
+--                                   "EXCLUDED DEBUFFS")
 --     onChanged          (engine reapply, called after every edit)
 --     onAdd(id)          (optional; called on every Add Spell ID, before onChanged)
 --     showAll = { label, get, set }        (optional header toggle)
@@ -528,12 +530,12 @@ function EllesmereUI.ShowTrackedAurasPopup(opts)
         return RefreshList
     end
 
-    local refreshInc = MakeSpellColumn(24, "INCLUDED DEBUFFS",
+    local refreshInc = MakeSpellColumn(24, opts.includeTitle or "INCLUDED DEBUFFS",
         EllesmereUI.L(opts.includePrompt or "Enter the spell ID to always show."),
         opts.includeGet,
         opts.excludeGet,
         opts.includeMine)
-    local refreshEx = MakeSpellColumn(268, "EXCLUDED DEBUFFS",
+    local refreshEx = MakeSpellColumn(268, opts.excludeTitle or "EXCLUDED DEBUFFS",
         EllesmereUI.L(opts.excludePrompt or "Enter the spell ID to exclude."),
         opts.excludeGet,
         opts.includeGet)

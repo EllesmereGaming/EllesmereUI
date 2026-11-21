@@ -2,6 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- /euipaste runs a pasted block of /way lines. Off by default and reload-gated.
 if not (EllesmereUIDB and EllesmereUIDB.pasteCommands == true) then return end
 
+local ns  = select(2, ...)
 local EUI = EllesmereUI
 
 local SLASH      = "/euipaste"
@@ -36,35 +37,50 @@ local function LookupCommand(upper)
     end
 end
 
--- Runs whichever addon owns the command; a secure alias means Blizzard's, which is never called.
-local function WaypointCommand(cmd)
-    local upper = cmd:upper()
-    if not ALLOWED[upper] then return end
+-- The handler of whichever addon owns the command, or nil when nothing does; a secure alias means
+-- Blizzard's, which is never called.
+local function WaypointOwner(upper)
     local key, handler = LookupCommand(upper)
     if key and not issecurevariable("SLASH_" .. key .. "1") then return handler end
 end
 
 local function Run(text)
-    local lines, skipped = SplitLines(text), 0
+    local lines, skipped, unowned = SplitLines(text), 0, 0
     local editBox = DEFAULT_CHAT_FRAME.editBox
+    local ours = ns.WaypointHandle  -- our own /way handler, while that command is on
+    local list                      -- its lines, handed over in one call
     for _, line in ipairs(lines) do
         local cmd, args = line:match("^(/%S+)%s*(.-)$")
-        local handler = cmd and WaypointCommand(cmd)
-        if handler then
-            xpcall(handler, geterrorhandler(), args, editBox)
-        else
+        local upper = cmd and cmd:upper()
+        if not (upper and ALLOWED[upper]) then
             skipped = skipped + 1
+        else
+            local handler = WaypointOwner(upper)
+            if not handler then
+                unowned = unowned + 1
+            elseif handler == ours then
+                list = list or {}
+                list[#list + 1] = args
+            else
+                xpcall(handler, geterrorhandler(), args, editBox)
+            end
         end
+    end
+    -- One call for the whole list: our handler numbers the destinations and follows every arrival.
+    if list then xpcall(ours, geterrorhandler(), table.concat(list, " ; "), editBox) end
+    if unowned > 0 then
+        Say(EllesmereUI.L("Some waypoint lines could not run: nothing handles their command. Turn on Enable /way Command."))
     end
     if skipped > 0 then
         Say(EllesmereUI.Lf("Skipped %1$d of %2$d lines: only /way and /euiway waypoint lines can be pasted.", skipped, #lines))
     end
 end
 
+-- The window is built once (keep) and shown again with an empty box.
 local function Open()
     EUI:ShowImportPopup(Run, EllesmereUI.L("Paste Waypoints"),
         EllesmereUI.L("Paste /way or /euiway lines, one waypoint per line"),
-        { confirmLabel = "Run", rawPaste = true })
+        { confirmLabel = "Run", rawPaste = true, keep = "pasteWaypoints" })
 end
 
 -- The macro is the action bar button: created once, then handed to the cursor to drop on a bar.

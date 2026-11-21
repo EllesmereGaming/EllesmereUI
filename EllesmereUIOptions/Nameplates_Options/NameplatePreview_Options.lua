@@ -55,11 +55,11 @@ end
 -- bottom over the bar's bottom, its height), for the arrows to hug.
 -- cx: DBVal, defaults, barH, arrowH, debuffY, rows[id] = { list, count, sz, h,
 -- gap, slot }, icons[id] = { frame, slot, sz } (sz: the element's height; a
--- faction riding the Rare/Quest indicator is slot "none" there), classFaction,
+-- faction riding an indicator is slot "none" there), classFaction,
 -- factionFrame, sideEnd. A saved order that holds "quest" but not "questtext"
 -- reads the Quest Objective Text right after the Quest Indicator, as live.
 local CHAIN_MEMBER = { debuffs = "debuffs", buffs = "buffs", ccs = "ccs", raidmarker = "raidmarker",
-    rare = "class", quest = "class", questtext = "qtext", faction = "faction" }
+    rare = "class", quest = "quest", questtext = "qtext", faction = "faction" }
 local CHAIN_DEFAULT = { "debuffs", "buffs", "ccs", "raidmarker", "rare", "quest", "questtext", "faction" }
 local CHAIN_POS = { "top", "right", "left", "topright", "topleft", "bottom" }
 local function ChainPreview(cx)
@@ -103,8 +103,11 @@ local function ChainPreview(cx)
                 else
                     local ic = cx.icons[id]
                     local f = ic.frame
-                    -- Rare/Quest + Faction with no mark: the badge stands in for the pair.
-                    if id == "class" and not f:IsShown() and cx.classFaction then f = cx.factionFrame end
+                    -- Rare/Quest + Faction with no indicator: the badge stands in for them.
+                    if id == "class" and not f:IsShown() and cx.classFaction
+                        and not cx.icons.quest.frame:IsShown() then
+                        f = cx.factionFrame
+                    end
                     if f:IsShown() then
                         local base = 0
                         if side then base = yOff + barH / 2 - ic.sz / 2
@@ -639,10 +642,22 @@ local function BuildNameplatePreview(parent, parentW, mode)
     classIcon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\elite-rare-indicator.png")
     classIcon:SetSize(24, 24)
     classIcon:Hide()
+    -- Quest Indicator sample: the quest icon, an element of its own beside the elite
+    -- sample (a mob that is both shows both). Its state rides pf._qi (Update fills
+    -- shown, sz and ext for the passes below).
+    pf._qi = { icon = pf:CreateTexture(nil, "OVERLAY"), shown = false, sz = 20, ext = 0 }
+    pf._qi.icon:SetAtlas("Crosshair_Quest_64")
+    pf._qi.icon:Hide()
     -- Faction badge preview (Core Positions "Faction" element)
+    -- factionIcon is the badge's square box (the chain and the click overlay place and
+    -- measure it) and draws nothing; its art (factionIcon._art) sits centred on it at
+    -- its own proportions, as live (EllesmereUI.FitFactionArt), shown and hidden with it.
     local factionIcon = pf:CreateTexture(nil, "OVERLAY", nil, -1)  -- under classIcon when stacked
     factionIcon:SetSize(20, 20)
     factionIcon:Hide()
+    factionIcon._art = pf:CreateTexture(nil, "OVERLAY", nil, -1)
+    factionIcon._art:SetPoint("CENTER", factionIcon, "CENTER")
+    factionIcon._art:Hide()
     -- Quest Objective Text sample (Core Positions "Quest Objective Text" element):
     -- a quest mob's progress text in a frame of its own, sized to the text, on the
     -- live element's tier (health + 2). Its placement rides pf._qt (Update fills
@@ -980,6 +995,21 @@ local function BuildNameplatePreview(parent, parentW, mode)
     CP.bar._bg = CP.bar:CreateTexture(nil, "BACKGROUND")
     CP.bar._bg:SetAllPoints()
     CP.bar._bg:SetColorTexture(0.082, 0.082, 0.082, 1)
+    -- Energy bar preview (WoW Forever rogues and druids: ns.NP_ENERGY_BAR)
+    if ns.NP_ENERGY_BAR then
+        CP.energy = CreateFrame("StatusBar", nil, pf)
+        CP.energy:SetStatusBarTexture(CP.WHITE)
+        CP.energy:SetFrameLevel(pf:GetFrameLevel() + 5)
+        CP.energy:Hide()
+        CP.energy._bg = CP.energy:CreateTexture(nil, "BACKGROUND")
+        CP.energy._bg:SetAllPoints()
+    end
+    function CP.EnergyOn()
+        return ns.NP_ENERGY_BAR and DBVal("classPowerEnergyBar") == true
+    end
+    function CP.HideEnergy()
+        if CP.energy then CP.energy:Hide() end
+    end
 
     -- Offset badge: shown by UpdateCP (via CP.Clamp) only when the class-resource
     -- Y offset is clamped to the plate in the preview. Reports the real offset
@@ -1465,6 +1495,11 @@ local function BuildNameplatePreview(parent, parentW, mode)
                 -- NOT added here so the preview frame never grows with the offset.
                 -- UpdateCP clamps the pips inside the plate and badges the real value.
                 cpPush = CP.PIP_H * cpScale
+                if CP.EnergyOn() then
+                    local cpGap = DBVal("classPowerGap") or defaults.classPowerGap
+                    cpPush = cpPush + (DBVal("classPowerEnergyHeight") or defaults.classPowerEnergyHeight)
+                        + math.max(cpGap * cpScale, 1)
+                end
             end
         end
         -- Apply current random preview values (regenerated on tab switch only)
@@ -1824,15 +1859,13 @@ local function BuildNameplatePreview(parent, parentW, mode)
             clYOff = DBVal(clPos .. "SlotYOffset") or 0
         end
         local hideRare = DBVal("classificationHideRare")
-        -- The elite sample at the Elite/Rare Indicator's own size, or the quest
-        -- mark it shows while that is off at the Quest Indicator's.
-        local reIconSz = ns.NP_ElementSize(hideRare and "quest" or "rare", DB())
+        -- The elite sample at the Elite/Rare Indicator's own size.
+        local reIconSz = ns.NP_ElementSize("rare", DB())
         local showCL = optState.showClassificationPreview or optState._sliderDragShowClassification
         classIcon:SetSize(reIconSz, reIconSz)
-        -- Both halves off (the WoW Forever look's seed can leave that when the
-        -- Quest Indicator was already off, and the Quest Objective Text can take
-        -- the Quest Indicator's place): live plates draw nothing there.
-        if clPos == "none" or not showCL or (hideRare and not ns.NP_QuestIconOn(DB())) then
+        -- Its box off (the WoW Forever look's seed can leave that): live plates draw no
+        -- elite or rare mark.
+        if clPos == "none" or not showCL or hideRare then
             classIcon:Hide()
             if pf._classOverlay then pf._classOverlay:Hide() end
         else
@@ -1851,15 +1884,42 @@ local function BuildNameplatePreview(parent, parentW, mode)
             elseif clPos == "bottom" then
                 classIcon:SetPoint("TOP", cast, "BOTTOM", clXOff, -2 + clYOff)
             end
-            -- The quest mark while the Elite/Rare Indicator is off.
-            if hideRare then
-                classIcon:SetAtlas("Crosshair_Quest_64")
-            else
-                classIcon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\elite-rare-indicator.png")
-                classIcon:SetTexCoord(0, 1, 0, 1)
-            end
             classIcon:Show()
             if pf._classOverlay then pf._classOverlay:Show() end
+        end
+        -- Quest Indicator sample: the quest icon at its own size, placed by the same rule
+        -- (the chain below sets the two side by side, as live on a mob that is both).
+        do
+            local qi = pf._qi
+            local icon = qi.icon
+            icon:ClearAllPoints()
+            if clPos == "none" or not showCL or not ns.NP_QuestIconOn(DB()) then
+                qi.shown = false
+                icon:Hide()
+            else
+                local sz = ns.NP_ElementSize("quest", DB())
+                icon:SetSize(sz, sz)
+                if clPos == "top" then
+                    icon:SetPoint("BOTTOM", health, "TOP", clXOff, debuffY + cpPush + clYOff)
+                elseif clPos == "left" then
+                    local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
+                    icon:SetPoint("RIGHT", health, "LEFT", -sideOff - castIconLeftPush - FullPush("left", clYOff, sz) + clXOff, clYOff)
+                elseif clPos == "right" then
+                    local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
+                    icon:SetPoint("LEFT", health, "RIGHT", sideOff + castIconRightPush + FullPush("right", clYOff, sz) + clXOff, clYOff)
+                elseif clPos == "topleft" then
+                    icon:SetPoint("BOTTOMLEFT", health, "TOPLEFT", clXOff, 2 + cpPush + ns.NP_TopCornerLift("topleft", DB()) + clYOff)
+                elseif clPos == "topright" then
+                    icon:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", clXOff, 2 + cpPush + ns.NP_TopCornerLift("topright", DB()) + clYOff)
+                elseif clPos == "bottom" then
+                    icon:SetPoint("TOP", cast, "BOTTOM", clXOff, -2 + clYOff)
+                end
+                qi.sz, qi.shown = sz, true
+                icon:Show()
+            end
+            if pf._questIconOverlay then pf._questIconOverlay:SetShown(qi.shown) end
+            -- The taller of the shown samples (the height passes and a riding badge).
+            qi.ext = math.max(classIcon:IsShown() and reIconSz or 0, qi.shown and qi.sz or 0)
         end
 
         -- Faction badge, slot-based like the classification icon above. Shows the
@@ -1870,22 +1930,24 @@ local function BuildNameplatePreview(parent, parentW, mode)
         factionIcon:ClearAllPoints()
         if fcPos == "none" then
             factionIcon:Hide()
+            factionIcon._art:Hide()
             if pf._factionOverlay then pf._factionOverlay:Hide() end
         else
             local fcX = DBVal(fcPos .. "SlotXOffset") or 0
             local fcY = DBVal(fcPos .. "SlotYOffset") or 0
             local fcSz = ns.NP_ElementSize("faction", DB())
-            -- Sharing the slot with a showing Rare/Quest icon: stack behind it,
-            -- overlapping by 40%, up or down in the Bottom slot (matches
-            -- NameplateFrame:UpdateFaction).
-            if fcCombined and classIcon:IsShown() then
-                local step = math.floor(reIconSz * 0.6 + 0.5)
+            -- Sharing the slot with a showing indicator (the elite sample, else the
+            -- quest icon): stack behind it, overlapping by 40%, up or down in the
+            -- Bottom slot (matches NameplateFrame:UpdateFaction).
+            if fcCombined and pf._qi.ext > 0 then
+                local step = math.floor((classIcon:IsShown() and reIconSz or pf._qi.sz) * 0.6 + 0.5)
                 fcY = fcY + ((fcPos == "bottom") and -step or step)
             end
             local mine = UnitFactionGroup("player")
             local fac = (mine == "Horde") and "Alliance" or "Horde"
             local fStyle = DBVal("factionStyle") or defaults.factionStyle
-            EllesmereUI.SetFactionArt(factionIcon, fStyle, fac, EllesmereUI.FactionBadgeFor(fStyle, "player"))
+            EllesmereUI.SetFactionArt(factionIcon._art, fStyle, fac, EllesmereUI.FactionBadgeFor(fStyle, "player"))
+            EllesmereUI.FitFactionArt(factionIcon._art, fcSz)
             factionIcon:SetSize(fcSz, fcSz)
             if fcPos == "top" then
                 factionTopExtent = debuffY + fcSz + fcY
@@ -1908,6 +1970,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                 factionIcon:SetPoint("TOP", cast, "BOTTOM", fcX, -2 + fcY)
             end
             factionIcon:Show()
+            factionIcon._art:Show()
             if pf._factionOverlay then pf._factionOverlay:Show() end
         end
 
@@ -2299,16 +2362,17 @@ local function BuildNameplatePreview(parent, parentW, mode)
             local nameW = barW - pvNameMarkerReserve - 2 * math.max(ns.NP_TopCornerTextWidth("textSlotTopLeft", DB()),
                 ns.NP_TopCornerTextWidth("textSlotTopRight", DB()))
             -- Room is taken only by what shows on the name's row (Top or a top corner), as
-            -- live (ns.NP_OnNameRow): the raid marker, the Rare/Quest icon, the Quest
+            -- live (ns.NP_OnNameRow): the raid marker, the two indicators, the Quest
             -- Objective Text, and the faction badge where it stands alone.
             if showRM and ns.NP_OnNameRow(rmPos) then
                 nameW = nameW - 2 * (rmSize - 2) - 7
             end
-            if classIcon:IsShown() and ns.NP_OnNameRow(clPos) then
-                nameW = nameW - (reIconSz + 4)
+            if ns.NP_OnNameRow(clPos) then
+                if classIcon:IsShown() then nameW = nameW - (reIconSz + 4) end
+                if pf._qi.shown then nameW = nameW - (pf._qi.sz + 4) end
             end
             if pf._qt.shown and ns.NP_OnNameRow(pf._qt.pos) then nameW = nameW - (pf._qt.w + 4) end
-            if factionIcon:IsShown() and not (fcCombined and classIcon:IsShown()) and ns.NP_OnNameRow(fcPos) then
+            if factionIcon:IsShown() and not (fcCombined and pf._qi.ext > 0) and ns.NP_OnNameRow(fcPos) then
                 nameW = nameW - (ns.NP_ElementSize("faction", DB()) + 4)
             end
             nameFS:SetWidth(math.max(nameW * pvNameWPct / 100, 20))
@@ -2760,7 +2824,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
             local cx = optState._pvChain
             if not cx then
                 cx = { rows = { debuffs = {}, buffs = {}, ccs = {} },
-                       icons = { raidmarker = {}, class = {}, qtext = {}, faction = {} }, sideEnd = {} }
+                       icons = { raidmarker = {}, class = {}, quest = {}, qtext = {}, faction = {} }, sideEnd = {} }
                 optState._pvChain = cx
             end
             cx.DBVal, cx.defaults = DBVal, defaults
@@ -2773,10 +2837,14 @@ local function BuildNameplatePreview(parent, parentW, mode)
             r.list, r.count, r.sz, r.h, r.gap, r.slot = ccs, PV_CONST.CC_COUNT, ccSz, ccH, ccGap, ccSlotVal
             r = cx.icons.raidmarker
             r.frame, r.slot, r.sz = raidFrame, rmPos, rmSize
-            -- The Rare/Quest member counts only while a half is on or the badge rides it (as live).
+            -- The Elite/Rare member counts while its box is on or the badge rides it, the
+            -- Quest Indicator while its box is (as live).
             r = cx.icons.class
             r.frame, r.sz = classIcon, reIconSz
-            r.slot = (hideRare and not ns.NP_QuestIconOn(DB()) and not fcCombined) and "none" or clPos
+            r.slot = (hideRare and not fcCombined) and "none" or clPos
+            r = cx.icons.quest
+            r.frame, r.sz = pf._qi.icon, pf._qi.sz
+            r.slot = ns.NP_QuestIconOn(DB()) and clPos or "none"
             r = cx.icons.qtext
             r.frame, r.slot, r.sz = pf._qt.frame, pf._qt.pos, pf._qt.h
             r = cx.icons.faction
@@ -2809,7 +2877,8 @@ local function BuildNameplatePreview(parent, parentW, mode)
             local function addAuraSide(slotVal, count, sz, h, sp, xOff, yOff)
                 if slotVal ~= "left" and slotVal ~= "right" then return end
                 local y = yOff + h / 2 - barH / 2
-                add(slotVal, y, h, sideOff + ns.NP_ClassicSide(slotVal) + FullPush(slotVal, y, h)
+                -- Less the side aura gap the row starts at, as live.
+                add(slotVal, y, h, ns.NP_ClassicSide(slotVal) + FullPush(slotVal, y, h)
                     + (count - 1) * sp + sz + ((slotVal == "left") and -xOff or xOff))
             end
             addAuraSide(debuffSlotVal, PV_CONST.DEBUFF_COUNT, debuffSz, debuffH, debuffSpacing, debuffXOff, debuffYOff)
@@ -2825,14 +2894,16 @@ local function BuildNameplatePreview(parent, parentW, mode)
             end
             if raidFrame:IsShown() then addIcon(rmPos, rmYOff, rmSize, rmXOff) end
             if classIcon:IsShown() then addIcon(clPos, clYOff, reIconSz, clXOff) end
+            if pf._qi.shown then addIcon(clPos, clYOff, pf._qi.sz, clXOff) end
             if pf._qt.shown then
                 local qt = pf._qt
                 addIcon(qt.pos, qt.y, qt.h, qt.x, qt.w)
             end
             if factionIcon:IsShown() and (fcPos == "left" or fcPos == "right") then
-                -- Stacked behind a showing Rare/Quest icon it sits higher.
+                -- Stacked behind a showing indicator it sits higher.
                 local fy = (DBVal(fcPos .. "SlotYOffset") or 0)
-                    + ((fcCombined and classIcon:IsShown()) and math.floor(reIconSz * 0.6 + 0.5) or 0)
+                    + ((fcCombined and pf._qi.ext > 0)
+                        and math.floor((classIcon:IsShown() and reIconSz or pf._qi.sz) * 0.6 + 0.5) or 0)
                 addIcon(fcPos, fy, ns.NP_ElementSize("faction", DB()),
                     DBVal(fcPos .. "SlotXOffset") or 0)
             end
@@ -2840,12 +2911,12 @@ local function BuildNameplatePreview(parent, parentW, mode)
             -- the arrow centred on the bar, as live.
             local chainEnd = optState._pvChain.sideEnd
             if chainEnd.left then
-                arrows.left:SetPoint("RIGHT", chainEnd.left.frame, "BOTTOMLEFT", -8, barH / 2 - chainEnd.left.y)
+                arrows.left:SetPoint("RIGHT", chainEnd.left.frame, "BOTTOMLEFT", sideOff - 8, barH / 2 - chainEnd.left.y)
             else
                 arrows.left:SetPoint("RIGHT", health, "LEFT", -(leftExtent + 8), 0)
             end
             if chainEnd.right then
-                arrows.right:SetPoint("LEFT", chainEnd.right.frame, "BOTTOMRIGHT", 8, barH / 2 - chainEnd.right.y)
+                arrows.right:SetPoint("LEFT", chainEnd.right.frame, "BOTTOMRIGHT", 8 - sideOff, barH / 2 - chainEnd.right.y)
             else
                 arrows.right:SetPoint("LEFT", health, "RIGHT", rightExtent + 8, 0)
             end
@@ -2883,10 +2954,10 @@ local function BuildNameplatePreview(parent, parentW, mode)
                     cornerExtent = math.max(cornerExtent, ns.NP_TopCornerLift(rmPos, DB()) + rmSize + rmYOff)
                 end
             end
-            if showCL then
-                if clPos == "top" then cornerExtent = math.max(cornerExtent, debuffY + reIconSz + clYOff)
+            if pf._qi.ext > 0 then
+                if clPos == "top" then cornerExtent = math.max(cornerExtent, debuffY + pf._qi.ext + clYOff)
                 elseif isCorner(clPos) then
-                    cornerExtent = math.max(cornerExtent, 2 + ns.NP_TopCornerLift(clPos, DB()) + reIconSz + clYOff)
+                    cornerExtent = math.max(cornerExtent, 2 + ns.NP_TopCornerLift(clPos, DB()) + pf._qi.ext + clYOff)
                 end
             end
             -- The Quest Objective Text, placed like the Rare/Quest icon.
@@ -3056,6 +3127,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                 end
                 local cpYShown, cpYReal, cpEdgeIn, cpDirIn = CP.Clamp(cpPos == "top", yDir, cpYOff, scaledH, -healthFromTop, castBotY)
 
+                CP.HideEnergy()
                 local bar = CP.bar
                 bar:ClearAllPoints()
                 bar:SetSize(barW, scaledH)
@@ -3078,6 +3150,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                     ns.HidePipDecor(CP.pips[i])
                 end
                 CP.bar:Hide()
+                CP.HideEnergy()
             else
                 CP.bar:Hide()
                 local cpScale = DBVal("classPowerScale") or defaults.classPowerScale
@@ -3095,6 +3168,11 @@ local function BuildNameplatePreview(parent, parentW, mode)
                 local scaledH   = cpSquare and scaledW or Snap(CP.PIP_H * cpScale)
                 local scaledGap = Snap(cpGap * cpScale)
                 local totalPipW = cpMax * scaledW + (cpMax - 1) * scaledGap
+                -- Energy bar: "inner" sits against the health bar and pushes the pips outward.
+                local eOn    = CP.EnergyOn()
+                local eH     = eOn and Snap(DBVal("classPowerEnergyHeight") or defaults.classPowerEnergyHeight) or 0
+                local eGap   = eOn and math.max(scaledGap, 1) or 0
+                local eInner = eOn and (DBVal("classPowerEnergyAnchor") or defaults.classPowerEnergyAnchor) == "inner"
 
                 -- Determine anchor frame and direction
                 local anchorPoint, anchorRelPoint, anchorFrame, yDir
@@ -3110,7 +3188,8 @@ local function BuildNameplatePreview(parent, parentW, mode)
                     anchorFrame    = cast
                     yDir = -1
                 end
-                local cpYShown, cpYReal, cpEdgeIn, cpDirIn = CP.Clamp(cpPos == "top", yDir, cpYOff, scaledH, -healthFromTop, castBotY)
+                local cpYShown, cpYReal, cpEdgeIn, cpDirIn = CP.Clamp(cpPos == "top", yDir, cpYOff, scaledH + eH + eGap, -healthFromTop, castBotY)
+                local pipY = Snap(yDir * (cpYShown + (eInner and (eH + eGap) or 0)))
 
                 local cpEmptyCol = (DB() and DB().classPowerEmptyColor) or defaults.classPowerEmptyColor
 
@@ -3131,7 +3210,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                         pip:SetSize(scaledW, scaledH)
                         local pipLeftX = Snap(pipPositions[i] - halfGroup + cpXOff)
                         pip:SetPoint(leftAnchor, anchorFrame, anchorRelPoint,
-                            pipLeftX, Snap(yDir * cpYShown))
+                            pipLeftX, pipY)
 
                         -- Background behind each pip
                         local bg = pip._bg
@@ -3194,10 +3273,27 @@ local function BuildNameplatePreview(parent, parentW, mode)
                         if pip._borderBox then pip._borderBox:Hide() end
                     end
                 end
+                if eOn then
+                    local e = CP.energy
+                    local eW = Snap(groupW * (DBVal("classPowerEnergyWidth") or defaults.classPowerEnergyWidth))
+                    local eEdge = eInner and cpYShown or (cpYShown + scaledH + eGap)
+                    e:ClearAllPoints()
+                    e:SetSize(eW, eH)
+                    e:SetPoint(leftAnchor, anchorFrame, anchorRelPoint,
+                        Snap(cpXOff - eW / 2 + (DBVal("classPowerEnergyXOffset") or defaults.classPowerEnergyXOffset)),
+                        Snap(yDir * eEdge + (DBVal("classPowerEnergyYOffset") or defaults.classPowerEnergyYOffset)))
+                    e:SetMinMaxValues(0, 100)
+                    e:SetValue(65)
+                    e:SetStatusBarColor(cpColor[1], cpColor[2], cpColor[3], 1)
+                    e._bg:SetColorTexture(cpBgCol.r, cpBgCol.g, cpBgCol.b, cpBgCol.a)
+                    e:Show()
+                else
+                    CP.HideEnergy()
+                end
                 -- Base reservation only -- the offset never grows the frame (pips
                 -- are clamped to the plate by CP.Clamp instead).
                 if cpPos ~= "top" then
-                    cpExtraH = scaledH
+                    cpExtraH = scaledH + eH + eGap
                 end
                 if cpYReal then CP.ShowBadge(cpEdgeIn, cpDirIn, cpCenterX + cpXOff, cpYReal) end
             end
@@ -3208,6 +3304,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                 ns.HidePipDecor(CP.pips[i])
             end
             CP.bar:Hide()
+            CP.HideEnergy()
         end
         return cpExtraH
         end
@@ -3221,7 +3318,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
         if isBottomSlot(buffSlotVal) then bottomExtent = math.max(bottomExtent, buffH + 2 - buffYOff) end
         if isBottomSlot(ccSlotVal) then bottomExtent = math.max(bottomExtent, ccH + 2 - ccYOff) end
         if isBottomSlot(rmPos) and showRM then bottomExtent = math.max(bottomExtent, rmSize + 2 - rmYOff) end
-        if isBottomSlot(clPos) and showCL then bottomExtent = math.max(bottomExtent, reIconSz + 2 - clYOff) end
+        if isBottomSlot(clPos) and pf._qi.ext > 0 then bottomExtent = math.max(bottomExtent, pf._qi.ext + 2 - clYOff) end
         if pf._qt.shown and isBottomSlot(pf._qt.pos) then
             bottomExtent = math.max(bottomExtent, pf._qt.h + 2 - pf._qt.y)
         end
@@ -3299,6 +3396,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
     pf._castTimerFS  = castParts.timerFS
     pf._raidFrame    = raidFrame
     pf._classIcon    = classIcon
+    pf._questIcon    = pf._qi.icon
     pf._factionIcon  = factionIcon
     pf._questTextFrame = pf._qt.frame
     pf._health       = health

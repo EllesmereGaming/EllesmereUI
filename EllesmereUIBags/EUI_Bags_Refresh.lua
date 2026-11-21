@@ -236,7 +236,8 @@ end
 --  resets the window to its default size. The footer's right-edge text keeps
 --  clear of whichever icons show (cfg.inset(px)).
 --  cfg: step, relayoutStep (optional, default step), minCols, minH,
---  getCols(), getHeight(), save(cols, h), finish(), savePos(left, top),
+--  getCols(), getHeight(), save(cols, h), finish(), posKey (the profile key
+--  of the window's saved spot),
 --  reset(), inset(px), isLocked(), setLocked(v), hidden() (optional: the
 --  window sizes itself, so neither icon shows)
 -------------------------------------------------------------------------------
@@ -257,6 +258,9 @@ local function GripStop(grip)
         grip._drag = nil
         grip:GetParent()._resizing = nil
         grip._cfg.finish()
+        -- Back to its nearest corner; without Anchor to Nearest Corner the pin
+        -- saved as the drag began stands
+        if ns.WindowCornerOn() then ns.SaveWindowCorner(grip:GetParent(), grip._cfg.posKey) end
     end
     grip:SetAlpha(grip:IsMouseOver() and GR.HOVER or GR.A)
 end
@@ -287,10 +291,14 @@ local function GripOnMouseDown(grip, button)
     local frame, cfg = grip:GetParent(), grip._cfg
     local left, top, right, bottom = frame:GetLeft(), frame:GetTop(), frame:GetRight(), frame:GetBottom()
     if not left then return end
-    -- Pin the top-left corner so only the right and bottom edges move
+    -- Pin the top-left corner so only the right and bottom edges move. The pin
+    -- is the saved spot, unless Anchor to Nearest Corner takes the window back
+    -- to its corner on release (GripStop)
     frame:ClearAllPoints()
     frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-    cfg.savePos(left, top)
+    if not ns.WindowCornerOn() then
+        BP()[cfg.posKey] = { point = "TOPLEFT", relativePoint = "BOTTOMLEFT", x = left, y = top }
+    end
     local cx, cy = GetCursorPosition()
     local es = frame:GetEffectiveScale()
     local screenW = UIParent:GetRight() * UIParent:GetEffectiveScale() / es
@@ -414,9 +422,7 @@ local _bagGripCfg = {
         if EUI_Bags._updateThumb then EUI_Bags._updateThumb() end
     end,
     finish = function() EUI_Bags:RefreshInventory() end,
-    savePos = function(left, top)
-        BP().bagsPosition = { point = "TOPLEFT", relativePoint = "BOTTOMLEFT", x = left, y = top }
-    end,
+    posKey = "bagsPosition",
     reset = function()
         local p = BP()
         p.bagColumns, p.bagHeight, p.bagListWidth = nil, nil, nil
@@ -489,7 +495,7 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     end
 
     -- 6. Size frame. Default: fixed height, dynamic width. Auto-size: height grows to fit content
-    -- (no vertical scroll), width follows column count; both track a running max while open (never shrink mid-session), floored at FIXED_H and capped at the screen.
+    -- (no vertical scroll), width follows column count; both track a running max while open (never shrink mid-session, unless Auto-Size's Shrink is on), floored at FIXED_H and capped at the screen (or Auto-Size's Max Height).
     -- WoW Forever, and Auto-Size with the Compact display: height fits the content on that running max, with no FIXED_H floor (see below).
     local FIXED_H = 650
     -- Resize grip height: the whole window, footer inside it (so a footer
@@ -498,15 +504,15 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     local totalW = sidebarW + gridContentW
     local autoSize = EUI_Bags.AutoSizeOn()
     if autoSize then
-        EUI_Bags._asMaxGridW = math.max(EUI_Bags._asMaxGridW or 0, gridContentW)
+        EUI_Bags._asMaxGridW = EUI_Bags.AutoSizeNext(gridContentW, EUI_Bags._asMaxGridW)
         totalW = sidebarW + EUI_Bags._asMaxGridW
     end
     local currencyFooterH = UpdateCurrencyDisplays(totalW) or FOOTER_H
 
     -- A grip-set height overrides WoW Forever's grow-only content fit (Auto-Size hides the grip)
     if autoSize or (EUI.IS_FOREVER and not userH) then
-        local sc = EUI_Bags:GetScale(); if not sc or sc <= 0 then sc = 1 end
-        local maxH = (UIParent:GetHeight() / sc) * 0.95
+        -- Screen cap (95%, or Auto-Size's Max Height); taller content scrolls
+        local maxH, userCap = EUI_Bags.AutoSizeMaxH(not autoSize)
         local fitH = contentH + headerH + currencyFooterH + 2
         local neededH
         if EUI.IS_FOREVER or EUI_Bags.IsCompactMode() then
@@ -521,9 +527,11 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
             neededH = math.min(math.max(fitH, sbH), maxH)
         else
             -- Cap at the screen first, then floor at FIXED_H so the window is never smaller than normal (even on short screens).
+            -- A Max Height the player set wins over that floor.
             neededH = math.max(FIXED_H, math.min(fitH, maxH))
+            if userCap then neededH = math.min(neededH, maxH) end
         end
-        EUI_Bags._asMaxH = math.max(EUI_Bags._asMaxH or 0, neededH)
+        EUI_Bags._asMaxH = EUI_Bags.AutoSizeNext(neededH, EUI_Bags._asMaxH)
         EUI_Bags:SetWidth(totalW)
         EUI_Bags:SetHeight(EUI_Bags._asMaxH)
     else
@@ -561,9 +569,31 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     if ns.OfflinePanel then ns.OfflinePanel(sidebarW) end
 end
 
+-- A turned-off category (Enabled Categories, or Delete on a default one) shows
+-- nowhere: while it is open, or a group whose members are all off, the bags
+-- show the view they open on. Costs one category lookup per refresh (a walk of
+-- the list while a group is open), nothing while no category is off.
+local function LeaveTurnedOff()
+    local dc = BP().bagDisabledCategories
+    if not dc then return end
+    local mgr = EUI_CategoryManager
+    if selectedGroupName then
+        if mgr:FirstOnMember(selectedGroupName, dc) then return end
+        I.SetSelectedGroupName(nil)
+    elseif selectedCategoryIndex > 0 then
+        local cat = mgr:GetCategories()[selectedCategoryIndex]
+        if not (cat and mgr:IsCategoryOff(cat, dc)) then return end
+    else
+        return
+    end
+    I.SetSelectedCategoryIndex(ns.OpenBagViewIndex())
+    if EUI_Bags._scrollFrame then EUI_Bags._scrollFrame:SetVerticalScroll(0) end
+end
+
 function EUI_Bags:RefreshInventory()
     if not EUI_Bags:IsVisible() then return end
     ns.ApplySlotMetrics()
+    LeaveTurnedOff()
 
     -- A select mode's hover box sits on a button this refresh may refill: put
     -- that button's border back now and re-test the hover after
@@ -594,7 +624,15 @@ function EUI_Bags:RefreshInventory()
     for bag = 0, 5 do
         local numSlots = C_Container.GetContainerNumSlots(bag)
         local restricted = special and special[bag]
-        if bag == 5 then
+        if bag == 5 and EllesmereUI.IS_FOREVER then
+            -- The fifth slot is the reagent bag slot, so a bag that takes
+            -- materials counts there: a reagent bag (family 0) and a profession
+            -- bag alike. Only one that holds nothing but arrows (1), bullets (2)
+            -- or soul shards (4) stays out, as a special bag in slots 1-4 does.
+            local family = ns.FifthSlotFamily()
+            restricted = family == 1 or family == 2 or family == 4
+        end
+        if bag == 5 and not restricted then
             reagentTotal = numSlots
         elseif not restricted then
             regularTotal = regularTotal + numSlots
@@ -602,7 +640,7 @@ function EUI_Bags:RefreshInventory()
         for slot = 1, numSlots do
             local info = C_Container.GetContainerItemInfo(bag, slot)
             if info then
-                if bag == 5 then
+                if bag == 5 and not restricted then
                     reagentUsed = reagentUsed + 1
                 elseif not restricted then
                     regularUsed = regularUsed + 1
@@ -720,20 +758,24 @@ function EUI_Bags:RefreshInventory()
     local categoryCounts, totalCount = EUI_CategoryManager:ClassifyAll(tempItems)
 
     -- 2a. Snapshot slot->category mapping for partial refresh
+    local categorizeReagents = BP().bagCategorizeReagents == true
+    local reagentCount = 0
     wipe(_slotCategories)
     for _, data in ipairs(tempItems) do
         if data.categoryIndex and data.bag and data.slot then
             _slotCategories[data.bag * 1000 + data.slot] = data.categoryIndex
+            if categorizeReagents and data.bag == 5 then reagentCount = reagentCount + 1 end
         end
     end
 
-    -- 2b. Compute display-only counts for pinned and recent items
-    local recentCatIdx, pinnedCatIdx
+    -- 2b. Count the Pinned Items, Recent Items and Reagent Bag shortcuts
+    local recentCatIdx, pinnedCatIdx, reagentCatIdx
     do
         local cats = EUI_CategoryManager:GetCategories()
         for i, cat in ipairs(cats) do
             if cat.isRecent then recentCatIdx = i end
             if cat.isPinned then pinnedCatIdx = i end
+            if categorizeReagents and cat.isReagentBag then reagentCatIdx = i end
         end
     end
     local showPinned = BP().bagShowPinnedItems ~= false
@@ -754,7 +796,10 @@ function EUI_Bags:RefreshInventory()
                     -- Keep the category for sorting and gear/stack handling.
                     data._pinnedOnly = true
                     local ci = data.categoryIndex
-                    if ci then categoryCounts[ci] = categoryCounts[ci] - 1 end
+                    if ci then
+                        categoryCounts[ci] = categoryCounts[ci] - 1
+                        if reagentCatIdx and data.bag == 5 then reagentCount = reagentCount - 1 end
+                    end
                 end
             end
         end
@@ -764,12 +809,14 @@ function EUI_Bags:RefreshInventory()
     local showRecent = BP().bagShowRecentItems ~= false
     if recentCatIdx and EUI_Bags._recentItems and showRecent then
         for _, data in ipairs(tempItems) do
-            if not data._pinnedOnly and data.info and data.info.itemID and EUI_Bags._recentItems[data.info.itemID] then
+            if not data._pinnedOnly and EUI_Bags.IsRecentEntry(data) then
                 recentCount = recentCount + 1
             end
         end
         categoryCounts[recentCatIdx] = recentCount
     end
+    -- The Reagent Bag shortcut counts physical slots alongside their item categories.
+    if reagentCatIdx then categoryCounts[reagentCatIdx] = reagentCount end
 
     -- 2c. viewing an alt: the sidebar counts their bags instead
     local altView = ns.OfflineAlt and ns.OfflineAlt()
@@ -787,6 +834,7 @@ function EUI_Bags:RefreshInventory()
     -- 4. Filter items by selected category/group + search
     local isRecentView = recentCatIdx and selectedCategoryIndex == recentCatIdx
     local isPinnedView = pinnedCatIdx and selectedCategoryIndex == pinnedCatIdx
+    local reagentView = not selectedGroupName and selectedCategoryIndex == reagentCatIdx and reagentCatIdx or nil
     local filterSet = nil  -- nil = show all
     do
         local cats = EUI_CategoryManager:GetCategories()
@@ -806,7 +854,7 @@ function EUI_Bags:RefreshInventory()
                 filterSet[mi] = true
                 AddSetChildren(mi)
             end
-        elseif selectedCategoryIndex > 0 and not isRecentView and not isPinnedView then
+        elseif selectedCategoryIndex > 0 and not isRecentView and not isPinnedView and not reagentView then
             filterSet = { [selectedCategoryIndex] = true }
             AddSetChildren(selectedCategoryIndex)
         end
@@ -818,13 +866,15 @@ function EUI_Bags:RefreshInventory()
         if offlineUp then
             show = false  -- the offline panel covers these
         elseif isRecentView then
-            show = data.info and data.info.itemID and EUI_Bags._recentItems and EUI_Bags._recentItems[data.info.itemID]
+            show = EUI_Bags._recentItems and EUI_Bags.IsRecentEntry(data)
         elseif isPinnedView then
             show = data.info and data.info.itemID and pinnedSet and IsItemPinned(pinnedSet, data.itemLink, data.info.itemID)
+        elseif reagentView then
+            show = data.bag == 5 and data.categoryIndex
         elseif filterSet then
             show = data.categoryIndex and filterSet[data.categoryIndex]
         end
-        if data._pinnedOnly and (isRecentView or filterSet) then show = false end
+        if data._pinnedOnly and (isRecentView or reagentView or filterSet) then show = false end
         if show and data.info and data.info.isFiltered then show = false end
         if show then displayItems[#displayItems + 1] = data end
     end
@@ -838,11 +888,14 @@ function EUI_Bags:RefreshInventory()
         -- As in All Items, such an item stays in its group too. Only a pinned item that is
         -- hidden in its category (_pinnedOnly, Hide Items in Their Categories) leaves it: _vgOnly.
         -- Junk (what Sell Junk sells, while the Junk Marker is on) is not offered to the
-        -- provider: _vgJunk files it in a Junk section of ours, drawn last. An item whose
-        -- link has not loaded is not offered either and stays unstamped (_vg nil): it is
-        -- not drawn, as in All Items.
+        -- provider: _vgJunk files it in a Junk section of ours, drawn last, or in Other
+        -- while the Junk category is turned off (elsewhere it goes to the catch-all
+        -- then). An item whose link has not loaded is not offered either and stays
+        -- unstamped (_vg nil): it is not drawn, as in All Items.
         local keepPin = view.keepPinned and showPinned and pinnedSet or nil
-        local keepRec = view.keepRecent and showRecent and EUI_Bags._recentItems or nil
+        local keepRec = view.keepRecent and showRecent and EUI_Bags._recentItems ~= nil
+        local junkCat = EUI_CategoryManager:GetCategories()[EUI_CategoryManager._junkCatIdx or 0]
+        local junkSection = not (junkCat and EUI_CategoryManager:IsCategoryOff(junkCat, BP().bagDisabledCategories))
         for _, data in ipairs(displayItems) do
             local info = data.info
             local itemID = info and info.itemID
@@ -850,12 +903,12 @@ function EUI_Bags:RefreshInventory()
             if link then
                 local quality = info and info.quality
                 local junk = EUI_CategoryManager:IsJunk(itemID, quality) or nil
-                data._vgJunk = junk
+                data._vgJunk = junkSection and junk or nil
                 data._vg = junk and 0
                     or EUI_CategoryManager:ClassifyView(view, link, itemID, data.bag, data.slot, quality)
                 data._vgPin = keepPin and itemID and IsItemPinned(keepPin, link, itemID) or nil
                 data._vgOnly = data._vgPin and data._pinnedOnly or nil
-                data._vgRec = keepRec and itemID and not data._pinnedOnly and keepRec[itemID] and true or nil
+                data._vgRec = keepRec and not data._pinnedOnly and EUI_Bags.IsRecentEntry(data) or nil
             else
                 data._vg, data._vgJunk, data._vgPin, data._vgOnly, data._vgRec = nil, nil, nil, nil, nil
             end
@@ -903,7 +956,7 @@ function EUI_Bags:RefreshInventory()
 
     -- Auto-size: pick a column count keeping the window near its base shape (columns grow
     -- ~sqrt of slot count) while fitting the active tab. Grows only, never shrinks while open
-    -- (running max in _asCols, reset on close); HEIGHT follows rendered content up to the screen cap. Decided BEFORE GetColumns() so the grid renders at this count.
+    -- (running max in _asCols, reset on close) unless Auto-Size's Shrink is on; HEIGHT follows rendered content up to the screen cap. Decided BEFORE GetColumns() so the grid renders at this count.
     if EUI_Bags.AutoSizeOn() then
         local baseCols = BP().bagColumns or 12
         -- tuned at the default 38 px pitch, scaled to the current one
@@ -935,7 +988,7 @@ function EUI_Bags:RefreshInventory()
                 local sizeCats = BP().bagSplitSetGearBySet and EUI_CategoryManager:GetCategories() or nil
                 local hasSetChild = false
                 for i, c in pairs(categoryCounts) do
-                    if c and c > 0 then
+                    if i ~= reagentCatIdx and c and c > 0 then
                         if sizeCats and sizeCats[i] and sizeCats[i].isEquipSet then hasSetChild = true
                         else S = S + 1 end
                     end
@@ -985,7 +1038,7 @@ function EUI_Bags:RefreshInventory()
         local maxCols = math.max(baseCols, math.floor(maxGridW / (SLOT_SIZE + SPACING)))
         if ideal < baseCols then ideal = baseCols end
         if ideal > maxCols then ideal = maxCols end
-        EUI_Bags._asCols = math.max(EUI_Bags._asCols or baseCols, ideal)
+        EUI_Bags._asCols = EUI_Bags.AutoSizeNext(ideal, EUI_Bags._asCols)
     end
 
     local columns = GetColumns()
@@ -1012,8 +1065,10 @@ function EUI_Bags:RefreshInventory()
     end
 
     -- Both views below paint with the current panel state, merging or not
-    -- (slot views and an unmerged list never reach MergeDuplicates)
+    -- (slot views and an unmerged list never reach MergeDuplicates). The unmerge
+    -- state is set again by whichever merge helper runs in this paint.
     SetPaintedPanelOpen(_anyItemPanelOpen)
+    EUI_Bags._paintedUnmerged = nil
 
     -- no live items laid out under the offline panel (select modes would hit them)
     local liveItems, liveEmpty = tempItems, emptySlots
@@ -1038,6 +1093,7 @@ function EUI_Bags:RefreshInventory()
                 and EUI_Bags._recentItems or nil,
             -- The Recent Items tab: its items in one newest-first section
             recentOnly = isRecentView or nil,
+            reagentView = reagentView,
             -- Empty rows only when nothing is search-filtered out
             emptySlots = (#displayItems == #liveItems) and liveEmpty or nil,
             -- Same rule as the grid's Pinned Items section

@@ -115,13 +115,21 @@ function EAB_VTABLE.Hover.CustomFadeFrame(barKey)
     return BarAlphaFrame(barKey, info), info
 end
 
+-- Whether the open spellbook or macro panel holds this mouseover bar up (Show
+-- When Spellbook Is Open): every fade-out of the bar waits for the panel to
+-- close, which empties the set before it fades the bars out.
+function EAB_VTABLE.Hover.SpellbookHolds(barKey)
+    local held = _gridState._sbMoForced
+    return held ~= nil and held[barKey] == true
+end
+
 function EAB_VTABLE.Hover.RefreshCustomFadeBar(barKey, animate, force)
     local s = EAB_VTABLE.Hover.GetSettings(barKey)
     if not EAB_VTABLE.Hover.AdvancedFadeEnabled(s) then return false end
 
     -- Temporary surfacing modes remain authoritative over alpha rules.
     local spellbookForced = (_gridState._sbNeverForced and _gridState._sbNeverForced[barKey])
-        or (_gridState._sbMoForced and _gridState._sbMoForced[barKey])
+        or EAB_VTABLE.Hover.SpellbookHolds(barKey)
     local myslotForced = EAB.db and EAB.db.profile and EAB.db.profile._myslotVisBackup
     if _gridState.shown or _dragState.visible or _quickKeybindState.open
         or spellbookForced or myslotForced then
@@ -343,6 +351,8 @@ end
 
 function EAB_VTABLE.Hover.FadeOut(barKey, state)
     if _gridState.shown then return end  -- keep bars visible during spell drag
+    -- Spellbook/macro panel surfacing holds the bar up until the panel closes.
+    if EAB_VTABLE.Hover.SpellbookHolds(barKey) then return end
     local s = EAB_VTABLE.Hover.GetSettings(barKey)
     if s and s.mouseoverEnabled and state and state.fadeDir ~= "out" then
         -- Fade back to the bar's RESTING alpha, not a hardcoded 0: under Any a passing
@@ -447,16 +457,20 @@ local function AttachDataBarHoverHooks(barKey)
 end
 
 local function AttachHoverHooks(barKey)
-    -- Idempotency (same guard as both sibling attach functions): HookScript
-    -- stacks and can never be unhooked, so a second pass would permanently
-    -- double every hover handler on the bar and its 12 buttons.
-    if hoverStates[barKey] then return end
+    -- Idempotency: HookScript stacks and can never be unhooked, so a second
+    -- pass would permanently double every hover handler on the bar and its
+    -- 12 buttons. A flag, not the state's existence: a bar skipped at load
+    -- waits for its buttons (ns._eabBuildSkippedBars attaches then), and
+    -- other hover code may create its state first.
+    local state = hoverStates[barKey]
+    if state and state.hooksAttached then return end
 
     local frame = barFrames[barKey]
     local buttons = barButtons[barKey]
-    if not frame or not buttons then return end
+    if not frame or not buttons or ns._eabBarNoButtons[barKey] then return end
 
-    local state = EAB_VTABLE.Hover.GetState(barKey, frame)
+    state = EAB_VTABLE.Hover.GetState(barKey, frame)
+    state.hooksAttached = true
 
     local function CanEnter(self)
         -- Skip hidden empty buttons (alwaysShowButtons off)
@@ -544,7 +558,8 @@ function EAB:RefreshMouseover(onlyHoverGated)
                     -- used to be safe by accident (the function only ran on settings
                     -- changes); it now also runs on combat/group/mount edges, where
                     -- repainting would yank a hovered bar invisible mid-hover.
-                    if not (state and state.isHovered) then
+                    -- Nor is a bar the open spellbook or macro panel holds up repainted.
+                    if not (state and state.isHovered) and not EAB_VTABLE.Hover.SpellbookHolds(key) then
                         local resting = EAB_VTABLE.Hover.RestingAlpha(key, s)
                         StopFade(frame, resting)
                         if state then state.fadeDir = (resting == 0) and "out" or nil end

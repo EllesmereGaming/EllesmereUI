@@ -15,6 +15,7 @@ local DEFAULTS = {
     enabled  = false,
     iconSize = 40,
     zoom     = 8,   -- percent of the icon cropped from each edge
+    opacity  = 100,
     -- Border keys as the other bordered surfaces store them: borderSize is
     -- the legacy step, borderSizePx the exact size beside it (EllesmereUI.BorderPx).
     borderSize = 1, borderTexture = "solid",
@@ -191,6 +192,7 @@ end
 
 local function Style()
     frame:SetSize(SnappedSize(), SnappedSize())
+    frame:SetAlpha(Get("opacity") / 100)
     local z = Get("zoom") / 100
     tex:SetTexCoord(z, 1 - z, z, 1 - z)
     local step, texture = Get("borderSize"), Get("borderTexture")

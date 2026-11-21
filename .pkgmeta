@@ -61,6 +61,5 @@ ignore:
   - README.md
   - CHANGELOG.md
   - AGENTS.md
-  - EllesmereUILoadoutManager
   - EllesmereUISimpleLootCouncil
   - EllesmereUISimpleLootCouncil/LocaleKeys.txt

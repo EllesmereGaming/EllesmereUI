@@ -89,8 +89,11 @@ local function CreateBarFrame(info)
             self:SetAttribute("actionpage", page)
             self:ChildUpdate("eab-page", page)
             self:GetFrameRef("blizzmainbar"):SetAttribute("actionpage", page)
-        ]])
+        ]] .. ns._eabDynBindSnippet)
+        -- Driver registered by UpdateKeybinds only while the keys need it.
+        frame:SetAttributeNoHandler("_onstate-eabnative", ns._eabDynBindSnippet)
 
+        frame:SetAttribute("eabpageconds", pagingConditions)
         RegisterStateDriver(frame, "page", pagingConditions)
         frame._eabPagingConds = pagingConditions
     end
@@ -174,6 +177,8 @@ local function CreateBarFrame(info)
             -- passes cannot rely on (it fires before the state driver runs)
             if ns._eabRangePageEdge then ns._eabRangePageEdge(f._barKey) end
             if ns._eabQueueGlowRescan then ns._eabQueueGlowRescan() end
+            -- WoW Forever: the Swing Timer swipe finds its buttons again.
+            if ns.AB_SwingSweepPageEdge then ns.AB_SwingSweepPageEdge() end
         end
     end)
 
@@ -216,6 +221,7 @@ function ns.RebuildBarPaging(barKey, onlyIfChanged)
         end
         if onlyIfChanged and pagingConditions == frame._eabPagingConds then return end
         frame._eabPagingConds = pagingConditions
+        frame:SetAttribute("eabpageconds", pagingConditions)
         -- Force re-evaluation by unregistering first
         UnregisterStateDriver(frame, "page")
         RegisterStateDriver(frame, "page", pagingConditions)
