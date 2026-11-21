@@ -89,6 +89,8 @@ addon.defaults = {
 
     autoStart = false,
 
+    autoEnd = true,
+
 
     vote = {
         selfVote = true,

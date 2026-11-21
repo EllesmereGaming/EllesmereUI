@@ -59,7 +59,18 @@ local function Place()
     button:SetPoint("CENTER", Minimap, "CENTER", x, y)
 end
 
+local function EndDrag()
+    button.dragging = nil
+    button:SetScript("OnUpdate", nil)
+end
+
 local function DragUpdate()
+
+    if not IsMouseButtonDown("LeftButton") then
+        addon.Log:W("UI", "drag ended without OnDragStop", "minimap")
+        EndDrag()
+        return
+    end
     local mx, my = Minimap:GetCenter()
     local scale = Minimap:GetEffectiveScale()
     local cx, cy = GetCursorPosition()
@@ -200,7 +211,10 @@ local function Build()
         icon:SetVertexColor(0.85, 0.85, 0.85)
         HideTip()
     end)
-    button:SetScript("OnHide", HideTip)
+    button:SetScript("OnHide", function()
+        HideTip()
+        EndDrag()
+    end)
     button:SetScript("OnClick", OnClick)
     button:SetScript("OnDragStart", function(self)
         if Docked() then return end
@@ -208,10 +222,7 @@ local function Build()
         HideTip()
         self:SetScript("OnUpdate", DragUpdate)
     end)
-    button:SetScript("OnDragStop", function(self)
-        self.dragging = nil
-        self:SetScript("OnUpdate", nil)
-    end)
+    button:SetScript("OnDragStop", EndDrag)
     Place()
 end
 

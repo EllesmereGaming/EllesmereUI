@@ -53,7 +53,7 @@ local function Build()
     P.Point(hint, "TOPLEFT", 0, -y)
     P.Point(hint, "TOPRIGHT", 0, -y)
     P.Size(hint, nil, ROW_HEIGHT)
-    hint:SetText(T["Yes adds these to your queue and starts the run. No leaves your queue as it is."])
+    hint:SetText(T["Yes adds these to your queue and starts the session. No leaves your queue as it is."])
     y = y + ROW_HEIGHT + S.size.SECTION
     local no = S.Button(content, T["No"])
     P.Point(no, "TOPRIGHT", 0, -y)

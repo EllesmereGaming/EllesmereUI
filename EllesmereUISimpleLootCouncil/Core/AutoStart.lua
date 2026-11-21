@@ -98,11 +98,11 @@ local function Settle(kill, listID, drop)
     local name = not drop.allPassed and WinnerName(winner)
     if name then
         addon.Chat.Warn(addon.Locale.Format(
-            T["%s went to %s in the loot roll, so the council cannot award it. Right-click it in the council list to remove it from the run."],
+            T["%s went to %s in the loot roll, so the council cannot award it. Right-click it in the council list to remove it from the session."],
             drop.itemHyperlink, name))
     else
         addon.Chat.Warn(addon.Locale.Format(
-            T["%s did not come to you in the loot roll, so the council cannot award it. Right-click it in the council list to remove it from the run."],
+            T["%s did not come to you in the loot roll, so the council cannot award it. Right-click it in the council list to remove it from the session."],
             drop.itemHyperlink))
     end
 end
@@ -160,7 +160,7 @@ Flush = function()
     if not Session:IsRunning() and addon.Council:GetCount() == 0 then
         if not toldCouncil then
             toldCouncil = true
-            addon.Chat.Print(addon.Locale.Format(T["could not start the run: %s"],
+            addon.Chat.Print(addon.Locale.Format(T["could not start the session: %s"],
                 T["the council is not ready"]))
         end
         return

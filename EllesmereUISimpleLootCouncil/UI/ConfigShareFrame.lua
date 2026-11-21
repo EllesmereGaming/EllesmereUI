@@ -37,7 +37,7 @@ end
 
 local function SendReason(audience)
     if not addon.ConfigShare:MaySend() then
-        return S.RequiresSentence(T["Requires you to be the group leader or the Loot Master."])
+        return S.RequiresSentence(T["Requires you to be the Loot Master, group leader, a raid assistant or on the loot council."])
     end
     if not councilBox:GetChecked() and not responsesBox:GetChecked() then
         return S.RequiresSentence(T["Requires loot council or response buttons to be ticked."])
@@ -377,8 +377,9 @@ function Panel:RefreshOffer()
 
     local blocked = addon.ConfigShare:AcceptBlocker(offer)
     offerAccept:SetEnabled(blocked == nil)
-    offerAccept:SetDisabledReason(blocked
-        and S.RequiresSentence(T["Requires no loot run in progress."]) or nil)
+    offerAccept:SetDisabledReason(blocked and S.RequiresSentence(blocked == "settled"
+        and T["Requires the loot session to be ended. Every item in it is awarded, so the Loot Master can end it."]
+        or T["Requires no loot session in progress."]) or nil)
 
     local fresh = shownOffer ~= offer
     shownOffer = offer
