@@ -529,6 +529,40 @@ function addon.PromoteLootMaster(record)
     HandGameMasterLoot(addon.Player:UnitFor(record.guid), record.fullName)
 end
 
+
+
+function addon.PromoteLootMasterByName(who)
+    who = type(who) == "string" and who:match("^%s*(.-)%s*$") or ""
+    if who == "" then
+        Print(addon.IsForever and T["usage: /slc lootmaster <Name>  ||  /slc lootmaster clear"]
+            or T["usage: /slc lootmaster <Name-Realm>  ||  /slc lootmaster clear"])
+        return false
+    end
+
+    if not addon.CanAssignMasterLooter() then
+        Print(T["only the group leader can set the Loot Master"])
+        return false
+    end
+
+    local record = addon.Player:Get(who)
+    if not record.guid then
+        Print(addon.Locale.Format(addon.IsForever
+            and T["could not resolve %s - they must be in your group"]
+            or T["could not resolve %s - use Name-Realm, and they must be in your group"],
+            who))
+        return false
+    end
+
+
+    if not addon.GetCandidates()[record.fullName] then
+        Print(addon.Locale.Format(T["%s is not in your group"], record.fullName))
+        return false
+    end
+
+    addon.PromoteLootMaster(record)
+    return true
+end
+
 SLASH_SIMPLELOOTCOUNCIL1 = "/slc"
 SLASH_SIMPLELOOTCOUNCIL2 = "/glc"
 
@@ -609,14 +643,14 @@ local function HelpSections(dev)
             { T["Testing"],
                 { T["test [<count> / <link> [from [heroic] <boss>], ...]"], addon.IsForever
                     and addon.Locale.Format(
-                        T["simulated run; a count of 1-%d draws at random from %d rare dungeon boss drops, no argument gives 3; a link is attributed to the boss 'from' names"],
+                        T["simulated session; a count of 1-%d draws at random from %d rare dungeon boss drops, no argument gives 3; a link is attributed to the boss 'from' names"],
                         addon.TestLoot.MAX, addon.TestLoot:Count())
                     or addon.Locale.Format(
-                        T["simulated run; a count of 1-%d draws at random from %d classic raid items, no argument gives 3; a link is attributed to its boss and difficulty from the Adventure Guide and its upgrade track, 'from' overrides (any case, partial name)"],
+                        T["simulated session; a count of 1-%d draws at random from %d classic raid items, no argument gives 3; a link is attributed to its boss and difficulty from the Adventure Guide and its upgrade track, 'from' overrides (any case, partial name)"],
                         addon.TestLoot.MAX, addon.TestLoot:Count()) },
                 { T["activetest / at [on / off]"], T["allow a session solo or in a party (nothing automatic)"] },
                 { T["ftest [<count>]"], addon.Locale.Format(
-                    T["simulated run of 1-%d items from %d rare dungeon boss drops that WoW: Forever serves; no argument gives 3"],
+                    T["simulated session of 1-%d items from %d rare dungeon boss drops that WoW: Forever serves; no argument gives 3"],
                     addon.TestLoot.MAX, addon.TestLoot:DungeonCount()), devTools = true },
                 { T["fakecoins [<count>] [Name-Realm] [#item] / clear"], T["fake coin history at each queued item's boss, and a live coin on #item"], retailOnly = true, devTools = true },
                 { T["stress [<raiders> [<items> [<seconds>]] / stop]"], T["replay a raid's answers"], devTools = true },
@@ -624,7 +658,7 @@ local function HelpSections(dev)
                 { T["prompt <lootmaster / raider / guard>"], T["show a group question, answers do nothing"], devTools = true },
             },
             { T["State"],
-                { "show", T["current run state"], devTools = true },
+                { "show", T["current session state"], devTools = true },
                 { "status", T["restrictions, queue depth, leader"] },
                 { "boss", T["current boss and encounter log"], devTools = true },
                 { "coins", T["recent bonus-roll results"], retailOnly = true, devTools = true },
@@ -659,17 +693,17 @@ local function HelpSections(dev)
         { T["Running loot"],
             { T["additem <link>"], T["queue an item"] },
             { T["queue / q"], T["staging window"] },
-            { "start", T["start a run on the queued items"] },
+            { "start", T["start a session on the queued items"] },
             { T["vote / v"], T["reopen the council window"] },
             { T["response / r"], T["reopen your response window"] },
-            { T["session / sess"], T["your view of the run"] },
+            { T["session / sess"], T["your view of the session"] },
             { T["roll [ask / random / clear]"], T["rolls on unawarded items"] },
             { T["whisper / w [text]"], T["the whisper fallback"] },
             { "raidguide", T["send the response guide to the raid"] },
-            { "end", T["end the run"] },
+            { "end", T["end the session"] },
             { "clear", T["discard the staged items"] },
-            { "simc", T["SimC lines for the run's items, to copy"], retailOnly = true },
-            { T["test [<count>]"], T["simulated run; /slc help dev for more"] },
+            { "simc", T["SimC lines for the session's items, to copy"], retailOnly = true },
+            { T["test [<count>]"], T["simulated session; /slc help dev for more"] },
         },
         { T["Trades and history"],
             { T["bags [add <n> / add all]"], T["your tradeable items"] },
@@ -1028,12 +1062,11 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             return
         end
 
-        if not addon.CanAssignMasterLooter() then
-            Print(T["only the group leader can set the Loot Master"])
-            return
-        end
-
         if who:lower() == "clear" then
+            if not addon.CanAssignMasterLooter() then
+                Print(T["only the group leader can set the Loot Master"])
+                return
+            end
             addon.db.lootMaster = nil
             addon.db.lootMasterKept = nil
             addon.InvalidateMasterLooter()
@@ -1047,22 +1080,7 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             return
         end
 
-        local record = addon.Player:Get(who)
-        if not record.guid then
-            Print(addon.Locale.Format(addon.IsForever
-                and T["could not resolve %s - they must be in your group"]
-                or T["could not resolve %s - use Name-Realm, and they must be in your group"],
-                who))
-            return
-        end
-
-
-        if not addon.GetCandidates()[record.fullName] then
-            Print(addon.Locale.Format(T["%s is not in your group"], record.fullName))
-            return
-        end
-
-        addon.PromoteLootMaster(record)
+        addon.PromoteLootMasterByName(who)
 
     elseif cmd == "additem" then
 
@@ -1081,7 +1099,7 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
 
         if addon.Session:IsRunning() and not addon.PlayerIsMasterLooter() then
             Print(addon.Locale.Format(
-                T["could not queue %s - a run is in progress, and only the Loot Master can add to it."],
+                T["could not queue %s - a session is in progress, and only the Loot Master can add to it."],
                 link))
             return
         end
@@ -1097,10 +1115,10 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
         local index = addon.Session:AddItem(link, addon.Player:GetFullName("player"),
             boss, encounterID)
         Print(index and (boss
-            and addon.Locale.Format(T["added as session %d: %s (boss: %s)"],
+            and addon.Locale.Format(T["added as item %d: %s (boss: %s)"],
                 index, link, boss)
             or addon.Locale.Format(
-                T["added as session %d: %s (no encounter in progress - asking the Adventure Guide)"],
+                T["added as item %d: %s (no encounter in progress - asking the Adventure Guide)"],
                 index, link)) or T["could not add"])
 
         if index then addon.Callbacks:Fire("SessionChanged", index, "item") end
@@ -1110,7 +1128,7 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
         if started then
             local count = #addon.Session:GetItems()
             Print(addon.Locale.Format(addon.Locale.Plural{
-                one = "run started with %d item", other = "run started with %d items",
+                one = "session started with %d item", other = "session started with %d items",
             }, count, count))
         elseif why == "empty" then
             Print(T["nothing to start - the staging queue is empty."])
@@ -1208,13 +1226,13 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             local ok, countOrWhy = addon.Session:StartTest(links, count,
                 anySource and sources or nil, true)
             if not ok then
-                Print(addon.Locale.Format(T["could not start simulated run - %s"],
+                Print(addon.Locale.Format(T["could not start simulated session - %s"],
                     tostring(countOrWhy)))
                 return
             end
             Print(addon.Locale.Format(addon.Locale.Plural{
-                one = "simulated run started with %d item; awards will not be saved or traded",
-                other = "simulated run started with %d items; awards will not be saved or traded",
+                one = "simulated session started with %d item; awards will not be saved or traded",
+                other = "simulated session started with %d items; awards will not be saved or traded",
             }, countOrWhy, countOrWhy))
             for i = 1, #links do
                 local source = sources[i]
@@ -1249,7 +1267,7 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
 
 
         if addon.Session:IsRunning() then
-            Print(T["could not start simulated run - a run is already active"])
+            Print(T["could not start simulated session - a session is already active"])
             return
         end
 
@@ -1282,12 +1300,12 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
 
     elseif cmd == "vote" or cmd == "v" then
         if not addon.Session:IsRunning() then
-            Print(T["no run is active."])
+            Print(T["no session is active."])
             return
         end
         local me = addon.Player:GetFullName("player")
         if not addon.PlayerIsMasterLooter() and not addon.Council:Contains(me) then
-            Print(T["you are not on the council for this run - /slc response reopens your loot response window."])
+            Print(T["you are not on the council for this session - /slc response reopens your loot response window."])
             return
         end
         addon.UI.MLFrame:Open()
@@ -1296,12 +1314,12 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
 
     elseif cmd == "response" or cmd == "r" then
         if not addon.Session:IsRunning() then
-            Print(T["no run is active."])
+            Print(T["no session is active."])
             return
         end
         local shown = addon.UI.VoterFrame:Toggle()
         if shown ~= "closed" and not shown then
-            Print(T["nothing in this run is waiting for your answer."])
+            Print(T["nothing in this session is waiting for your answer."])
         end
 
 
@@ -1347,7 +1365,7 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
 
 
         if not addon.Session:IsRunning() then
-            Print(T["no run is active."])
+            Print(T["no session is active."])
             return
         end
 
@@ -1412,22 +1430,22 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
 
     elseif cmd == "end" then
         if not addon.Session:IsRunning() then
-            Print(T["no run is active."])
+            Print(T["no session is active."])
             return
         end
         if addon.Session:End() then
 
-            Print(T["run ended - undo an award from Loot to Trade if you need to."])
+            Print(T["session ended - undo an award from Loot to Trade if you need to."])
         else
-            Print(T["only the Loot Master can end the run."])
+            Print(T["only the Loot Master can end the session."])
         end
 
 
     elseif cmd == "clear" then
         if addon.Session:IsRunning() then
             Print(addon.PlayerIsMasterLooter()
-                and T["a run is active - /slc end ends it for everyone first."]
-                or T["a run is active - only the Loot Master can end it."])
+                and T["a session is active - /slc end ends it for everyone first."]
+                or T["a session is active - only the Loot Master can end it."])
             return
         end
         addon.Session:Clear()
@@ -1441,7 +1459,7 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             Print(type(reason) == "string" and reason or T["nothing to export for SimC."])
             return
         end
-        ShowDump(T["SimC - this run's items"], text)
+        ShowDump(T["SimC - this session's items"], text)
 
 
 
@@ -1511,7 +1529,7 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             if #picks == 0 then
                 Print(skipped > 0
                     and T["nothing eligible in bags - every eligible copy is already owed to a winner in Loot to Trade."]
-                    or staged > 0 and T["nothing to add - every eligible item in your bags is already queued or in the run."]
+                    or staged > 0 and T["nothing to add - every eligible item in your bags is already queued or in the session."]
                     or T["nothing eligible in bags"])
                 SayUntimed()
                 return
@@ -1559,8 +1577,8 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             end
             if staged > 0 then
                 Print(addon.Locale.Format(addon.Locale.Plural{
-                    one = "skipped %d item already queued or in the run",
-                    other = "skipped %d items already queued or in the run",
+                    one = "skipped %d item already queued or in the session",
+                    other = "skipped %d items already queued or in the session",
                 }, staged, staged))
             end
             SayUntimed()
@@ -1799,14 +1817,14 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
                 now - (entry.epoch or now)))
         end
 
-        Print("pre-run buffer (last " .. addon.BonusRoll.RECENT_WINDOW / 60
+        Print("pre-session buffer (last " .. addon.BonusRoll.RECENT_WINDOW / 60
             .. " minutes):")
         for _, entry in ipairs(addon.BonusRoll:GetRecent()) do PrintCoin(entry) end
 
         if addon.Session:IsRunning() then
             local coins = addon.Session:GetCoins()
             if #coins > 0 then
-                Print("this run:")
+                Print("this session:")
                 for _, entry in ipairs(coins) do PrintCoin(entry) end
             end
         end
@@ -1869,13 +1887,13 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
         local links, sources = addon.TestLoot:PickDungeon(count)
         local ok, countOrWhy = addon.Session:StartTest(links, nil, sources)
         if not ok then
-            Print(addon.Locale.Format(T["could not start simulated run - %s"],
+            Print(addon.Locale.Format(T["could not start simulated session - %s"],
                 tostring(countOrWhy)))
             return
         end
         Print(addon.Locale.Format(addon.Locale.Plural{
-            one = "simulated run started with %d item; awards will not be saved or traded",
-            other = "simulated run started with %d items; awards will not be saved or traded",
+            one = "simulated session started with %d item; awards will not be saved or traded",
+            other = "simulated session started with %d items; awards will not be saved or traded",
         }, countOrWhy, countOrWhy))
 
 
@@ -1894,13 +1912,13 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             return
         end
         if #addon.Session:GetItems() == 0 then
-            Print(T["no items in the run - /slc test first, then /slc fakecoins [count] [Name-Realm] [#item]"])
+            Print(T["no items in the session - /slc test first, then /slc fakecoins [count] [Name-Realm] [#item]"])
             return
         end
         local session = parsed.session
         local item = session and addon.Session:GetItem(session)
         if session and not item then
-            Print(addon.Locale.Format(T["no item at session %d - /slc fakecoins [count] [Name-Realm] [#item]"], session))
+            Print(addon.Locale.Format(T["no item number %d - /slc fakecoins [count] [Name-Realm] [#item]"], session))
             return
         end
 
@@ -1941,7 +1959,7 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
                 Print(addon.Locale.Format(T["could not match %s to a candidate on item %d; use the Name-Realm shown in the council table."],
                     tostring(name), session))
             else
-                Print(T["only the Loot Master can simulate a coin in an active run."])
+                Print(T["only the Loot Master can simulate a coin in an active session."])
             end
             return
         end
@@ -2017,9 +2035,9 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
         if result == "norun" then
 
             if addon.Session:IsRunning() then
-                Print(T["you are not in this run - there is nothing to show you."])
+                Print(T["you are not in this session - there is nothing to show you."])
             else
-                Print(T["no run is active."])
+                Print(T["no session is active."])
             end
         end
 
