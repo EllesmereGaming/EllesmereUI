@@ -1064,21 +1064,23 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  WoW Forever custom spells: the lead slot (the Add Custom Spell entry),
-    --  the New Spell Group slot, then one slot per tracked spell (its icon,
+    --  WoW Forever consumables and custom spells: the Scrolls and Elixirs,
+    --  Add Custom Spell and New Spell Group slots, then one per tracked spell (its icon,
     --  name and ID, and a checkbox dropdown of the classes it reminds, each
     --  ticked until unticked, forever.customClasses[id][CLASS] = false, with
     --  Remove at its top), filled left to right, a blank label in an odd last
     --  slot. The page rebuilds on add and remove, so the slots never need
     --  in-place updates.
     ---------------------------------------------------------------------------
-    local function BuildForeverCustomRows(parent, y, lead)
+    local function BuildForeverCustomRows(parent, y, class, lead)
         local f = FDB()
         local ids = f and f.customIDs
         local newGroupSlot = { type="labeledButton", text="New Spell Group", buttonText="Create", width=90,
             tooltip="Creates a group of spells. A reminder shows if none of the auras from the group are active.",
             onClick=function() PromptSpellGroupName() end }
-        local n = 2 + (ids and #ids or 0)
+        local consumableSlot = { type="label", text=EllesmereUI.L("Scrolls and Elixirs"),
+            tooltip=EllesmereUI.L("Reminds you if you have any usable scrolls or elixirs for the selected stats in the dropdown. By default, one reminder shows the next usable item in dropdown order. Open the options to show each stat separately.\n\nScroll and elixir buffs for the same stat are mutually exclusive and do not stack.\n\nWith Action Picker on, right-click to choose another.") }
+        local n = 3 + (ids and #ids or 0)
         local W = EllesmereUI.Widgets
         local PPx = EllesmereUI.PanelPP
         local function Slot(id)
@@ -1087,9 +1089,10 @@ initFrame:SetScript("OnEvent", function(self)
                 tooltip="Reminds you whenever this buff is missing, on the classes ticked here." }
         end
         local function SlotAt(k)
-            if k == 1 then return lead end
-            if k == 2 then return newGroupSlot end
-            local id = ids and ids[k - 2]
+            if k == 1 then return consumableSlot end
+            if k == 2 then return lead end
+            if k == 3 then return newGroupSlot end
+            local id = ids and ids[k - 3]
             return id and Slot(id) or EllesmereUI.BlankRowCfg()
         end
         local function Remove(id)
@@ -1155,9 +1158,106 @@ initFrame:SetScript("OnEvent", function(self)
         end
         for k = 1, n, 2 do
             local row, h = W:DualRow(parent, y, SlotAt(k), SlotAt(k + 1))
-            if ids and not EllesmereUI._prebuilding then
-                DressSlot(row._leftRegion, ids[k - 2])
-                DressSlot(row._rightRegion, ids[k - 1])
+            if not EllesmereUI._prebuilding then
+                if k == 1 then
+                    local rgn = row._leftRegion
+                    local profile = FDB()
+                    local function IntellectLocked() return ns.FvStatConsumableLocked("ai", class) end
+                    local function StaminaLocked() return ns.FvStatConsumableLocked("fort", class) end
+                    local function SpiritLocked() return ns.FvStatConsumableLocked("spirit", class) end
+                    local locks = { intellect = IntellectLocked, stamina = StaminaLocked, spirit = SpiritLocked }
+                    local items = {
+                        { key = "intellect", label = EllesmereUI.L("Intellect"),
+                          lockedFn = IntellectLocked,
+                          lockedTooltip = EllesmereUI.L("Disabled because you already know Arcane Intellect."),
+                          tooltip = EllesmereUI.L("Scrolls of Intellect I-IV") .. "\n" .. EllesmereUI.L("Intellect Elixirs") .. "\n\n"
+                              .. EllesmereUI.L("Does not stack with Arcane Intellect, Arcane Brilliance and Incense Candle.") },
+                        { key = "strength", label = EllesmereUI.L("Strength"),
+                          tooltip = EllesmereUI.L("Scrolls of Strength I-IV") .. "\n" .. EllesmereUI.L("Strength Elixirs") .. "\n\n"
+                              .. EllesmereUI.L("Can stack with Sharpening Wheel and Strength of Earth Totem.") },
+                        { key = "agility", label = EllesmereUI.L("Agility"),
+                          tooltip = EllesmereUI.L("Scrolls of Agility I-IV") .. "\n" .. EllesmereUI.L("Agility Elixirs") .. "\n\n"
+                              .. EllesmereUI.L("Can stack with Grace of Air Totem.") },
+                        { key = "stamina", label = EllesmereUI.L("Stamina"),
+                          lockedFn = StaminaLocked,
+                          lockedTooltip = EllesmereUI.L("Disabled because you already know Power Word: Fortitude."),
+                          tooltip = EllesmereUI.L("Scrolls of Stamina I-IV") .. "\n" .. EllesmereUI.L("Elixirs of Fortitude") .. "\n\n"
+                              .. EllesmereUI.L("Stamina scrolls does not stack with Power Word: Fortitude, Prayer of Fortitude and First Aid Kit. \n Elixirs of fortitude can stack with any stamina buff.") },
+                        { key = "spirit", label = EllesmereUI.L("Spirit"),
+                          lockedFn = SpiritLocked,
+                          lockedTooltip = EllesmereUI.L("Disabled because you already know Divine Spirit."),
+                          tooltip = EllesmereUI.L("Scrolls of Spirit I-IV") .. "\n" .. EllesmereUI.L("Spirit Elixirs") .. "\n\n"
+                              .. EllesmereUI.L("Does not stack with Divine Spirit and Prayer of Spirit.") },
+                        { key = "protection", label = EllesmereUI.L("Protection"),
+                          tooltip = EllesmereUI.L("Scrolls of Protection I-IV") .. "\n" .. EllesmereUI.L("Armor Elixirs") .. "\n\n"
+                              .. EllesmereUI.L("Can stack with Devotion Aura.") },
+                    }
+                    for _, item in ipairs(items) do
+                        if item.lockedTooltip then
+                            item.lockedTooltip = item.lockedTooltip .. "\n\n" .. item.tooltip
+                        end
+                    end
+                    local dd, refresh = EllesmereUI.BuildVisOptsCBDropdown(rgn, 170, rgn:GetFrameLevel() + 2, items,
+                        function(key)
+                            local f = FDB(); if not (f and class) then return false end
+                            if locks[key] and locks[key]() then return false end
+                            local picks = f[key .. "ConsumableByClass"]
+                            local enabled = picks and picks[class]
+                            if enabled == nil and key == "intellect" then enabled = f.intellectConsumable end
+                            return enabled == true
+                        end,
+                        function(key, v)
+                            local f = FDB(); if not (f and f == profile and class) then return end
+                            if locks[key] and locks[key]() then return end
+                            local field = key .. "ConsumableByClass"
+                            local picks = f[field]
+                            local enabled = v == true
+                            local inherited = key == "intellect" and f.intellectConsumable == true
+                            if enabled == inherited then
+                                if picks then picks[class] = nil end
+                            else
+                                if not picks then picks = {}; f[field] = picks end
+                                picks[class] = enabled
+                            end
+                            RefreshAll()
+                        end, nil, nil, nil, nil, nil, { dimLocked = true })
+                    PPx.Point(dd, "RIGHT", rgn, "RIGHT", -20, 0)
+                    dd._ttText = consumableSlot.tooltip
+                    rgn._control = dd
+                    rgn._lastInline = nil
+                    EllesmereUI.RegisterWidgetRefresh(refresh)
+                    ns.RefreshStatConsumableOptions = function()
+                        if dd:IsVisible() then refresh() end
+                    end
+                elseif ids then
+                    DressSlot(row._leftRegion, ids[k - 3])
+                    DressSlot(row._rightRegion, ids[k - 2])
+                end
+            end
+            if k == 1 then
+                EllesmereUI.BuildInlineCog(row._leftRegion, {
+                    title = "Scrolls and Elixirs",
+                    minWidth = 320,
+                    rows = {
+                        { type="toggle", label=EllesmereUI.L("Separate Reminders"),
+                          tooltip=EllesmereUI.L("Show a separate icon for each selected stat with an eligible scroll or elixir."),
+                          get=function() local f = FDB(); return f and f.statConsumableSeparateReminders == true end,
+                          set=function(v) local f = FDB(); if f then f.statConsumableSeparateReminders = v == true; RefreshAll() end end },
+                        { type="toggle", label=EllesmereUI.L("Show Stronger Buffs"),
+                          tooltip=EllesmereUI.L("Suggest a usable scroll or elixir from your bags if it gives more of the stat than your current buff."),
+                          get=function() local f = FDB(); return f and f.statConsumableShowUpgrades == true end,
+                          set=function(v) local f = FDB(); if f then f.statConsumableShowUpgrades = v == true; RefreshAll() end end },
+                        { type="dropdown", label="Rank to Use", ddWidth=200,
+                          values={ high = "Highest Owned", low = "Lowest Owned" }, order={ "high", "low" },
+                          tooltip=EllesmereUI.L("Choose the highest or lowest eligible item for each stat. An eligible Action Picker choice takes priority."),
+                          get=function() local f = FDB(); return f and f.statConsumableLowRank and "low" or "high" end,
+                          set=function(v) local f = FDB(); if f then f.statConsumableLowRank = v == "low"; RefreshAll() end end },
+                        { type="slider", label="Show Below (Minutes)", min=0, max=10, step=1,
+                          tooltip=EllesmereUI.L("Show a countdown before a tracked scroll or elixir buff expires. 0 = show only after it expires."),
+                          get=function() local f = FDB(); return f and f.statConsumableShowBelow or 0 end,
+                          set=function(v) local f = FDB(); if f then f.statConsumableShowBelow = v; RefreshAll() end end },
+                    },
+                })
             end
             y = y - h
         end
@@ -1427,7 +1527,7 @@ initFrame:SetScript("OnEvent", function(self)
             (function()
                 if FOREVER then
                     return { type="toggle", text="Action Picker",
-                      tooltip="Right-click a spell group or Class Buffs reminder to choose the spell its left click casts, or the Well Fed reminder to choose a food. Scroll over a spell to choose its rank.",
+                      tooltip="Right-click a spell group or Class Buffs reminder to choose a spell, or an item reminder such as Well Fed or Scrolls and Elixirs to choose an item. Scroll over a spell to choose its rank.",
                       getValue=function() local f = FDB(); return f and f.pickerEnabled == true end,
                       setValue=function(v)
                           local f = FDB(); if not f then return end; f.pickerEnabled = v
@@ -2149,7 +2249,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             -- Add Custom Spell, paired with the tracked spells
-            y = BuildForeverCustomRows(parent, y,
+            y = BuildForeverCustomRows(parent, y, class,
                 { type="input", text="Add Custom Spell", inputStyle="popup", placeholder="Spell ID", inputWidth=110,
                   tooltip="Type a spell ID and press Enter to be reminded whenever that buff is missing.\nUnknown IDs are ignored.",
                   getValue=function() return "" end,

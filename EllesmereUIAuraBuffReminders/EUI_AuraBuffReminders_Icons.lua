@@ -1279,6 +1279,44 @@ function EABR.ApplyEatingVisual(f, m)
     f:SetScript("OnUpdate", EABR.EatingTick)
 end
 
+function EABR.UpdateIconItemCooldown(btn, itemID)
+    local swipe = btn._itemCooldown
+    if itemID and not InCombat() then
+        local start, duration, enabled = C_Item.GetItemCooldown(itemID)
+        -- Ignore the global cooldown. The buff expiration countdown is separate.
+        if not (I.isSecret(start) or I.isSecret(duration) or I.isSecret(enabled))
+            and (enabled == true or enabled == 1) and start and duration
+            and start > 0 and duration > 1.5 and start + duration > GetTime() then
+            if not swipe then
+                swipe = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
+                swipe:SetAllPoints(btn._icon)
+                swipe:SetHideCountdownNumbers(true)
+                swipe:SetDrawEdge(false)
+                swipe:SetDrawBling(false)
+                btn._itemCooldown = swipe
+            end
+            if swipe._itemStart ~= start or swipe._itemDuration ~= duration then
+                swipe._itemStart, swipe._itemDuration = start, duration
+                swipe:SetCooldown(start, duration)
+                swipe:Show()
+            end
+            return
+        end
+    end
+    if swipe and swipe._itemStart then
+        swipe._itemStart, swipe._itemDuration = nil, nil
+        swipe:Clear()
+        swipe:Hide()
+    end
+end
+
+function EABR.FvUpdateStatItemCooldowns()
+    if InCombat() then return end
+    for _, btn in ipairs(activeIcons) do
+        if btn._cooldownItemID then EABR.UpdateIconItemCooldown(btn, btn._cooldownItemID) end
+    end
+end
+
 function EABR.ApplyIconExpiry(f, m)
     local expireAt = m and m.expireAt
     local swipe = f._expirySwipe
@@ -1326,7 +1364,7 @@ end
 
 local ShowForeverGroupMenu
 local iconPickerStyle
-local ShowForeverFoodMenu
+local ShowForeverItemMenu
 
 local function GetOrCreateIcon(index)
     if iconPool[index] then return iconPool[index] end
@@ -1341,7 +1379,7 @@ local function GetOrCreateIcon(index)
     -- Middle-click dismiss: hide this reminder until the next loading screen.
     -- Right-click on a multi-pet-cycle reminder previews the next pet without
     -- casting. On a clickable spell group it opens the spell picker, on the
-    -- Well Fed reminder the food picker.
+    -- item reminders with choices it opens the item picker.
     btn:HookScript("PostClick", function(self, button, down)
         if button == "MiddleButton" and self._dismissKey then
             _dismissedUntilLoad[self._dismissKey] = true
@@ -1356,8 +1394,8 @@ local function GetOrCreateIcon(index)
             if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
         elseif button == "RightButton" and self._foreverGroup and not InCombat() then
             ShowForeverGroupMenu(self)
-        elseif button == "RightButton" and self._foreverFood and not InCombat() then
-            ShowForeverFoodMenu(self)
+        elseif button == "RightButton" and (self._foreverFood or self._foreverStatItems) and not InCombat() then
+            ShowForeverItemMenu(self)
         end
     end)
 
@@ -1644,24 +1682,65 @@ function EABR.ForeverFoodMacro(itemID)
     return macro
 end
 
-ShowForeverFoodMenu = function(btn)
+ShowForeverItemMenu = function(btn)
     local profile = db.profile
     local fo = profile.forever
-    local foods = btn._foreverFood
-    local function IsCurrent()
-        return not InCombat() and db.profile == profile and profile.forever == fo
-            and fo and fo.pickerEnabled == true and fo.wellFed
-            and foods and EABR.IsForeverFoodCurrent(foods) and btn._foreverFood == foods and btn:IsVisible()
-    end
-    if not IsCurrent() then return end
+    local statItems = btn._foreverStatItems
+    local automaticItem = btn._foreverStatAutomaticItem
+    local statFamily = btn._foreverStatFamily
+    local class = statItems and GetPlayerClass()
+    local items = statItems or btn._foreverFood
+    if not items then return end
     local ids = {}
-    for id in pairs(foods) do ids[#ids + 1] = id end
-    if #ids == 0 then return end
+    -- The collector reuses the stat item table, so keep the counts shown by this menu.
+    local statSnapshot = statItems and {}
+    for id, count in pairs(items) do
+        ids[#ids + 1] = id
+        if statSnapshot then statSnapshot[id] = count end
+    end
+    local function IsCurrent()
+        if InCombat() or db.profile ~= profile or profile.forever ~= fo
+            or not (fo and fo.pickerEnabled == true and btn:IsVisible()) then return false end
+        if statItems then
+            if not class or GetPlayerClass() ~= class or btn._foreverStatItems ~= statItems
+                or btn._foreverStatFamily ~= statFamily or btn._foreverStatAutomaticItem ~= automaticItem
+                or (fo.statConsumableSeparateReminders == true) ~= (statFamily ~= nil) then return false end
+            local n = 0
+            for id, count in pairs(statItems) do
+                if statSnapshot[id] ~= count then return false end
+                n = n + 1
+            end
+            return n == #ids
+        end
+        return fo.wellFed and EABR.IsForeverFoodCurrent(items) and btn._foreverFood == items
+    end
+    if #ids == 0 or not IsCurrent() then return end
     table.sort(ids)
-    local function SelectFood(id)
-        if not IsCurrent() or not foods[id] then return end
+    local function SelectItem(id)
+        if not IsCurrent() or not items[id] then return end
         local count = C_Item.GetItemCount(id)
         if not count or count <= 0 then return end
+        if statItems then
+            local pin = id ~= automaticItem and id or nil
+            if statFamily then
+                local byClass = fo.statConsumablePickerByFamily
+                local picks = byClass and byClass[class]
+                if (picks and picks[statFamily]) == pin then return end
+                if not byClass then byClass = {}; fo.statConsumablePickerByFamily = byClass end
+                if not picks then picks = {}; byClass[class] = picks end
+                picks[statFamily] = pin
+                if not next(picks) then byClass[class] = nil end
+                if not next(byClass) then fo.statConsumablePickerByFamily = nil end
+            else
+                local picks = fo.statConsumablePickerByClass
+                if (picks and picks[class]) == pin then return end
+                if not picks then picks = {}; fo.statConsumablePickerByClass = picks end
+                picks[class] = pin
+                if not next(picks) then fo.statConsumablePickerByClass = nil end
+            end
+            if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+            return
+        end
         fo.wellFedItem = id
         SetIconMacro(btn, EABR.ForeverFoodMacro(id), C_Item.GetItemIconByID(id))
         btn._tooltipItem = id
@@ -1669,7 +1748,7 @@ ShowForeverFoodMenu = function(btn)
     end
     ShowPickerGrid(btn, ids, IsCurrent, function(root)
         for _, id in ipairs(ids) do
-            local button = root:CreateButton("", SelectFood, id)
+            local button = root:CreateButton("", SelectItem, id)
             button:AddInitializer(function(frame, description)
                 local itemID = description:GetData()
                 DrawPickerIcon(frame, C_Item.GetItemIconByID(itemID), btn._tooltipItem == itemID)
@@ -1679,7 +1758,7 @@ ShowForeverFoodMenu = function(btn)
                 count:SetWidth(30)
                 count:SetJustifyH("RIGHT")
                 count:SetPoint("CENTER", frame, "CENTER", 0, -10)
-                count:SetText(foods[itemID])
+                count:SetText((statSnapshot or items)[itemID])
                 return 38, 38
             end)
             button:SetTooltip(function(tooltip, description)
@@ -1712,6 +1791,7 @@ do
         e.mode = nil; e.spellID = nil; e.itemID = nil; e.macro = nil
         e.texture = nil; e.label = nil; e.unit = nil; e.desaturated = false
         e.tooltipItem = nil
+        e.cooldownItemID = nil
         e.cat = nil; e.data = nil; e.dismissKey = nil; e.petCycleTotal = nil
         e.isEating = nil; e.eatingExpirationTime = nil
         e.expireAt = nil; e.expireTotal = nil; e.expireSwipe = nil
@@ -1727,6 +1807,9 @@ do
         e.hunterTrackingStatus = nil
         e.hunterTargetTypeID = nil
         e.hunterMatchMask = nil
+        e.foreverStatItems = nil
+        e.foreverStatAutomaticItem = nil
+        e.foreverStatFamily = nil
         e.fvExtra = nil
         e.stackText = nil
         return e
