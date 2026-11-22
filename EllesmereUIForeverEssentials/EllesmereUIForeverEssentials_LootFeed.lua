@@ -326,7 +326,7 @@ local function StyleRow(r)
     StyleFont(r.name, size)
     StyleFont(r.value, size)
     StyleFont(r.sub, size - 2)
-    StyleFont(r.badge, size - 1)
+    StyleFont(r.badge, Get("countSize") or size - 1)
     r.fade.alpha:SetStartDelay(Get("duration"))
 end
 
@@ -782,7 +782,7 @@ end
 -- The largest coin only, for an Icon Tray badge.
 local function ShortMoney(copper)
     local unit = copper >= 10000 and 10000 or copper >= 100 and 100 or 1
-    return Money(copper - copper % unit)
+    return C_CurrencyInfo.GetCoinTextureString(copper - copper % unit, Get("countSize") or Get("textSize"))
 end
 
 -------------------------------------------------------------------------------

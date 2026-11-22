@@ -266,7 +266,12 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
     _, h = W:DualRow(parent, y,
         Slider("spacing", "Spacing", 0, 30,
             "Space between loot rows or Icon Tray tiles. Loot Toast adds room for its decorative frame."),
-        BLANK()
+        Bind({ type = "slider", text = "Count Size", min = 7, max = 30, step = 1,
+               tooltip = "Size of the stack count and other numbers on Icon Tray tiles.",
+               getValue = function() return LF.Get("countSize") or LF.Get("textSize") - 1 end },
+            "countSize", LF.ApplyStyle,
+            function() return off() or style() ~= "TRAY" end,
+            function() return off() and "Loot Feed" or "Style" end)
     );  y = y - h
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
