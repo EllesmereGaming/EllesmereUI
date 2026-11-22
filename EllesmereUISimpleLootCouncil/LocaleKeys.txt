@@ -134,10 +134,10 @@
 %s awarded to %s (%s)
 %s can no longer be traded to %s - its trade window has ended. Re-award or strike it.
 %s can no longer be traded to %s - its trade window has ended. The Loot Master has been told.
-%s can no longer be traded.\n\nIts holder equipped it. Right-click it in the list to remove it from the run.
-%s can no longer be traded.\n\nIts holder no longer has it in their bags. Right-click it in the list to remove it from the run.
-%s can no longer be traded.\n\nIts trade window has ended. Right-click it in the list to remove it from the run.
-%s did not come to you in the loot roll, so the council cannot award it. Right-click it in the council list to remove it from the run.
+%s can no longer be traded.\n\nIts holder equipped it. Right-click it in the list to remove it from the session.
+%s can no longer be traded.\n\nIts holder no longer has it in their bags. Right-click it in the list to remove it from the session.
+%s can no longer be traded.\n\nIts trade window has ended. Right-click it in the list to remove it from the session.
+%s did not come to you in the loot roll, so the council cannot award it. Right-click it in the council list to remove it from the session.
 %s equipped it, which ends its trade window.
 %s has already been awarded and traded to %s.
 %s has not been looted yet.\n\nIt can be awarded once it reaches the Loot Master's bags.
@@ -147,13 +147,13 @@
 %s is back in your bags and owed to %s again.
 %s is back in your bags and owed to %s again. The Loot Master has been told.
 %s is itself recorded as an alt of %s
-%s is no longer in %s's bags, so it cannot be awarded. Right-click it in the council list to remove it from the run.
+%s is no longer in %s's bags, so it cannot be awarded. Right-click it in the council list to remove it from the session.
 %s is not in your group
 %s is not in your group.
 %s is not on the council.
 %s is now the group's Master Looter.
 %s is still in %s's bags, but its trade window has ended, so it can no longer be traded to %s - it was NOT delivered. Re-award or strike it.
-%s is still in %s's bags, but its trade window has ended, so it cannot be awarded. Right-click it in the council list to remove it from the run.
+%s is still in %s's bags, but its trade window has ended, so it cannot be awarded. Right-click it in the council list to remove it from the session.
 %s left %s's bags without a trade to %s - it was NOT delivered. Re-award or strike it.
 %s left your bags without a trade to %s. Re-award or strike it.
 %s left your bags without a trade to %s. The Loot Master has been told.
@@ -182,13 +182,13 @@
 %s was awarded to %s, but the trade handed it to %s. Re-award it to %s if they may keep it, or strike it.
 %s was awarded to %s, but the trade handed it to %s. The Loot Master has been told.
 %s was equipped by %s, so it can no longer be traded to %s - it was NOT delivered. Re-award or strike it.
-%s was equipped by %s, so it cannot be awarded. Right-click it in the council list to remove it from the run.
+%s was equipped by %s, so it cannot be awarded. Right-click it in the council list to remove it from the session.
 %s was equipped, so it can no longer be traded to %s. Re-award or strike it.
 %s was equipped, so it can no longer be traded to %s. The Loot Master has been told.
-%s was removed from this run.\n\nRight-click it in the list to restore it first.
-%s went to %s in the loot roll, so the council cannot award it. Right-click it in the council list to remove it from the run.
-%s went to another player in the loot roll instead of %s, so it cannot be awarded. Right-click it in the council list to remove it from the run.
-%s went to another player in the loot roll, so it cannot be traded from here.\n\nRight-click it in the list to remove it from the run.
+%s was removed from this session.\n\nRight-click it in the list to restore it first.
+%s went to %s in the loot roll, so the council cannot award it. Right-click it in the council list to remove it from the session.
+%s went to another player in the loot roll instead of %s, so it cannot be awarded. Right-click it in the council list to remove it from the session.
+%s went to another player in the loot roll, so it cannot be traded from here.\n\nRight-click it in the list to remove it from the session.
 %s%d
 %s%s  %d here|r
 %s%s  none here|r
@@ -260,7 +260,7 @@ Always join automatically
 Answer the question on screen first.
 Appearance available
 Apr
-Are you sure you want to disable SLC for this run?
+Are you sure you want to disable SLC for this session?
 Are you sure?
 As the Loot Master, turns Simple Loot Council on or off for this raid. Anyone else takes part in it: this addon passes your group-loot rolls for the council to distribute.
 As the group's Master Looter, a boss's whole corpse goes to your bags. In a raid, so do trash items at the loot threshold.
@@ -272,7 +272,9 @@ Aug
 Auto-loot to bags as Master Looter
 Auto-pass
 Auto-pass on unusable items in SLC sessions
+Auto-promotion
 Automatic pass: %s.
+Automatically end session when every item is awarded
 Automatically join SLC sessions?
 Automatically start session on boss kill
 Autopassed
@@ -307,6 +309,7 @@ Choose a week, then a night to narrow it. Choose players or a guild rank to remo
 Choose which guild ranks count as raiders. Remembered per guild.
 Class
 Clear
+Clear Loot Master promotion
 Clear \"Awarded to you\"
 Clear all
 Clear all attendance
@@ -315,8 +318,9 @@ Clear filter
 Clear roll on this player
 Clear rolls
 Clear rolls on this item
+Clear stored auto-promotion
 Cleared attendance cannot be recovered. It is cleared on this client only.
-Click an item to add it to the run
+Click an item to add it to the session
 Click an item to queue it
 Click to add a note
 Click to collapse
@@ -343,7 +347,7 @@ Council members queue items and ask; the Loot Master approves each start.
 Council members queue items and start sessions without asking. The session is still the Loot Master's.
 Council rules
 Council, %d: %s
-Council: nobody resolved yet - a run cannot start
+Council: nobody resolved yet - a session cannot start
 Ctrl+A, Ctrl+C to copy  -  Hold shift to scroll instantly
 Currently Equipped
 DPS
@@ -381,11 +385,12 @@ Duplicate award history entries have been merged. They were caused by a bug that
 Each distinct one once. Off: they are still recorded in /slc log. Log to chat shows everything either way.
 Echoes the diagnostic log while reproducing a problem.
 Enable Funnel
-End run
-End run?
-End this run for everyone? %d item is still unawarded.
-End this run for everyone? %d items are still unawarded.
+End session
+End session?
+End this session for everyone? %d item is still unawarded.
+End this session for everyone? %d items are still unawarded.
 Every award, and the loot each raider has had.
+Every item is awarded, so the loot session has ended.
 Every night
 Every week
 Everyone
@@ -401,12 +406,14 @@ Feb
 Fields are separated by commas. Right-click to choose another separator.
 Fields are separated by semicolons. Right-click to choose another separator.
 Fills the council's Wishlist and Sim columns from the addon chosen below.
+Forget the remembered Loot Master promotion
 Format: <item number or link> <keyword> <optional note> <optional equipped item links>
 Gay %s
 Generate roll for this player
 Generate rolls
 Generate rolls for this item
 Greed
+Group leader
 Guild
 Guild Groups
 Guild Notes
@@ -449,7 +456,7 @@ It was not in your bags when it was awarded to %s.
 Item
 Items
 Items appear here when you are holding something that was awarded to someone else.
-Items cannot be removed once the run has started.
+Items cannot be removed once the session has started.
 Jan
 Join %s's Loot Council?
 Join & Auto-Pass
@@ -575,7 +582,7 @@ Offspec
 Older entries are removed at login. Imported history is not affected. Bonus rolls are always removed after 90 days.
 Only one item, so the number is optional.
 Only the Loot Master and council can queue
-Only the Loot Master can add mid-run
+Only the Loot Master can add mid-session
 Only the Loot Master can change the active state of SLC
 Only the Loot Master can queue
 Only the Loot Master queues items and starts sessions.
@@ -595,9 +602,11 @@ Posts when the council asks the whole group to roll. This is the only way a raid
 Prevents auto-pass when this source would teach you a new appearance, whatever its armour type.
 Promote
 Promote Loot Master
+Promote new Loot Master
+Promoted for this raid
 Proposed items
 Pulls
-Put %s back into the run?\n\nRaiders see it again and the council can award it.
+Put %s back into the session?\n\nRaiders see it again and the council can award it.
 QUEUED
 Queued items
 Quiet
@@ -628,14 +637,14 @@ Recorded: %s on %s - %s
 Refresh
 Refresh roster
 Remove
-Remove %s from the run? It has not been looted yet.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it.
-Remove %s from the run? It went to another player in the loot roll.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it.
-Remove %s from the run? Its holder equipped it.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it.
-Remove %s from the run? Its holder no longer has it in their bags.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it.
-Remove %s from the run? Its trade window has ended.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it.
-Remove %s from the run?\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it.
+Remove %s from the session? It has not been looted yet.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it.
+Remove %s from the session? It went to another player in the loot roll.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it.
+Remove %s from the session? Its holder equipped it.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it.
+Remove %s from the session? Its holder no longer has it in their bags.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it.
+Remove %s from the session? Its trade window has ended.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it.
+Remove %s from the session?\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it.
 Remove alt?
-Remove from run?
+Remove from session?
 Removed
 Removes %s for everyone.
 Removes %s from %s.
@@ -653,17 +662,18 @@ Requires comms to be available.
 Requires history stored in more than one guild or by more than one character.
 Requires imported Wishlist and Sim data to be in use.
 Requires loot council or response buttons to be ticked.
-Requires no loot run in progress.
+Requires no loot session in progress.
 Requires recorded attendance.
 Requires the Loot Master to use SLC for this raid.
 Requires the council to be allowed to vote for themselves.
 Requires the group leader to let council members manage the loot queue.
+Requires the loot session to be ended. Every item in it is awarded, so the Loot Master can end it.
 Requires you to be in a group.
 Requires you to be in a raid.
 Requires you to be on the council.
 Requires you to be the Loot Master or on the council.
+Requires you to be the Loot Master, group leader, a raid assistant or on the loot council.
 Requires you to be the Loot Master.
-Requires you to be the group leader or the Loot Master.
 Reset Columns
 Response
 Response %d
@@ -672,7 +682,7 @@ Response buttons locked while loot session is active
 Response buttons: %s
 Response guide
 Restore
-Restore to run?
+Restore to session?
 Right click
 Right click to end the current loot session
 Right-click a row to award, set a response, or ask for a roll
@@ -688,7 +698,6 @@ Roll Normally
 Roll requests
 Rolled
 Rolls
-Run in progress
 Running loot
 SLC ACTIVE
 SLC has been deactivated for this group
@@ -708,6 +717,7 @@ Sends your own loot council and response buttons. Each player is asked before an
 Sep
 Session
 Session Length (seconds)
+Session in progress
 Session running - answer for your loot.
 Session running - open the council window.
 Set award reason
@@ -722,10 +732,10 @@ Show offline
 Show only the awards stored while you were in one guild, or by one of your characters. Older rows, rows imported from other addons and rows stored outside a guild are under No guild.
 Show warnings and errors in chat
 Sim
-SimC - this run's items
+SimC - this session's items
 SimC cannot place this item type
 SimC export is not available on this client
-SimC lines for the run's items, to copy
+SimC lines for the session's items, to copy
 Simple Loot Council
 Simple Loot Council is active for this raid - %s is collecting the loot for the council.
 Simple Loot Council is active for this raid - %s is collecting the loot, and this addon passes your group-loot rolls for the council to distribute.
@@ -735,7 +745,7 @@ Sound notifications
 Start loot session?
 Start request declined (%s).
 Start request declined. No reason was given.
-Start request declined: a run is already in progress.
+Start request declined: a session is already in progress.
 Start request declined: addon messages are blocked right now.
 Start request declined: another start request is awaiting approval.
 Start request declined: loot sessions run in raids only.
@@ -748,7 +758,7 @@ Start request declined: the queue is empty.
 Start request declined: the queue was cleared.
 Start request declined: the start permission changed.
 Start request declined: you are not on the council.
-Start run
+Start session
 Start sessions themselves
 State
 Status
@@ -770,7 +780,7 @@ The addon whose imported wishlists and sims the council reads.
 The council has asked everyone to roll on %d item - /roll once per item.
 The council has asked everyone to roll on %d items - /roll once per item.
 The council has asked you to roll
-The current run must finish first.
+The current session must finish first.
 The group-loot funnel now runs whenever Simple Loot Council is active, so its switch is gone. The guild loot funnel guard is now off; switch it on in Settings to be asked before your loot is passed outside your guild.
 The guild filter does not apply here: the rows it hides are exported too.
 The loot funnel now runs in guild groups only by default: you are asked before your loot is passed outside your guild. Set \"Loot funnel in which groups?\" to All Groups in Settings if you would rather not be asked.
@@ -803,11 +813,11 @@ Trades and history
 Transmog
 Undo
 Undo award
-Undo award and remove from run
+Undo award and remove from session
 Undo award?
 Undo the award of %s to %s?\n\nThis removes it from Loot to Trade and from history, for everyone.
 Undo the award of %s to %s?\n\nThis removes it from the trade queue and from history.
-Undo the award of %s to %s?\n\nThis removes it from the trade queue and from history. It can no longer be traded, so it can also come out of the run.
+Undo the award of %s to %s?\n\nThis removes it from the trade queue and from history. It can no longer be traded, so it can also come out of the session.
 Unknown
 Unknown item
 Unranked
@@ -831,6 +841,7 @@ When
 When a boss dies, a loot session starts with its drops. Off: start sessions yourself from the Loot queue tab.
 When do you want to auto-pass on boss loot?
 When lead or Loot Master passes to you in a group already using Simple Loot Council, carry on without asking. You are still told in chat. A group not using it asks as normal.
+When the last open item of a loot session is awarded or removed, the session ends for everyone. Off: end it yourself with End session.
 When you are the Loot Master or on the loot council, your loot response is a tab in the Loot Council window. Off: it keeps its own window.
 Whether council members may queue loot and start sessions from the Loot queue tab.
 Which events play a sound.
@@ -850,7 +861,7 @@ Wrong class
 Wrong class stat
 Wrong weapon type
 Yes
-Yes adds these to your queue and starts the run. No leaves your queue as it is.
+Yes adds these to your queue and starts the session. No leaves your queue as it is.
 You are not in a guild, so there are no ranks to choose from.
 You are not in a guild, so there is no roster to read.
 You are not in a guild.
@@ -863,9 +874,9 @@ Your untouched response buttons now read in your language. Buttons you renamed, 
 a bare number then '%s' reads as chat - silent. '#N' or a link would get a reply.
 a character cannot be their own main
 a promotion is remembered after you leave - when you lead a raid with them in it, you are asked to promote again
-a run is active - /slc end ends it for everyone first.
-a run is active - only the Loot Master can end it.
-a run is already active
+a session is active - /slc end ends it for everyone first.
+a session is active - only the Loot Master can end it.
+a session is already active
 a trinket for other classes
 active test is off.
 active test is on: sessions work here. Nothing starts by itself. /slc activetest off turns it off.
@@ -877,9 +888,9 @@ added %d items from bags
 added %d items to the queue
 added %d items to the queue, skipped %d filtered
 added %s
-added %s to the running run as session %d.
-added as session %d: %s (boss: %s)
-added as session %d: %s (no encounter in progress - asking the Adventure Guide)
+added %s to the active session as item %d.
+added as item %d: %s (boss: %s)
+added as item %d: %s (no encounter in progress - asking the Adventure Guide)
 additem <link>
 addon message counters
 allow a session solo or in a party (nothing automatic)
@@ -888,8 +899,8 @@ alt [<alt> <main> / remove <alt>]
 asked
 asked everyone to roll on %d item.
 asked everyone to roll on %d items.
-asking the Loot Master to start the run with %d proposed item...
-asking the Loot Master to start the run with %d proposed items...
+asking the Loot Master to start the session with %d proposed item...
+asking the Loot Master to start the session with %d proposed items...
 assign
 attendance
 attendance / att [name / nights]
@@ -919,7 +930,7 @@ could not identify this character.
 could not link %s to %s: %s
 could not make %s the group's Master Looter - set it from your portrait's Loot Method menu.
 could not match %s to a candidate on item %d; use the Name-Realm shown in the council table.
-could not queue %s - a run is in progress, and only the Loot Master can add to it.
+could not queue %s - a session is in progress, and only the Loot Master can add to it.
 could not queue %s - every copy is already queued.
 could not queue %s - it is no longer in the holder's bags with an active trade timer.
 could not queue %s - only the Loot Master and council members can queue items.
@@ -929,11 +940,11 @@ could not read that date - use 01/08/2026
 could not resolve %s
 could not resolve %s - they must be in your group
 could not resolve %s - use Name-Realm, and they must be in your group
-could not restore the saved loot run because the group roster changed during the reload; asking the group for a current copy.
+could not restore the saved loot session because the group roster changed during the reload; asking the group for a current copy.
 could not start - see /slc log
-could not start simulated run - %s
-could not start simulated run - a run is already active
-could not start the run: %s
+could not start simulated session - %s
+could not start simulated session - a session is already active
+could not start the session: %s
 could not tell where the alt's name ends - put a comma between the two: /slc alt <Alt-Realm>, <Main-Realm>
 could not undo the award of %s - see /slc log.
 council [add / remove <name>]
@@ -941,7 +952,7 @@ council and settings re-sent
 council: %d configured, %d guild rank(s), %d active this session
 csv [slc] [comma / semicolon]
 current boss and encounter log
-current run state
+current session state
 debug chat output off
 debug chat output on
 deleted %d award record.
@@ -950,7 +961,7 @@ developer and diagnostic commands
 discard the staged items
 dropped %d queued item you can no longer trade.
 dropped %d queued items you can no longer trade.
-end the run
+end the session
 equipped
 equipped  \194\183  ilvl %d
 equipped set facts
@@ -964,7 +975,6 @@ ftest [<count>]
 gear links read: %d
 generated rolls for %d item.
 generated rolls for %d items.
-group leader
 guild loot funnel guard disabled - this addon now passes your group-loot rolls to %s for the council.
 guild loot funnel guard kept - you roll on group loot yourself while %s collects for the council.
 guild rank, %d here
@@ -1022,9 +1032,9 @@ no commas or semicolons in the header - a paste loses tabs, so export with comma
 no difficulty known - add it with 'from heroic <boss>'
 no history recorded by this addon to export
 no history to export
-no item at session %d - /slc fakecoins [count] [Name-Realm] [#item]
 no item id or name to search for
-no items in the run - /slc test first, then /slc fakecoins [count] [Name-Realm] [#item]
+no item number %d - /slc fakecoins [count] [Name-Realm] [#item]
+no items in the session - /slc test first, then /slc fakecoins [count] [Name-Realm] [#item]
 no keyword after the item - would reply asking for one.
 no loot recorded
 no loot session can start: the Loot Master, %s, does not have Simple Loot Council.
@@ -1035,8 +1045,8 @@ no raids recorded
 no recorded boss matches '%s' - using it as typed
 no rolls asked for. /slc roll ask||random||clear
 no rows found below the header
-no run is active, and no item was named - silent.
-no run is active.
+no session is active, and no item was named - silent.
+no session is active.
 no such rank in your guild
 no timer
 no tradeable items in bags
@@ -1049,7 +1059,7 @@ not sent - see /slc log.
 not sent. %s
 not sent. Requires you to be the group leader or the Loot Master.
 note: %s
-nothing added from bags - a run is in progress, and only the Loot Master can add to it.
+nothing added from bags - a session is in progress, and only the Loot Master can add to it.
 nothing added from bags - only the Loot Master and council members can queue items.
 nothing added from bags - only the Loot Master can queue items.
 nothing added from bags - the group leader has not let council members manage the loot queue.
@@ -1057,10 +1067,10 @@ nothing eligible in bags
 nothing eligible in bags - every eligible copy is already owed to a winner in Loot to Trade.
 nothing equipped in this slot
 nothing held
-nothing in this run is waiting for your answer.
-nothing left to start a run with.
+nothing in this session is waiting for your answer.
+nothing left to start a session with.
 nothing owed to anyone
-nothing to add - every eligible item in your bags is already queued or in the run.
+nothing to add - every eligible item in your bags is already queued or in the session.
 nothing to export for SimC.
 nothing to import
 nothing to start - the staging queue is empty.
@@ -1073,9 +1083,9 @@ only the Loot Master and council members can use the loot queue.
 only the Loot Master can add items
 only the Loot Master can ask for a roll.
 only the Loot Master can clear rolls.
-only the Loot Master can end the run.
+only the Loot Master can end the session.
 only the Loot Master can generate rolls.
-only the Loot Master can simulate a coin in an active run.
+only the Loot Master can simulate a coin in an active session.
 only the Loot Master can start a test
 only the Loot Master can turn Simple Loot Council on or off.
 only the Loot Master can turn the active test on or off.
@@ -1092,7 +1102,6 @@ pick between 1 and %d items: /slc ftest %d
 pick between 1 and %d items: /slc test %d
 ping [bytes]
 promote loot
-promoted for this raid
 prompt <lootmaster / raider / guard>
 pseudo [on / off]
 pseudo-locale test mode is already off.
@@ -1122,9 +1131,6 @@ roll %d (assigned)
 roll [ask / random / clear]
 rolls cleared.
 rolls on unawarded items
-run ended - undo an award from Loot to Trade if you need to.
-run started with %d item
-run started with %d items
 saved variables as Lua
 search did not finish in %.1fs (search size %d)
 season %s, started %s
@@ -1133,28 +1139,31 @@ season start forgotten - the raid team view now counts everything
 season start set to %s
 send the response guide to the raid
 session / sess
+session ended - undo an award from Loot to Trade if you need to.
+session started with %d item
+session started with %d items
 shift-click an item into the command: /slc additem <link>
 show a group question, answers do nothing
 show or hide the minimap button
-simulated run of 1-%d items from %d rare dungeon boss drops that WoW: Forever serves; no argument gives 3
-simulated run started with %d item; awards will not be saved or traded
-simulated run started with %d items; awards will not be saved or traded
-simulated run; /slc help dev for more
-simulated run; a count of 1-%d draws at random from %d classic raid items, no argument gives 3; a link is attributed to its boss and difficulty from the Adventure Guide and its upgrade track, 'from' overrides (any case, partial name)
-simulated run; a count of 1-%d draws at random from %d rare dungeon boss drops, no argument gives 3; a link is attributed to the boss 'from' names
+simulated session of 1-%d items from %d rare dungeon boss drops that WoW: Forever serves; no argument gives 3
+simulated session started with %d item; awards will not be saved or traded
+simulated session started with %d items; awards will not be saved or traded
+simulated session; /slc help dev for more
+simulated session; a count of 1-%d draws at random from %d classic raid items, no argument gives 3; a link is attributed to its boss and difficulty from the Adventure Guide and its upgrade track, 'from' overrides (any case, partial name)
+simulated session; a count of 1-%d draws at random from %d rare dungeon boss drops, no argument gives 3; a link is attributed to the boss 'from' names
 simulated: %s coined %s from %s (not recorded to history)
 skipped %d BoE item outside its six-hour window - click it in the bags panel to queue it anyway.
 skipped %d BoE items outside their six-hour window - click one in the bags panel to queue it anyway.
 skipped %d copies already owed to winners in Loot to Trade - click one in the bags panel to queue it anyway.
 skipped %d copy already owed to a winner in Loot to Trade - click it in the bags panel to queue it anyway.
-skipped %d item already queued or in the run
+skipped %d item already queued or in the session
 skipped %d item awarded to you - click it in the bags panel to queue it anyway.
-skipped %d items already queued or in the run
+skipped %d items already queued or in the session
 skipped %d items awarded to you - click one in the bags panel to queue it anyway.
 snapshotsize <candidates> <items>
 someone
 staging window
-start a run on the queued items
+start a session on the queued items
 still active for this raid - you said yes earlier.
 stress [<raiders> [<items> [<seconds>]] / stop]
 team / t [season [date / clear]]
@@ -1162,7 +1171,7 @@ test [<count> / <link> [from [heroic] <boss>], ...]
 test [<count>]
 that date is in the future - nothing would be counted
 the Adventure Guide had no answer: %s
-the Loot Master started the run.
+the Loot Master started the session.
 the Loot to Trade window
 the Raid versions window
 the council is not ready
@@ -1217,16 +1226,16 @@ whisper me your answer for an item.
 whispered
 why the funnel takes an item
 would ask whether to send the guide to the raid or by whisper:
-would record %s on session %d (%s)
+would record %s on item %d (%s)
 would refuse: %s
 wrong armour type
 wrong weapon type
 yes
 you are collecting loot for the council - this addon will roll Need on group loot for you.
 you are not in a raid.
-you are not in this run - there is nothing to show you.
-you are not on the council for this run - /slc response reopens your loot response window.
+you are not in this session - there is nothing to show you.
+you are not on the council for this session - /slc response reopens your loot response window.
 you declined to take part in Simple Loot Council for this raid.
 your tradeable items
-your view of the run
+your view of the session
 |cff478cebSimpleLootCouncil|r loaded.  |cff73716C/slc|r for options.

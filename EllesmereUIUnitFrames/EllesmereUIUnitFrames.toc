@@ -24,6 +24,7 @@ EUI_UnitFrames_Threat.lua
 EUI_UnitFrames_StockStyles.lua
 EUI_UnitFrames_Reload.lua
 EUI_UnitFrames_ForeverExtras.lua
+EUI_UnitFrames_ForeverEmptyPower.lua
 EUI_UnitFrames_Visibility.lua
 EUI_UnitFrames_Init.lua
 EUI_UnitFrames_OptionsSetup.lua

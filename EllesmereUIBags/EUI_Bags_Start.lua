@@ -1006,6 +1006,11 @@ local function StartAddon()
         refreshPending, refreshAgain, refreshDefers = true, false, 0
         C_Timer.After(0.1, FireRefresh)
     end
+    -- A watched tooltip finished loading and changed an item's red tint: repaint.
+    EUI_Bags._tintRetry = function()
+        if InCombatLockdown() then EUI_Bags._refreshPendingCombat = true; return end
+        if EUI_Bags:IsVisible() then ScheduleRefresh() end
+    end
 
     -- Cooldown-only repaint of the shown item buttons, once per frame at most.
     -- Each button keeps the cooldown it was last painted with (_cdS / _cdD, set

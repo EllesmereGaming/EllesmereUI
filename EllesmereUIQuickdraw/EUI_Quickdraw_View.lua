@@ -357,6 +357,19 @@ local function CreateSlotWidget(view, index)
         w.nestDots[d] = t
     end
 
+    -- A name written ON the icon, for the kinds whose icon cannot say which
+    -- entry it is: every emote wears the same bubble, and the bubble leaves its
+    -- lower band empty for this. Held on both sides, like the count, so a long
+    -- name is cut with an ellipsis instead of running off the icon. Sized and
+    -- shown per paint (PaintCell).
+    w.iconName = w:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    w.iconName:SetPoint("BOTTOMLEFT", w, "BOTTOMLEFT", 2, 3)
+    w.iconName:SetPoint("BOTTOMRIGHT", w, "BOTTOMRIGHT", -2, 3)
+    w.iconName:SetJustifyH("CENTER")
+    w.iconName:SetWordWrap(false)
+    w.iconName:Hide()
+    AdoptFontString(w.iconName, true)
+
     w.label = w:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     AdoptFontString(w.label)
     w.label:SetPoint("TOP", w, "BOTTOM", 0, -2)

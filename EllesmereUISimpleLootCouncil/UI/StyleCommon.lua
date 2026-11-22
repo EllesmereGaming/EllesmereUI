@@ -600,17 +600,38 @@ local function DragTo(frame)
     frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", x, y)
 end
 
+
+local function EndStuckDrag(frame)
+    if addon.Log then
+        addon.Log:W("UI", "drag ended without OnDragStop", tostring(frame.slcPlacementKey))
+    end
+    S.StopWindowDrag(frame)
+end
+
 dragFrame:SetScript("OnUpdate", function()
-    local frame = drag.frame
+    local frame = drag.native or drag.frame
     if not frame or not frame:IsShown() then
-        drag.frame = nil
+        drag.native, drag.frame = nil, nil
         dragFrame:Hide()
         return
     end
-    DragTo(frame)
+    if not IsMouseButtonDown("LeftButton") then
+        EndStuckDrag(frame)
+        return
+    end
+    if drag.frame then DragTo(frame) end
 end)
 
 function P.StartDrag(frame)
+
+    if drag.native then drag.native:StopMovingOrSizing() end
+    drag.native, drag.frame = nil, nil
+    if frame.HookScript and not frame.slcDragHideHook then
+        frame.slcDragHideHook = true
+        frame:HookScript("OnHide", function(self)
+            if drag.native == self or drag.frame == self then S.StopWindowDrag(self) end
+        end)
+    end
     local left, bottom = frame:GetLeft(), frame:GetBottom()
     local cx, cy = GetCursorPosition()
     if type(left) ~= "number" or type(bottom) ~= "number" or Secret(left) or Secret(bottom)
@@ -618,6 +639,7 @@ function P.StartDrag(frame)
 
         drag.native = frame
         frame:StartMoving()
+        dragFrame:Show()
         return
     end
     drag.frame, drag.left, drag.bottom, drag.cx, drag.cy = frame, left, bottom, cx, cy
@@ -632,8 +654,8 @@ function P.StopDrag(frame)
     elseif drag.frame == frame then
         DragTo(frame)
         drag.frame = nil
-        dragFrame:Hide()
     end
+    if not drag.native and not drag.frame then dragFrame:Hide() end
     P.AlignFrame(frame)
 end
 
@@ -674,6 +696,11 @@ end
 
 
 function S.StopWindowDrag(f)
+
+    if drag.native ~= f and drag.frame ~= f then
+        P.AlignFrame(f)
+        return
+    end
     P.StopDrag(f)
     S.ReanchorToThirds(f)
     f:SavePosition()

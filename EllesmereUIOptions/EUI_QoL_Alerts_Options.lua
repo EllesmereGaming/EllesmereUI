@@ -1,8 +1,9 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EUI_QoL_Alerts_Options.lua
---  ALERTS section: Combat Alert, Potion Ready Alert, Unspent Talents Alert and
---  Announce Group Deaths. The first three share one movable anchor (Unlock Mode:
+--  ALERTS section: Combat Alert, Potion Ready Alert, Unspent Talents Alert,
+--  Unspent Legacy Points Alert (WoW Forever) and
+--  Announce Group Deaths. The first four share one movable anchor (Unlock Mode:
 --  Alerts) and have their own text, size and color; their runtime is
 --  EllesmereUIQoL_Alerts.lua. Group Deaths keeps its own overlay (EllesmereUIQoL.lua).
 -------------------------------------------------------------------------------
@@ -101,6 +102,25 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
               EllesmereUI:RefreshPage()
           end }
     );  y = y - h
+
+    -- WoW Forever: points of the Legacy trees left to spend.
+    local row3
+    if EllesmereUI.IS_FOREVER then
+        row3, h = W:DualRow(parent, y,
+            { type="toggle", text="Unspent Legacy Points Alert",
+              tooltip="Shows on-screen text while you have Legacy points to spend, until you spend them or open the Legacy window.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.legacyAlertEnabled or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.legacyAlertEnabled = v
+                  if EllesmereUI._applyLegacyAlert then EllesmereUI._applyLegacyAlert() end
+                  EllesmereUI:RefreshPage()
+              end },
+            EllesmereUI.BlankRowCfg()
+        );  y = y - h
+    end
 
     -- Inline cog (text, size, colors, mode) on the Combat Alert toggle.
     do
@@ -219,6 +239,18 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
             disabledTooltip = "Unspent Talents Alert",
         })
 
+        if row3 then
+            EllesmereUI.BuildInlineCog(row3._leftRegion, {
+                title = "Unspent Legacy Points Alert Settings",
+                minWidth = 300,
+                rows = AlertCogRows("legacyAlert", "_legacyAlertFrame", "_legacyAlertPreview"),
+                footer = { unlockKey = "EUI_CombatAlert" },
+                gap = 9,
+                disabled = function() return not (EllesmereUIDB and EllesmereUIDB.legacyAlertEnabled) end,
+                disabledTooltip = "Unspent Legacy Points Alert",
+            })
+        end
+
         -- Inline cog (Text Size, Sound) on the Announce Group Deaths toggle
         local function deathOff()
             return not EllesmereUI.QoLExtrasGet("announceGroupDeaths")
@@ -239,6 +271,15 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
                   set=function(v)
                     EllesmereUI.QoLExtrasSet("groupDeathTextSize", v)
                     if EllesmereUI._applyGroupDeathAlert then EllesmereUI._applyGroupDeathAlert() end
+                    if EllesmereUI._groupDeathShowVisual then EllesmereUI._groupDeathShowVisual() end
+                  end },
+                { type="toggle", label="Role Icon",
+                  tooltip="Shows the dead player's role icon if assigned, instead of the skull icon.",
+                  get=function()
+                    return EllesmereUI.QoLExtrasGet("groupDeathRoleIcon") or false
+                  end,
+                  set=function(v)
+                    EllesmereUI.QoLExtrasSet("groupDeathRoleIcon", v)
                     if EllesmereUI._groupDeathShowVisual then EllesmereUI._groupDeathShowVisual() end
                   end },
                 { type="dropdown", label="Sound",
