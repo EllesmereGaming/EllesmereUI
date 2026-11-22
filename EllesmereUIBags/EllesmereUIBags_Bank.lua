@@ -1855,11 +1855,20 @@ end
 -- single trailing bucket rather than landing under Unknown / Other.
 local function BuildBankBuckets(slotList, mode)
     local byKey, list = {}, {}
+    local setCats = mode == "set" and _G.EUI_CategoryManager:GetCategories()
     for _, s in ipairs(slotList) do
         local link = s._cachedInfo and s._cachedInfo.hyperlink
-        local k, label, isOther
+        local k, label, isOther, icon
         if not link then
             k, label, isOther = EXP_KEY_EMPTY, EllesmereUI.L("Empty Slots"), false
+        elseif setCats then
+            -- Nested set gear: one bucket per set, stamped by BuildCategoryBuckets
+            local sc = s._setIdx and setCats[s._setIdx]
+            if sc then
+                k, label, isOther, icon = s._setIdx, sc.name, false, sc.icon
+            else
+                k, label, isOther = "__other__", EllesmereUI.L("Other"), true
+            end
         elseif mode == "type" then
             k, label, isOther = GetSubTypeBucket(link)
         elseif mode == "slot" then
@@ -1870,7 +1879,7 @@ local function BuildBankBuckets(slotList, mode)
         end
         local b = byKey[k]
         if not b then
-            b = { key = k, label = label, isOther = isOther,
+            b = { key = k, label = label, isOther = isOther, icon = icon,
                   isEmpty = (link == nil), slots = {} }
             byKey[k] = b
             list[#list + 1] = b
@@ -1885,7 +1894,7 @@ local function BuildBankBuckets(slotList, mode)
         if a.isOther ~= b.isOther then return b.isOther end
         if a.isEmpty or a.isOther then return a.label < b.label end
         if mode == "type" then return a.label < b.label end
-        if mode == "slot" then return a.key < b.key end
+        if mode == "slot" or mode == "set" then return a.key < b.key end
         return a.key > b.key   -- expansion: newest first
     end)
     return list
@@ -1908,6 +1917,10 @@ local CATEGORY_DETAIL_MODE = {
 }
 
 local function DetailModeForCategory(cat)
+    -- Nested set gear splits by set, the way the bags nest them
+    if cat and cat.isSetGear and not cat.isEquipSet and _G.EUI_CategoryManager:FoldSetChildren(true) then
+        return "set"
+    end
     return CATEGORY_DETAIL_MODE[cat and cat._defaultName or ""]
 end
 
@@ -1926,9 +1939,21 @@ local function BuildCategoryBuckets(slotList)
     end
     CM:ClassifyAll(items)
     local cats = CM:GetCategories()
+    -- Nested set gear: set items go to Item Set Gear, each stamped with its set
+    local anchorIdx
+    if CM:FoldSetChildren(true) then
+        for i, c in ipairs(cats) do
+            if c.isSetGear and not c.isEquipSet then anchorIdx = i; break end
+        end
+    end
     local byCat = {}
     for _, d in ipairs(items) do
         local ci = d.categoryIndex
+        d._slotRef._setIdx = nil
+        if anchorIdx and ci and cats[ci] and cats[ci].isEquipSet then
+            d._slotRef._setIdx = ci
+            ci = anchorIdx
+        end
         if ci then
             local t = byCat[ci]
             if not t then t = {}; byCat[ci] = t end
@@ -2003,8 +2028,9 @@ local function BuildBankCategoryIndex(tabs, passes)
             local mode = DetailModeForCategory(cb.cat)
             if mode then
                 local bs = BuildBankBuckets(cb.slots, mode)
-                -- A single bucket is the whole category; no point offering it.
-                if #bs > 1 then idx.detailByKey[key] = bs end
+                -- A single bucket is the whole category; no point offering it,
+                -- except a set, which the bags list even when it is the only one.
+                if #bs > 1 or mode == "set" then idx.detailByKey[key] = bs end
             end
         end
     end
@@ -2512,7 +2538,8 @@ function EUI_Bank:RefreshBank()
             for _, c in ipairs(CM:GetCategories()) do
                 if c._defaultName == _catSel.key then found = c; break end
             end
-            if not found or CM:IsCategoryOff(found, dc) then _catSel = nil end
+            if not found or CM:IsCategoryOff(found, dc) then _catSel = nil
+            elseif found.isEquipSet and CM:FoldSetChildren(true) then _catSel = nil end
         end
     end
 
@@ -3424,13 +3451,13 @@ function BuildBankSidebar()
             local bs = key and _catIndex.detailByKey[key]
             if not bs or collapsed then return end
             -- Expand only under the selected category, or under a selected group
-            -- that this category belongs to.
+            -- that this category belongs to. Nested sets always show, as in the bags.
             local open = _catSel and (_catSel.key == key
                 or (_catSel.group and _catSel.group == cat.groupName))
-            if not open then return end
+            if not open and DetailModeForCategory(cat) ~= "set" then return end
             for _, b in ipairs(bs) do
-                RenderSidebarEntry(nil, b.label, cat.icon or 134400, #b.slots,
-                    _catSel.key == key and _catSel.detail == b.label,
+                RenderSidebarEntry(nil, b.label, b.icon or cat.icon or 134400, #b.slots,
+                    _catSel and _catSel.key == key and _catSel.detail == b.label,
                     indent, { key = key, detail = b.label }, cat.isAtlas)
             end
         end

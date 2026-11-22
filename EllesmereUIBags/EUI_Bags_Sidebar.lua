@@ -1477,6 +1477,8 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
     -- wherever it sits (plain or inside a group), skipped by the main loop.
     -- Scan gated on split mode: zero extra work while it's off.
     local setChildren, setChildTotal = nil, 0
+    -- Separated: the set rows sit at the anchor's own level, like categories
+    local setsApart = BP().bagSplitSetGearBySet and not EUI_CategoryManager:FoldSetChildren()
     if BP().bagSplitSetGearBySet then
         for i, c in ipairs(cats) do
             if c.isEquipSet then
@@ -1487,13 +1489,14 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
         end
     end
     local function EmitSetChildren(level)
-        if not setChildren or collapsed then return end
+        if setsApart then level = level - 1 end
+        if not setChildren or (collapsed and level > 0) then return end
         for _, sci in ipairs(setChildren) do
             local sc = cats[sci]
             displayList[#displayList + 1] = {
                 catIdx = sci, name = sc.name, icon = sc.icon or 134400,
                 count = categoryCounts and categoryCounts[sci] or 0,
-                indent = level, isEquipSet = true,
+                indent = level > 0 and level or nil, isEquipSet = true,
             }
         end
     end
@@ -1536,9 +1539,10 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                             local mc = cats[mi]
                             if not EUI_CategoryManager:IsCategoryOff(mc, dc) then
                                 local anchor = IsSetAnchor(mc)
+                                local folded = anchor and not setsApart
                                 displayList[#displayList + 1] = {
                                     catIdx = mi, name = mc.name, icon = mc.icon or 134400, isAtlas = mc.isAtlas,
-                                    count = (categoryCounts and categoryCounts[mi] or 0) + (anchor and setChildTotal or 0),
+                                    count = (categoryCounts and categoryCounts[mi] or 0) + (folded and setChildTotal or 0),
                                     indent = true, groupName = cat.groupName, isGroupMember = true,
                                     isUserCreated = mc.isUserCreated,
                                 }
@@ -1555,7 +1559,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             -- Turned off: no row
         else
             local anchor = IsSetAnchor(cat)
-            local count = (categoryCounts and categoryCounts[ci] or 0) + (anchor and setChildTotal or 0)
+            local count = (categoryCounts and categoryCounts[ci] or 0) + (anchor and not setsApart and setChildTotal or 0)
             local isUserCreated = not cat.isCatchAll and (not cat.types or #cat.types == 0)
             -- Skip Pinned/Recent Items if disabled
             if cat.isPinned and BP().bagShowPinnedItems == false then
