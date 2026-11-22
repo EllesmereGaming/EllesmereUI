@@ -2247,20 +2247,20 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
 
     -- Hide Empty Power Bar (target and focus, WoW Forever only; the page
     -- rebuilds on unit change): EUI_UnitFrames_ForeverEmptyPower.lua. It
-    -- needs an attached power bar beside a horizontal health fill.
+    -- needs an attached power bar beside a horizontal health fill; a stock look
+    -- greys it, naming the look (BlizzStyle.Gate).
     if EllesmereUI.IS_FOREVER == true and (optState.selectedUnit == "target" or optState.selectedUnit == "focus") then
         _, h = W:DualRow(parent, y,
-            { type="toggle", text="Hide Empty Power Bar",
+            EllesmereUI.BlizzStyle.Gate("unitframes", { type="toggle", text="Hide Empty Power Bar",
               tooltip="Hides the power bar while the unit has no power and fills its space with the health bar.",
               disabled=function()
-                  if stockPower then return true end
                   local pos = SVal("powerPosition", "below")
                   return (pos ~= "below" and pos ~= "above") or SVal("powerHeight", 6) <= 0
                       or SVal("healthVerticalFill", false) == true
               end,
               disabledTooltip="This option requires an attached Power Bar and a horizontal Health Bar fill.",
               getValue=function() return SVal("hideEmptyPower", false) == true end,
-              setValue=function(v) SSet("hideEmptyPower", v and true or false) end },
+              setValue=function(v) SSet("hideEmptyPower", v and true or false) end }),
             EllesmereUI.BlankRowCfg());  y = y - h
     end
 

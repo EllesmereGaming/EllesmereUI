@@ -347,6 +347,24 @@ function ns.ResolveCastableInterrupt(sid)
         and C_SpellBook.IsSpellKnownOrInSpellBook(sid, Enum.SpellBookSpellBank.Pet) then
         return sid
     end
+    -- WoW Forever: a stored rank stands for every rank of its spell, so the
+    -- rank this character has is the castable form (ns.CDMRankFamily: nil on
+    -- every other client). Asked only after every exact form above missed:
+    -- the player's rank, then a pet's (the highest spell ID of the family the
+    -- pet knows; a pet rank counts only where the family names it).
+    local fam = ns.CDMRankFamily and ns.CDMRankFamily(sid)
+    if fam then
+        local kr = fam.known
+        if kr and knownInBook(kr) then return kr end
+        if C_SpellBook and C_SpellBook.IsSpellKnownOrInSpellBook
+            and Enum and Enum.SpellBookSpellBank then
+            local list, petBank = fam.list, Enum.SpellBookSpellBank.Pet
+            for i = #list, 1, -1 do
+                local r = list[i]
+                if r ~= sid and C_SpellBook.IsSpellKnownOrInSpellBook(r, petBank) then return r end
+            end
+        end
+    end
     return nil
 end
 

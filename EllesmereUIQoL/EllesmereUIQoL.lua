@@ -4374,25 +4374,27 @@ do
         return EllesmereUI.QoLExtrasGet("groupDeathRoleIcon") and true or false
     end
 
+    -- A missing, unknown or secret role keeps the skull.
     local function RoleIconMarkup(role, size)
         if not RoleIconEnabled() then return SKULL_ICON_MARKUP end
-        if type(role) ~= "string" or (issecretvalue and issecretvalue(role)) then
-            return SKULL_ICON_MARKUP
-        end
-        local atlas = ROLE_ICON_ATLAS[role]
+        role = EllesmereUI.PlainString(role)
+        local atlas = role and ROLE_ICON_ATLAS[role]
         if not atlas then return SKULL_ICON_MARKUP end
         local px = math.floor(size * 0.5 + 0.5)
         return CreateAtlasMarkup(atlas, px, px)
     end
 
-    -- The player's own role for the options previews.
+    -- The player's own role for the options previews: the assigned one, else
+    -- (retail) the spec's. WoW Forever has no specs, so there only an
+    -- assigned role shows, as in a real alert.
     local function PlayerRole()
         if not RoleIconEnabled() then return nil end
-        local role = UnitGroupRolesAssigned("player")
-        if role == nil or role == "NONE" then
-            local spec = GetSpecialization and GetSpecialization()
-            if spec and GetSpecializationRole then
-                role = GetSpecializationRole(spec) or role
+        local role = EllesmereUI.PlainString(UnitGroupRolesAssigned("player"))
+        if (not role or role == "NONE") and not EllesmereUI.IS_FOREVER then
+            local spec = C_SpecializationInfo.GetSpecialization()
+            if spec then
+                local _, _, _, _, specRole = C_SpecializationInfo.GetSpecializationInfo(spec)
+                role = EllesmereUI.PlainString(specRole) or role
             end
         end
         return role
@@ -4524,9 +4526,8 @@ do
 
     local function Poll()
         if not EllesmereUI.QoLExtrasGet("announceGroupDeaths") then return end
-        local useRoleIcon = RoleIconEnabled()
         local seen = {}
-        local newlyDeadName, newlyDeadClass, newlyDeadRole, newlyDeadCount
+        local newlyDeadName, newlyDeadClass, newlyDeadUnit, newlyDeadCount
         ForEachGroupUnit(function(u)
             local guid = UnitGUID(u)
             if not guid then return end
@@ -4539,7 +4540,7 @@ do
                 local _, classToken = UnitClass(u)
                 newlyDeadName = UnitName(u)
                 newlyDeadClass = classToken
-                if useRoleIcon then newlyDeadRole = UnitGroupRolesAssigned(u) end
+                newlyDeadUnit = u
                 newlyDeadCount = (newlyDeadCount or 0) + 1
             end
             deadState[guid] = dead
@@ -4549,7 +4550,9 @@ do
         end
         -- One alert per poll (extra ShowAlert calls would just clobber each other) and at most one throttled sound.
         if newlyDeadCount then
-            ShowAlert(newlyDeadName, newlyDeadClass, newlyDeadRole)
+            -- The role is read only for the death that shows, and only with Role Icon on.
+            local role = RoleIconEnabled() and UnitGroupRolesAssigned(newlyDeadUnit) or nil
+            ShowAlert(newlyDeadName, newlyDeadClass, role)
             TryPlayDeathSound()
         end
     end

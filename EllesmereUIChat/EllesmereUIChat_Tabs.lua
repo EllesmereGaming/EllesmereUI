@@ -162,14 +162,14 @@ local floatGhosts = {} -- per-window-id ghosts for undocked windows
 
 -- LibChatAnims compat (DBM embeds it, among others): the lib REPLACES
 -- Blizzard's tab-flash machinery to sidestep the UIFrameFlash shared-registry
--- taint, keeps alert state in its OWN table, and never writes tab.alerting --
--- IsAlerting(tab) is its published accessor for exactly this integration.
+-- taint, keeps alert state in its OWN table -- IsAlerting(tab) is its
+-- published accessor for exactly this integration.
 -- Lazily fetched: nil until some addon loads the lib (LibStub registry entry
 -- is identity-stable across minor upgrades, so caching the ref is safe).
 local lcaLib
 local function TabAlerting(tab)
-    if tab.alerting then return true end
-    -- Blizzard plays the tab's glow anim for exactly the alert's lifetime.
+    -- Blizzard plays the tab's glow anim for exactly the alert's lifetime (its
+    -- alert state itself is kept off the tab, where addon code cannot read it).
     local glow = tab.glow
     local anim = glow and glow.FlashAnim
     if anim and anim:IsPlaying() then return true end
@@ -781,11 +781,8 @@ local function RefreshNow()
                 -- hidden window (including the message that CREATES a
                 -- conversation window -- our ghost is born one pass later
                 -- and would miss the observer's flash), and clears it on
-                -- select. Read through TabAlerting, never tab.alerting
-                -- directly: under a LibChatAnims embedder, and on WoW
-                -- Forever, the field stays nil forever, and this mirror then
-                -- STOPPED the flash the observer lane had just started --
-                -- whisper alerts died within one tab pass.
+                -- select. Read through TabAlerting: Blizzard keeps that state
+                -- off the tab, and a LibChatAnims embedder keeps its own.
                 if isActive then
                     g:StopFlash()
                 elseif TabAlerting(tab) then

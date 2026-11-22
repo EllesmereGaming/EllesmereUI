@@ -2,10 +2,13 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 -------------------------------------------------------------------------------
 --  EllesmereUIForeverEssentials_LFGLanguages.lua  (WoW Forever only)
---  Search Other Languages: a Choose Languages submenu in the cog menu of the
---  Looking For Group window. Each language ticked or unticked there searches
---  again, in the languages ticked (all by default), not only the client's. The
---  window shows the results as its own.
+--  Choose Languages: a submenu in the cog menu of the Looking For Group window,
+--  always there (no setting). Each language ticked or unticked there searches
+--  again, in the client's language and the ticked ones. None is ticked at the
+--  start, so nothing changes until the player ticks one. The window shows the
+--  results as its own, and its own search or refresh goes back to the client's
+--  language, so Search Ticked Languages, the submenu's first line, repeats the
+--  wider search in one click. Nothing runs until the cog menu opens.
 --
 --  The window's search passes no language, so the client's alone is searched,
 --  whatever the saved language filter. C_LFGList.Search takes one call per
@@ -14,18 +17,21 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 -------------------------------------------------------------------------------
 local _, module = ...
 
--- Settings live in EllesmereUIDB.lfgLanguages; unset keys read these.
---   enabled   Search Other Languages
---   off       { [locale] = true }: languages turned off in the submenu
-local F = module.Feature("lfgLanguages", { enabled = false })
+-- Settings live in EllesmereUIDB.lfgLanguages:
+--   on        { [locale] = true }: languages ticked in the submenu
+local F = module.Feature("lfgLanguages", {})
 
-local added = false
-
--- The client's language is always searched; the others unless turned off.
+-- The client's language is always searched; the others once ticked.
 local function IsWanted(lang)
     if C_LFGList.GetDefaultLanguageSearchFilter()[lang] then return true end
-    local off = F.Read().off
-    return not (off and off[lang])
+    local on = F.Read().on
+    return on and on[lang] or false
+end
+
+-- Whether any language is ticked (the client's is never stored).
+local function AnyTicked()
+    local on = F.Read().on
+    return on ~= nil and next(on) ~= nil
 end
 
 -- The window's search (LFGBrowse_DoSearch), with the wanted languages.
@@ -48,15 +54,18 @@ end
 -- A tick is a click: it searches again at once.
 local function ToggleWanted(lang)
     local c = F.Cfg()
-    c.off = c.off or {}
-    c.off[lang] = not c.off[lang] or nil
+    c.on = c.on or {}
+    c.on[lang] = not c.on[lang] or nil
     SearchLanguages()
 end
 
 local function AddMenuEntries(_, root)
-    if not F.Enabled() then return end
     root:CreateDivider()
     local sub = root:CreateButton(EllesmereUI.L("Choose Languages"))
+    -- Greyed while nothing is ticked; a tick refreshes the submenu, which asks again.
+    local search = sub:CreateButton(EllesmereUI.L("Search Ticked Languages"), SearchLanguages)
+    search:SetEnabled(AnyTicked)
+    sub:CreateDivider()
     local defaults = C_LFGList.GetDefaultLanguageSearchFilter()
     for _, lang in ipairs(C_LFGList.GetAvailableLanguageSearchFilter()) do
         -- The game's own language names.
@@ -66,18 +75,7 @@ local function AddMenuEntries(_, root)
     end
 end
 
--- Menu.ModifyMenu cannot be undone: added once, its entries follow the setting.
-local function Apply()
-    if added or not F.Enabled() then return end
-    added = true
+-- Added once at login; the menu asks for the entries each time it opens.
+F.Start(function()
     Menu.ModifyMenu("MENU_LFG_LISTING_SETTINGS", AddMenuEntries)
-end
-
--- Options-page entry points.
-EllesmereUI._LFGLanguages = {
-    Get = F.Get,
-    Cfg = F.Cfg,
-    Apply = Apply,
-}
-
-F.Start(Apply)
+end)

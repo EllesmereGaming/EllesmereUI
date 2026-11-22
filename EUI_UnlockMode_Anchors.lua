@@ -258,15 +258,6 @@ local function IsAnchored(barKey)
     return elem and elem.isAnchored and elem.isAnchored() or false
 end
 
--- Element anchored via a module option (e.g. ERB "Anchor To") with keepMoverWhenAnchored:
--- mover exists but is position-locked (module's anchor owns position) -- drag/nudge/
--- anchor-link disabled, resize and width/height match stay. On ns: deferred body is at the 200-local cap.
-function ns.IsMoverPosLocked(barKey)
-    local elem = registeredElements[barKey]
-    if not (elem and elem.keepMoverWhenAnchored) then return false end
-    return elem.isAnchored and elem.isAnchored() or false
-end
-
 -- Width/Height match persistent links
 local MatchH = {}
 

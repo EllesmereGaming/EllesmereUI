@@ -33,10 +33,13 @@ EUI.Alerts = Alerts
 -- Stack order, top first. sizeKey/enabledKey are the alert's own settings.
 local DEFS = {
     { id = "talent", sizeKey = "talentAlertTextSize", enabledKey = "talentAlertEnabled", persistent = true },
-    { id = "legacy", sizeKey = "legacyAlertTextSize", enabledKey = "legacyAlertEnabled", persistent = true },
     { id = "combat", sizeKey = "combatAlertTextSize", enabledKey = "combatAlertEnabled", hold = 1.2 },
     { id = "potion", sizeKey = "potionAlertTextSize", enabledKey = "potionAlertEnabled", hold = 3 },
 }
+-- WoW Forever alone: an imported key on another client must not count as an alert.
+if EUI.IS_FOREVER then
+    table.insert(DEFS, 2, { id = "legacy", sizeKey = "legacyAlertTextSize", enabledKey = "legacyAlertEnabled", persistent = true })
+end
 local lines = {}
 local anchor
 
@@ -646,12 +649,23 @@ if EUI.IS_FOREVER then
             watcher:UnregisterAllEvents()
             installed = false
             Alerts.Hide("legacy")
+        elseif on then
+            -- Already on (a profile switch): a line that is up takes this profile's text and color.
+            MarkDirty()
         end
         Alerts.Refresh()
     end
 
+    -- Only the Legacy trees' currency and the Legacy reward track count.
+    local LC = Constants.LegacyConsts
+    local TREES = { [LC.LEGACY_TREE_PROFESSIONS_ID] = true, [LC.LEGACY_TREE_ADVENTURE_ID] = true,
+        [LC.LEGACY_TREE_PROGRESSION_ID] = true }
     watcher = CreateFrame("Frame")
-    watcher:SetScript("OnEvent", MarkDirty)
+    watcher:SetScript("OnEvent", function(_, event, arg1)
+        if event == "TRAIT_TREE_CURRENCY_INFO_UPDATED" and not TREES[arg1] then return end
+        if event == "MAJOR_FACTION_RENOWN_LEVEL_CHANGED" and arg1 ~= LC.LEGACY_REWARD_TRACK_FACTION_ID then return end
+        MarkDirty()
+    end)
 
     EUI._applyLegacyAlert = Apply
     EUI._legacyAlertFrame = Alerts.Refresh

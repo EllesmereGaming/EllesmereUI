@@ -439,7 +439,7 @@ local unitToNameplate = setmetatable({}, { __mode = "v" })
 
 -- Filled further down, where the suppression and the name-only text live: the
 -- overlay here is what calls into them.
-local SuppressBlizzardUF, RestoreNPCNameplate, IsParked, HideNameOnlySub
+local SuppressBlizzardUF, RestoreNPCNameplate, IsParked, HideNameOnlySub, ForgetNameText
 local nameFSUnits, nameFSText
 
 -- The plate's own unit token: namePlateUnitToken first, then the pooled
@@ -796,10 +796,7 @@ local function RefreshNPCOverlay(nameplate, unit)
         -- the last friendly player's guild under this NPC's name. Cleared before
         -- the park is verified, so a rejected claim cannot leave it behind either.
         local nfs = nameplate.UnitFrame and nameplate.UnitFrame.name
-        if nfs then
-            nameFSUnits[nfs], nameFSText[nfs] = nil, nil
-            HideNameOnlySub(nfs)
-        end
+        if nfs then ForgetNameText(nfs) end
         -- Bookkeeping is not proof: in combat Blizzard can refuse a write to a
         -- protected frame, and a park that did not take leaves Blizzard's own
         -- plate on screen. Painting our name over it as well is the one thing
@@ -1334,22 +1331,12 @@ local function ApplySubText(fs, unit)
 end
 
 -------------------------------------------------------------------------------
---  Name-only mode: EVERYTHING rides Blizzard's own name FontString
+--  Name-only mode: Blizzard's own name FontString
 --
 --  Blizzard renders the name here, so the title is folded in inline (via
---  UnitPVPName) and the guild is appended as a SECOND LINE of that same
---  string. One region means the guild can never drift from the name: there
---  is no second widget to position, so there is nothing to fall out of sync
---  on a moving (mounted) plate. A separate overlay frame was tried first and
---  jittered ~1px per frame against the name no matter how it was anchored or
---  pixel-snapped; this removes the failure mode instead of compensating.
---
---  Cost of the approach: one FontString means ONE font size, so the guild
---  line renders at the name's size here (its colour still applies, via an
---  inline colour escape). The Guild Text Size setting governs full-plate
---  mode, which draws its own separate FontString. Show Guild Line as Its Own
---  Text (off by default) opts into the separate widget instead, which can take
---  Guild Text Size at the cost of a position to keep in sync.
+--  UnitPVPName), with the level, the group brackets and a Custom name colour
+--  composed onto that same string. The guild line is a font string of our
+--  own under the name (NameOnlySub below), at Guild Text Size.
 --
 --  The unit token and last-written text for a Blizzard name FontString ride
 --  external weak-keyed tables -- never custom keys on the Blizzard widget.
@@ -1388,6 +1375,13 @@ HideNameOnlySub = function(nameFS)
     if not fs then return end
     fs:SetText("")
     fs:Hide()
+end
+
+-- A pooled name string another plate or unit now holds: forget its pairing and
+-- what was composed onto it, and hide its guild line.
+ForgetNameText = function(nameFS)
+    nameFSUnits[nameFS], nameFSText[nameFS] = nil, nil
+    HideNameOnlySub(nameFS)
 end
 
 -- Every name-only guild line off: the system stops painting these plates (the
@@ -1436,8 +1430,7 @@ local function UpdateNameOnlyText(nameFS)
     -- forget the token and leave Blizzard's own name.
     local np = C_NamePlate.GetNamePlateForUnit(unit)
     if not (np and np.UnitFrame and np.UnitFrame.name == nameFS) then
-        nameFSUnits[nameFS], nameFSText[nameFS] = nil, nil
-        HideNameOnlySub(nameFS)
+        ForgetNameText(nameFS)
         return
     end
     -- This composition is for players: NPC plates ride the overlay above.
@@ -1561,8 +1554,7 @@ local function AttachNameOnlyText(nameFS, unit)
                 -- an enemy's). The guild line under it is OURS, and nothing else
                 -- clears it: left alone it shows a nearby player's guild under
                 -- whatever that plate holds now. Forget the pairing and clear it.
-                nameFSUnits[self], nameFSText[self] = nil, nil
-                HideNameOnlySub(self)
+                ForgetNameText(self)
                 return
             end
             if not NeedsNameOnlyTextUpdate(u) then
@@ -1908,10 +1900,7 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
     -- Pooled name string: drop the last occupant's composition and guild line.
     -- The player path below re-attaches it.
     local nfs = nameplate and nameplate.UnitFrame and nameplate.UnitFrame.name
-    if nfs then
-        nameFSUnits[nfs], nameFSText[nfs] = nil, nil
-        HideNameOnlySub(nfs)
-    end
+    if nfs then ForgetNameText(nfs) end
 
     if UnitCanAttack("player", unit) then return end
     if UnitIsUnit(unit, "player") then return end

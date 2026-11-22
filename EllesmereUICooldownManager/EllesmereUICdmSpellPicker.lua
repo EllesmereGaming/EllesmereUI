@@ -207,6 +207,189 @@ if EllesmereUI.IS_FOREVER then
 end
 ns.CDMRankName = RankName
 
+-- WoW Forever: the ranks of one spell, for the stores that hold a typed spell
+-- ID and so compare one exact rank (a custom spell on a cooldown bar, custom
+-- auras, cast-timed custom buffs, the FocusKick interrupt pick). nil off
+-- Forever. ns.CDMRankFamily(id) answers, for an ID whose rank key is known
+-- (nil while the client has not loaded its name), a record:
+--   key   = RankName(id)
+--   forms = a set: id and every rank of its spell this session can name by
+--           that key: the IDs Blizzard's static catalogue lists (each entry's
+--           spell and linked spells, unlearned and hidden ones included), the
+--           ranks in the player's spellbook (each known rank is an entry of its
+--           own), and the ranks of a listed buff family
+--           (EllesmereUI.FOREVER_BUFF_FAMILIES: the group buffs other players
+--           cast, every trainable rank). Not named: a rank nobody here knows
+--           that neither lists (a higher rank of a buff outside the families,
+--           cast by another player), and the pet's spellbook.
+--   list  = the forms sorted by spell ID
+--   sig   = that list joined (container signatures)
+--   known = the rank of it the character has: the spellbook entry its name
+--           resolves to (the rank /cast casts), else the last one the spellbook
+--           lists (lowest first); false when none is known.
+-- One index of every key, built on the first ask and kept until the module
+-- drops its spell caches (ns.MarkCDMSpellCacheDirty: talents, dual spec,
+-- Blizzard's cooldown data loading, full rebuilds) or a spell is learned
+-- (LEARNED_SPELL_IN_SKILL_LINE, heard only while the index exists). A drop
+-- keeps the records it replaced, and on the next frame each is asked again:
+-- only when one changed (its forms or the rank known, or it no longer
+-- answers) are the stores built from them told, once: the custom aura
+-- containers (ns.UpdateCustomBuffAuraTracking builds again only a changed set)
+-- and the aura icons (ns.CDM_AuraIconsRanksChanged). Most drops (a full
+-- rebuild, a talent) change no family and tell nothing.
+local RankFamily, DropRankFamilies
+if RankName then
+    local index          -- key -> { ids = set, book = spellbook IDs in book order }
+    local indexLoaded    -- built with Blizzard's catalogue loaded (its icon classes)
+    local fams = {}      -- id -> record
+    -- id -> the record a drop replaced (the oldest since the last notice), and
+    -- an empty table to swap in while the notice compares.
+    local dropped, spare = {}, {}
+    local shell, resync  -- the learned-spell ear and the next-frame notice
+
+    local function Notify(self)
+        self:SetScript("OnUpdate", nil)
+        self:Hide()
+        resync = false
+        -- A drop while comparing (the catalogue loading under an early index)
+        -- lands in the empty table and arms the next notice.
+        local prev = dropped
+        dropped, spare = spare, prev
+        local changed = false
+        for id, rec in pairs(prev) do
+            local now = RankFamily(id)
+            if not now or now.sig ~= rec.sig or now.known ~= rec.known then
+                changed = true
+                break
+            end
+        end
+        wipe(prev)
+        if not changed then return end
+        if ns.UpdateCustomBuffAuraTracking then ns.UpdateCustomBuffAuraTracking() end
+        if ns.CDM_AuraIconsRanksChanged then ns.CDM_AuraIconsRanksChanged() end
+    end
+
+    DropRankFamilies = function()
+        if not (index and shell) then return end
+        index, indexLoaded = nil, nil
+        for id, rec in pairs(fams) do
+            if dropped[id] == nil then dropped[id] = rec end
+        end
+        wipe(fams)
+        shell:UnregisterEvent("LEARNED_SPELL_IN_SKILL_LINE")
+        if not resync then
+            resync = true
+            shell:SetScript("OnUpdate", Notify)
+            shell:Show()
+        end
+    end
+
+    local function Note(id, inBook)
+        if not _IsUsableSID(id) then return end
+        local k = RankName(id)
+        if not k then return end
+        local e = index[k]
+        if not e then e = { ids = {} }; index[k] = e end
+        e.ids[id] = true
+        if inBook then
+            local b = e.book
+            if not b then b = {}; e.book = b end
+            b[#b + 1] = id
+        end
+    end
+
+    local function BuildIndex()
+        if not shell then
+            shell = ns.TakeShell()
+            shell:Hide()
+            shell:SetScript("OnEvent", DropRankFamilies)
+        end
+        shell:RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE")
+        index, indexLoaded = {}, ns._cdmDataLoaded and true or false
+        local CV = C_CooldownViewer
+        local getSet = CV and CV.GetCooldownViewerCategorySet
+        local getInfo = CV and CV.GetCooldownViewerCooldownInfo
+        if getSet and getInfo then
+            for cat = 0, 8 do
+                local ok, ids = pcall(getSet, cat, true)
+                if ok and type(ids) == "table" then
+                    for i = 1, #ids do
+                        local okI, info = pcall(getInfo, ids[i])
+                        if okI and type(info) == "table" then
+                            Note(info.spellID)
+                            local linked = info.linkedSpellIDs
+                            if type(linked) == "table" then
+                                for j = 1, #linked do Note(linked[j]) end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        local buffFams = EllesmereUI.FOREVER_BUFF_FAMILIES
+        if type(buffFams) == "table" then
+            for _, fam in pairs(buffFams) do
+                local ids = type(fam) == "table" and fam.ids
+                if type(ids) == "table" then
+                    for i = 1, #ids do Note(ids[i]) end
+                end
+            end
+        end
+        local SB = C_SpellBook
+        local spellKind = Enum and Enum.SpellBookItemType and Enum.SpellBookItemType.Spell
+        local bank = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
+        if SB and SB.GetNumSpellBookSkillLines and SB.GetSpellBookSkillLineInfo
+           and SB.GetSpellBookItemType and spellKind and bank then
+            pcall(function()
+                for line = 1, (SB.GetNumSpellBookSkillLines() or 0) do
+                    local li = SB.GetSpellBookSkillLineInfo(line)
+                    local offset = li and li.itemIndexOffset or 0
+                    for slot = offset + 1, offset + (li and li.numSpellBookItems or 0) do
+                        local kind, _, sid = SB.GetSpellBookItemType(slot, bank)
+                        if kind == spellKind then Note(sid, true) end
+                    end
+                end
+            end)
+        end
+    end
+
+    RankFamily = function(id)
+        if not _IsUsableSID(id) then return nil end
+        -- Built before the catalogue loaded: its keys miss the icon classes.
+        if index and not indexLoaded and ns._cdmDataLoaded then DropRankFamilies() end
+        local rec = fams[id]
+        if rec then return rec end
+        local k = RankName(id)
+        if not k then return nil end
+        if not index then BuildIndex() end
+        local e = index[k]
+        local forms, list = { [id] = true }, { id }
+        if e then
+            for f in pairs(e.ids) do
+                if not forms[f] then
+                    forms[f] = true
+                    list[#list + 1] = f
+                end
+            end
+        end
+        table.sort(list)
+        local known = false
+        local book = e and e.book
+        if book then
+            local info = C_Spell.GetSpellInfo(C_Spell.GetSpellName(id) or "")
+            local top = info and info.spellID
+            for i = 1, #book do
+                if book[i] == top then known = top; break end
+            end
+            if not known then known = book[#book] end
+        end
+        rec = { key = k, forms = forms, list = list, sig = table.concat(list, ","), known = known }
+        fams[id] = rec
+        return rec
+    end
+end
+ns.CDMRankFamily = RankFamily
+
 -------------------------------------------------------------------------------
 --  CDM category-set constants (Midnight's 9-value CooldownViewerCategory).
 --  CDM_ICON_CD_CATS: cooldown/utility icon categories (Essential, Utility,
@@ -892,6 +1075,10 @@ function ns.MigrateSpecToBarFilterModelV6()
         return
     end
     if not prof.barSpells then prof._barFilterModelV6 = true; return end
+    -- Until Blizzard's Cooldown Manager data is in, its viewers hold the class
+    -- defaults and the rank name keys are not final. Wait, unstamped: the
+    -- data-loaded wake queues the reanchor that runs this pass again.
+    if not ns._cdmDataLoaded then return end
 
     local p = ECME.db and ECME.db.profile
     local barList = p and p.cdmBars and p.cdmBars.bars
@@ -948,6 +1135,7 @@ function ns.MigrateSpecToBarFilterModelV6()
     -- rank of the spell.
     local assignedSet = {}
     local assignedNames = RankName and {}
+    local anyAssigned = false
     for _, bd in ipairs(barList) do
         if bd.enabled and not bd.isGhostBar
            and bd.barType ~= "buffs" and bd.barType ~= "custom_buff"
@@ -956,6 +1144,7 @@ function ns.MigrateSpecToBarFilterModelV6()
             if bs and bs.assignedSpells then
                 for _, sid in ipairs(bs.assignedSpells) do
                     if type(sid) == "number" and sid > 0 then
+                        anyAssigned = true
                         StoreVariantValue(assignedSet, sid, true, false)
                         local n = assignedNames and not (bs.customSpellIDs and bs.customSpellIDs[sid])
                             and RankName(sid)
@@ -964,6 +1153,16 @@ function ns.MigrateSpecToBarFilterModelV6()
                 end
             end
         end
+    end
+
+    -- An imported layout that places no spell on any cooldown bar (presets,
+    -- items, trinket slots, hosted buffs or Tracking Bars alone) says nothing
+    -- about the importer's cooldowns: ghosting against it would hide every
+    -- tracked Essential and Utility spell. Those stay where Blizzard puts them.
+    if prof._importGhostMode and not anyAssigned then
+        prof._barFilterModelV6 = true
+        prof._importGhostMode = nil
+        return 0
     end
 
     local ghostBs = prof.barSpells.__ghost_cd
@@ -990,15 +1189,31 @@ function ns.MigrateSpecToBarFilterModelV6()
     -- combat/buff/target state (e.g. Beacon of Light: always Essential for
     -- Holy Pally, but only pooled when relevant). Either alone misses spells.
     local sidUnion = {}  -- sid -> true (deduped)
-
-    local entries = EnumerateCDMViewerSpells(false)
-    for _, e in ipairs(entries) do
-        if _IsUsableSID(e.sid) then sidUnion[e.sid] = true end
+    -- A slot is placed when its OWN spell is on a bar, whatever spell it shows
+    -- at this moment (the active seal in the Seals slot, a talent form of
+    -- another name): the shown spells of such slots.
+    local slotPlaced = {}
+    local function NoteSlot(sid, own)
+        if own == sid or not _IsUsableSID(own) then return end
+        local n = RankName and RankName(own)
+        if ResolveVariantValue(assignedSet, own) or (n and assignedNames[n]) then
+            slotPlaced[sid] = true
+        end
     end
 
     local gcs = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
     local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     local evc = Enum and Enum.CooldownViewerCategory
+
+    local entries = EnumerateCDMViewerSpells(false)
+    for _, e in ipairs(entries) do
+        if _IsUsableSID(e.sid) then
+            sidUnion[e.sid] = true
+            local info = gci and type(e.cdID) == "number" and gci(e.cdID)
+            if info then NoteSlot(e.sid, info.spellID) end
+        end
+    end
+
     if gcs and gci and evc then
         -- Full CD/utility category set so SpecAgnosticEssential/EquipSlotEssential
         -- entries become ghost/migration candidates alongside Essential/Utility.
@@ -1009,7 +1224,10 @@ function ns.MigrateSpecToBarFilterModelV6()
                     local info = gci(cdID)
                     if info then
                         local sid = info.overrideSpellID or info.spellID
-                        if _IsUsableSID(sid) then sidUnion[sid] = true end
+                        if _IsUsableSID(sid) then
+                            sidUnion[sid] = true
+                            NoteSlot(sid, info.spellID)
+                        end
                     end
                 end
             end
@@ -1021,6 +1239,7 @@ function ns.MigrateSpecToBarFilterModelV6()
     for sid in pairs(sidUnion) do
         local name = RankName and RankName(sid)
         local isAssigned = ResolveVariantValue(assignedSet, sid) or (name and assignedNames[name])
+            or slotPlaced[sid]
         local isGhosted  = ResolveVariantValue(existingGhost, sid) or (name and ghostNames[name])
         if not isAssigned and not isGhosted then
             ghostBs.assignedSpells[#ghostBs.assignedSpells + 1] = sid
@@ -1238,10 +1457,36 @@ function ns.CollectDefaultBuffTrackEntries()
                     if otherClaims then
                         for cdID in pairs(otherClaims) do divertedCd[cdID] = true end
                     end
-                elseif otherSd and otherSd.hostedBuffSpellIDs then
-                    for sid in pairs(otherSd.hostedBuffSpellIDs) do
-                        if type(sid) == "number" and sid > 0 then
-                            StoreVariantValue(diverted, sid, true, false)
+                elseif otherSd then
+                    if otherSd.hostedBuffSpellIDs then
+                        for sid in pairs(otherSd.hostedBuffSpellIDs) do
+                            if type(sid) == "number" and sid > 0 then
+                                StoreVariantValue(diverted, sid, true, false)
+                            end
+                        end
+                        -- A cd-claimed hosted buff is listed by its marker alone
+                        -- (the hosted set stays empty for it).
+                        local hostedClaims = ns.CollectCdClaimSet(otherSd)
+                        if hostedClaims then
+                            for cdID in pairs(hostedClaims) do divertedCd[cdID] = true end
+                        end
+                    end
+                    -- A Replace with Buff target stands in for its cooldown on
+                    -- that bar (the route map's Pass 3c reads the same raw keys).
+                    local rbStore = ns._cdmAnyBuffReplace and otherSd.assignedSpells
+                        and ns.GetSpellSettingsStore(otherBd.key)
+                    if rbStore then
+                        for _, sid in ipairs(otherSd.assignedSpells) do
+                            local ss = type(sid) == "number" and sid > 0 and rbStore[sid]
+                            if type(ss) == "table" then
+                                local rc = rawget(ss, "replaceBuffCdID")
+                                local rb = rawget(ss, "replaceBuffID")
+                                if type(rc) == "number" and rc > 0 then
+                                    divertedCd[rc] = true
+                                elseif type(rb) == "number" and rb > 0 then
+                                    StoreVariantValue(diverted, rb, true, false)
+                                end
+                            end
                         end
                     end
                 end
@@ -1727,6 +1972,8 @@ function ns.MarkCDMSpellCacheDirty()
     _cdmSpellCacheDirty = true
     -- Buff Stacks' eligibility (EUI_CDM_CdBuffStacks.lua, loaded later).
     if ns.CdBuffStacksInvalidate then ns.CdBuffStacksInvalidate() end
+    -- WoW Forever: the rank families (ns.CDMRankFamily).
+    if DropRankFamilies then DropRankFamilies() end
 end
 
 local function RebuildCDMSpellCaches()

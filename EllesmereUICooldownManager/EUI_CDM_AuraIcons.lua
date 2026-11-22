@@ -342,7 +342,8 @@ function ns.CDM_AuraIconFor(barKey, sid)
 end
 
 -- One provider per custom buff spell ID, made on first use. Its aura IDs are
--- the spell's own forms (typed, override, base), as on a buff bar.
+-- the spell's own forms (typed, override, base), as on a buff bar, and on WoW
+-- Forever every other rank of it (_AC.AddSpellForms).
 local function BuffProvider(sid)
     local p = buffProviders[sid]
     if p then return p end
@@ -370,6 +371,21 @@ end
 -- frame on this bar.
 function ns.CDM_AuraIconForBuff(barKey, sid)
     return Place(barKey, BuffProvider(sid))
+end
+
+-- WoW Forever: the rank families were read again (ns.CDMRankFamily: a spell
+-- learned, talents, Blizzard's cooldown data): each custom buff's include set
+-- is read again at its next placement, and built again only if it changed.
+function ns.CDM_AuraIconsRanksChanged()
+    local any = false
+    for sid in pairs(buffProviders) do
+        local E = entries["buff:" .. sid]
+        if E then
+            E.dirty = true
+            any = true
+        end
+    end
+    if any and ns.QueueReanchor then ns.QueueReanchor() end
 end
 
 -------------------------------------------------------------------------------

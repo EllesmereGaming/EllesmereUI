@@ -532,6 +532,9 @@ function _AC.ApplyExtra(button, d, style)
 end
 
 -- Add every id form the live aura can carry (typed + override + base) to map.
+-- WoW Forever: and every other rank of the spell the session can name
+-- (ns.CDMRankFamily, nil on every other client), so an aura of another rank
+-- shows too.
 function _AC.AddSpellForms(map, sid)
     map[sid] = true
     local ovr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
@@ -539,7 +542,25 @@ function _AC.AddSpellForms(map, sid)
     if ovr and ovr > 0 then map[ovr] = true end
     local base = C_Spell and C_Spell.GetBaseSpell and C_Spell.GetBaseSpell(sid)
     if base and base > 0 then map[base] = true end
+    local fam = ns.CDMRankFamily and ns.CDMRankFamily(sid)
+    if fam then
+        for id in pairs(fam.forms) do map[id] = true end
+    end
     return map
+end
+
+-- WoW Forever: whether a pending cast (_pendingCastIDs) is a rank of a
+-- cast-timed custom buff's typed spell. Always false on every other client,
+-- where only the exact ID starts the timer. Asked only after the exact ID
+-- missed, while a cast is pending.
+local function CastOfRank(sid)
+    local fam = ns.CDMRankFamily and next(_pendingCastIDs) and ns.CDMRankFamily(sid)
+    if not fam then return false end
+    local forms = fam.forms
+    for castID in pairs(_pendingCastIDs) do
+        if forms[castID] then return true end
+    end
+    return false
 end
 
 function _AC.FixedIconStyleKey(barKey, sid)
@@ -743,7 +764,7 @@ local function UpdateCustomBuffBars()
                             local timerKey = barKey .. ":" .. sid
                             local timer = _customAuraTimers[timerKey]
 
-                            if _pendingCastIDs[sid] and duration > 0 then
+                            if (_pendingCastIDs[sid] or (ns.CDMRankFamily and CastOfRank(sid))) and duration > 0 then
                                 _customAuraTimers[timerKey] = {
                                     start = now,
                                     duration = duration,
@@ -855,7 +876,7 @@ local function UpdateCustomBuffBars()
                 for _, sid in ipairs(spellList) do
                     if type(sid) == "number" and sid > 0 and (durs[sid] or 0) > 0 then
                         local tkey = barData.key .. ":" .. sid
-                        if _pendingCastIDs[sid] then
+                        if _pendingCastIDs[sid] or (ns.CDMRankFamily and CastOfRank(sid)) then
                             _customAuraTimers[tkey] = {
                                 start = now, duration = durs[sid],
                             }
@@ -926,6 +947,17 @@ function ns.UpdateCustomBuffAuraTracking()
                                 end
                             end
                         end
+                        -- WoW Forever: the other ranks each spell's include set
+                        -- names (_AC.AddSpellForms) are structural too, and widen
+                        -- as a rank is learned. Nothing on any other client, so
+                        -- the signature there stays as it was.
+                        local rankSig
+                        if ns.CDMRankFamily then
+                            for i = 1, #sids do
+                                local fam = ns.CDMRankFamily(sids[i])
+                                if fam then rankSig = (rankSig or "|rk") .. ":" .. fam.sig end
+                            end
+                        end
                         -- Structural only: the id list plus the geometry the
                         -- engine flow owns. Everything else is appearance and
                         -- rides ns.RefreshAuraCustomStyle without a rebuild.
@@ -940,6 +972,7 @@ function ns.UpdateCustomBuffAuraTracking()
                             -- its exact signature.
                             .. ((bd.iconShape == "cropped") and ("|crop" .. ns.CdmCropPercent(bd)) or "")
                             .. (ciSig or "")
+                            .. (rankSig or "")
                         local rec = _AC.bars[bd.key]
                         if not rec then rec = {}; _AC.bars[bd.key] = rec end
                         rec.bdRef = bd

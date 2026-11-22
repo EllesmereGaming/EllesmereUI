@@ -54,8 +54,6 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 
 local I = ns._internals
 local GetSettingsForUnit, UnsnapTex = I.GetSettingsForUnit, I.UnsnapTex
-local ApplyHealthBarTexture, ApplyHealthBarAlpha, ApplyDarkTheme =
-    I.ApplyHealthBarTexture, I.ApplyHealthBarAlpha, I.ApplyDarkTheme
 
 local WHITE = "Interface\\Buttons\\WHITE8X8"
 -- How far the gate runs past each end of the power bar, and how far the two
@@ -152,7 +150,8 @@ local function SeatMask(health, on)
     list[1] = health:GetStatusBarTexture()
     if health.bg then list[#list + 1] = health.bg end
     if health._euiBgTex then list[#list + 1] = health._euiBgTex end
-    for i = 1, #list do list[i]:AddMaskTexture(mask) end
+    -- A texture takes at most three masks (rounded corners may hold some).
+    for i = 1, #list do pcall(list[i].AddMaskTexture, list[i], mask) end
 end
 
 -- The power text overlay's level, as CreatePowerBar and UpdatePowerBorder
@@ -173,34 +172,17 @@ local function SeatText(frame, power, clip)
     ovr:SetFrameLevel(level)
 end
 
--- Paints the taller health bar as the health bar is painted, and chains its
--- PostUpdateColor behind the health bar's. From ApplyDarkTheme's tail (which
--- has just installed a fresh PostUpdateColor) and from each apply below.
+-- Paints the taller health bar as the health bar is painted and chains its
+-- PostUpdateColor behind the health bar's (the main file's shared painter),
+-- then seats the mask. From ApplyDarkTheme's tail (which has just installed a
+-- fresh PostUpdateColor) and from each apply below.
 function ns.UF_EmptyPowerPaint(health, unit)
-    local m = health._epMirror
-    if not m then return end
-    local key = health._euiUnitKey
-    m._euiUnitKey = key
-    ApplyHealthBarTexture(m, key)
-    m:SetStatusBarColor(health:GetStatusBarColor())
-    ApplyHealthBarAlpha(m, key)
-    m:SetReverseFill(health:GetReverseFill() and true or false)
-    ApplyDarkTheme(m, unit)
+    if not ns.UF_PaintHealthMirror(health, unit, "_epMirror", "_epChain") then return end
     SeatMask(health, true)
-    local puc = health.PostUpdateColor
-    if puc and puc ~= health._epChain then
-        local function chain(self, u, color)
-            puc(self, u, color)
-            local mm = self._epMirror
-            if mm and mm.PostUpdateColor then mm:PostUpdateColor(u, color) end
-        end
-        health._epChain = chain
-        health.PostUpdateColor = chain
-    end
     -- A gradient built on the class / reaction colour exists only inside a
     -- real colour pass (PostUpdateColor's color argument): the engine repaint
     -- that closes every reload pass, and each new unit, runs one through the
-    -- chain above.
+    -- chain.
 end
 
 -- Puts the power bar, its text and its seam back where the frame keeps them.
@@ -272,7 +254,13 @@ function ns.UF_EmptyPower(frame, s)
     -- 2) The clips on the fill. Each takes the level of what it holds (see
     --    SeatText).
     local barClip, textClip, seamClip, gapClip = ep.barClip, ep.textClip, ep.seamClip, ep.gapClip
-    for _, c in ipairs({ barClip, textClip, seamClip }) do
+    local fillClips = ep.fillClips
+    if not fillClips then
+        fillClips = { barClip, textClip, seamClip }
+        ep.fillClips = fillClips
+    end
+    for i = 1, #fillClips do
+        local c = fillClips[i]
         c:ClearAllPoints()
         c:SetPoint("TOPLEFT", fill, "TOPLEFT", 0, CLIP_REACH)
         c:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT", 0, -CLIP_REACH)

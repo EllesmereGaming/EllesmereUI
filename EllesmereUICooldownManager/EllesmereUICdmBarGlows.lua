@@ -68,7 +68,7 @@ function ns.GetBarGlows()
     -- under the active profile's bucket (ns.GetActiveSpecProfiles).
     local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     if not sp then return { enabled = true, selectedBar = "cooldowns", assignments = {} } end
-    if not sp[specKey] then sp[specKey] = { barSpells = {} } end
+    if not sp[specKey] then sp[specKey] = EllesmereUI.StampSpecProfile({ barSpells = {} }) end
     local prof = sp[specKey]
     if not prof.barGlows or not next(prof.barGlows) then
         prof.barGlows = {

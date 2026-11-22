@@ -16,7 +16,7 @@ local FFD, GetFFD = EllesmereUI.NewFrameData()
 -- The Character Sheet card's Blizz Default: Blizzard's own inspect window,
 -- only the slot text and the item level / M+ score lines added.
 local function StockLook()
-    return ns.CharSheetStock ~= nil and ns.CharSheetStock()
+    return ns.CharSheetStock()
 end
 
 -- Equipment slot lists
@@ -179,7 +179,8 @@ local function ForeverSlotLabels(slot, slotName, slotID, unit, itemLink, overlay
 
     if side == "T" then
         -- Upward from the slot, centred: the enchant, the damage, the first line.
-        local y = 3
+        -- Blizz Default: from past the bronze slot frame (9px), as the character sheet does.
+        local y = StockLook() and 11 or 3
         if ench then
             ench:SetPoint("BOTTOM", slot, "TOP", 0, y)
             ench:SetJustifyH("CENTER")
@@ -223,7 +224,9 @@ local function ForeverSlotLabels(slot, slotName, slotID, unit, itemLink, overlay
             end
         end
     end
-    local y = weapon and FV_WY or 10
+    -- Blizz Default: an outer weapon's first line on the slot's centre, clear of
+    -- the bronze frame of the column's bottom slot, as on the character sheet.
+    local y = weapon and (StockLook() and 0 or FV_WY) or 10
     if head then
         head:SetPoint(point, slot, rel, x, y)
         if stats then stats:SetPoint(point, head, rel, x < 0 and -FV_GAP or FV_GAP, 0) end
@@ -1462,8 +1465,10 @@ end
 local function RefreshDock()
     local insp, cf = InspectFrame, _G.CharacterFrame
     if not insp or not cf then return end
-    -- Blizz Default: Blizzard's own panel layout docks its windows.
-    if StockLook() then return end
+    -- Blizz Default: Blizzard's own panel layout docks its windows, unless the
+    -- Shifter holds a spot for one of them (it puts that one back after every
+    -- Blizzard move, so Blizzard's layout no longer keeps the two apart).
+    if StockLook() and not (ShifterPinned("CharacterFrame") or ShifterPinned("InspectFrame")) then return end
     if EllesmereUIDB and (EllesmereUIDB.themedInspectSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
 
     if not (insp:IsShown() and cf:IsShown()) then

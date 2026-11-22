@@ -1354,18 +1354,32 @@ local function AdoptNamedEntries(chars)
     local guid, name = EllesmereUI.CharGUID(), UnitName("player")
     if not guid or not name or issecretvalue(name) or (name == UNKNOWNOBJECT and not IsLoggedIn()) then return end
     _rosterAdopted = true
-    -- GUID changed: rekey the entry with this name and realm (latest seen wins).
-    local full, realm = RosterName(), EllesmereUI.PlainString(EllesmereUI.RealmGroupName())
-    if type(chars[guid]) ~= "table" and full and realm then
-        local oldKey, oldSeen
-        for key, c in pairs(chars) do
-            if type(c) == "table" and c.name == full and c.realm == realm
-                and (not oldKey or (c.seen or 0) > oldSeen) then
-                oldKey, oldSeen = key, c.seen or 0
+    -- A GUID changed (WoW Forever only: its GUIDs may lose their realm part,
+    -- while a name is unique across the region): a GUID the roster does not
+    -- know takes over the entry of the same name and ruleset, but only when
+    -- that entry's class is this character's and its level is not above this
+    -- character's. A moved character keeps both; a reroll under a freed name
+    -- starts again at level 1. Race can be changed, so it is not compared.
+    -- Latest seen wins; nothing moves while the class or level cannot be read.
+    if EllesmereUI.IS_FOREVER and type(chars[guid]) ~= "table" then
+        local Plain = EllesmereUI.PlainString
+        local full, realm = RosterName(), Plain(EllesmereUI.RealmGroupName())
+        local _, class = UnitClass("player")
+        class = Plain(class)
+        local level = UnitLevel("player")
+        if type(level) ~= "number" or issecretvalue(level) or level < 1 then level = nil end
+        if full and realm and class and level then
+            local oldKey, oldSeen
+            for key, c in pairs(chars) do
+                if type(c) == "table" and c.name == full and c.realm == realm and c.class == class
+                    and type(c.level) == "number" and c.level <= level
+                    and (not oldKey or (c.seen or 0) > oldSeen) then
+                    oldKey, oldSeen = key, c.seen or 0
+                end
             end
-        end
-        if oldKey then
-            chars[guid], chars[oldKey] = chars[oldKey], nil
+            if oldKey then
+                chars[guid], chars[oldKey] = chars[oldKey], nil
+            end
         end
     end
     local mine = chars[guid]
@@ -3100,10 +3114,6 @@ function EllesmereUI.MakeUnlockElement(opts)
         -- is impossible (action bars in Blizzard Style, where EUI does not control
         -- sizing). Clearing an existing match stays allowed.
         matchUnavailable  = opts.matchUnavailable,
-        -- keepMoverWhenAnchored: isAnchored() reflecting a module option (ERB "Anchor
-        -- To") still gets a mover -- position-locked (no drag/nudge/anchor link), but
-        -- resize and width/height matching stay available.
-        keepMoverWhenAnchored = opts.keepMoverWhenAnchored,
         -- moverBg: optional {r,g,b} tint for the mover background (default: dark overlay).
         -- moverTooltip: optional hover tooltip (string or function) on the mover
         -- (first use: CDM's Additional Bar Offset marker).
@@ -3562,7 +3572,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.9.1"
+EllesmereUI.VERSION = "9.9.2"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

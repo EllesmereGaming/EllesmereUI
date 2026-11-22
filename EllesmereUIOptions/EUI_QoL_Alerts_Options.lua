@@ -110,11 +110,10 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
             { type="toggle", text="Unspent Legacy Points Alert",
               tooltip="Shows on-screen text while you have Legacy points to spend, until you spend them or open the Legacy window.",
               getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.legacyAlertEnabled or false
+                  return EllesmereUI.QoLExtrasGet("legacyAlertEnabled") or false
               end,
               setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.legacyAlertEnabled = v
+                  EllesmereUI.QoLExtrasSet("legacyAlertEnabled", v)
                   if EllesmereUI._applyLegacyAlert then EllesmereUI._applyLegacyAlert() end
                   EllesmereUI:RefreshPage()
               end },
@@ -246,7 +245,7 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
                 rows = AlertCogRows("legacyAlert", "_legacyAlertFrame", "_legacyAlertPreview"),
                 footer = { unlockKey = "EUI_CombatAlert" },
                 gap = 9,
-                disabled = function() return not (EllesmereUIDB and EllesmereUIDB.legacyAlertEnabled) end,
+                disabled = function() return not EllesmereUI.QoLExtrasGet("legacyAlertEnabled") end,
                 disabledTooltip = "Unspent Legacy Points Alert",
             })
         end

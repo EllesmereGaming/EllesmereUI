@@ -2430,9 +2430,36 @@ local function ApplyDarkTheme(health, unit)
     -- Forever; EUI_UnitFrames_ForeverEmptyPower.lua). Off: one field read.
     if health._epMirror then ns.UF_EmptyPowerPaint(health, unit) end
     -- The Forever druid combo row's health strip takes the same paint (EUI_UnitFrames_Init.lua).
-    if health._euiStrip then ns.UF_CPStripPaint(health, unit) end
+    if health._euiStrip then ns.UF_PaintHealthMirror(health, unit, "_euiStrip", "_euiStripChain") end
 end
 ns.ApplyDarkTheme = ApplyDarkTheme
+
+-- A second health bar of ours over part of the frame (Hide Empty Power Bar's,
+-- the WoW Forever druid combo row's strip), held in health[mirrorKey]: painted
+-- as the health bar is painted, its PostUpdateColor chained behind the health
+-- bar's (health[chainKey] marks the chain). Returns the bar, nil without one.
+function ns.UF_PaintHealthMirror(health, unit, mirrorKey, chainKey)
+    local m = health[mirrorKey]
+    if not m then return nil end
+    local key = health._euiUnitKey
+    m._euiUnitKey = key
+    ApplyHealthBarTexture(m, key)
+    m:SetStatusBarColor(health:GetStatusBarColor())
+    ApplyHealthBarAlpha(m, key)
+    m:SetReverseFill(health:GetReverseFill() and true or false)
+    ApplyDarkTheme(m, unit)
+    local puc = health.PostUpdateColor
+    if puc and puc ~= health[chainKey] then
+        local function chain(self, u, color)
+            puc(self, u, color)
+            local mm = self[mirrorKey]
+            if mm and mm.PostUpdateColor then mm:PostUpdateColor(u, color) end
+        end
+        health[chainKey] = chain
+        health.PostUpdateColor = chain
+    end
+    return m
+end
 
 -- Re-apply dark theme to every frame when the global Dark Mode palette changes
 -- (fill/bg colour + opacity). Class/power darken propagates via ApplyColorsToOUF,

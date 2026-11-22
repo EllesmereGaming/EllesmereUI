@@ -26,7 +26,7 @@ ns.unlockParts.PointPicker = function(UM)
         local elem = UM.registeredElements[key]
         if not elem or EllesmereUI.IsScreenEdgeKey(key) then return false end
         if source then
-            if elem.noAnchorTo or elem.ownsPosition or ns.IsMoverPosLocked(key) then return false end
+            if elem.noAnchorTo or elem.ownsPosition then return false end
             if elem.isAnchored and elem.isAnchored(key) then return false end
         elseif elem.noAnchorTarget then
             return false

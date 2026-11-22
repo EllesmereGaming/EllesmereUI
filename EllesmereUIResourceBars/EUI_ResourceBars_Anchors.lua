@@ -810,13 +810,19 @@ end
 
 -- A cursor-riding bar leaves an invisible stand-in at its resting spot (its own
 -- link, else saved spot); anchored bars stay there instead of following the cursor.
-local function PlaceCursorStandIn(frame, unlockKey, settings, defaultX, defaultY, width, height)
+-- centerShiftY: a free CENTER spot's shift the bar itself takes there (Expand
+-- Power Bar if No Resource grows it toward the class resource).
+local function PlaceCursorStandIn(frame, unlockKey, settings, defaultX, defaultY, width, height, centerShiftY)
     local s = frame._erbStandIn
     if not s then
         s = CreateFrame("Frame", nil, frame:GetParent())
         frame._erbStandIn = s
     end
     ApplyFreeBarPosition(s, settings, defaultX, defaultY, width, height)
+    if centerShiftY and centerShiftY ~= 0 then
+        local pt, rel, rp, x, y = s:GetPoint(1)
+        if pt == "CENTER" then s:SetPoint(pt, rel, rp, x, y + centerShiftY) end
+    end
     -- The bar's own unlock link, if any, then places the stand-in. Registered
     -- only, or the link would move the bar itself (no-op without a link).
     local reg = EllesmereUI._unlockRegisteredElements
@@ -909,6 +915,17 @@ local function FollowCursorLinkTarget(frame, unlockKey)
     local get = ai and ai.target and LINK_TARGET_FRAMES[ai.target]
     local tgt = get and get()
     if not (tgt and tgt ~= frame and tgt._erbMouseTrack and tgt:IsShown()) then return end
+    -- Links that lead back to this bar through cursor bars (only imported data:
+    -- Unlock Mode refuses a loop) would be an anchor loop: keep its own cursor.
+    local key = ai.target
+    for _ = 1, 3 do
+        local nai = adb[key]
+        key = nai and nai.target
+        if key == unlockKey then return end
+        local nget = key and LINK_TARGET_FRAMES[key]
+        local nf = nget and nget()
+        if not (nf and nf._erbMouseTrack and nf:IsShown()) then break end
+    end
     local fromPt, toPt
     if ai.mode == "POINT" then
         fromPt, toPt = ai.sourcePoint, ai.targetPoint
