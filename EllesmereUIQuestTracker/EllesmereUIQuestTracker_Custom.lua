@@ -450,12 +450,19 @@ local function ShowFocusButton(line, questID, complete, size)
     b.glow:SetShown(focused)
 end
 
+-- A quest's item button reaches down past its title: lines starting above
+-- itemBottom stop itemCut short of it. Render sets both per quest.
+local itemBottom, itemCut = 0, 0
+local function LineW(y, w)
+    return y < itemBottom and math.max(TITLE_MIN_W, w - itemCut) or w
+end
+
 local function AddObjectives(questID, y, width, x)
     local gap = Cfg("customObjSpacing") or 1
     local w = width - x
     local l, h
     if C_QuestLog.IsFailed(questID) then
-        l, h = AcquireLine("obj", questID, "- " .. FAILED, x, y, w)
+        l, h = AcquireLine("obj", questID, "- " .. FAILED, x, y, LineW(y, w))
         l.text:SetTextColor(DIM_RED_FONT_COLOR.r, DIM_RED_FONT_COLOR.g, DIM_RED_FONT_COLOR.b, 1)
         return y + h + gap
     end
@@ -463,7 +470,7 @@ local function AddObjectives(questID, y, width, x)
         local logIndex = C_QuestLog.GetLogIndexForQuestID(questID)
         local text = logIndex and GetQuestLogCompletionText(logIndex)
             or C_QuestLog.GetNextWaypointText(questID) or QUEST_WATCH_QUEST_READY
-        l, h = AcquireLine("obj", questID, "- " .. text, x, y, w)
+        l, h = AcquireLine("obj", questID, "- " .. text, x, y, LineW(y, w))
         local r, g, b = EQT.GetCompletedRGB()
         l.text:SetTextColor(r, g, b, 1)
         return y + h + gap
@@ -479,7 +486,7 @@ local function AddObjectives(questID, y, width, x)
             if obj.type == "progressbar" then
                 text = text .. " (" .. math.floor(GetQuestProgressBarPercent(questID) or 0) .. "%)"
             end
-            l, h = AcquireLine("obj", questID, "- " .. text, x, y, w, questID * 100 + i)
+            l, h = AcquireLine("obj", questID, "- " .. text, x, y, LineW(y, w), questID * 100 + i)
             l.text:SetTextColor(ObjectiveRGBA(obj))
             if prev then
                 if prev[i] and prev[i] ~= text then Flash(l) end
@@ -590,7 +597,7 @@ local function AddTimer(questID, y, width, x)
     local ends = timerEnd[questID]
     if not ends then return y end
     local now = GetTime()
-    local l, h = AcquireLine("obj", questID, TimerText(math.max(ends - now, 0)), x, y, width - x)
+    local l, h = AcquireLine("obj", questID, TimerText(math.max(ends - now, 0)), x, y, LineW(y, width - x))
     y = y + h + (Cfg("customObjSpacing") or 1)
     local total = C_QuestLog.GetTimeAllowed(questID)
     l.timerQuest = questID
@@ -986,8 +993,10 @@ local function Render()
                 else
                     shut = collapsed[questID]
                 end
+                itemBottom, itemCut = item and top + itemSize or 0, itemW
                 if not shut then y = AddObjectives(questID, y, width, objX) end
                 y = AddTimer(questID, y, width, objX)
+                itemBottom = 0
                 if item then y = math.max(y, top + itemSize + 2) end
                 y = y + (Cfg("customQuestSpacing") or 4)
             end
