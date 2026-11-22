@@ -563,6 +563,11 @@ local function ReparentBarsToClip(frame, powerPosition, settings)
             ns.UpdatePowerBorder(frame.Power, settings)
         end
     end
+    -- Hide Empty Power Bar (WoW Forever; EUI_UnitFrames_ForeverEmptyPower.lua)
+    -- works over the final parents and levels. Off and never on: this test.
+    if ns.UF_EmptyPower and ((settings and settings.hideEmptyPower) or frame._epParts) then
+        ns.UF_EmptyPower(frame, settings)
+    end
 end
 
 
