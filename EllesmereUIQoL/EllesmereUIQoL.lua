@@ -4467,7 +4467,7 @@ do
         end
         local size = EllesmereUI.QoLExtrasGet("groupDeathTextSize") or DEFAULT_TEXT_SIZE
         local icon = RoleIconMarkup(role, size)
-        alertOverlay._text:SetText(icon .. " " .. colored .. " |cffff2020DIED!|r")
+        alertOverlay._text:SetText(icon .. " " .. EllesmereUI.Lf("%1$s |cffff2020DIED!|r", colored))
 
         alertOverlay._ag:Stop()
         alertOverlay:SetAlpha(1)
