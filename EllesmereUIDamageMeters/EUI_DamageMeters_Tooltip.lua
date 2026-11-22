@@ -700,7 +700,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
                 -- SetText displays it, where the old nil-out fell to "Unknown".
                 spellName = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spell.spellID)
             end
-            b.label:SetText(spellName or spell.creatureName or L("Unknown"))
+            b.label:SetText(I.SpellEntryLabel(spellName, spell.creatureName) or L("Unknown"))
             if canPercent and totalDmg > 0 then
                 b.amount:SetText(format("%s  %.1f%%", AbbrevNumber(entry.amount), (entry.amount / totalDmg) * 100))
             else
