@@ -1449,8 +1449,9 @@ local function UpdateNameOnlyText(nameFS)
     end
     -- Nameplate tokens are recycled: a plate reused for an enemy keeps our
     -- hook and a stale friendly token, so never write on a hostile unit
-    -- (Blizzard's own name write is already correct there).
-    if UnitCanAttack("player", unit) then
+    -- (Blizzard's own name write is already correct there). An unflagged
+    -- opposite-faction player is no friend either: Blizzard colours that name.
+    if UnitCanAttack("player", unit) or not UnitIsFriend("player", unit) then
         HideNameOnlySub(nameFS)
         nameFSText[nameFS] = nil
         return
