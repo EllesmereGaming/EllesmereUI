@@ -1902,10 +1902,19 @@ end
 -------------------------------------------------------------------------------
 hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
     if not unit or unit == "preview" then return end
+
+    local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
+    -- Pooled name string: drop the last occupant's composition and guild line.
+    -- The player path below re-attaches it.
+    local nfs = nameplate and nameplate.UnitFrame and nameplate.UnitFrame.name
+    if nfs then
+        nameFSUnits[nfs], nameFSText[nfs] = nil, nil
+        HideNameOnlySub(nfs)
+    end
+
     if UnitCanAttack("player", unit) then return end
     if UnitIsUnit(unit, "player") then return end
 
-    local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
     if nameplate then unitToNameplate[unit] = nameplate end
 
     -- A pooled UnitFrame can arrive still parked for the unit that last held
