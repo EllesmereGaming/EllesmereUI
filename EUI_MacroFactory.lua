@@ -1423,7 +1423,9 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                     local insLine = menuFrame:CreateTexture(nil, "OVERLAY", nil, 7)
                     insLine:SetHeight(2); insLine:SetColorTexture(EG.r, EG.g, EG.b, 0.9); insLine:Hide()
 
-                    for ci, cb in ipairs(cbItems) do
+                    local savedOrder = EnsureOrder(GetDB(), #cbItems)
+                    for ci = 1, #cbItems do
+                        local cb = cbItems[savedOrder[ci]]
                         local row = CreateFrame("Button", nil, menuFrame)
                         row:SetHeight(MH); row._baseY = mY; row._cbIndex = ci; row._cb = cb
                         row:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)
