@@ -373,9 +373,10 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     end
 
     ---------------------------------------------------------------------------
-    --  GROUP FINDER (EllesmereUIForeverEssentials_LFGLanguages.lua)
+    --  GROUP FINDER (EllesmereUIForeverEssentials_LFGLanguages.lua, _LFGZones.lua)
     ---------------------------------------------------------------------------
     local LL = EllesmereUI._LFGLanguages
+    local LZ = EllesmereUI._LFGZones
     _, h = W:Spacer(parent, y, 20);  y = y - h
     _, h = W:SectionHeader(parent, "GROUP FINDER", y);  y = y - h
 
@@ -387,7 +388,13 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               LL.Cfg().enabled = v
               LL.Apply()
           end },
-        BLANK()
+        { type = "toggle", text = "Show Solo Player Zones",
+          tooltip = "Shows the zone of the players listed on their own (not in a group) on their row of the Looking For Group window.",
+          getValue = function() return LZ.Get("enabled") end,
+          setValue = function(v)
+              LZ.Cfg().enabled = v
+              LZ.Apply()
+          end }
     );  y = y - h
 
     ---------------------------------------------------------------------------
