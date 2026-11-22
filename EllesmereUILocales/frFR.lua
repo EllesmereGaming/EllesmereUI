@@ -7036,6 +7036,11 @@ L["Select a Talent"] = "Sélectionner un talent"
 L["Picked"] = "Choisi"
 L["Click: pick this talent"] = "Clic : choisir ce talent"
 L["Click the talent this reminder is for."] = "Cliquez sur le talent concerné par ce rappel."
+-- Unspent Legacy Points alert (EllesmereUIQoL_Alerts.lua, WoW Forever)
+L["Unspent Legacy points"] = "Points Legacy non dépensés"
+L["Unspent Legacy Points Alert"] = "Alerte de points Legacy non dépensés"
+L["Unspent Legacy Points Alert Settings"] = "Réglages de l'alerte de points Legacy"
+L["Shows on-screen text while you have Legacy points to spend, until you spend them or open the Legacy window."] = "Affiche un texte à l'écran tant qu'il vous reste des points Legacy à dépenser, jusqu'à ce que vous les dépensiez ou ouvriez la fenêtre Legacy."
 -- Search Other Languages (EllesmereUIForeverEssentials_LFGLanguages.lua)
 L["Search Other Languages"] = "Chercher dans d'autres langues"
 L["Choose Languages"] = "Choix des langues"
