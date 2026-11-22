@@ -36,27 +36,114 @@ local IsEquippableItem = C_Item.IsEquippableItem
 -- the real item, never GetItemByID: scaling gear's bonus IDs lower its required level, but
 -- GetItemByID shows the unscaled base item's level (reads red). Prefer bag slot > link > ID; cache by link, cleared on a level-up or a skill change.
 local _canUseCache = {}
-local ITEM_CLASS_RECIPE = Enum.ItemClass.Recipe
-local function BagsItemUnusable(bagID, slot, itemLink, itemID)
+local ITEM_CLASS_RECIPE, ITEM_CLASS_CONSUMABLE = Enum.ItemClass.Recipe, Enum.ItemClass.Consumable
+-- A scanned tooltip can still be loading: the client fills it in with TOOLTIP_DATA_UPDATE.
+-- Watch each scan for a short window only, re-read just those items, repaint on a change.
+local WATCH_SECONDS = 2
+local _tipItem = {}
+local _watchEnd, _watchTimer, _rescanning = 0, false, false
+local BagsItemUnusable
+local _tipWatch = CreateFrame("Frame")
+local function StopWatch()
+    wipe(_tipItem)
+    _tipWatch:UnregisterEvent("TOOLTIP_DATA_UPDATE")
+end
+local function WatchExpire()
+    local left = _watchEnd - GetTime()
+    if left > 0 then C_Timer.After(left, WatchExpire); return end
+    _watchTimer = false
+    StopWatch()
+end
+-- Re-read one watched item; true if its answer changed. A rescan re-watches its new
+-- dataInstanceID without extending the window.
+local function Recheck(id, w)
+    _tipItem[id] = nil
+    if w.bagID and w.link and C_Container.GetContainerItemLink(w.bagID, w.slot) ~= w.link then
+        return false
+    end
+    local old = _canUseCache[w.item]
+    _canUseCache[w.item] = nil
+    _rescanning = true
+    local new = BagsItemUnusable(w.bagID, w.slot, w.link, w.itemID)
+    _rescanning = false
+    return new ~= old
+end
+local _recheckIDs = {}
+_tipWatch:SetScript("OnEvent", function(_, _, id)
+    if GetTime() > _watchEnd then StopWatch(); return end
+    local changed = false
+    if id then
+        local w = _tipItem[id]
+        if not w then return end
+        changed = Recheck(id, w)
+    else
+        for wid in pairs(_tipItem) do _recheckIDs[#_recheckIDs + 1] = wid end
+        for i = 1, #_recheckIDs do
+            local wid = _recheckIDs[i]
+            local w = _tipItem[wid]
+            if w and Recheck(wid, w) then changed = true end
+        end
+        wipe(_recheckIDs)
+    end
+    if not next(_tipItem) then StopWatch() end
+    if not changed then return end
+    if EUI_Bags._tintRetry then EUI_Bags._tintRetry() end
+    if EUI_Bank and EUI_Bank._tintRetry then EUI_Bank._tintRetry() end
+end)
+local function WatchTip(tip, item, bagID, slot, itemLink, itemID)
+    local id = tip.dataInstanceID
+    if not id then return end
+    if not _rescanning then _watchEnd = GetTime() + WATCH_SECONDS end
+    if GetTime() > _watchEnd then return end
+    if not next(_tipItem) then _tipWatch:RegisterEvent("TOOLTIP_DATA_UPDATE") end
+    _tipItem[id] = { item = item, bagID = bagID, slot = slot, link = itemLink, itemID = itemID }
+    if not _watchTimer then
+        _watchTimer = true
+        C_Timer.After(WATCH_SECONDS, WatchExpire)
+    end
+end
+function BagsItemUnusable(bagID, slot, itemLink, itemID)
     local item = itemLink or itemID
     if not item then return false end
     local cached = _canUseCache[item]
     if cached ~= nil then return cached end
     local unusable = false
 
-    -- Recipes also have a spell (the teach effect), so they'd hit the tooltip scan
-    -- below. Skip that: the scan can see red from the crafted item's own preview
-    -- stats, not just from the recipe's learn requirements. Use the usable check
-    -- instead, which reflects skill/known state directly.
+    -- Recipes: IsUsableItem misreads the learn requirement. The crafted item's preview
+    -- comes first, so only red after the last Use line counts (anywhere if none).
     local _, _, _, _, _, classID = GetItemInfoInstant(item)
     if classID == ITEM_CLASS_RECIPE then
-        local usable = C_Item.IsUsableItem(item)
-        unusable = not usable
+        local tip
+        if bagID and slot then
+            tip = C_TooltipInfo.GetBagItem(bagID, slot)
+        elseif itemLink then
+            tip = C_TooltipInfo.GetHyperlink(itemLink)
+        end
+        if not (tip and tip.lines) then return false end
+        WatchTip(tip, item, bagID, slot, itemLink, itemID)
+        local red = false
+        for _, row in ipairs(tip.lines) do
+            local text = row.leftText
+            if text == ITEM_SPELL_KNOWN then
+                red = true
+                break
+            elseif text and text:sub(1, #ITEM_SPELL_TRIGGER_ONUSE) == ITEM_SPELL_TRIGGER_ONUSE then
+                red = false
+            else
+                local lc = row.leftColor
+                if lc and lc.r > 0.9 and lc.g < 0.2 and lc.b < 0.2 then red = true end
+            end
+        end
+        unusable = red
         _canUseCache[item] = unusable
         return unusable
     end
 
-    if IsEquippableItem(item) or C_Item.GetItemSpell(item) then
+    -- No Use line: tokens are scanned only while above the player's level, consumables
+    -- always (a scroll can need a skill, which GetItemInfo does not report).
+    local _, _, _, _, minLevel = C_Item.GetItemInfo(item)
+    if IsEquippableItem(item) or C_Item.GetItemSpell(item) or classID == ITEM_CLASS_CONSUMABLE
+       or (minLevel and minLevel > UnitLevel("player")) then
         -- Only use a tooltip from the real bag slot or real item link; both carry
         -- bonus IDs, which set the item's true required level. A bare itemID lacks
         -- those and can read the wrong level requirement either way.
@@ -69,6 +156,7 @@ local function BagsItemUnusable(bagID, slot, itemLink, itemID)
             reliable = true
         end
         if tip and tip.lines then
+            WatchTip(tip, item, bagID, slot, itemLink, itemID)
             for _, row in ipairs(tip.lines) do
                 local lc = row.leftColor
                 -- Tolerance, not exact equality: rounding can put red just under r=1.
@@ -102,6 +190,8 @@ do
     f:RegisterEvent("PLAYER_LEVEL_CHANGED")
     -- A skill rank gates recipes and some items without a level change.
     f:RegisterEvent("SKILL_LINES_CHANGED")
+    -- A learned recipe turns its other copies (bank, alts' mail) into "Already known".
+    f:RegisterEvent("NEW_RECIPE_LEARNED")
     f:SetScript("OnEvent", function(_, event)
         if event == "SKILL_LINES_CHANGED" and InCombatLockdown() then
             -- A rank gained in a fight (weapon and defense skill, by the dozen while
@@ -112,6 +202,7 @@ do
             return
         end
         wipe(_canUseCache)
+        StopWatch()
     end)
 end
 -- WoW Forever: the player's bags (1-4) that hold one kind of item only --
