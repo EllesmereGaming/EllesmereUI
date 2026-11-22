@@ -86,7 +86,7 @@ XF.GrowInfo = function(set, s)
         -- the same way). Read raw it would miss every branch below: the left
         -- flip falls through to DOWN and the perpendicular check picks the
         -- RIGHT default by luck.
-        if wrap == "DOWNRIGHT" then wrap = "RIGHT" end
+        if ns._RFIsGridFlow(wrap) then wrap = "RIGHT" end
         if set and set.position == "left" then
             wrap = (wrap == "RIGHT" and "LEFT") or (wrap == "LEFT" and "RIGHT")
                 or (wrap == "DOWN" and "UP") or "DOWN"

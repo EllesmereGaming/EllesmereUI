@@ -337,9 +337,10 @@ local defaults = {
         raidCompactMode  = false,
         raidGridMode     = false,
         partyCompactMode = false,
-        groupGrowth      = "RIGHT",  -- "DOWN", "UP", "RIGHT", "LEFT", "DOWNRIGHT" (grid: ns._RF_GRID_ROWS per column)
+        groupGrowth      = "RIGHT",  -- "DOWN", "UP", "RIGHT", "LEFT", grids "DOWNRIGHT" / "RIGHTDOWN" (wrap every groupGridSize)
+        groupGridSize    = 2,        -- grid flows: groups per column (DOWNRIGHT) or per row (RIGHTDOWN) before wrapping
         unitGrowth       = "DOWN",   -- any direction; same-axis as groupGrowth = one continuous line
-        groupGrowthCentered = false, -- center the shown groups in the mover box along the group axis (not for DOWNRIGHT)
+        groupGrowthCentered = false, -- center the shown groups in the mover box along the group axis (not for grid flows)
         sortMode         = "ROLE",   -- "INDEX" (by group) or "ROLE" (by assigned role)
         roleOrder        = { "TANK", "HEALER", "DAMAGER" },
         prioritizeClass  = false,    -- sort by class within the main sort (raid)

@@ -898,9 +898,9 @@ FB.Anchor = function(owner)
             local gap = s.groupSpacing or -1
             local grow = s.groupGrowth or "RIGHT"
             local before = (fb.position == "left")
-            if grow == "RIGHT" or grow == "DOWNRIGHT" then
-                -- The grid flow's last group also ends in the rightmost column,
-                -- so it slots in along the same edge as a plain RIGHT run.
+            if grow == "RIGHT" or ns._RFIsGridFlow(grow) then
+                -- Both grid flows advance right like a plain RIGHT run, so the
+                -- frames slot in along the same edge of the end group.
                 if before then FB.Pin(c, "TOPRIGHT", anchorHdr, "TOPLEFT", -gap, 0)
                 else FB.Pin(c, "TOPLEFT", anchorHdr, "TOPRIGHT", gap, 0) end
             elseif grow == "LEFT" then
