@@ -2429,6 +2429,8 @@ local function ApplyDarkTheme(health, unit)
     -- Hide Empty Power Bar's second health bar takes the same paint (WoW
     -- Forever; EUI_UnitFrames_ForeverEmptyPower.lua). Off: one field read.
     if health._epMirror then ns.UF_EmptyPowerPaint(health, unit) end
+    -- The Forever druid combo row's health strip takes the same paint (EUI_UnitFrames_Init.lua).
+    if health._euiStrip then ns.UF_CPStripPaint(health, unit) end
 end
 ns.ApplyDarkTheme = ApplyDarkTheme
 
