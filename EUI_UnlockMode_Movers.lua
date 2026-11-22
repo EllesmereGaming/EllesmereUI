@@ -2022,7 +2022,7 @@ local function CreateMover(barKey)
                 UM.ApplyAnchorPosition(self._barKey, ai.target, nil, true)
             end
         elseif ai then
-            local targetBar = UM.GetBarFrame(ai.target)
+            local targetBar = UM.GetAnchorTargetFrame(ai.target)
             if targetBar then
                 local tS = targetBar:GetEffectiveScale()
                 local uiScale = UIParent:GetEffectiveScale()

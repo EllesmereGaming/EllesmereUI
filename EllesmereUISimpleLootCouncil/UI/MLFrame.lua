@@ -90,7 +90,7 @@ end
 local function CannotAwardText(item)
     if item.removed then
         return addon.Locale.Format(
-            T["%s was removed from this run.\n\nRight-click it in the list to restore it first."],
+            T["%s was removed from this session.\n\nRight-click it in the list to restore it first."],
             ItemText(item.link))
     elseif item.gone == "pending" then
         return addon.Locale.Format(
@@ -98,19 +98,19 @@ local function CannotAwardText(item)
             ItemText(item.link))
     elseif item.gone == "lost" then
         return addon.Locale.Format(
-            T["%s went to another player in the loot roll, so it cannot be traded from here.\n\nRight-click it in the list to remove it from the run."],
+            T["%s went to another player in the loot roll, so it cannot be traded from here.\n\nRight-click it in the list to remove it from the session."],
             ItemText(item.link))
     elseif item.gone == "equipped" then
         return addon.Locale.Format(
-            T["%s can no longer be traded.\n\nIts holder equipped it. Right-click it in the list to remove it from the run."],
+            T["%s can no longer be traded.\n\nIts holder equipped it. Right-click it in the list to remove it from the session."],
             ItemText(item.link))
     elseif item.gone == "bound" then
         return addon.Locale.Format(
-            T["%s can no longer be traded.\n\nIts trade window has ended. Right-click it in the list to remove it from the run."],
+            T["%s can no longer be traded.\n\nIts trade window has ended. Right-click it in the list to remove it from the session."],
             ItemText(item.link))
     end
     return addon.Locale.Format(
-        T["%s can no longer be traded.\n\nIts holder no longer has it in their bags. Right-click it in the list to remove it from the run."],
+        T["%s can no longer be traded.\n\nIts holder no longer has it in their bags. Right-click it in the list to remove it from the session."],
         ItemText(item.link))
 end
 
@@ -199,7 +199,7 @@ function MLFrame:ConfirmUnaward(session, expectedRunId, expectedLink, offerRemov
     end
 
     local body = addon.Locale.Format(removable
-        and T["Undo the award of %s to %s?\n\nThis removes it from the trade queue and from history. It can no longer be traded, so it can also come out of the run."]
+        and T["Undo the award of %s to %s?\n\nThis removes it from the trade queue and from history. It can no longer be traded, so it can also come out of the session."]
         or T["Undo the award of %s to %s?\n\nThis removes it from the trade queue and from history."],
         itemText, short)
     if item.delivered then
@@ -215,7 +215,7 @@ function MLFrame:ConfirmUnaward(session, expectedRunId, expectedLink, offerRemov
         onAccept = function()
             if Current() then addon.Session:Unaward(session, runId) end
         end,
-        alternate = removable and T["Undo award and remove from run"] or nil,
+        alternate = removable and T["Undo award and remove from session"] or nil,
         onAlternate = removable and function()
             if Current() then addon.Session:UnawardAndRemove(session, runId) end
         end or nil,
@@ -239,36 +239,36 @@ function MLFrame:ConfirmRemove(session)
     local body
     if restoring then
         body = addon.Locale.Format(
-            T["Put %s back into the run?\n\nRaiders see it again and the council can award it."],
+            T["Put %s back into the session?\n\nRaiders see it again and the council can award it."],
             itemText)
     elseif item.gone == "pending" then
         body = addon.Locale.Format(
-            T["Remove %s from the run? It has not been looted yet.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it."],
+            T["Remove %s from the session? It has not been looted yet.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it."],
             itemText)
     elseif item.gone == "lost" then
         body = addon.Locale.Format(
-            T["Remove %s from the run? It went to another player in the loot roll.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it."],
+            T["Remove %s from the session? It went to another player in the loot roll.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it."],
             itemText)
     elseif item.gone == "equipped" then
         body = addon.Locale.Format(
-            T["Remove %s from the run? Its holder equipped it.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it."],
+            T["Remove %s from the session? Its holder equipped it.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it."],
             itemText)
     elseif item.gone == "bound" then
         body = addon.Locale.Format(
-            T["Remove %s from the run? Its trade window has ended.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it."],
+            T["Remove %s from the session? Its trade window has ended.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it."],
             itemText)
     elseif item.gone then
         body = addon.Locale.Format(
-            T["Remove %s from the run? Its holder no longer has it in their bags.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it."],
+            T["Remove %s from the session? Its holder no longer has it in their bags.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it."],
             itemText)
     else
         body = addon.Locale.Format(
-            T["Remove %s from the run?\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it."],
+            T["Remove %s from the session?\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it."],
             itemText)
     end
 
     S.Confirm({
-        title = restoring and T["Restore to run?"] or T["Remove from run?"],
+        title = restoring and T["Restore to session?"] or T["Remove from session?"],
         body = body,
         accept = restoring and T["Restore"] or T["Remove"],
         onAccept = function()
@@ -2022,7 +2022,7 @@ end
 local function RefreshEndButton()
 
 
-    local label = addon.PlayerIsMasterLooter() and addon.Session:IsRunning() and T["End run"] or T["Close"]
+    local label = addon.PlayerIsMasterLooter() and addon.Session:IsRunning() and T["End session"] or T["Close"]
     if CM.endLabel ~= label then
         CM.endLabel = label
         endButton:SetLabel(label)
@@ -2052,12 +2052,12 @@ function MLFrame:ConfirmEndRun()
         return
     end
     S.Confirm({
-        title = T["End run?"],
+        title = T["End session?"],
         body = addon.Locale.Format(addon.Locale.Plural{
-            one = "End this run for everyone? %d item is still unawarded.",
-            other = "End this run for everyone? %d items are still unawarded.",
+            one = "End this session for everyone? %d item is still unawarded.",
+            other = "End this session for everyone? %d items are still unawarded.",
         }, unawarded, unawarded),
-        accept = T["End run"],
+        accept = T["End session"],
         onAccept = EndRun,
     })
 end
@@ -2902,7 +2902,7 @@ function CM.Build()
         return true
     end
 
-    endButton = S.Button(footer, T["End run"], {
+    endButton = S.Button(footer, T["End session"], {
         width = 135, primary = true, labelPad = S.size.BTN_PAD_FOOTER,
     })
     footer:Add(endButton, true)
@@ -3166,8 +3166,7 @@ end
 
 function CM.SyncResponseTab()
     if not frame then return end
-    local on = CM.responseOn and CM.ResponseSeat() or false
-    frame.Tabs:SetTabShown("response", on)
+    local on = CM.responseOn and CM.ResponseSeat() or false    frame.Tabs:SetTabShown("response", on)
     if not on and CM.tab == "response" then CM.ShowTab("council") end
     if on and CM.wantResponse then
 
@@ -3435,10 +3434,20 @@ function MLFrame:Init()
 
     addon.Callbacks:Register("CouncilChanged", function()
         addon.Callbacks:Invalidate("council")
-        if not addon.Session:IsRunning() or (frame and frame:IsShown())
-            or CM.dismissedRun == addon.Session:GetRunId() then return end
+        if not addon.Session:IsRunning() then return end
         local me = addon.Player:GetFullName("player")
-        if (addon.PlayerIsMasterLooter() or addon.Council:Contains(me)) and CM.HasWork() then
+        local seated = addon.PlayerIsMasterLooter() or addon.Council:Contains(me)
+
+
+        if not seated and frame and frame:IsShown() and CM.tab ~= "queue" then
+            frame:Hide()
+            CM.dismissedRun, CM.wantResponse = nil, nil
+            return
+        end
+        if (frame and frame:IsShown()) or CM.dismissedRun == addon.Session:GetRunId() then return end
+        if seated and CM.HasWork() then
+
+            CM.wantResponse = CM.ResponseSeat() or nil
             MLFrame:Open()
             CM.CheckOpened()
         end

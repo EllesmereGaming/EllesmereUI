@@ -267,7 +267,7 @@ end
 
 
 local RECOVERY_REFUSED_TEXT = addon.Locale.Texts{
-    roster = T["could not restore the saved loot run because the group roster changed during the reload; asking the group for a current copy."],
+    roster = T["could not restore the saved loot session because the group roster changed during the reload; asking the group for a current copy."],
 }
 local RECOVERY_REFUSED_LOG = {
     roster = "the group roster changed during reload",
@@ -362,6 +362,8 @@ local HOLD_SECONDS = 90
 local HOLD_MAX = 256
 local held, holdUntil, holdOverflowed = {}, 0, false
 
+local Seat = { WAIT = HOLD_SECONDS }
+
 
 local function DropHeld(why)
     if #held > 0 then
@@ -410,7 +412,11 @@ end
 
 
 function Session:HoldForRecovery(command, args, sender, handler)
-    if not Holding() then return false end
+    if not Holding() then
+
+        Seat.Record(command, args, sender, handler)
+        return false
+    end
     if #held >= HOLD_MAX then
         table.remove(held, 1)
         if not holdOverflowed then
@@ -977,6 +983,124 @@ end
 
 local function Blocked()
     return addon.Restrictions and addon.Restrictions:IsBlocked() or false
+end
+
+
+
+
+
+
+function Seat.Pending()
+    local pending = Seat.pending
+    if not pending then return nil end
+    if run.active and run.id == pending.runId and GetTime() - pending.at <= Seat.WAIT then
+        return pending
+    end
+    Seat.pending = nil
+    return nil
+end
+
+
+function Seat.Record(command, args, sender, handler)
+    local pending = Seat.Pending()
+    if not pending or #pending.record >= HOLD_MAX then return end
+    pending.record[#pending.record + 1] =
+        { command = command, args = args, sender = sender, handler = handler }
+end
+
+
+function Seat.Mine(session, candidateName, voterName, voted)
+    local pending = Seat.Pending()
+    if not pending or not addon.Player:IsSelf(voterName) then return end
+    pending.mine[#pending.mine + 1] = { session, candidateName, voted }
+end
+
+
+
+function Seat.Check()
+    if not run.active or not run.thin or addon.PlayerIsMasterLooter() then return end
+    local me = addon.Player:GetFullName("player")
+    if not me or not (addon.Council and addon.Council:Contains(me)) then
+        if Seat.pending then addon.Log:I("Session", "seat lost before the whole run came") end
+        Seat.pending = nil
+        return
+    end
+    if Seat.Pending() or not IsInGroup() or Blocked() then return end
+    local master = addon.GetMasterLooter and addon.GetMasterLooter()
+    if not master then return end
+    Seat.pending = { runId = run.id, at = GetTime(), record = {}, mine = {} }
+    addon.Log:I("Session", "seated mid-run - asking", tostring(master), "for the whole run")
+    addon.Comms:Send("run_request", {}, master, true)
+end
+
+
+function Seat.Takes(payload)
+    local pending = Seat.Pending()
+    return pending ~= nil and payload.runId == pending.runId and payload.candidateOnly == nil
+        and payload.parts == nil and payload.snapshotVersion == SNAPSHOT_VERSION
+end
+
+
+
+function Seat.Apply(payload, sender)
+    local pending = Seat.pending
+    Seat.pending = nil
+    local me = addon.Player:GetFullName("player")
+    local merged = 0
+    for index, entry in ipairs(payload.items) do
+        local item = run.items[index]
+        if item and type(entry) == "table" and entry.id == item.id
+            and type(entry.candidates) == "table" then
+            local rows = {}
+            for name, row in pairs(entry.candidates) do
+                if type(name) == "string" then rows[name] = CleanRow(row) end
+            end
+            for name, row in pairs(item.candidates) do
+                local whole = rows[name]
+                if whole == nil then
+                    rows[name] = row
+                elseif me and addon.Player:IsSame(name, me) then
+                    row.voters, rows[name] = whole.voters, row
+                end
+            end
+            item.candidates = rows
+            merged = merged + 1
+        end
+    end
+    for _, entry in ipairs(pending.record) do
+        local ok, err = pcall(entry.handler, entry.args, entry.sender)
+        if not ok then
+            addon.Log:Bug("Session", ("replayed %s failed: %s"):format(
+                tostring(entry.command), tostring(err)))
+        end
+    end
+    for _, vote in ipairs(pending.mine) do
+        local item = run.items[vote[1]]
+        local row = item and item.candidates[vote[2]]
+        if row and me then row.voters[me] = vote[3] and true or nil end
+    end
+    Seat.Reconcile()
+    run.thin, run.complete = nil, true
+    addon.Log:I("Session", "whole run from", tostring(sender), "-", merged, "of", #run.items,
+        "item(s) merged,", #pending.record, "frame(s) replayed")
+    if addon.Callbacks then addon.Callbacks:Fire("SessionChanged", nil, "run") end
+end
+
+
+function Seat.Reconcile()
+    for _, item in ipairs(run.items) do
+        for name, row in pairs(item.candidates) do
+            if row.status == "AWARDED" and name ~= item.awarded then
+                row.status = row.realStatus or "ANNOUNCED"
+                row.response = row.realResponse
+                row.realStatus, row.realResponse = nil, nil
+            elseif name == item.awarded and row.status ~= "AWARDED" then
+                row.realResponse = row.realResponse or row.response
+                row.realStatus = row.realStatus or row.status
+                row.status = "AWARDED"
+            end
+        end
+    end
 end
 
 
@@ -2120,7 +2244,7 @@ end
 
 
 function Session:StartTest(itemLinks, count, sources, inParty)
-    if run.active then return false, T["a run is already active"] end
+    if run.active then return false, T["a session is already active"] end
     if not addon.PlayerIsMasterLooter() then
         return false, T["only the Loot Master can start a test"]
     end
@@ -2434,6 +2558,7 @@ function Session:GetTimerDuration()
 end
 
 
+
 function Session:AllAwarded()
     if #run.items == 0 then return false end
     local any = false
@@ -2470,14 +2595,14 @@ function Session:Start(inParty)
         return false
     end
     if IsInGroup() and not IsInRaid() and not inParty and not addon.GroupTestActive() then
-        addon.Chat.Print(addon.Locale.Format(T["could not start the run: %s"],
+        addon.Chat.Print(addon.Locale.Format(T["could not start the session: %s"],
             T["only possible in a raid"]))
         return false, "raid"
     end
     if Blocked() then
         local reason = addon.Restrictions:GetBlockReason() or T["unavailable"]
         addon.Log:W("Session", "cannot start a run:", reason)
-        addon.Chat.Print(addon.Locale.Format(T["could not start the run: %s"], reason))
+        addon.Chat.Print(addon.Locale.Format(T["could not start the session: %s"], reason))
         return false, "blocked"
     end
 
@@ -2502,7 +2627,7 @@ function Session:Start(inParty)
     if #run.items == 0 then
         addon.Log:I("Session", "nothing to start")
         if dropped > 0 then
-            addon.Chat.Print(T["nothing left to start a run with."])
+            addon.Chat.Print(T["nothing left to start a session with."])
             return false, "emptied"
         end
         return false, "empty"
@@ -2602,6 +2727,9 @@ end
 
 function Session:ApplyRunStart(payload, sender, recovered)
     if type(payload) ~= "table" or type(payload.items) ~= "table" then return end
+
+
+    if Seat.Takes(payload) then return Seat.Apply(payload, sender) end
 
 
     if payload.runId and run.active and run.id == payload.runId then
@@ -2739,6 +2867,9 @@ function Session:ApplyRunStart(payload, sender, recovered)
 
 
     run.complete = payload.candidateOnly == nil and payload.parts == nil
+
+    run.thin = payload.candidateOnly ~= nil or nil
+    Seat.pending = nil
 
 
 
@@ -2958,6 +3089,7 @@ function Session:ApplyVote(session, candidateName, voterName, voted)
 
     candidate.voters[voterName] = voted and true or nil
     TouchVote(session, candidateName, voterName)
+    Seat.Mine(session, candidateName, voterName, voted)
 
     addon.Log:D("Session", "vote", session, candidateName, voterName, tostring(voted))
     if addon.Callbacks then
@@ -3320,6 +3452,8 @@ function Session:RemoveItem(session, on, expectedRunId)
     addon.Comms:Send("item_remove",
         { s = session, i = run.id, on = on and true or false, q = seq }, nil, true)
     Session:ApplyRemove(session, on, addon.Player:GetFullName("player"), seq, run.id)
+
+    if on then Session:EndWhenAwarded() end
     return true
 end
 
@@ -3333,11 +3467,11 @@ end
 
 
 local GONE_TEXT = addon.Locale.Texts{
-    equipped = T["%s was equipped by %s, so it cannot be awarded. Right-click it in the council list to remove it from the run."],
-    bound = T["%s is still in %s's bags, but its trade window has ended, so it cannot be awarded. Right-click it in the council list to remove it from the run."],
-    left = T["%s is no longer in %s's bags, so it cannot be awarded. Right-click it in the council list to remove it from the run."],
+    equipped = T["%s was equipped by %s, so it cannot be awarded. Right-click it in the council list to remove it from the session."],
+    bound = T["%s is still in %s's bags, but its trade window has ended, so it cannot be awarded. Right-click it in the council list to remove it from the session."],
+    left = T["%s is no longer in %s's bags, so it cannot be awarded. Right-click it in the council list to remove it from the session."],
     pending = T["%s has not reached %s's bags yet, so it can be awarded once it does."],
-    lost = T["%s went to another player in the loot roll instead of %s, so it cannot be awarded. Right-click it in the council list to remove it from the run."],
+    lost = T["%s went to another player in the loot roll instead of %s, so it cannot be awarded. Right-click it in the council list to remove it from the session."],
 }
 
 
@@ -3877,6 +4011,23 @@ function Session:Award(session, winner, reason, expectedRunId)
         { s = session, w = winner, r = reason, q = seq }, nil, true)
     Session:ApplyAward(session, winner, addon.Player:GetFullName("player"),
         reason, seq)
+    Session:EndWhenAwarded()
+    return true
+end
+
+
+
+function Session:EndWhenAwarded()
+    if not addon.db or addon.db.autoEnd ~= true or not Session:AllAwarded() then return false end
+    local runId = run.id
+    C_Timer.After(0, function()
+        if addon.db.autoEnd ~= true or not addon.PlayerIsMasterLooter() then return end
+        if not run.active or run.id ~= runId or not Session:AllAwarded() then return end
+        addon.Log:I("Session", "every item awarded - ending the run", tostring(runId))
+        if Session:End() then
+            addon.Chat.Print(T["Every item is awarded, so the loot session has ended."])
+        end
+    end)
     return true
 end
 
@@ -4709,7 +4860,7 @@ function Session:Init()
     addon.Comms:Register("start_ack", "ml", function(args, _)
         if type(args) ~= "table" then return end
         if args.ok then
-            addon.Chat.Print(T["the Loot Master started the run."])
+            addon.Chat.Print(T["the Loot Master started the session."])
         else
             addon.Chat.Print(addon.StartRequest.DeclineText(args.why))
         end
@@ -4817,7 +4968,10 @@ function Session:Init()
         ForgetUndelivered()
     end)
 
-    addon.Callbacks:Register("CouncilChanged", function() RunCopy.SendVotes() end)
+    addon.Callbacks:Register("CouncilChanged", function()
+        RunCopy.SendVotes()
+        Seat.Check()
+    end)
 
 
 
@@ -4985,6 +5139,7 @@ function Session:Init()
     if addon.Restrictions then addon.Restrictions:OnChange(function(isBlocked)
         if isBlocked then return end
         ResumeSweeps()
+        Seat.Check()
         if Split.resyncFor and run.active and run.id == Split.resyncFor then Split.Resync() end
         if not recoveryWaiting then return end
         recoveryWaiting = false

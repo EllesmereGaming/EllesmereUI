@@ -383,6 +383,7 @@ Checked stats show in the on-screen block.
 Checked transforms are removed automatically when applied to you.
 Choose Buff
 Choose Icon
+Choose Languages
 Choose Zones
 Choose a buff from the bar menu
 Choose an alt

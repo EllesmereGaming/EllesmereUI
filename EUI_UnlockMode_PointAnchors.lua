@@ -68,6 +68,13 @@ function PA.Frame(key)
     return elem and elem.getFrame and elem.getFrame(key)
 end
 
+-- Target side of a link: a target riding the cursor lends its resting stand-in.
+function PA.TargetFrame(key)
+    local elem = EllesmereUI._unlockRegisteredElements[key]
+    local standIn = elem and elem.anchorStandIn and elem.anchorStandIn()
+    return standIn or PA.Frame(key)
+end
+
 local function Insets(key, frame)
     local elem = EllesmereUI._unlockRegisteredElements[key]
     local l, r, t, b = 0, 0, 0, 0
@@ -158,7 +165,7 @@ end
 
 function PA.Capture(childKey, info, child, target)
     if not PA.Valid(info) then return end
-    child, target = child or PA.Frame(childKey), target or PA.Frame(info.target)
+    child, target = child or PA.Frame(childKey), target or PA.TargetFrame(info.target)
     local cx, cy = PA.Point(childKey, child, info.sourcePoint)
     local tx, ty = PA.Point(info.target, target, info.targetPoint, true)
     if not cx or not tx then return end
@@ -182,7 +189,7 @@ function PA.Place(childKey, child, info, cx, cy, w, h)
     local rel, rp = UIParent, "CENTER"
     if p and POINTS[info.targetPoint][2] == 0 and EllesmereUI._GetAnchorFollowFrame then
         local follow = EllesmereUI._GetAnchorFollowFrame(childKey, info.target, "BOTTOM")
-        local tx, ty = PA.Point(info.target, PA.Frame(info.target), info.targetPoint, true)
+        local tx, ty = PA.Point(info.target, PA.TargetFrame(info.target), info.targetPoint, true)
         if follow and tx then
             rel, rp = follow, info.targetPoint
             x = x - (tx - UIParent:GetWidth() / 2) * ratio

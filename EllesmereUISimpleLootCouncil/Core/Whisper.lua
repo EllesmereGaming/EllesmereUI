@@ -766,7 +766,7 @@ function Whisper:Describe(text)
     end
 
     if not addon.Session:IsRunning() then
-        return { T["no run is active, and no item was named - silent."] }
+        return { T["no session is active, and no item was named - silent."] }
     end
 
     if parsed.kind == "help" then
@@ -798,7 +798,7 @@ function Whisper:Describe(text)
 
     local item = addon.Session:GetItem(session)
     return {
-        addon.Locale.Format(T["would record %s on session %d (%s)"],
+        addon.Locale.Format(T["would record %s on item %d (%s)"],
             ResponseLabel(parsed), session, tostring(item and item.link or "?")),
         addon.Locale.Format(T["note: %s"], tostring(parsed.note or "-")),
         addon.Locale.Format(T["gear links read: %d"], #parsed.gear),

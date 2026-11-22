@@ -532,7 +532,9 @@ end
 -- any provider installed before this file loaded.
 local prevExtent = EllesmereUI._GetAnchorTargetExtent
 EllesmereUI._GetAnchorTargetExtent = function(targetKey, side)
-    if targetKey == "ERB_Power" and S.shown and not S.parked and side == S.extSide then
+    -- Power Bar on the cursor: links measure its stand-in, so leave its edges alone.
+    if targetKey == "ERB_Power" and S.shown and not S.parked and side == S.extSide
+       and not S.pb._erbMouseTrack then
         local host, pb = S.host, S.pb
         local v, pv
         if side == "BOTTOM" then v, pv = host:GetBottom(), pb:GetBottom()
@@ -559,7 +561,7 @@ end
 -- the same edge linked elements measure from; 0 otherwise. Power Bar units
 -- (this bar is its child: one scale).
 function ns.FDM_BottomExtra()
-    if not (S.shown and not S.parked and S.extSide == "BOTTOM") then return 0 end
+    if not (S.shown and not S.parked and S.extSide == "BOTTOM") or S.pb._erbMouseTrack then return 0 end
     local hb, pb = S.host:GetBottom(), S.pb:GetBottom()
     if not (hb and pb) or hb >= pb then return 0 end
     return pb - hb

@@ -102,7 +102,7 @@ end
 
 local function DeleteRequirement()
     if addon.Session:IsRunning() then
-        return addon.Locale.Format(T["Requires no loot run in progress."])
+        return addon.Locale.Format(T["Requires no loot session in progress."])
     end
     if #addon.db.responses <= 1 then
         return addon.Locale.Format(T["Requires at least one other response."])
@@ -260,6 +260,33 @@ function Schema.QualifiedName(fullName, colourOf)
         end
     end
     return character, realm or "", colour
+end
+
+
+
+function Schema.GroupSuggestions(text, limit)
+    local wanted = addon.Locale.Fold((text or ""):match("^%s*(.-)%s*$"))
+    local n = #wanted
+    local rows = {}
+    for fullName in pairs(addon.GetCandidates()) do
+        local name = fullName:match("^([^-]+)%-.+$")
+        name = name or fullName
+        if n == 0 or addon.Locale.Fold(name):sub(1, n) == wanted
+            or addon.Locale.Fold(fullName):sub(1, n) == wanted then
+            local record = addon.Player:Peek(fullName)
+            rows[#rows + 1] = { name = name, fullName = fullName, online = true,
+                classFile = record and record.classFile }
+        end
+    end
+    table.sort(rows, function(a, b)
+        local x, y = addon.Locale.Fold(a.name), addon.Locale.Fold(b.name)
+        if x ~= y then return x < y end
+        return a.fullName < b.fullName
+    end)
+    if limit then
+        for i = #rows, limit + 1, -1 do rows[i] = nil end
+    end
+    return rows
 end
 
 
@@ -574,7 +601,7 @@ local function StatusTags()
                 if OpensCouncil() then
                     addon.UI.MLFrame:Toggle()
                 elseif not addon.UI.VoterFrame:Toggle() then
-                    Chat("accent", T["nothing in this run is waiting for your answer."])
+                    Chat("accent", T["nothing in this session is waiting for your answer."])
                 end
             elseif button == "RightButton" and addon.PlayerIsMasterLooter() then
                 addon.UI.MLFrame:ConfirmEndRun()
@@ -599,6 +626,18 @@ local function LootMaster()
 
         line = T["Loot Master: %s, %s"],
         command = "/slc lootmaster",
+
+
+        promote = {
+            label = T["Promote new Loot Master"],
+            enabled = function() return addon.CanAssignMasterLooter() end,
+            disabledTip = T["only the group leader can set the Loot Master"],
+            guildSuggest = false, suggestOnFocus = true,
+            suggestMinChars = 0, suggestLimit = 40, suggestRows = 5, suggestNameChars = 12,
+            suggest = Schema.GroupSuggestions,
+            suggestionText = Schema.SuggestionText,
+            apply = function(name) return addon.PromoteLootMasterByName(name) end,
+        },
         name = function() return tostring(addon.GetMasterLooter() or T["unknown"]) end,
         fullName = function() return addon.GetMasterLooter() end,
 
@@ -608,8 +647,9 @@ local function LootMaster()
         end,
         unknown = T["unknown"],
         role = function()
-            return addon.IsLootPromoted() and T["promoted for this raid"] or T["group leader"]
+            return addon.IsLootPromoted() and T["Promoted for this raid"] or T["Group leader"]
         end,
+
 
 
         stored = function(paint)
@@ -623,8 +663,11 @@ local function LootMaster()
                 local classFile = kept.classFile or (kept.guid and addon.Player:Get(kept.guid).classFile)
                 name = paint(name, classFile)
             end
-            return addon.Locale.Format(T["%s auto-promotion"], name)
+            return T["Auto-promotion"], name
         end,
+
+        forget = function() addon.UI.RaidPrompt:ForgetPromote() end,
+        forgetTip = T["Forget the remembered Loot Master promotion"],
     }
 end
 
@@ -714,7 +757,7 @@ local function MainButtons()
                 return true
             end
             if addon.UI.VoterFrame:Open() then return true end
-            Chat("accent", Live() and T["nothing in this run is waiting for your answer."]
+            Chat("accent", Live() and T["nothing in this session is waiting for your answer."]
                 or T["no loot session is running."])
             return false
         end,
@@ -849,6 +892,11 @@ local function Build()
                     db().autoStart = v and true or false
                     if addon.AutoStart then addon.AutoStart:Refresh() end
                 end),
+
+            SwitchRow("autoEnd", T["Automatically end session when every item is awarded"],
+                T["When the last open item of a loot session is awarded or removed, the session ends for everyone. Off: end it yourself with End session."],
+                function() return db().autoEnd == true end,
+                function(v) db().autoEnd = v and true or false end),
         } },
 
         { id = "session", title = T["Session"], rows = {

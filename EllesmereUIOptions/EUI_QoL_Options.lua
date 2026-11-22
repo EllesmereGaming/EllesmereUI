@@ -2755,6 +2755,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.hideAlertToastsHousing = nil
                 EllesmereUIDB.announceGroupDeaths = false
                 EllesmereUIDB.groupDeathTextSize = nil
+                EllesmereUIDB.groupDeathRoleIcon = false
                 EllesmereUIDB.groupDeathAlertPos = nil
                 EllesmereUIDB.groupDeathSound = nil      -- legacy boolean (pre-dropdown)
                 EllesmereUIDB.groupDeathSoundKey = nil
@@ -2798,7 +2799,7 @@ initFrame:SetScript("OnEvent", function(self)
                 for _, k in ipairs({
                     "targetDistanceEnabled", "targetDistanceFormat", "targetDistanceAlign",
                     "targetDistanceTextSize", "targetDistanceStrata", "targetDistancePos",
-                    "announceGroupDeaths", "groupDeathTextSize", "groupDeathAlertPos", "groupDeathSound",
+                    "announceGroupDeaths", "groupDeathTextSize", "groupDeathRoleIcon", "groupDeathAlertPos", "groupDeathSound",
                     "groupDeathSoundKey",
                     "combatAlertEnabled", "combatAlertMode", "combatAlertTextSize", "combatAlertPos",
                     "combatAlertEnterText", "combatAlertLeaveText", "combatAlertEnterColor", "combatAlertLeaveColor",
