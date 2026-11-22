@@ -1938,7 +1938,7 @@ initFrame:SetScript("OnEvent", function(self)
     --  Unified settings builder  (shared settings for the Main Frames page)
     ---------------------------------------------------------------------------
     local UNIT_SUPPORTS = {
-        powerHeight          = { player=true, target=true, focus=true },
+        powerHeight          = { player=true, target=true, focus=true, targettarget=true, focustarget=true, pet=true },
         showPlayerAbsorb     = { player=true, target=true, focus=true },
         absorbCleanAlpha     = { player=true, target=true, focus=true },
         absorbOpacity        = { player=true, target=true, focus=true },
@@ -2158,6 +2158,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- the full-group rule, so cast bar settings never cross to/from player.
     local MINI_GROUP_ORDER = { "targettarget", "focustarget", "pet" }
     local TARGET_FOCUS_PAIR = { "target", "focus" }
+    local TOT_FOT_PAIR = { "targettarget", "focustarget" }
     local function IsGroupSharedKey(key, groupUnits)
         -- Visibility mode stays with the frame: it pairs with enabledFrames (never
         -- copied) and copying one alone desyncs them. Underscore keys are runtime
@@ -2167,9 +2168,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- with the frame for the same reason: copying the modifier to a frame that kept
         -- its own mode changes how that mode reads.
         if key == "barVisibility" or key == "visibilityMatch" or key:sub(1, 1) == "_" then return false end
-        -- WoW Forever: the pet's power bar position has no counterpart on the
-        -- other small frames (theirs never shows), so it stays with the pet.
-        if key == "powerPosition" and ns.UF_PetHasPower and groupUnits == MINI_GROUP_ORDER then return false end
+        -- A Retail pet has no power bar, so power keys skip copies involving it.
+        if groupUnits == MINI_GROUP_ORDER and not ns.UF_PetHasPower and key:find("[Pp]ower") then return false end
         -- The pet's buffs and debuffs stay with the pet: the other small frames
         -- have none, so a copy either way would only clear or plant aura keys.
         if groupUnits == MINI_GROUP_ORDER and (key:find("^buff") or key:find("^debuff")
@@ -2195,6 +2195,9 @@ initFrame:SetScript("OnEvent", function(self)
         if (srcUnit == "target" or srcUnit == "focus")
             and (dstUnit == "target" or dstUnit == "focus") then
             groupUnits = TARGET_FOCUS_PAIR
+        elseif (srcUnit == "targettarget" or srcUnit == "focustarget")
+            and (dstUnit == "targettarget" or dstUnit == "focustarget") then
+            groupUnits = TOT_FOT_PAIR
         end
         local src = UNIT_DB_MAP[srcUnit]()
         local dst = UNIT_DB_MAP[dstUnit]()

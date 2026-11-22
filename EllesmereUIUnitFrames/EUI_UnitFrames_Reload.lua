@@ -1234,9 +1234,9 @@ ReloadFramesBody = function()
             elseif unit == "pet" or unit == "targettarget" or unit == "focustarget" then
                 -- Pet, ToT and FoT all share the same simple-frame layout:
                 -- optional portrait on either side, health bar filling the rest.
-                -- A WoW Forever pet adds its own power bar (built at spawn): an
-                -- attached bar grows the stack and the portrait squares off it.
-                local miniPower = (unit == "pet" and ns.UF_PetHasPower and not ns.UF_Blizz()) and frame.Power or nil
+                -- An EUI mini power bar (built at spawn), when attached, grows
+                -- the stack and the portrait squares off it.
+                local miniPower = (ns.UF_MiniHasPower(unit) and not ns.UF_Blizz()) and frame.Power or nil
                 local miniPpPos = miniPower and (settings.powerPosition or "below") or "none"
                 local miniPowerH = (miniPpPos == "below" or miniPpPos == "above") and (settings.powerHeight or 6) or 0
                 local miniAboveOff = (miniPpPos == "above") and miniPowerH or 0

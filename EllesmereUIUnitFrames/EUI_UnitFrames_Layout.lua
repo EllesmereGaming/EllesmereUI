@@ -594,10 +594,9 @@ local function UpdateBordersForScale(frame, unit)
     local ppIsAtt = (ppPos == "below" or ppPos == "above")
     local ppIsDet = (ppPos == "detached_top" or ppPos == "detached_bottom")
     local ph = settings.powerHeight or 6
-    -- Mini frames (pet/tot/focustarget) have no power bar: no power height.
-    -- The exception is a WoW Forever pet off Blizzard Style, which has its own.
+    -- Mini frames have no power height unless they carry an EUI power bar.
     local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget")
-    local miniNoPower = isMini and not (unit == "pet" and ns.UF_PetHasPower and not ns.UF_Blizz())
+    local miniNoPower = isMini and not (ns.UF_MiniHasPower(unit) and not ns.UF_Blizz())
     local powerH = (ppIsAtt and not miniNoPower) and ph or 0
 
     local btbPos = settings.btbPosition or "bottom"
@@ -834,13 +833,13 @@ local function GetFrameDimensions(unit, settingsOnly)
         local w = (showPortrait and isAttached) and (adjPH + settings.frameWidth) or settings.frameWidth
         return snap(w), snap(barH + btbExtra)
     elseif unit == "pet" or unit == "targettarget" or unit == "focustarget" then
-        -- A WoW Forever pet stacks its attached power bar with the health bar,
+        -- A mini power bar, when attached, stacks with the health bar,
         -- and a shown portrait squares that stack off beside the bar
         -- (StyleSimpleFrame), so it is part of the width here as on the other
         -- frames: the unlock setter subtracts the same square, and a size this
         -- reports must come back as itself through it (an override layer
         -- banks it and hands it to the setter on every apply).
-        local miniPowerH = (unit == "pet" and ns.UF_PetHasPower) and powerExtra or 0
+        local miniPowerH = ns.UF_MiniHasPower(unit) and powerExtra or 0
         local barH = settings.healthHeight + miniPowerH
         local w = showPortrait and (barH + settings.frameWidth) or settings.frameWidth
         return snap(w), snap(barH)

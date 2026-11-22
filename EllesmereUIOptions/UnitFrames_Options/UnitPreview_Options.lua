@@ -60,13 +60,12 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
 
     side = side or "left"
 
-    -- Mini frames (ToT/FoT/Pet) have no power bar, cast bar or auras at
-    -- runtime, so the preview draws none, except the pet's opt-in buffs and
-    -- debuffs (drawn while their Location is set) and, on WoW Forever, the
-    -- pet's power bar in the EUI look (the stock styles paint their own).
+    -- Mini frames (ToT/FoT/Pet) have no cast bar or auras at runtime, except
+    -- the pet's opt-in buffs and debuffs. Their EUI-look power bar is drawn
+    -- (ToT/FoT, and the pet on WoW Forever); stock styles paint their own.
     local isMiniPreview = (unitKey == "targettarget" or unitKey == "focustarget" or unitKey == "pet")
     local noPowerPreview = isMiniPreview
-        and not (unitKey == "pet" and ns.UF_PetHasPower and not ResolveBlizzPreview(unitKey, settings))
+        and not (ns.UF_MiniHasPower(unitKey) and not ResolveBlizzPreview(unitKey, settings))
     local noDebuffPreview = isMiniPreview and unitKey ~= "pet"
     local noCastbarPreview = isMiniPreview
 
