@@ -549,11 +549,12 @@ ns.ResolveUnitNameColor = function(unit)
         return nil
     end
     if UnitExists(unit) then
-        if UnitIsTapDenied and UnitIsTapDenied(unit) then
+        local tapped = UnitIsTapDenied and UnitIsTapDenied(unit)
+        if not issecretvalue(tapped) and tapped then
             return 0.6, 0.6, 0.6
         end
         local reaction = UnitReaction(unit, "player")
-        if reaction and not issecretvalue(reaction) then
+        if not issecretvalue(reaction) and reaction then
             local c = (ns.Colors and ns.Colors.reaction and ns.Colors.reaction[reaction])
                 or FACTION_BAR_COLORS[reaction]
             if c then return c.r, c.g, c.b end

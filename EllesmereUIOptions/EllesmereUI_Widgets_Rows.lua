@@ -621,7 +621,8 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
             local leftmostSwatch
             for i = #swatches, 1, -1 do
                 local sc = swatches[i]
-                local swatch, updateSwatch = BuildColorSwatch(region, frame:GetFrameLevel() + 2, sc.getValue, sc.setValue, sc.hasAlpha)
+                local swatch, updateSwatch = BuildColorSwatch(region, frame:GetFrameLevel() + 2,
+                    sc.getValue, sc.setValue, sc.hasAlpha, nil, sc.bindPicker)
                 PP.Point(swatch, "RIGHT", region, "RIGHT", anchorX, 0)
                 anchorX = anchorX - SWATCH_SZ - SWATCH_GAP
                 leftmostSwatch = swatch

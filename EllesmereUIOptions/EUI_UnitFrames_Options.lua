@@ -1938,6 +1938,11 @@ initFrame:SetScript("OnEvent", function(self)
     --  Unified settings builder  (shared settings for the Main Frames page)
     ---------------------------------------------------------------------------
     local UNIT_SUPPORTS = {
+        borderRareColored    = { target=true, focus=true },
+        borderEliteColored   = { target=true, focus=true },
+        borderExcludeFriendly = { target=true, focus=true },
+        borderRareColor      = { target=true, focus=true },
+        borderEliteColor     = { target=true, focus=true },
         powerHeight          = { player=true, target=true, focus=true },
         showPlayerAbsorb     = { player=true, target=true, focus=true },
         absorbCleanAlpha     = { player=true, target=true, focus=true },

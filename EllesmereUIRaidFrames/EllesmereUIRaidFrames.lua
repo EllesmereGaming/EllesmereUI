@@ -529,6 +529,7 @@ local defaults = {
         -- Border (unified style/size, recolored by state -- matches Unit Frames)
         borderSize       = 1,
         borderColor      = { r = 0, g = 0, b = 0 },
+        borderClassColored = false,
         borderAlpha      = 1,
         borderTexture    = "solid",
         borderBehind     = false,

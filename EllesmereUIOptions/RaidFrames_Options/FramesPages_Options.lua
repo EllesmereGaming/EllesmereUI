@@ -346,6 +346,72 @@ end
 ---------------------------------------------------------------------------
 --  Page Builder
 ---------------------------------------------------------------------------
+local function BorderColorCfg()
+    local env = ns._RFO_OptEnv
+    local SGet, SVal, SWrite = env.SGet, env.SVal, env.SWrite
+    local function IsClassColored()
+        return SVal("borderClassColored", false)
+    end
+    local function SetColorMode(swatch, enabled)
+        local snap = EllesmereUI._SOAttribution(swatch)
+        env.SSet("borderClassColored", enabled)
+        EllesmereUI._settingsChanged = true
+        EllesmereUI._NotifySettingWrite(swatch, snap)
+        EllesmereUI:RefreshPage()
+    end
+    local cfg = { type = "multiSwatch", text = "Border Color", swatches = {
+        { tooltip = "Custom Color", hasAlpha = true,
+          getValue = function() return ns.RF_BaseBorderColor(nil, SGet("borderColor"), SVal("borderAlpha", 1)) end,
+          setValue = function(r, g, b, a)
+              SWrite("borderColor", { r=r, g=g, b=b })
+              SWrite("borderAlpha", a)
+              env.ReloadAndUpdate()
+          end,
+          bindPicker = function()
+              local profile = env.db.profile
+              local oldColor, oldAlpha = profile.borderColor, profile.borderAlpha
+              local lastColor, lastAlpha
+              return function(r, g, b, a)
+                  if env.db.profile ~= profile or env.optState._partyCtx then return false end
+                  lastColor, lastAlpha = { r=r, g=g, b=b }, a
+                  SWrite("borderColor", lastColor)
+                  SWrite("borderAlpha", lastAlpha)
+                  env.ReloadAndUpdate()
+              end, function()
+                  if profile.borderColor ~= lastColor or profile.borderAlpha ~= lastAlpha then return false end
+                  profile.borderColor, profile.borderAlpha = oldColor, oldAlpha
+                  if env.db.profile ~= profile then return false end
+                  if ns._BumpAbsorbGen then ns._BumpAbsorbGen() end
+                  env.ReloadAndUpdate()
+              end
+          end,
+          onClick = function(self)
+              if IsClassColored() then
+                  SetColorMode(self, false)
+              elseif self._eabOrigClick then
+                  self._eabOrigClick(self)
+              end
+          end,
+          refreshAlpha = function() return IsClassColored() and 0.3 or 1 end },
+        { tooltip = "Class Colored", hasAlpha = false,
+          disabled = function() return ns.RF_CompactOnTab(false) end,
+          disabledTooltip = "Class colors require individual frame borders. Disable Compact Mode first.",
+          rawTooltip = true,
+          getValue = function()
+              local c = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+              if c then return c.r, c.g, c.b end
+              return 1, 1, 1
+          end,
+          setValue = function() end,
+          onClick = function(self)
+              if not IsClassColored() then SetColorMode(self, true) end
+          end,
+          refreshAlpha = function() return IsClassColored() and 1 or 0.3 end },
+    } }
+    if EllesmereUI.BlizzStyle then cfg = EllesmereUI.BlizzStyle.Gate("raidframes", cfg) end
+    return cfg
+end
+
 local function BuildMainPage(pageName, parent, yOffset)
     local env = ns._RFO_OptEnv
     local allGrowthOrder, BuildPreviewModeRow, BuildVisualSections, db = env.allGrowthOrder, env.BuildPreviewModeRow, env.BuildVisualSections, env.db
@@ -828,7 +894,7 @@ local function BuildMainPage(pageName, parent, yOffset)
         } })
     end
 
-    -- Border Style (+ options cog) | Border Size (+ Border swatch). Mirrors Unit Frames: ONE border recolored by state (hover/target), full SharedMedia support. Hover/Target swatches live on the row below.
+    -- Border Style | Border Size
     local bdrTexValues, bdrTexOrder = EllesmereUI.GetBorderTextureDropdown()
     local borderStyleRow
     borderStyleRow, h = W:DualRow(parent, y,
@@ -893,10 +959,7 @@ local function BuildMainPage(pageName, parent, yOffset)
     end
     do
         local rgn = borderStyleRow._rightRegion
-        local lvl
-        if not EllesmereUI._prebuilding then lvl = borderStyleRow:GetFrameLevel() + 3 end
-        -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog beside
-        -- the control, the Border swatch left of it.
+        -- Corner Radius (EllesmereUI_RoundedCorners.lua).
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Corner Radius", tip = "Corner Radius",
             disabled = function() return not EllesmereUI.RoundedStyleOK(SGet("borderTexture")) end,
@@ -907,22 +970,6 @@ local function BuildMainPage(pageName, parent, yOffset)
                   set = function(v) SSet("cornerRadius", v) end },
             }, function() return SGet("cornerMask") end, function(v) SSet("cornerMask", v) end),
         })
-        if not EllesmereUI._prebuilding then
-            local borderSwatch, updBorder = EllesmereUI.BuildColorSwatch(
-                rgn, lvl,
-                function()
-                    local c = SGet("borderColor") or { r = 0, g = 0, b = 0 }
-                    return c.r, c.g, c.b, SVal("borderAlpha", 1)
-                end,
-                function(r, g, b, a)
-                    SWrite("borderColor", { r=r, g=g, b=b }); SWrite("borderAlpha", a); ReloadAndUpdate()
-                end, true, 20)
-            borderSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = borderSwatch
-            borderSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(borderSwatch, "Border") end)
-            borderSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            EllesmereUI.RegisterWidgetRefresh(function() updBorder() end)
-        end
     end
 
     -- Width Offset | Height Offset: the textured edge's outward offsets as their
@@ -966,22 +1013,10 @@ local function BuildMainPage(pageName, parent, yOffset)
         _, h = W:DualRow(parent, y, StockGate(ocfgL), StockGate(ocfgR));  y = y - h
     end
 
-    -- Show When Solo | Hover Borders: which highlight states are active. Disabling one skips that recolor entirely and the frame keeps its normal border. Hover + Target swatches are inline here.
+    -- Border Color | Hover Borders
     local hoverBordersRow
     hoverBordersRow, h = W:DualRow(parent, y,
-        { type="toggle", text="Show When Solo",
-          -- Disabled only while Party's is the ONE that is on: a profile holding both
-          -- flags (older profile, override swap, import) shows the player twice, and
-          -- each toggle must stay clickable to switch itself off.
-          disabled=function() return db.profile.partyShowWhenSolo and not db.profile.showWhenSolo end,
-          disabledTooltip="Party Frames Show When Solo", requireState="disabled",
-          getValue=function() return SVal("showWhenSolo", false) end,
-          setValue=function(v)
-              SSet("showWhenSolo", v)
-              if ns.UpdateVisibility then ns.UpdateVisibility() end
-              if ns._UpdatePartyVisibility then ns._UpdatePartyVisibility() end
-              EllesmereUI:RefreshPage()
-          end },
+        BorderColorCfg(),
         { type="dropdown", text="Hover Borders",
           values={ __placeholder = "All" }, order={ "__placeholder" },
           getValue=function() return "__placeholder" end,
@@ -1111,6 +1146,22 @@ local function BuildMainPage(pageName, parent, yOffset)
             UpdateHBSwatchVis()
         end
     end
+
+    _, h = W:DualRow(parent, y,
+        { type="toggle", text="Show When Solo",
+          -- Disabled only while Party's is the ONE that is on: a profile holding both
+          -- flags (older profile, override swap, import) shows the player twice, and
+          -- each toggle must stay clickable to switch itself off.
+          disabled=function() return db.profile.partyShowWhenSolo and not db.profile.showWhenSolo end,
+          disabledTooltip="Party Frames Show When Solo", requireState="disabled",
+          getValue=function() return SVal("showWhenSolo", false) end,
+          setValue=function(v)
+              SSet("showWhenSolo", v)
+              if ns.UpdateVisibility then ns.UpdateVisibility() end
+              if ns._UpdatePartyVisibility then ns._UpdatePartyVisibility() end
+              EllesmereUI:RefreshPage()
+          end },
+        EllesmereUI.BlankRowCfg());  y = y - h
 
     -------------------------------------------------------------------
     --  LAYOUT

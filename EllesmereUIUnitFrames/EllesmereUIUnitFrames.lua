@@ -188,6 +188,11 @@ EllesmereUI.RegisterBorderDefaults("unitframes", EllesmereUI.BORDER_DEFAULTS_FRA
 -- External lookup for portrait side per frame (writing custom props onto oUF frames would taint their secure execution chain).
 EllesmereUI._ufPortraitSide = EllesmereUI._ufPortraitSide or setmetatable({}, { __mode = "k" })
 
+ns.UF_ClassificationBorderDefaults = {
+    borderRareColor = { r = 0.75, g = 0.78, b = 0.82 },
+    borderEliteColor = { r = 1, g = 0.82, b = 0.25 },
+}
+
 local db
 local defaults = {
     profile = {
@@ -484,6 +489,7 @@ local defaults = {
             -- client.
             foreverComboLocation = (EllesmereUI.IS_FOREVER == true) and "target" or nil,
             borderSize = 1,
+            borderClassColored = false,
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
             borderPowerSeam = false,  -- Border Options cog "Power Bar Seam" (opt-in)
@@ -724,6 +730,12 @@ local defaults = {
             healthBarOpacity = 90,
             powerBarOpacity = 100,
             borderSize = 1,
+            borderClassColored = false,
+            borderRareColored = false,
+            borderEliteColored = false,
+            borderExcludeFriendly = false,
+            borderRareColor = ns.UF_ClassificationBorderDefaults.borderRareColor,
+            borderEliteColor = ns.UF_ClassificationBorderDefaults.borderEliteColor,
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
             borderPowerSeam = false,  -- Border Options cog "Power Bar Seam" (opt-in)
@@ -1171,6 +1183,12 @@ local defaults = {
             debuffOffsetY = 0,
             textSize = 12,
             borderSize = 1,
+            borderClassColored = false,
+            borderRareColored = false,
+            borderEliteColored = false,
+            borderExcludeFriendly = false,
+            borderRareColor = ns.UF_ClassificationBorderDefaults.borderRareColor,
+            borderEliteColor = ns.UF_ClassificationBorderDefaults.borderEliteColor,
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
             borderPowerSeam = false,  -- Border Options cog "Power Bar Seam" (opt-in)

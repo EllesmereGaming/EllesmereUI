@@ -3985,6 +3985,12 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 sp and isAttached, EllesmereUI.BlizzStyle.Get("unitframes"), true,
                 (unitKey == "targettarget" or unitKey == "boss") and bds or nil)
         end
+        if (bds.borderClassColored or ns.UF_ClassificationBorderEnabled(bds, unitKey))
+            and not EllesmereUI.BlizzStyle.Get("unitframes") then
+            local r, g, b = ns.UF_ClassificationBorderColor(bds, unitKey, unitKey)
+            if not r and bds.borderClassColored then r, g, b = ns.UF_BorderColorSample(unitKey) end
+            if r then ns.UF_TintFrameBorder(pf, border, r, g, b, bds.borderAlpha or 1) end
+        end
         -- Color Custom Borders: while the Magic border copy shows, both
         -- separators are tinted Magic at full opacity in place, as the live
         -- copies draw them (the two passes above reset the border colour
