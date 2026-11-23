@@ -536,6 +536,7 @@ local TILE_STYLE_KEYS = {
     iconZoom = "debuffIconZoom",
     borderSize = "debuffBorderSize", borderColor = "debuffBorderColor",
     borderTexture = "debuffBorderTexture", borderSizePx = "debuffBorderSizePx",
+    borderCornerRadius = "debuffBorderCornerRadius",
     borderTextureOffset = "debuffBorderTextureOffset", borderTextureOffsetY = "debuffBorderTextureOffsetY",
     borderTextureShiftX = "debuffBorderTextureShiftX", borderTextureShiftY = "debuffBorderTextureShiftY",
     borderDispelTextured = "debuffBorderDispelTextured",

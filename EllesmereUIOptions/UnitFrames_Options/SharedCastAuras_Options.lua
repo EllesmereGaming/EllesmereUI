@@ -1636,10 +1636,16 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
             end
         end
 
-        do
-            local rgn = auraBorderRow._leftRegion
-            local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
+        local auraBorderTex = SVal("auraBorderTexture", "solid")
+        EllesmereUI.BuildInlineCog(auraBorderRow._rightRegion, EllesmereUI.AuraRadiusCogCfg(auraBorderTex,
+            function() return SVal("auraBorderCornerRadius", 0) end,
+            function(v) SSetSupported("auraBorderCornerRadius", v) end,
+            function() return EllesmereUI.BlizzStyle.Get("unitframes") end,
+            function() return EllesmereUI.BlizzStyle.Label("unitframes") end))
+        if EllesmereUI._prebuilding or (auraBorderTex ~= "solid" and auraBorderTex ~= "") then
+            EllesmereUI.BuildInlineCog(auraBorderRow._leftRegion, {
                 title="Border Options",
+                disabled=function() return EllesmereUI.BlizzStyle.Get("unitframes") end,
                 rows={
                     { type="slider", label="Shift X", min=-10, max=10, step=1,
                       get=function()
@@ -1672,10 +1678,6 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                       set=function(v) SSetSupported("auraBorderDispelTextured", v) end },
                 },
             })
-            local function UpdateCogVis()
-                if SVal("auraBorderTexture", "solid") == "solid" then cogBtn:Hide() else cogBtn:Show() end
-            end
-            if not EllesmereUI._prebuilding then EllesmereUI.RegisterWidgetRefresh(UpdateCogVis); UpdateCogVis() end
         end
 
         if not EllesmereUI._prebuilding then
@@ -1687,7 +1689,8 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                     local s = SDB(); s.auraBorderR = r; s.auraBorderG = g; s.auraBorderB = b; s.auraBorderA = a
                     ReloadAndUpdate(); UpdatePreview()
                 end, true, 20)
-            PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
+            PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
             EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
         end
     end

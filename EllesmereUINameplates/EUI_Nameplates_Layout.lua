@@ -25,7 +25,15 @@ local GetTime = GetTime
 local BAR_W, defaults = I.BAR_W, I.defaults
 
 local p
-I.profileSetters[#I.profileSetters + 1] = function(v) p = v end
+I.profileSetters[#I.profileSetters + 1] = function(v)
+    p = v
+    if p and p.auraIconCornerRadius ~= nil then
+        if p.cornerRadiusAuras == nil then
+            p.cornerRadiusAuras = p.auraIconCustomBorder == true and p.auraIconCornerRadius > 0
+        end
+        p.auraIconCornerRadius = nil
+    end
+end
 
 local function GetNameplateYOffset()
     return (p and p.nameplateYOffset) or defaults.nameplateYOffset
@@ -1392,6 +1400,18 @@ function ns.GetIconBorderEnabled(kind)
     end
     return not v
 end
+function ns.NP_AuraCornerRadius()
+    if not (p and p.cornerRadiusAuras) then return end
+    local radius = p.cornerRadius or 0
+    if radius <= 0 or ns.NP_Blizz() or ns.GetWrapBorderCastbar() then return end
+    if ns.IsCustomBorderEnabled() then
+        local tex = p.customBorderTexture or defaults.customBorderTexture
+        if not EllesmereUI.RoundedStyleOK(tex) then return end
+        if p.auraIconCustomBorder and tex and tex ~= "" and tex ~= "solid" then return end
+    end
+    return radius
+end
+
 function ns.ApplyFrameIconBorder(frame, enabled, adjustIconInset)
     local PP = EllesmereUI and EllesmereUI.PP
     if not (frame and PP and PP.GetBorders and PP.GetBorders(frame)) then return end

@@ -469,6 +469,7 @@ local function BuildNPStyle(kind, variant)
         stackOffX = stk.x,
         stackOffY = stk.y,
     }
+    if style.border then style.border.cornerRadius = ns.NP_AuraCornerRadius() end
     -- variant: nil/1 = the dispellable glow group ("np" -- the Magic half
     -- while split), 2 = the non-Magic half ("np2", enrages), "plain" = the
     -- npnb remainder: identical text styling, NEVER the glow. Per-aura
@@ -1781,6 +1782,7 @@ end
 -- ApplyBorderStyle(frame, 0) so the UI scale re-apply cannot bring it back.
 local function NPLockoutBorder(f)
     local on = ns.GetIconBorderEnabled("ccs")
+    local radius = on and ns.NP_AuraCornerRadius()
     local cb = f._npCB
     if on and NPIconCustomBorderOn() then
         if not cb then
@@ -1817,6 +1819,11 @@ local function NPLockoutBorder(f)
             f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
             f.icon:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
         end
+        if (radius and radius > 0) or (f.auraRound and f.auraRound.on) then
+            local size = NPSize("cc")
+            EllesmereUI.RoundAuraCorners(f, f, f.icon, f.cd, cb,
+                (px or sz) > 0 and (not tex or tex == "" or tex == "solid") and radius, size, NPHeight("cc", size))
+        end
         ns.ApplyFrameIconBorder(f, false)
         return
     end
@@ -1824,7 +1831,11 @@ local function NPLockoutBorder(f)
         EllesmereUI.ApplyBorderStyle(cb, 0)
         cb:Hide()
     end
-    if f._npCBInset0 then
+    if radius and not f._npCBInset0 then
+        f.icon:ClearAllPoints()
+        f.icon:SetAllPoints(f)
+        f._npCBInset0 = true
+    elseif not radius and f._npCBInset0 then
         -- Back to the creation inset (0 under the stock styles, else 1).
         f._npCBInset0 = nil
         local px = ns.NP_Blizz() and 0 or 1
@@ -1833,6 +1844,10 @@ local function NPLockoutBorder(f)
         f.icon:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -px, px)
     end
     ns.ApplyFrameIconBorder(f, on)
+    if radius or (f.auraRound and f.auraRound.on) then
+        local size = NPSize("cc")
+        EllesmereUI.RoundAuraCorners(f, f, f.icon, f.cd, f, radius, size, NPHeight("cc", size))
+    end
 end
 
 function ns.NPC_UpdateLockout(plate)
@@ -2163,7 +2178,7 @@ local function StyleFPFor(kind, idx)
         -- NOT `fn(kind) or true`: the getter legitimately returns false, and
         -- `false or true` would pin this fingerprint input to a constant so
         -- the toggle never restyles (the ternary-falsy trap).
-        (not ns.GetIconBorderEnabled) or ns.GetIconBorderEnabled(kind), cbFP,
+        (not ns.GetIconBorderEnabled) or ns.GetIconBorderEnabled(kind), cbFP, ns.NP_AuraCornerRadius(),
         PVal("showAuraTooltips") == true)
 end
 
