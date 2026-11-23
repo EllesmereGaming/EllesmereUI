@@ -613,7 +613,7 @@ local function UpdateInspectHeader(frame)
     end
     if mpScore > 0 then
         local hex = ns.GetMPScoreHex(mpScore)
-        GetFFD(frame).mPlusScoreText:SetFormattedText("M+ Score: |cff%s%d|r", hex, math.floor(mpScore))
+        GetFFD(frame).mPlusScoreText:SetText(EllesmereUI.L("M+ Score:") .. string.format(" |cff%s%d|r", hex, math.floor(mpScore)))
         GetFFD(frame).mPlusScoreText:Show()
     else
         GetFFD(frame).mPlusScoreText:SetText("")
