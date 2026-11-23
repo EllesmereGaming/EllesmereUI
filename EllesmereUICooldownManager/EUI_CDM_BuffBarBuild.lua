@@ -133,7 +133,7 @@ function ns.BuildTrackedBuffBars()
                         if spInfo then iconID = spInfo.iconID end
                     end
                 end
-                if iconID then bar._icon._tex:SetTexture(iconID) end
+                if iconID then ns.SetTBBIconTexture(bar._icon, iconID) end
                 -- Rebuilds can re-pair bar index <-> config (add/remove shifts indices), so
                 -- reset per-bar icon source state and let the next tick re-derive instead of trusting stale caches.
                 bar._lastIconSID = nil

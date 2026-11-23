@@ -92,21 +92,23 @@ local function Style(icon, bd, barKey)
     local mask = fc and fc.shapeMask or false
     local applied = (fc and fc.shapeApplied) and true or false
     local shapeName = fc and fc.shapeName or false
+    local roundUV = fc and fc.auraRound and fc.auraRound.on and fc.auraRound.swipeStart
     local edge = bd.showCooldownEdge and true or false
     local barShape = bd.iconShape or false
     local st = stamps[icon]
     if st.barKey == barKey and st.level == level and st.alpha == alpha and st.reverse == reverse
        and st.mask == mask and st.applied == applied and st.shapeName == shapeName
-       and st.edge == edge and st.barShape == barShape then
+       and st.edge == edge and st.barShape == barShape and st.roundUV == roundUV then
         return
     end
     st.barKey, st.level, st.alpha, st.reverse = barKey, level, alpha, reverse
+    st.roundUV = roundUV
     st.mask, st.applied, st.shapeName, st.edge, st.barShape = mask, applied, shapeName, edge, barShape
     cd:SetFrameLevel(level)
     cd:SetSwipeColor(0, 0, 0, alpha)
     cd:SetReverse(reverse)
     ns.ApplyShapeToOverlay(icon, nil, cd, bd)
-    if not applied then cd:SetSwipeTexture(ns.CdmSwipeFile()) end
+    if not applied and not roundUV then cd:SetSwipeTexture(ns.CdmSwipeFile()) end
     if edge and I and I.ApplyCdmEdge then
         I.ApplyCdmEdge(cd, barKey)
     else

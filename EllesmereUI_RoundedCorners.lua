@@ -437,6 +437,9 @@ end
 -- The icon uses a whole 64x64 mask. An atlas subrectangle on a live aura
 -- mask displaces the visible artwork as the selected cell changes.
 local AURA_MASKS = Paths("aura-masks\\round-%d.tga")
+function EllesmereUI.SetAuraIconMask(mask, shape)
+    mask:SetTexture(AURA_MASKS[shape], "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+end
 local AURA_SWIPE = MEDIA .. "aura-masks\\aura-swipe.tga"
 local UV_ZERO, UV_ONE = { x = 0, y = 0 }, { x = 1, y = 1 }
 local function AuraSwipeUV(inner, w, h)
@@ -445,8 +448,29 @@ local function AuraSwipeUV(inner, w, h)
     return x / 16, (x + 1) / 16, y / 16, (y + 1) / 16
 end
 
+function EllesmereUI.ApplyRoundedIconSwipe(cd, st)
+    cd:ClearAllPoints()
+    cd:SetAllPoints(st.mask)
+    cd:SetSwipeTexture(AURA_SWIPE)
+    cd:SetTexCoordRange(st.swipeStart, st.swipeEnd)
+end
+
+-- Alternate artwork and backgrounds share the icon's screen-space mask.
+function EllesmereUI.MaskRoundedIconLayer(st, tex)
+    if not tex or (st.layers and st.layers[tex]) then return end
+    if AddMask(tex, st.mask) then
+        st.layers = st.layers or setmetatable({}, { __mode = "k" })
+        st.layers[tex] = true
+    end
+end
+
 local function ClearAuraCorners(st, owner, icon, cd)
+    if byBorder[st.rect] == st then byBorder[st.rect] = nil end
     if icon then RemoveMask(icon, st.mask) end
+    if st.layers then
+        for tex in pairs(st.layers) do RemoveMask(tex, st.mask) end
+        wipe(st.layers)
+    end
     if st.cover then RemoveMask(st.cover, st.mask); st.cover = nil end
     SolidOff(st)
     if cd then
@@ -496,6 +520,9 @@ function EllesmereUI.RoundAuraCorners(owner, d, icon, cd, border, radius, w, h)
         if icon then
             if st.on then icon:RemoveMaskTexture(st.mask) end
             if st.cover then st.cover:RemoveMaskTexture(st.mask) end
+            if st.layers then
+                for tex in pairs(st.layers) do RemoveMask(tex, st.mask) end
+            end
             local bodyW, bodyH = w - 2 * edge, h - 2 * edge
             local shape = min(16, max(1, math.ceil(64 * inner / max(2, bodyW + bodyH))))
             -- Let the next fuller mask overlap the ring's antialiased inner edge.
@@ -504,20 +531,20 @@ function EllesmereUI.RoundAuraCorners(owner, d, icon, cd, border, radius, w, h)
             if shape > 1 and (shape - 1) * min(bodyW, bodyH) / 32 >= radius - 3 * edge then
                 shape = shape - 1
             end
-            st.mask:SetTexture(AURA_MASKS[shape], "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            EllesmereUI.SetAuraIconMask(st.mask, shape)
             Inset(st.mask, border, edge)
             if not AddMask(icon, st.mask) then
                 if st.on then ClearAuraCorners(st, owner, icon, cd) end
                 return
             end
             if st.cover then st.cover:AddMaskTexture(st.mask) end
-            if cd then
-                local left, right, top, bottom = AuraSwipeUV(inner, bodyW, bodyH)
-                cd:ClearAllPoints()
-                cd:SetAllPoints(st.mask)
-                cd:SetSwipeTexture(AURA_SWIPE)
-                cd:SetTexCoordRange({ x = left, y = top }, { x = right, y = bottom })
+            if st.layers then
+                for tex in pairs(st.layers) do AddMask(tex, st.mask) end
             end
+            local left, right, top, bottom = AuraSwipeUV(inner, bodyW, bodyH)
+            st.swipeStart = { x = left, y = top }
+            st.swipeEnd = { x = right, y = bottom }
+            if cd then EllesmereUI.ApplyRoundedIconSwipe(cd, st) end
         end
         st.on = true
         SolidOn(st, cont, radius, inner)
@@ -762,6 +789,14 @@ local function OnBorderColor(borderFrame, r, g, b, a)
 end
 EllesmereUI.RoundedBorderColor = OnBorderColor
 
+function EllesmereUI.TrackRoundedBorderColor(st, border)
+    if not hooked then
+        hooked = true
+        hooksecurefunc(EllesmereUI, "SetBorderStyleColor", OnBorderColor)
+    end
+    byBorder[border] = st
+end
+
 -- The scale-dependent half of a pass: the radius the shape allows, what the
 -- border draws now (Solid strips, a glow backdrop, or nothing) and the body
 -- mask's radius inside the strips.
@@ -862,10 +897,6 @@ function EllesmereUI.RoundCorners(owner, radius, opts)
         st = { owner = owner, masked = {}, gen = 0, poolGen = PoolDress(owner) }
         state[owner] = st
     end
-    if not hooked then
-        hooked = true
-        hooksecurefunc(EllesmereUI, "SetBorderStyleColor", OnBorderColor)
-    end
     st.radius, st.corners = radius, corners
     st.glowStyle = style == "glow" or style == "shadow"
     local rect = opts.rect or owner
@@ -879,7 +910,7 @@ function EllesmereUI.RoundCorners(owner, radius, opts)
         st.border = border
         st.kRadius = nil
     end
-    if border then byBorder[border] = st end
+    if border then EllesmereUI.TrackRoundedBorderColor(st, border) end
     local clip = opts.clip
     if st.clip ~= clip then
         if st.clip then st.clip:SetClipsChildren(true) end

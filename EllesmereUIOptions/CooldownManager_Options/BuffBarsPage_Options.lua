@@ -199,7 +199,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 local spInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(cfg.spellID)
                 iconID = spInfo and spInfo.iconID
             end
-            wrap._icon._tex:SetTexture(iconID or 134400)
+            ns.SetTBBIconTexture(wrap._icon, iconID or 134400)
         end
         -- Unassigned: dim ALL bar content (fill/texts/icon/border) under a black overlay
         -- frame with a centered hint, above the bar's own layers so it draws over the fill/gradient stack.
@@ -4115,7 +4115,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         -- Visibility: one control, the shared axis list plus the TBB-only Hide When
         -- Inactive row (single-lane, so it rides in as an extraItem). No mouseover for
         -- CDM-family bars; "Only In Combat" is the In Combat axis.
-        local _, tbbVisH = EllesmereUI.BuildVisibilityRow(W, parent, y,
+        local tbbVisRow, tbbVisH = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = SelectedTBB, legacyKey = "barVisibility",
               caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true },
               onChanged = function() RefreshTBB() end,
@@ -4142,8 +4142,28 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
               getValue = function() local bd = SelectedTBB(); return bd and bd.iconDisplay or "none" end,
               setValue = function(v)
                   local bd = SelectedTBB(); if not bd then return end
-                  bd.iconDisplay = v; RefreshTBB()
+                  bd.iconDisplay = v; RefreshTBB(); EllesmereUI:RefreshPage()
               end });  y = y - tbbVisH
+        EllesmereUI.BuildInlineCog(tbbVisRow._rightRegion, {
+            title = "Icon Settings", tip = "Icon Settings",
+            disabled = function()
+                local bd = SelectedTBB()
+                return EllesmereUI.BlizzStyle.Get("cdmbars") or not bd or (bd.iconDisplay or "none") == "none"
+            end,
+            disabledTooltip = function()
+                if EllesmereUI.BlizzStyle.Get("cdmbars") then return EllesmereUI.BlizzStyle.Label("cdmbars") end
+                return "Select an icon position to use this option."
+            end,
+            rows = {
+                { type = "toggle", label = "Show Icon Divider",
+                  tooltip = "Use the bar's border style, size and color between the icon and the fill.",
+                  get = function() local bd = SelectedTBB(); return bd and bd.showIconDivider == true end,
+                  set = function(v)
+                      local bd = SelectedTBB(); if not bd then return end
+                      bd.showIconDivider = v; RefreshTBB()
+                  end },
+            },
+        })
 
         -- Opacity | Background Color (moved up from its old trailing half-row below)
         local iconRow
@@ -4343,6 +4363,23 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             end
             -- Inline border color swatch on Border Size (right region); none
             -- under Classic WoW UI, whose slider sizes the vanilla frame.
+            EllesmereUI.BuildInlineCog(tbbBsRow._rightRegion, {
+                title = "Corner Radius", tip = "Corner Radius",
+                disabled = function()
+                    local bd = SelectedTBB()
+                    return EllesmereUI.BlizzStyle.Get("cdmbars") or not bd or not EllesmereUI.RoundedStyleOK(bd.borderTexture)
+                end,
+                disabledTooltip = function()
+                    if EllesmereUI.BlizzStyle.Get("cdmbars") then return EllesmereUI.BlizzStyle.Label("cdmbars") end
+                    return "This option requires the Solid, Glow or Shadow border style."
+                end,
+                rows = { EllesmereUI.AuraRadiusRow(
+                    function() local bd = SelectedTBB(); return bd and bd.borderCornerRadius or 0 end,
+                    function(v)
+                        local bd = SelectedTBB()
+                        if bd then bd.borderCornerRadius = v; RefreshTBB() end
+                    end) },
+            })
             if EllesmereUI.BlizzStyle.Active("cdmbars") ~= "classic" then
                 local rgn = tbbBsRow._rightRegion
                 local ctrl = rgn._control
@@ -4357,7 +4394,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                         bd.borderR, bd.borderG, bd.borderB = r, g, b; RefreshTBB()
                     end,
                     false, 20)
-                PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+                PP.Point(borderSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
                 EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
                 EllesmereUI.BlizzStyle.BlockInline("cdmbars", borderSwatch)
             end

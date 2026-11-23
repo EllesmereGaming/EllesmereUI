@@ -101,7 +101,7 @@ function _AC.StyleSig(bd)
         bd.iconShape or "none", bd.iconZoom or 0.08,
         bd.borderSize or 1, bd.borderR or 0, bd.borderG or 0, bd.borderB or 0,
         bd.borderA or 1, bd.borderTexture or "solid", bd.borderThickness or "thin",
-        bd.borderSizePx or "",
+        bd.borderSizePx or "", bd.borderCornerRadius or 0,
         bd.borderClassColor and 1 or 0, bd.borderBehind and 1 or 0,
         bd.borderTextureOffset or 0, bd.borderTextureOffsetY or 0,
         bd.borderTextureShiftX or 0, bd.borderTextureShiftY or 0,
@@ -214,6 +214,7 @@ function _AC.BuildStyle(bd, fixedIcon)
         border = {
             brdR, brdG, brdB, brdA, size = brdSize,
             texture = brdTex,
+            cornerRadius = bd and bd.borderCornerRadius,
             behind = (bd and bd.borderBehind) or nil,
             offsetX = bd and bd.borderTextureOffset, offsetY = bd and bd.borderTextureOffsetY,
             shiftX = bd and bd.borderTextureShiftX, shiftY = bd and bd.borderTextureShiftY,
@@ -402,7 +403,8 @@ function _AC.ApplyExtra(button, d, style)
     local mask, ring = d.cdmMask, d.cdmRing
     local maskPath = (c.customShape and SH and not c.onlyNumbers) and SH.masks[c.shape] or nil
     local shapeKey = maskPath
-        and (c.shape .. "|" .. c.zoom .. "|" .. c.brdSize .. "|" .. c.size) or ""
+        and (c.shape .. "|" .. c.zoom .. "|" .. c.brdSize .. "|" .. c.size)
+        or (d.auraRound and d.auraRound.on and "rounded" or "")
     if d.cdmShapeKey ~= shapeKey and mask then
         if maskPath then
             mask:SetTexture(maskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
@@ -449,13 +451,19 @@ function _AC.ApplyExtra(button, d, style)
                 d.icon:SetAllPoints(d.borderHost)
             end
             if d.cooldown then
-                pcall(d.cooldown.SetSwipeTexture, d.cooldown, "Interface\\AddOns\\EllesmereUI\\media\\white-square.png")
+                if not (d.auraRound and d.auraRound.on) then
+                    pcall(d.cooldown.SetSwipeTexture, d.cooldown, "Interface\\AddOns\\EllesmereUI\\media\\white-square.png")
+                end
                 if d.cooldown.SetUseCircularEdge then
                     pcall(d.cooldown.SetUseCircularEdge, d.cooldown, false)
                 end
             end
         end
         d.cdmShapeKey = shapeKey
+    end
+    if d.auraRound and d.auraRound.on then
+        EllesmereUI.MaskRoundedIconLayer(d.auraRound, d.cdmBg)
+        EllesmereUI.MaskRoundedIconLayer(d.auraRound, fixed)
     end
     -- Ring color follows the border color on every pass, so a color-only change
     -- lands without re-running the geometry above. Border Size 0 drops the ring,
