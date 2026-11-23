@@ -7045,3 +7045,14 @@ L["Choose Languages"] = "Choix des langues"
 -- Show Solo Player Zones (EllesmereUIForeverEssentials_LFGZones.lua)
 L["Show Solo Player Zones"] = "Afficher la zone des joueurs seuls"
 L["Shows the zone of the players listed on their own (not in a group) on their row of the Looking For Group window."] = "Affiche la zone où se trouvent les joueurs inscrits seuls (hors groupe) sur leur ligne de la Recherche de groupe."
+
+-- Visibility checklist: modifier keys held (Action Bars)
+L["Shift Held"] = "Maj enfoncée"
+L["While either Shift key is held down. Works in combat."] = "Tant que l'une des touches Maj est enfoncée. Fonctionne aussi en combat."
+L["Ctrl Held"] = "Ctrl enfoncée"
+L["While either Ctrl key is held down. Works in combat."] = "Tant que l'une des touches Ctrl est enfoncée. Fonctionne aussi en combat."
+L["Alt Held"] = "Alt enfoncée"
+L["While either Alt key is held down. Works in combat."] = "Tant que l'une des touches Alt est enfoncée. Fonctionne aussi en combat."
+L["While either Shift key is held down. This element can only change out of combat."] = "Tant que l'une des touches Maj est enfoncée. Cet élément ne peut changer que hors combat."
+L["While either Ctrl key is held down. This element can only change out of combat."] = "Tant que l'une des touches Ctrl est enfoncée. Cet élément ne peut changer que hors combat."
+L["While either Alt key is held down. This element can only change out of combat."] = "Tant que l'une des touches Alt est enfoncée. Cet élément ne peut changer que hors combat."

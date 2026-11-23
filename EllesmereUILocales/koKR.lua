@@ -14673,3 +14673,14 @@ L["Power text now follows Global Settings > Numbers > Unit Style, so Western sho
 L["2D portraits now show a druid's shapeshift form right away, and Mirror Portrait mirrors every player's portrait, forms included."] = "이제 2D 초상화에 드루이드의 변신 형태가 즉시 반영됩니다. 초상화 좌우 반전 설정은 변신 형태를 포함한 모든 플레이어의 초상화에 적용됩니다."
 L["A greyed-out Add Text Slot now reads Every text position is full, or Every text is already shown, instead of a garbled sentence."] = "'텍스트 슬롯 추가'가 비활성화될 때 안내 문구가 깨지던 문제를 수정했습니다. 이제 '모든 텍스트 위치가 찼습니다.' 또는 '모든 텍스트가 이미 표시되어 있습니다.'라는 안내가 표시됩니다."
 L["German translations updated."] = "독일어 번역을 업데이트했습니다."
+
+-- Visibility checklist: modifier keys held (Action Bars)
+L["Shift Held"] = "쉬프트 누름"
+L["While either Shift key is held down. Works in combat."] = "쉬프트 키 중 하나를 누르고 있는 동안. 전투 중에도 작동합니다."
+L["Ctrl Held"] = "컨트롤 누름"
+L["While either Ctrl key is held down. Works in combat."] = "컨트롤 키 중 하나를 누르고 있는 동안. 전투 중에도 작동합니다."
+L["Alt Held"] = "알트 누름"
+L["While either Alt key is held down. Works in combat."] = "알트 키 중 하나를 누르고 있는 동안. 전투 중에도 작동합니다."
+L["While either Shift key is held down. This element can only change out of combat."] = "쉬프트 키 중 하나를 누르고 있는 동안. 이 요소는 전투 중이 아닐 때만 바뀔 수 있습니다."
+L["While either Ctrl key is held down. This element can only change out of combat."] = "컨트롤 키 중 하나를 누르고 있는 동안. 이 요소는 전투 중이 아닐 때만 바뀔 수 있습니다."
+L["While either Alt key is held down. This element can only change out of combat."] = "알트 키 중 하나를 누르고 있는 동안. 이 요소는 전투 중이 아닐 때만 바뀔 수 있습니다."

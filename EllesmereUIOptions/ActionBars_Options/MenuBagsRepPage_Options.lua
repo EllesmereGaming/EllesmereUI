@@ -94,8 +94,10 @@ local function DataBarKit(parent)
               -- mouseoverEnabled, which an override does not write, so a Mouseover
               -- override would silently behave like Always. Offered as locked rather
               -- than looking available and doing nothing.
+              -- modifierOutOfCombat: these bars' visibility pass skips combat lockdown
+              -- (Micro Menu and Bag Bar are protected Edit Mode frames).
               caps = { partyIncludesRaid = false, luaDragonriding = true,
-                       noOverrideMouseover = true },
+                       noOverrideMouseover = true, modifierOutOfCombat = true },
               applyScalarFn = function(s, mode) ApplyVisibilityKey(s, mode) end,
               disabledFn = disabledFn, disabledTooltip = disTip, rawTooltip = disTip and true or nil,
               onChanged = function()

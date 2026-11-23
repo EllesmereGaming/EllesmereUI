@@ -2137,7 +2137,10 @@ local function InitializeFrames()
                 if visOv then
                     visTail = (visOv == "never") and "hide" or "show"
                 elseif s.visibilityMatch == "any" and EllesmereUI.BuildAnyMatchTail then
-                    local tail, _, liveAxes = EllesmereUI.BuildAnyMatchTail(s, "barVisibility", drvSet)
+                    -- Modifier lanes compile to live [mod:x] tokens (no edge needed);
+                    -- resolved at build time they would freeze until the next rebuild.
+                    local tail, _, liveAxes = EllesmereUI.BuildAnyMatchTail(s, "barVisibility", drvSet,
+                        nil, EllesmereUI.VIS_EDGES_MODIFIER)
                     -- Gated on liveAxes: with no soft-target edge here, target/enemy axes
                     -- resolve in Lua, and a driver compiled from those alone would be a
                     -- frozen constant. Zero live axes keeps the frame on the live ext/alpha path.

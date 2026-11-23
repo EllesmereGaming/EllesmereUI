@@ -121,6 +121,9 @@ EllesmereUI.VIS_OPT_KEYS = {
     "visOnlyResting", "visHideResting",
     "visOnlyVehicle", "visHideVehicle",
     "visOnlyPartyMode", "visHidePartyMode",
+    "visOnlyShift", "visHideShift",
+    "visOnlyCtrl", "visHideCtrl",
+    "visOnlyAlt", "visHideAlt",
 }
 
 -- Cache player class once at load time (never changes).
@@ -358,6 +361,19 @@ function EllesmereUI.CheckVisibilityOptions(opts)
         if UnitExists("target") and UnitCanAttack("player", "target") then return true end
     end
 
+    -- Modifier-key axes. Only here, not in CheckVisibilityOptionsNonMacro: secure Action
+    -- Bars compile them into the driver. Both lanes at once reads as unconstrained.
+    local axes = EllesmereUI.VIS_OPT_AXES
+    for i = 1, #axes do
+        local ax = axes[i]
+        if ax.needsEdge == "modifier" and (opts[ax.show] or opts[ax.hide])
+            and not (opts[ax.show] and opts[ax.hide]) then
+            local held = ax.probe()
+            if opts[ax.show] and not held then return true end
+            if opts[ax.hide] and held then return true end
+        end
+    end
+
     return false
 end
 
@@ -383,16 +399,23 @@ do
         if EllesmereUI.RequestVisibilityUpdate then EllesmereUI.RequestVisibilityUpdate() end
         for i = 1, #callbacks do callbacks[i]() end
     end
-    function EllesmereUI.FireVisEdge()
-        if InCombatLockdown() then
-            EllesmereUI.CombatQueue.Defer("FireVisEdge", EllesmereUI.FireVisEdge)
-        end
-        -- Coalesced and deferred one frame: a clean execution context, and a
-        -- toggle that stops and restarts in one frame costs one pass.
+    -- Coalesced and deferred one frame: a clean execution context, and a
+    -- toggle that stops and restarts in one frame costs one pass.
+    local function Schedule()
         if pending then return end
         pending = true
         C_Timer.After(0, Run)
     end
+    function EllesmereUI.FireVisEdge()
+        if InCombatLockdown() then
+            EllesmereUI.CombatQueue.Defer("FireVisEdge", EllesmereUI.FireVisEdge)
+        end
+        Schedule()
+    end
+    -- Same broadcast for an edge whose state every consumer can read live in combat
+    -- (modifier keys): no catch-up re-fire at combat end, since nothing was waiting on it.
+    -- Consumers that cannot apply a change in combat pick it up on their own regen pass.
+    EllesmereUI.FireVisEdgeLive = Schedule
 end
 
 -- Option-lane axes: one axis per condition (Show lane, Hide lane, probe() = holds now),
@@ -431,7 +454,24 @@ EllesmereUI.VIS_OPT_AXES = {
       probe = function()
           return (UnitExists("target") and UnitCanAttack("player", "target")) and true or false
       end },
+    -- Modifier keys held. needsEdge "modifier": a secure state driver re-evaluates
+    -- [mod:x] on every modifier press by itself, in combat too, so a consumer that
+    -- compiles the axis into its driver (Action Bars, Unit Frames, Minimap) carries it
+    -- live. Lua consumers get the shared modifier edge instead: every probe below arms it
+    -- (EllesmereUI.VisModifierProbed, EllesmereUI_Visibility.lua), so it costs nothing
+    -- until some element's verdict actually reads a modifier lane.
+    -- token = the macro conditional true while the key is held.
+    { show = "visOnlyShift", hide = "visHideShift", needsEdge = "modifier", token = "mod:shift",
+      probe = function() EllesmereUI.VisModifierProbed(); return IsShiftKeyDown() and true or false end },
+    { show = "visOnlyCtrl", hide = "visHideCtrl", needsEdge = "modifier", token = "mod:ctrl",
+      probe = function() EllesmereUI.VisModifierProbed(); return IsControlKeyDown() and true or false end },
+    { show = "visOnlyAlt", hide = "visHideAlt", needsEdge = "modifier", token = "mod:alt",
+      probe = function() EllesmereUI.VisModifierProbed(); return IsAltKeyDown() and true or false end },
 }
+
+-- Edge set for a secure-driver consumer whose only live edge is the modifier keys
+-- ([mod:x] needs none: the driver re-evaluates on every press). Shared, never mutated.
+EllesmereUI.VIS_EDGES_MODIFIER = { modifier = true }
 
 -- Whether this axis has to be resolved in Lua for a consumer with these edges.
 -- `edges` is the set of event edges the consumer actually watches, e.g.
@@ -457,7 +497,9 @@ function EllesmereUI.VisOptionHideVeto(opts, filter, edges, skipMount)
         local ax = axes[i]
         local skip
         if filter == "nonMacro" then
-            skip = ax.needsEdge == "softTarget"
+            -- Every needsEdge axis (target, enemy, modifiers) is a live token in the
+            -- caller's driver, never a Lua verdict on this path.
+            skip = ax.needsEdge ~= nil
         elseif filter then
             local luaOnly = EllesmereUI.VisAxisIsLuaOnly(ax, edges)
             skip = (filter == "luaOnly" and not luaOnly) or (filter == "driver" and luaOnly)

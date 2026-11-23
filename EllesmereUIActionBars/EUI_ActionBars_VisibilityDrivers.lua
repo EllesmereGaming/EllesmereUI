@@ -51,8 +51,15 @@ end
 
 -- Edges this addon watches, for the shared Any tail builder: the target/enemy axes may
 -- compile to live macro tokens because the soft-target machinery (PLAYER_SOFT_* events
--- + the 0.1s poll) rebuilds the driver when they drift. EAB field, not a local.
-EAB.VIS_EDGES = { softTarget = true }
+-- + the 0.1s poll) rebuilds the driver when they drift. The modifier axes compile to
+-- [mod:x], which the secure state driver re-evaluates on every key press by itself.
+-- EAB field, not a local.
+EAB.VIS_EDGES = { softTarget = true, modifier = true }
+
+-- A Match Any bar with Mouseover keeps its driver at "show" and lets its resting alpha
+-- decide; that alpha reads the modifier lanes through VisWantsMouseover, whose probes arm
+-- the shared modifier edge (EllesmereUI_Visibility.lua). The edge re-runs the shared
+-- dispatcher, which reaches RefreshHoverGatedAlpha below.
 
 local function BuildVisibilityString(info, s, visOverride)
     -- Hide Bar When Using Gamepad compiles to the constant a Never bar gets, so
@@ -87,6 +94,19 @@ local function BuildVisibilityString(info, s, visOverride)
         if s.visHideWithTarget then visOptHide = visOptHide .. "[exists] hide; " end
         if s.visHideNoEnemy then visOptHide = visOptHide .. "[noharm] hide; " end
         if s.visHideWithEnemy then visOptHide = visOptHide .. "[harm] hide; " end
+        -- Modifier keys: Show lane = hide while the key is up, Hide lane = hide while it
+        -- is held. Both lanes at once reads as unconstrained, as everywhere else.
+        local optAxes = EllesmereUI.VIS_OPT_AXES
+        for i = 1, #optAxes do
+            local ax = optAxes[i]
+            if ax.token and s[ax.show] ~= s[ax.hide] then
+                if s[ax.show] then
+                    visOptHide = visOptHide .. "[no" .. ax.token .. "] hide; "
+                else
+                    visOptHide = visOptHide .. "[" .. ax.token .. "] hide; "
+                end
+            end
+        end
     end
 
     -- Authoritative multi-select set. Explicit overrides (toggle keybind,
