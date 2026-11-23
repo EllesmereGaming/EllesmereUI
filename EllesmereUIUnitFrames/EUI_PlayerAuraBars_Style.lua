@@ -327,6 +327,7 @@ local function BuildStyle(isBuff, cfg)
             solidPx = cfg.borderPxOverride
                 or EllesmereUI.BorderPx(cfg.borderSizePx, borderSize, texture)
             border.edgePx = solidPx
+            border.cornerRadius = cfg.borderCornerRadius
         end
     end
     -- Blizzard Style: no EUI ring on any bar -- buffs go borderless like the

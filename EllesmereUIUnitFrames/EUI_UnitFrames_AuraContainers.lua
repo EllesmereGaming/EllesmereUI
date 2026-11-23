@@ -1317,7 +1317,7 @@ local PET_AURA_KEYS = {
     showAuraTooltips = 1,
     buffIconZoom = 2, debuffIconZoom = 2,
     auraBorderR = 2, auraBorderG = 2, auraBorderB = 2, auraBorderA = 2,
-    auraBorderSize = 2, auraBorderSizePx = 2, auraBorderTexture = 2,
+    auraBorderSize = 2, auraBorderSizePx = 2, auraBorderCornerRadius = 2, auraBorderTexture = 2,
     auraBorderTextureOffset = 2, auraBorderTextureOffsetY = 2,
     auraBorderTextureShiftX = 2, auraBorderTextureShiftY = 2,
     auraBorderBehind = 2, auraBorderBehindUnitFrame = 2, auraBorderDispelTextured = 2,
@@ -1578,7 +1578,7 @@ local function StyleTableFP(st, font)
     return FP(font, st.width, st.height, tc[1], tc[2], tc[3], tc[4],
         st.hideDurationText, st.durationPrecisionThreshold, st.cdTextSize, CK(st.cdTextColor), st.cdOffX, st.cdOffY,
         st.stackSize, CK(st.stackColor), st.stackPos, st.stackOffX, st.stackOffY,
-        b and b.texture, b and b.size, b and b.edgePx, b and b[1], b and b[2], b and b[3], b and b[4],
+        b and b.texture, b and b.size, b and b.cornerRadius, b and b.edgePx, b and b[1], b and b[2], b and b[3], b and b[4],
         b and b.offsetX, b and b.offsetY, b and b.shiftX, b and b.shiftY,
         b and b.behind, b and b.behindUnitFrame, b and b.unitFrameLevel,
         st.auraBorderAboveEffects,
@@ -1772,6 +1772,7 @@ local function BuildStyle(unit, base, s, unitFrame)
         border = {
             s.auraBorderR or 0, s.auraBorderG or 0, s.auraBorderB or 0, s.auraBorderA or 1,
             size = s.auraBorderSize or 1,
+            cornerRadius = s.auraBorderCornerRadius,
             texture = s.auraBorderTexture or "solid",
             -- Exact size (nil = the legacy step path); a pure function of the three
             -- keys, so the built-style fingerprint above covers it.

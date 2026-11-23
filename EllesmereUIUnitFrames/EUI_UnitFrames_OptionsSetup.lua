@@ -175,6 +175,9 @@ local function SetupOptionsPanel()
         -- each one: keep its solid strips one level over it, as when built.
         local strips = PP.GetBorders(border)
         if strips then strips:SetFrameLevel(border:GetFrameLevel() + 1) end
+        local owner = border:GetParent()
+        EllesmereUI.PreviewAuraCorners(owner, owner._icon, owner._cd, border,
+            not (ns.UF_Blizz and ns.UF_Blizz()) and settings.auraBorderCornerRadius, settings.auraBorderTexture, settings.auraBorderSize)
     end
     local function AttachFakeDebuffs(frame)
         -- Hide the holder until it is laid out again below, so size, anchor and
