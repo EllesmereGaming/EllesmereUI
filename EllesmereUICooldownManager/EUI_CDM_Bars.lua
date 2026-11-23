@@ -1293,8 +1293,10 @@ LayoutCDMBar = function(barKey)
             local rowN     = (rowIdx == 1) and topN or (sizeCount - topN)
             local wPx, hPx = rowWPx[rowIdx], rowHPx[rowIdx]
 
-            FC(icon).matchExpanded = nil
+            local fc = FC(icon)
+            fc.matchExpanded = nil
             icon:SetSize(wPx * onePx * iS, hPx * onePx * iS)
+            if fc.roundRadius then ns.FitCDMRoundedIcon(icon, fc, wPx * onePx * iS, hPx * onePx * iS, true) end
             if blizzIcons then ns.CdmApplyBlizzIconArt(icon) end
 
             if isMouseBar then
@@ -1409,8 +1411,10 @@ LayoutCDMBar = function(barKey)
             thisIconH = expandedCol and (iconH + onePx) or iconH
             thisIconW = expandedRow and (iconW + onePx) or iconW
         end
-        FC(icon).matchExpanded = (expandedCol or expandedRow) or nil
+        local fc = FC(icon)
+        fc.matchExpanded = (expandedCol or expandedRow) or nil
         icon:SetSize(thisIconW * iS, thisIconH * iS)
+        if fc.roundRadius then ns.FitCDMRoundedIcon(icon, fc, thisIconW * iS, thisIconH * iS, true) end
         if blizzIcons then ns.CdmApplyBlizzIconArt(icon) end
 
         -- Cumulative offsets: each prior expanded icon shifts later icons by 1 physical pixel on

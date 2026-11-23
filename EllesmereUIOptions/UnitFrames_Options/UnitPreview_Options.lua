@@ -2205,21 +2205,34 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         local as = s
         if unitKey == "pet" then as = ns.UF_AuraSettings("pet") or s end
 
-        -- Aura preview: mirror the live shared aura border style.
+        -- Apply after the preview's icon sizes and fit scale settle.
+        local applyPreviewAuraBorder
         if unitKey == "player" or unitKey == "target" or unitKey == "focus" or unitKey == "boss" or unitKey == "pet" then
             -- Blizzard Style: the live frames draw no custom aura border, so
             -- the preview keeps the plain 1px edge and hides it too.
             local blizzAura = blizzG ~= nil
-            local function ApplyPreviewAuraBorder(icon)
-                if icon._iconTex then
-                    icon._iconTex:ClearAllPoints()
-                    local inset = (blizzAura or (as.auraBorderSize or 1) > 0) and 1 or 0
-                    PP.Point(icon._iconTex, "TOPLEFT", icon, "TOPLEFT", inset, -inset)
-                    PP.Point(icon._iconTex, "BOTTOMRIGHT", icon, "BOTTOMRIGHT", -inset, inset)
+            local function layoutArt(icon, inset)
+                local rounded = icon.auraRound and icon.auraRound.on
+                -- The square fallback shows through the cut corners unless its fill is cleared.
+                if icon._previewRoundedArt ~= rounded then
+                    icon:SetBackdropColor(0, 0, 0, rounded and 0 or 1)
+                    icon._previewRoundedArt = rounded
                 end
+                local tex = icon._iconTex
+                tex:ClearAllPoints()
+                if rounded then
+                    tex:SetAllPoints(icon)
+                else
+                    PP.Point(tex, "TOPLEFT", icon, "TOPLEFT", inset, -inset)
+                    PP.Point(tex, "BOTTOMRIGHT", icon, "BOTTOMRIGHT", -inset, inset)
+                end
+            end
+            applyPreviewAuraBorder = function(icon)
                 local border = icon._euiAuraBorder
                 if blizzAura then
+                    EllesmereUI.PreviewAuraCorners(icon, icon._iconTex, icon._previewCD, border, 0)
                     if border then border:Hide() end
+                    layoutArt(icon, 1)
                     return
                 end
                 if not border then
@@ -2248,9 +2261,10 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                     as.auraBorderTextureShiftX, as.auraBorderTextureShiftY,
                     "unitframes", as.auraBorderSize or 1, nil,
                     EllesmereUI.BorderPx(as.auraBorderSizePx, as.auraBorderSize or 1, as.auraBorderTexture or "solid"))
+                EllesmereUI.PreviewAuraCorners(icon, icon._iconTex, icon._previewCD, border,
+                    as.auraBorderCornerRadius, as.auraBorderTexture, as.auraBorderSize, 1)
+                layoutArt(icon, (as.auraBorderSize or 1) > 0 and 1 or 0)
             end
-            for i = 1, #buffIcons do ApplyPreviewAuraBorder(buffIcons[i]) end
-            for i = 1, #debuffIcons do ApplyPreviewAuraBorder(debuffIcons[i]) end
         end
 
         -- Donor settings for mini frames (border/texture inherit from the
@@ -3851,6 +3865,10 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         end
         local combinedScale = baseScale * fitScale
         pf:SetScale(combinedScale)
+        if applyPreviewAuraBorder then
+            for i = 1, #buffIcons do applyPreviewAuraBorder(buffIcons[i]) end
+            for i = 1, #debuffIcons do applyPreviewAuraBorder(debuffIcons[i]) end
+        end
 
         -- Recalculate border sizes after scale change so they stay pixel-perfect
         if border then

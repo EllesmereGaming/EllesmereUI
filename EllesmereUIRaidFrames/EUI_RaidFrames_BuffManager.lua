@@ -1514,11 +1514,15 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                                 and EllesmereUI.ResolveBorderTexture(border.texture) then
                                                 border[1], border[2], border[3], border[4] = c.r, c.g, c.b, 1
                                             else
-                                                border = { c.r, c.g, c.b, 1, size=ind.pandemicBorderWidth or 2 }
+                                                border = { c.r, c.g, c.b, 1, size=ind.pandemicBorderWidth or 2,
+                                                    cornerRadius=border and border.cornerRadius }
                                             end
                                         end
                                         ns.RFC_ApplyAuraBorder(fr._bdr, fr._bdr, border,
                                             (fr._cooldown or fr):GetFrameLevel())
+                                        EllesmereUI.PreviewAuraCorners(fr, fr._tex, fr._cooldown, fr._bdr,
+                                            indType == "icon" and border and border.cornerRadius,
+                                            border and border.texture, border and border.size)
                                     end
                                 end
                             end
@@ -1971,7 +1975,7 @@ local DM_BASE_KEYS = { "debuffSize", "debuffPosition", "debuffOffsetX", "debuffO
     "debuffBorderTexture", "debuffBorderSizePx", "debuffBorderColor",
     "debuffBorderTextureOffset", "debuffBorderTextureOffsetY",
     "debuffBorderTextureShiftX", "debuffBorderTextureShiftY",
-    "debuffBorderDispelTextured",
+    "debuffBorderDispelTextured", "debuffBorderCornerRadius",
     "debuffShowDurText", "debuffDurTextSize", "debuffShowStacks", "debuffStacksTextSize",
     "debuffStacksOffsetX", "debuffStacksOffsetY" }
 

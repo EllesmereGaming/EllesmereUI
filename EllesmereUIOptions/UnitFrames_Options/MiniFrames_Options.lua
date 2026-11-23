@@ -2640,9 +2640,16 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                             EllesmereUI.BlizzStyle.Gate("unitframes", ocfgR)); yy = yy - hh
                     end
                 end
-                do
-                    local rgn=borderRow._leftRegion
-                    local btn = EllesmereUI.BuildInlineCog(rgn, { title="Border Options", rows={
+                local auraBorderTex = B.auraBorderTexture or "solid"
+                EllesmereUI.BuildInlineCog(borderRow._rightRegion, EllesmereUI.AuraRadiusCogCfg(auraBorderTex,
+                    function() return B.auraBorderCornerRadius or 0 end,
+                    function(v) B.auraBorderCornerRadius=v; ReloadAndUpdate() end,
+                    function() return EllesmereUI.BlizzStyle.Get("unitframes") end,
+                    function() return EllesmereUI.BlizzStyle.Label("unitframes") end))
+                if EllesmereUI._prebuilding or (auraBorderTex ~= "solid" and auraBorderTex ~= "") then
+                    EllesmereUI.BuildInlineCog(borderRow._leftRegion, { title="Border Options",
+                        disabled=function() return EllesmereUI.BlizzStyle.Get("unitframes") end,
+                        rows={
                         { type="slider",label="Shift X",min=-10,max=10,step=1,
                           get=function() local v=B.auraBorderTextureShiftX;if v~=nil then return v end;local _,_,x=EllesmereUI.GetBorderDefaults("unitframes",B.auraBorderTexture or "solid",B.auraBorderSize or 1);return x end,
                           set=function(v) B.auraBorderTextureShiftX=v==0 and nil or v;ReloadAndUpdate() end },
@@ -2663,17 +2670,14 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                           get=function() return B.auraBorderAboveEffects == true end,
                           set=function(v) B.auraBorderAboveEffects=v;ReloadAndUpdate() end },
                     } })
-                    if not EllesmereUI._prebuilding then
-                        local function vis() if (B.auraBorderTexture or "solid")=="solid" then btn:Hide() else btn:Show() end end
-                        EllesmereUI.RegisterWidgetRefresh(vis);vis()
-                    end
                 end
                 if not EllesmereUI._prebuilding then
                     local rgn=borderRow._rightRegion
                     local sw,upd=EllesmereUI.BuildColorSwatch(rgn,borderRow:GetFrameLevel()+3,
                         function() return B.auraBorderR or 0,B.auraBorderG or 0,B.auraBorderB or 0,B.auraBorderA or 1 end,
                         function(r,g,b,a) B.auraBorderR=r;B.auraBorderG=g;B.auraBorderB=b;B.auraBorderA=a;ReloadAndUpdate() end,true,20)
-                    PP.Point(sw,"RIGHT",rgn._control,"LEFT",-8,0)
+                    PP.Point(sw,"RIGHT",rgn._lastInline or rgn._control,"LEFT",-8,0)
+                    rgn._lastInline=sw
                     EllesmereUI.RegisterWidgetRefresh(upd)
                 end
             end

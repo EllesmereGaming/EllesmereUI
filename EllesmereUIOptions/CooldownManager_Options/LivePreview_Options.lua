@@ -2020,6 +2020,11 @@ local function BuildCDMLivePreview(parent, yOff)
             if slot._bg.SetSnapToPixelGrid then slot._bg:SetSnapToPixelGrid(false); slot._bg:SetTexelSnappingBias(0) end
 
             ns.ApplyShapeToCDMIcon(slot, shape, bd)
+            local rounded = ns._ecmeFC[slot].auraRound
+            if rounded then
+                if slot._hostBrd then EllesmereUI.RoundAuraOverlay(slot._hostBrd:GetParent(), rounded) end
+                if slot._hlBrd then EllesmereUI.RoundAuraOverlay(slot._hlBrd:GetParent(), rounded) end
+            end
             -- Blizzard Style: no EUI border or background; the live art pass
             -- adds the viewer's rounded mask and ring to the slot exactly as
             -- it does to a bar's own icons. The preview's overlays (text,
