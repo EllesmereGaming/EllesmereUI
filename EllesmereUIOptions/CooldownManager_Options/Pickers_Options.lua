@@ -493,6 +493,12 @@ local function ShowCustomSpellIDPopup(barKey, onAdded, withCharges)
         validate = function(text)
             local sid = SpellOf(text)
             if not sid then return EllesmereUI.L("Enter a valid spell ID") end
+            -- Ahead of the spell check: some potion item ids name no spell.
+            local bdPick = barKey and ns.barDataByKey and ns.barDataByKey[barKey]
+            if bdPick and (bdPick.barType == "buffs" or bdPick.barType == "custom_buff")
+               and ns.PotionPresetForTypedID(sid) then
+                return EllesmereUI.L("Pick this potion from the preset list")
+            end
             if not C_Spell.GetSpellName(sid) then return EllesmereUI.L("Unknown spell ID") end
             -- Variant-aware, mirroring AddTrackedSpell's own dedup. An exact-only
             -- check lets a variant-duplicate through, which AddTrackedSpell then

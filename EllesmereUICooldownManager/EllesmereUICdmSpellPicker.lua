@@ -2096,6 +2096,67 @@ function ns.IsPresetOnBar(barKey, preset)
     return false
 end
 
+--- The one-spell potion preset a typed id names: its buff spell or any of its
+--- items. Multi-spell presets are left out: their timer starts on the primary
+--- id alone, so the aura path tracks their variants better.
+local _potionPresetByID
+function ns.PotionPresetForTypedID(id)
+    if not _potionPresetByID then
+        _potionPresetByID = {}
+        local con = EllesmereUI.CONSUMABLES
+        for _, preset in ipairs(ns.BUFF_BAR_PRESETS or {}) do
+            local c = con and con[preset.key]
+            if c and c.itemID and #preset.spellIDs == 1 then
+                _potionPresetByID[preset.spellIDs[1]] = preset
+                _potionPresetByID[c.itemID] = preset
+                for _, alt in ipairs(c.altItemIDs or {}) do
+                    _potionPresetByID[alt] = preset
+                end
+            end
+        end
+    end
+    return _potionPresetByID[id]
+end
+
+--- Turn Custom Spell ID entries naming a potion into that potion's preset, so
+--- they join the bar's row and follow its order. True when anything changed.
+function ns.AdoptPotionCustomEntries(sd)
+    local tags = sd and sd.customSpellIDs
+    local list = sd and sd.assignedSpells
+    if not (tags and list) then return false end
+    local adopted = false
+    for i = #list, 1, -1 do
+        local id = list[i]
+        local preset = type(id) == "number" and tags[id] and ns.PotionPresetForTypedID(id)
+        if preset and not (sd.spellDurations and (sd.spellDurations[id] or 0) > 0) then
+            local sid = preset.spellIDs[1]
+            local keep = true
+            if id ~= sid then
+                for _, other in ipairs(list) do
+                    if other == sid then keep = false; break end
+                end
+                if keep then list[i] = sid else table.remove(list, i) end
+                local order = sd.buffDisplayOrder
+                if type(order) == "table" then
+                    for o = #order, 1, -1 do
+                        if order[o] == "s" .. id then
+                            if keep then order[o] = "s" .. sid else table.remove(order, o) end
+                        end
+                    end
+                end
+            end
+            if keep then
+                if not sd.spellDurations then sd.spellDurations = {} end
+                sd.spellDurations[sid] = preset.duration or 30
+            end
+            tags[id] = nil
+            adopted = true
+        end
+    end
+    if adopted then ns._spellOrderDirty = true end
+    return adopted
+end
+
 --- Add a tracked spell (spellID) to a bar. Picker-driven add: always treated
 --- as "claim this spell for the target bar" -- auto-removed from EVERY other
 --- bar in the same family (default + custom + matching ghost) first. One
