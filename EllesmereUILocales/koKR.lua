@@ -14764,3 +14764,4 @@ L["Friendly nameplates in Name Only no longer show a player's guild line under t
 L["Friendly nameplates in Name Only no longer give unflagged players of the other faction a friendly name color."] = "이름만 표시 모드의 아군 이름표에서 PvP 비활성 상태의 상대 진영 플레이어에게 아군 이름 색상이 적용되던 문제를 수정했습니다."
 L["Anchor to Cursor on the Power Bar and Class Resource now works when the bar is anchored in Unlock Mode, and bars anchored to a bar on the cursor stay in place instead of being dragged along."] = "자원 바 및 직업 자원의 '커서에 고정' 기능이 잠금 해제 모드에서 바가 고정된 상태에서도 정상 작동하며, 커서에 고정된 바에 연결된 다른 바들이 함께 끌려가지 않고 제자리에 유지됩니다."
 L["Druids with the class resource above the health bar no longer see an empty strip on the player frame outside Cat Form."] = "생명력 바 위에 직업 자원을 배치한 드루이드가 표범 변신 상태가 아닐 때 플레이어 프레임에 빈 띠가 보이던 문제를 수정했습니다."
+L["%1$s |cffff2020DIED!|r"] = "%1$s |cffff2020사망!|r"
