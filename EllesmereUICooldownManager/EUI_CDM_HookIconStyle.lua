@@ -311,6 +311,9 @@ end
 local function CdmStaleLinkedSpell(frame)
     local info = frame and frame.cooldownInfo
     if info == nil or info.linkedSpellID == nil then return false end
+    -- A self-link (buff shares the spell's ID) reads the same cooldown: not stale.
+    local link = info.linkedSpellID
+    if link == info.spellID or link == info.overrideSpellID then return false end
     -- An aura that is actually being displayed owns the widget; never fight it.
     -- Covers the transient where UpdateLinkedSpell has set the link a moment
     -- before RefreshAuraInstance attaches the matching instance.
