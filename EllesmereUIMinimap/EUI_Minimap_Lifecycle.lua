@@ -130,7 +130,8 @@ local function MinimapDriverString(p, vm)
     -- build time (caller runs out of combat only); a later zone/mount edge re-runs the
     -- dispatcher and re-registers the string.
     if p.visibilityMatch == "any" and EllesmereUI.BuildAnyMatchTail then
-        return (EllesmereUI.BuildAnyMatchTail(p, "visibility", vm))
+        -- Modifier lanes compile to live [mod:x] tokens rather than freezing at build.
+        return (EllesmereUI.BuildAnyMatchTail(p, "visibility", vm, nil, EllesmereUI.VIS_EDGES_MODIFIER))
     end
     if vm then
         return EllesmereUI.BuildVisibilityDriverString("", vm)

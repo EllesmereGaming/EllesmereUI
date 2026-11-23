@@ -30,7 +30,8 @@ local CreateFrame = EllesmereUI._Pool.CreateFrame
 --                            store; the marker replaces the shared value, so it has to
 --                            reach exactly the stores that value does.
 --      caps                = { noMouseover, noGroupModes, noOverrideMouseover,
---                              luaDragonriding, lockedTooltips }
+--                              luaDragonriding, lockedTooltips, noModifierKeys,
+--                              modifierOutOfCombat }
 --      applyScalarFn       = optional fn(store, mode) for scalar side effects
 --      getOption/setOption = optional fn(key)/fn(key, value) when option booleans live
 --                            outside getStore() (Resource Bars writes three stores)
@@ -116,6 +117,21 @@ EllesmereUI.VIS_ROW_ITEMS = {
     { key = "partyMode", label = "Party Mode", axis = "opt",
       show = "visOnlyPartyMode", hide = "visHidePartyMode",
       tooltip = "While Party Mode is active. Party Mode can start in combat (Bloodlust); secure elements such as action bars then keep their current visibility until combat ends." },
+    -- Modifier keys held. Offered everywhere unless caps.noModifierKeys; an element that
+    -- cannot change its visibility inside combat sets caps.modifierOutOfCombat, and the
+    -- rows then say so (tooltipOoc) instead of promising combat.
+    { key = "modShift", label = "Shift Held", axis = "opt", modKey = true,
+      show = "visOnlyShift", hide = "visHideShift",
+      tooltip = "While either Shift key is held down. Works in combat.",
+      tooltipOoc = "While either Shift key is held down. This element can only change out of combat." },
+    { key = "modCtrl", label = "Ctrl Held", axis = "opt", modKey = true,
+      show = "visOnlyCtrl", hide = "visHideCtrl",
+      tooltip = "While either Ctrl key is held down. Works in combat.",
+      tooltipOoc = "While either Ctrl key is held down. This element can only change out of combat." },
+    { key = "modAlt", label = "Alt Held", axis = "opt", modKey = true,
+      show = "visOnlyAlt", hide = "visHideAlt",
+      tooltip = "While either Alt key is held down. Works in combat.",
+      tooltipOoc = "While either Alt key is held down. This element can only change out of combat." },
 }
 
 -------------------------------------------------------------------------------
@@ -201,8 +217,11 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
         if def.isHeader then
             items[#items + 1] = def
         elseif not (def.key == "mouseover" and caps.noMouseover)
+            and not (def.modKey and caps.noModifierKeys)
             and not (def.forever and EllesmereUI.IS_FOREVER and ForeverRowHidden(def)) then
-            local item = { key = def.key, label = def.label, tooltip = def.tooltip,
+            local tip = def.tooltip
+            if def.tooltipOoc and caps.modifierOutOfCombat then tip = def.tooltipOoc end
+            local item = { key = def.key, label = def.label, tooltip = tip,
                            dual = def.axis and true or nil,
                            isModifier = def.modifier }
             -- Never / Always / Mouseover are the exclusive states: each one writes the

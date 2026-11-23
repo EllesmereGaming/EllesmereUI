@@ -10271,3 +10271,14 @@ L["Nameplate Icon"] = "Namensplakettensymbol"
 L["Nameplate Kick Icons use this to auto-assign kicks when a mob is first marked."] = "Namensplaketten-Kick-Symbole nutzen dies, um Unterbrechungen automatisch zuzuordnen, sobald ein Gegner markiert wird"
 L["Dismiss this warning"] = "Diese Warnung ausblenden"
 
+
+-- Visibility checklist: modifier keys held (Action Bars)
+L["Shift Held"] = "Umschalt gedrückt"
+L["While either Shift key is held down. Works in combat."] = "Solange eine der Umschalttasten gedrückt ist. Funktioniert auch im Kampf."
+L["Ctrl Held"] = "Strg gedrückt"
+L["While either Ctrl key is held down. Works in combat."] = "Solange eine der Strg-Tasten gedrückt ist. Funktioniert auch im Kampf."
+L["Alt Held"] = "Alt gedrückt"
+L["While either Alt key is held down. Works in combat."] = "Solange eine der Alt-Tasten gedrückt ist. Funktioniert auch im Kampf."
+L["While either Shift key is held down. This element can only change out of combat."] = "Solange eine der Umschalttasten gedrückt ist. Dieses Element kann sich nur außerhalb des Kampfes ändern."
+L["While either Ctrl key is held down. This element can only change out of combat."] = "Solange eine der Strg-Tasten gedrückt ist. Dieses Element kann sich nur außerhalb des Kampfes ändern."
+L["While either Alt key is held down. This element can only change out of combat."] = "Solange eine der Alt-Tasten gedrückt ist. Dieses Element kann sich nur außerhalb des Kampfes ändern."

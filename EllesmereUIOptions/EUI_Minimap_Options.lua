@@ -105,7 +105,9 @@ initFrame:SetScript("OnEvent", function(self)
     local function BuildVisibilityRow(W, parent, y, getCfg, refreshFn, rightCfg)
         local visRow, visH = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = getCfg, legacyKey = "visibility",
-              caps = { partyIncludesRaid = false, luaDragonriding = true },
+              -- modifierOutOfCombat: Minimap:Show()/Hide() is protected, so a modifier
+              -- lane only follows the keys in combat when a secure driver carries it.
+              caps = { partyIncludesRaid = false, luaDragonriding = true, modifierOutOfCombat = true },
               onChanged = function()
                   if refreshFn then refreshFn() end
                   if _G._EBS_UpdateVisibility then _G._EBS_UpdateVisibility() end

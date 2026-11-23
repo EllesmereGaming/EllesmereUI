@@ -198,3 +198,14 @@ L["Scenario"] = true
 
 -- Group Finder Hide Applicant Info
 L["Note"] = "Nota"
+
+-- Visibility checklist: modifier keys held (Action Bars)
+L["Shift Held"] = "Maiusc premuto"
+L["While either Shift key is held down. Works in combat."] = "Finché uno dei tasti Maiusc è premuto. Funziona anche in combattimento."
+L["Ctrl Held"] = "Ctrl premuto"
+L["While either Ctrl key is held down. Works in combat."] = "Finché uno dei tasti Ctrl è premuto. Funziona anche in combattimento."
+L["Alt Held"] = "Alt premuto"
+L["While either Alt key is held down. Works in combat."] = "Finché uno dei tasti Alt è premuto. Funziona anche in combattimento."
+L["While either Shift key is held down. This element can only change out of combat."] = "Finché uno dei tasti Maiusc è premuto. Questo elemento può cambiare solo fuori dal combattimento."
+L["While either Ctrl key is held down. This element can only change out of combat."] = "Finché uno dei tasti Ctrl è premuto. Questo elemento può cambiare solo fuori dal combattimento."
+L["While either Alt key is held down. This element can only change out of combat."] = "Finché uno dei tasti Alt è premuto. Questo elemento può cambiare solo fuori dal combattimento."

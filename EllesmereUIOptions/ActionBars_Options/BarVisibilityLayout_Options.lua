@@ -106,6 +106,9 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
         -- Data bars evaluate in Lua (non-secure), so dragonriding items depend on the gliding
         -- edge event; secure bars' drivers re-evaluate natively and never lock.
         if IsDataBar() then visCaps.luaDragonriding = true end
+        -- Shift/Ctrl/Alt Held: secure bars compile [mod:x] into their driver and follow
+        -- the keys in combat; a data bar's visibility pass skips combat lockdown.
+        if IsDataBar() then visCaps.modifierOutOfCombat = true end
 
         -- Visibility Extras: the times this bar shows beyond its Visibility
         -- setting, one checkbox per setting, each a view over its own key.

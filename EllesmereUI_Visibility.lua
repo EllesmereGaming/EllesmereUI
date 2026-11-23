@@ -213,6 +213,43 @@ visFrame:SetScript("OnEvent", function(_, event)
 end)
 
 -------------------------------------------------------------------------------
+--  Modifier-key edge (Shift / Ctrl / Alt Held lanes)
+--  MODIFIER_STATE_CHANGED fires on every modifier press, so it is registered only
+--  while some verdict reads a modifier lane: each modifier probe arms it (see the
+--  modifier axes in EllesmereUI_VisibilityRules.lua). A press re-runs every
+--  consumer through the shared edge broadcast; when that pass reads no modifier lane
+--  any more, nothing depends on the keys and the event is dropped again. A consumer
+--  that skips its pass (combat lockdown) re-arms it on its next pass. Secure drivers
+--  that compile [mod:x] never probe, so they never arm it.
+-------------------------------------------------------------------------------
+local modFrame = CreateFrame("Frame")
+local _modArmed, _modSeen = false, false
+
+local function ModDisarmCheck()
+    if _modArmed and not _modSeen then
+        _modArmed = false
+        modFrame:UnregisterEvent("MODIFIER_STATE_CHANGED")
+    end
+end
+
+modFrame:SetScript("OnEvent", function()
+    _modSeen = false
+    _moGen = _moGen + 1
+    EUI.FireVisEdgeLive()
+    -- Queued after the broadcast's own one-frame deferral, so the pass it runs has
+    -- already probed (or not) by the time this looks.
+    C_Timer.After(0, ModDisarmCheck)
+end)
+
+function EUI.VisModifierProbed()
+    _modSeen = true
+    if not _modArmed then
+        _modArmed = true
+        modFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Mouseover poll
 -------------------------------------------------------------------------------
 -- Cursor-in-bounds check (works on hidden frames using saved position/size).
@@ -964,6 +1001,18 @@ function EUI.BuildVisibilityDriverStringAny(prefix, vm, opts, extraConstrained, 
     if opts.visHideNoEnemy and not opts.visHideWithEnemy then
         axes = axes + 1; emit("harm")
     end
+    -- Option axes that carry their macro token in VIS_OPT_AXES (the modifier keys).
+    -- A consumer without the axis' edge never gets here with it set: BuildAnyMatchTail
+    -- filters such lanes out of `opts` and resolves them in Lua instead.
+    local optAxes = EUI.VIS_OPT_AXES
+    if optAxes then
+        for i = 1, #optAxes do
+            local ax = optAxes[i]
+            if ax.token and opts[ax.show] and not opts[ax.hide] then
+                axes = axes + 1; emit(ax.token)
+            end
+        end
+    end
 
     -- Dragonriding axis. NOT(advflyable AND flying) has no single bracket form, so the
     -- negative lane becomes the TAIL: once no other disjunct matched, hide while
@@ -1012,6 +1061,15 @@ function EUI.BuildVisOptHideGates(opts)
     end
     if opts.visHideWithEnemy and not opts.visHideNoEnemy then
         out = out .. "[harm] hide; "; n = n + 1
+    end
+    local optAxes = EUI.VIS_OPT_AXES
+    if optAxes then
+        for i = 1, #optAxes do
+            local ax = optAxes[i]
+            if ax.token and opts[ax.hide] and not opts[ax.show] then
+                out = out .. "[" .. ax.token .. "] hide; "; n = n + 1
+            end
+        end
     end
     return out, n
 end
