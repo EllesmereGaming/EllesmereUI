@@ -857,17 +857,15 @@ local function ResetLeave(b)
     EllesmereUI.HideWidgetTooltip()
 end
 
--- The button takes the mouse only while Ctrl is held (and lights up), so the
--- row never blocks a click or a camera drag. Only a change of Ctrl (not Shift
--- or Alt) repaints it.
+-- Hover always shows the tooltip; clicks are taken only while Ctrl is held
+-- (and it lights up), so it never blocks a click or a camera drag.
 local function ResetArm(b)
     local on = IsControlKeyDown()
     if on == b.armed then return end
     b.armed = on
     local c = on and 1 or RESET_DIM
-    b:EnableMouse(on)
+    b:SetMouseClickEnabled(on)
     b.text:SetTextColor(c, c, c)
-    if not on then ResetLeave(b) end
 end
 
 -- The button shows and hides with the row: Ctrl is watched, and the minute
@@ -908,6 +906,7 @@ local function NewSummary(parent)
     r:EnableMouse(false)
     reset:EnableMouse(false)
     if not parent then
+        reset:EnableMouseMotion(true)
         reset:SetScript("OnEnter", ResetEnter)
         reset:SetScript("OnLeave", ResetLeave)
         reset:SetScript("OnClick", ResetClick)
