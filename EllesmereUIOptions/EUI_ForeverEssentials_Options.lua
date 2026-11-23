@@ -95,6 +95,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.macroManager = nil
                 EllesmereUIDB.questRewards = nil
                 EllesmereUIDB.zoneLevels = nil
+                EllesmereUIDB.inGameNavigation = nil
                 -- The per-character favorites are the player's picks: only the switch resets.
                 if EllesmereUIDB.petSummon then EllesmereUIDB.petSummon.enabled = nil end
                 -- The CVars a session holds stay recorded, so Apply can give them back.
@@ -143,6 +144,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._Fishing then EllesmereUI._Fishing.Apply() end
             if EllesmereUI._MapTravel then EllesmereUI._MapTravel.Apply() end
             if EllesmereUI._MapFade then EllesmereUI._MapFade.Apply() end
+            if EllesmereUI._InGameNavigation then EllesmereUI._InGameNavigation.Apply() end
             if EllesmereUI._GatherSkill then EllesmereUI._GatherSkill.Apply() end
             EllesmereUI:InvalidatePageCache()
         end,

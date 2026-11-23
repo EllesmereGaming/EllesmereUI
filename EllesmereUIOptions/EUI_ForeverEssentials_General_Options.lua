@@ -476,6 +476,18 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               ZL.Apply()
           end }
     );  y = y - h
+
+    -- Show Waypoints in the World. Runtime in
+    -- EllesmereUIForeverEssentials_InGameNavigation.lua.
+    local NG = EllesmereUI._InGameNavigation
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Show Waypoints in the World",
+          tooltip = "Shows a marker and a beam over your tracked map pin or quest, with the quest's name, the distance and the time to get there, and an arrow at the screen edge while it is out of sight.",
+          getValue = function() return NG.Get("enabled") end,
+          setValue = function(v) NG.Set(v) end },
+        BLANK()
+    );  y = y - h
+
     do
         EllesmereUI.BuildInlineCog(revealRow._leftRegion, {
             title = "Reveal Unexplored Areas Settings",
