@@ -1076,7 +1076,17 @@ function Queue()
     pending = true
     C_Timer.After(0, Render)
 end
-EQT.RefreshCustom = Queue
+
+-- Options / profile entry point. A Distance sort re-sorts when the player
+-- stops moving.
+function EQT.RefreshCustom()
+    if EQT.SortUses("distance") then
+        evt:RegisterEvent("PLAYER_STOPPED_MOVING")
+    else
+        evt:UnregisterEvent("PLAYER_STOPPED_MOVING")
+    end
+    Queue()
+end
 
 -- Public: fn(slot, questID, titleFontString) runs for each quest title row on
 -- every render. width (0-64, default 0) is kept free right of the title.
@@ -1734,6 +1744,12 @@ evt:SetScript("OnEvent", function(_, event, questID, added)
             ns.CombatQueue.Defer("EQT_CustomItems", SyncItems)
         end
         return
+    elseif event == "PLAYER_STOPPED_MOVING" then
+        -- The item buttons cannot follow a re-sort in combat: wait for it to end.
+        if InCombatLockdown() then
+            ns.CombatQueue.Defer("EQT_CustomResort", Queue)
+            return
+        end
     elseif event == "BAG_UPDATE_COOLDOWN" then
         for _, b in ipairs(items) do
             if b:IsShown() then UpdateItemCooldown(b) end

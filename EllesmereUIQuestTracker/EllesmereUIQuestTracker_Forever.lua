@@ -72,6 +72,7 @@ local logUpdatePending = false
 local instancePass = false  -- one pass on entering a dungeon; see CanEditWatches
 local selfEdit = false      -- inside our own watch edit: its events are ours
 local sortIDs, sortGroup, sortKey, sortKey2, sortRank = {}, {}, {}, {}, {}
+local distKey = {}  -- Distance sort keys, held while moving and in combat
 local watched = {}
 local updated, completeSeen = {}, {}  -- QUEST_WATCH_UPDATE probe
 
@@ -87,17 +88,21 @@ local function Exp()
     return Cfg("questWatchExperimental") == true
 end
 -- Quest Log Order is the base mode (a saved "default", the retired Blizzard
--- order mode, reads as it).
+-- order mode, reads as it). Distance is custom tracker only: Blizzard's is
+-- sorted by watch edits, which drop the super-track.
 local function SortMode()
     local m = Cfg("questSortMode")
     if m == nil or m == "default" then return "log" end
+    if m == "distance" and not ns.UseCustomTracker() then return "log" end
     return m
 end
 local function SortCompleted() return Cfg("questSortCompleted") or "mixed" end
 -- Secondary key; ignored when the primary is already unique per quest.
 local function SortThenBy()
     if SortMode() == "log" then return "none" end
-    return Cfg("questSortThenBy") or "none"
+    local m = Cfg("questSortThenBy") or "none"
+    if m == "distance" and not ns.UseCustomTracker() then return "none" end
+    return m
 end
 -- The tools keep the watch list sorted while they are on.
 local function SortOn() return Exp() end
@@ -339,6 +344,15 @@ local function SortKeyFor(mode, questID, rank)
     elseif mode == "name" then
         local info = logInfo[questID]
         return info and info.title and info.title:lower() or ""
+    elseif mode == "distance" then
+        -- Nearest first; quests with no distance (another continent) last.
+        -- Held while moving, so the list moves when the player stops, and in
+        -- combat, where the item buttons cannot follow a re-sort.
+        if distKey[questID] == nil or not (IsPlayerMoving() or InCombatLockdown()) then
+            local distSq, onContinent = C_QuestLog.GetDistanceSqToQuest(questID)
+            distKey[questID] = onContinent and distSq or math.huge
+        end
+        return distKey[questID]
     elseif mode == "none" then
         return 0
     end
@@ -416,6 +430,7 @@ function EQT.IsQuestFiltered(questID)
     return FilterOn() and IsFiltered(questID, C_SuperTrack.GetSuperTrackedQuestID())
 end
 function EQT.AutoTrackOn() return AutoOn() end
+EQT.SortUses = SortUses
 function EQT.SortQuestList(ids)
     SortList(ids, SortMode(), SortCompleted(), SortThenBy())
 end
