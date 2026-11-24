@@ -163,6 +163,7 @@ end
 -- tooltip, disabled + disabledTip (string, or fn returning one), mouse (armed clicks bind mouse chords),
 -- plainMouse (with mouse: an armed bare left/right click binds too, so unbind
 -- is a right-click from rest), canArm (returns false to refuse arming).
+-- opts.wheel enables wheel chord capture while armed and hovered.
 -- Returns btn, refresh.
 function EllesmereUI.BuildKeybindButton(parent, opts)
     local btn = CreateFrame("Button", nil, parent)
@@ -300,6 +301,12 @@ function EllesmereUI.BuildKeybindButton(parent, opts)
         if key == "ESCAPE" then Stop(); Refresh(); return end
         Commit(CreateKeyChordStringUsingMetaKeyState(key))
     end)
+    btn:EnableMouseWheel(opts.wheel and true or false)
+    btn:SetScript("OnMouseWheel", opts.wheel and function(_, delta)
+        if InCombatLockdown() or not listening or delta == 0 then return end
+        if disabled and disabled() then return end
+        Commit(CreateKeyChordStringUsingMetaKeyState(delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN"))
+    end or nil)
     btn:SetScript("OnEnter", function(self)
         if disabled and disabled() then
             local tip = opts.disabledTip
