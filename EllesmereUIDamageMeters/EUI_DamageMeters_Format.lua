@@ -710,6 +710,18 @@ local function BuildPlayerTargets(playerName, session, sessionID, maxTargets)
     return list
 end
 
+-- Pet spells read "Spell (Pet)" as in Blizzard's meter. A secret pet name
+-- (combat) can't be told from the empty one, so it keeps the plain spell name.
+local function SpellEntryLabel(spellName, creatureName)
+    if not spellName then return creatureName end
+    if creatureName and not IsSecret(creatureName) and creatureName ~= ""
+        and DAMAGE_METER_SPELL_ENTRY_CREATURE then
+        return DAMAGE_METER_SPELL_ENTRY_CREATURE:format(spellName, creatureName)
+    end
+    return spellName
+end
+I.SpellEntryLabel = SpellEntryLabel
+
 I._srcKeyGuid, I.AbbrevNumber = _srcKeyGuid, AbbrevNumber
 I.AggregateEnemyPlayers, I.AppendDMSharedMedia = AggregateEnemyPlayers, AppendDMSharedMedia
 I.ApplyBarTexture, I.BuildPlayerTargets = ApplyBarTexture, BuildPlayerTargets
