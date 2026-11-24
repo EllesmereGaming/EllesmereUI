@@ -93,11 +93,28 @@ end
 --  keep the single shared group, byte-for-byte.
 -------------------------------------------------------------------------------
 
+-- The bar-wide Cooldown Swipe ("Apply to Bar"): hidden?, r, g, b. A shared engine
+-- group can honor this tier but never a per-spell value.
+function _AC.BarSwipe(bd)
+    local tier = bd and ns.GetBarTierSettings(ns.GetBarSpellData(bd.key), bd.key)
+    local mode = tier and tier.cdSwipeColor
+    if mode == "none" then return true, 0, 0, 0 end
+    if mode == "class" then
+        local cc = _playerClass and RAID_CLASS_COLORS[_playerClass]
+        if cc then return false, cc.r, cc.g, cc.b end
+    elseif mode == "custom" then
+        return false, tier.cdSwipeColorR or 1, tier.cdSwipeColorG or 0.776, tier.cdSwipeColorB or 0.376
+    end
+    return false, 0, 0, 0
+end
+
 -- Appearance fingerprint: the settings a restyle can carry. Geometry the engine
 -- flow owns (size, shape, spacing, growth, ids) rebuilds instead, in _AC.Build.
 function _AC.StyleSig(bd)
     if not bd then return "" end
+    local swipeOff, swipeR, swipeG, swipeB = _AC.BarSwipe(bd)
     return table.concat({
+        swipeOff and 1 or 0, swipeR, swipeG, swipeB,
         bd.iconShape or "none", bd.iconZoom or 0.08,
         bd.borderSize or 1, bd.borderR or 0, bd.borderG or 0, bd.borderB or 0,
         bd.borderA or 1, bd.borderTexture or "solid", bd.borderThickness or "thin",
@@ -181,6 +198,7 @@ function _AC.BuildStyle(bd, fixedIcon)
     if blizz then zoom = 0; shape = "none" end
     local customShape = (shape ~= "none" and shape ~= "cropped")
     local onlyNumbers = (bd and bd.onlyShowNumbers) and true or false
+    local swipeOff, swipeR, swipeG, swipeB = _AC.BarSwipe(bd)
     local brdSize = (bd and bd.borderSize) or 1
     local brdR, brdG, brdB = (bd and bd.borderR) or 0, (bd and bd.borderG) or 0, (bd and bd.borderB) or 0
     if bd and bd.borderClassColor then
@@ -231,7 +249,7 @@ function _AC.BuildStyle(bd, fixedIcon)
         iconCrop = true, iconZoom = zoom,
         texCoord = texCoord,
         cooldownReverse = true,
-        hideSwipe = onlyNumbers or nil,
+        hideSwipe = (onlyNumbers or swipeOff) or nil,
         hideDurationText = (not ns.CdmDurationTextOn(bd)) or nil,
         durationFormatter = _AC.DurationFormatter(),
         -- Own text pipeline: the house icon-text rules (font, outline, slug) come
@@ -253,6 +271,7 @@ function _AC.BuildStyle(bd, fixedIcon)
             bgR = (bd and bd.bgR) or 0.08, bgG = (bd and bd.bgG) or 0.08,
             bgB = (bd and bd.bgB) or 0.08, bgA = (bd and bd.bgA) or 0.6,
             swipeAlpha = (bd and bd.swipeAlpha) or 0.7,
+            swipeR = swipeR, swipeG = swipeG, swipeB = swipeB,
             durSize = (bd and bd.cooldownFontSize) or 12,
             durPos = (bd and bd.cooldownTextPosition) or "center",
             durX = (bd and bd.cooldownTextX) or 0, durY = (bd and bd.cooldownTextY) or 0,
@@ -395,7 +414,7 @@ function _AC.ApplyExtra(button, d, style)
             d.cdmBg:Show()
         end
     end
-    if d.cooldown then d.cooldown:SetSwipeColor(0, 0, 0, c.swipeAlpha) end
+    if d.cooldown then d.cooldown:SetSwipeColor(c.swipeR, c.swipeG, c.swipeB, c.swipeAlpha) end
 
     -- Custom shape: mask on icon/background/swipe plus the shape's own ring,
     -- mirroring ApplyShapeToCDMIcon so both renderers land on the same geometry.
@@ -919,10 +938,16 @@ function ns.UpdateCustomBuffAuraTracking()
     local p = ECME and ECME.db and ECME.db.profile
     local bars = p and p.cdmBars and p.cdmBars.bars
     local seen = {}
+    local adoptedPotion = false
     if bars then
         for _, bd in ipairs(bars) do
             if bd.enabled and (bd.barType == "custom_buff" or bd.barType == "buffs") then
                 local sd = ns.GetBarSpellData and ns.GetBarSpellData(bd.key)
+                if ns.AdoptPotionCustomEntries(sd) then
+                    adoptedPotion = true
+                    local barFrame = cdmBarFrames[bd.key]
+                    if barFrame then barFrame._blizzCache = nil; barFrame._prevVisibleCount = nil end
+                end
                 local list = sd and sd.assignedSpells
                 local tags = sd and sd.customSpellIDs
                 if list and tags then
@@ -1033,6 +1058,10 @@ function ns.UpdateCustomBuffAuraTracking()
             end
             rec.ciStyles = nil
         end
+    end
+    if adoptedPotion then
+        if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+        if ns.QueueReanchor then ns.QueueReanchor() end
     end
 end
 

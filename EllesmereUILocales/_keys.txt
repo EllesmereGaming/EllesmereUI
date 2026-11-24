@@ -1251,6 +1251,7 @@ Pets hidden
 Pets shown
 Pick a module, or ALL, to return to defaults.
 Pick at least two debuffs
+Pick this potion from the preset list
 Pick this spell from the spell list
 Pick up an item, then press + to add it to this category
 Pick up an item, then press + to pin it
