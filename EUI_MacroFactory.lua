@@ -101,7 +101,7 @@ local GENERAL_DEFS = {
             { key = "opt4", label = "Quel'Danas Rations",         items = {260264} },
             { key = "opt5", label = "Mana Lily Tea",              items = {242297} },
             { key = "opt6", label = "Springrunner Sparkling",     items = {260260} },
-            { key = "opt7", label = "Tranquility Bloom Tea",      items = {1226196} },
+            { key = "opt7", label = "Tranquility Bloom Tea",      items = {242300} },
             { key = "opt8", label = "Sanguithorn Tea",            items = {242299} },
             { key = "opt9", label = "Azeroot Tea",                items = {242301} },
             { key = "opt10", label = "Argentleaf Tea",            items = {242298} },
