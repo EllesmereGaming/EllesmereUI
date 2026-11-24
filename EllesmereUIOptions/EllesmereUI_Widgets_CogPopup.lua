@@ -941,7 +941,7 @@ local function BuildCogPopup(opts)
                             EllesmereUI._NotifySettingWrite(f, snap)
                             if pf._refresh then pf._refresh() end
                         end,
-                        sc.hasAlpha, 20)
+                        sc.hasAlpha, 20, sc.bindPicker)
                     swatch:ClearAllPoints()
                     swatch:SetPoint('RIGHT', ca, 'TOPRIGHT', mswX, curY - ROW_H / 2)
                     mswX = mswX - 20 - MSW_GAP

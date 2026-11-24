@@ -1868,6 +1868,10 @@ ReloadFramesBody = function()
             local src = isBoss and ns.UF_BossBorderSettings()
                 or (isMini and GetMiniDonorSettings(unit)) or GetSettingsForUnit(unit)
             local us = GetSettingsForUnit(unit)
+            if frame._euiWantedBorderColorChannel
+                or (src and (src.borderClassColored or ns.UF_ClassificationBorderEnabled(src, unit))) then
+                ns.UF_SyncBorderColor(frame, unit, src)
+            end
             local radius = (not frame._blizzArtFrame and src and src.cornerRadius) or 0
             local corners = src and src.cornerMask
             local power = frame.Power

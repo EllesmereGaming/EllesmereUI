@@ -711,6 +711,9 @@ ns._PaintButtonTail = function(button, d, s, unit)
 
     -- Threat highlight (aggro): the inner border (size 0 = off) or the Color Custom Borders recolor
     ns.RF_PaintThreat(d, s, unit)
+    if s.borderClassColored and d.ApplyBorderColor and not (d.kit or d.stockEdge or d._compactBorder) then
+        d.ApplyBorderColor()
+    end
 end
 
 -- UNIT_LEVEL: only the name and level texts repaint (and the Top Name Bar while it
@@ -963,12 +966,16 @@ function ERF:UpdateAllFrames()
     -- types. _UpdateButtonHealth is lightweight, combat-safe and self-guarding.
     if ns._UpdateButtonHealth then
         if ns._partyUnitToButton then
+            local partyClassBorder = ns._scaledPartyProxy.borderClassColored
             for u, btn in pairs(ns._partyUnitToButton) do
                 ns._UpdateButtonHealth(btn)
                 -- Power Text's accent/power colour moves with these pushes too (raid and extra
                 -- buttons take it from the full paint above): one field read while it is off.
                 local pd = GetFFD(btn)
                 if pd._pwtOn then ns.RF_TextPowerColor(pd, u, ns._scaledPartyProxy, GetPowerColor(u)) end
+                if partyClassBorder and pd.ApplyBorderColor and not (pd.kit or pd.stockEdge or pd._compactBorder) then
+                    pd.ApplyBorderColor()
+                end
             end
         end
         if ns._xfUnitToButton then

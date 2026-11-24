@@ -530,7 +530,9 @@ do
         end
 
         local bc = container._bdColor
-        if bc then
+        local bd = _ppBorderData[frame]
+        -- A geometry snap leaves a secret tint on the textures.
+        if bc and not (bd and bd.colDirty) then
             t:SetVertexColor(bc[1], bc[2], bc[3], bc[4])
             b:SetVertexColor(bc[1], bc[2], bc[3], bc[4])
             l:SetVertexColor(bc[1], bc[2], bc[3], bc[4])
@@ -2047,7 +2049,9 @@ do
                     -- The apply shows its owner: one its owner hid stays hidden (IsShown: a Show denied in combat needs no Hide).
                     if not wasShown and bf:IsShown() then bf:Hide() end
                     bd:SetFrameLevel(lvl)
-                    if cr then bd:SetBackdropBorderColor(cr, cg, cb, ca) end
+                    if (issecretvalue and issecretvalue(cr)) or cr then
+                        bd:SetBackdropBorderColor(cr, cg, cb, ca)
+                    end
                 end
             end
         end

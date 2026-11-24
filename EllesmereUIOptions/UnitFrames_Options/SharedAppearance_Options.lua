@@ -340,7 +340,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
         })
     end
 
-    -- Row 3: Border Style (+ cog) | Border (slider + double inline swatches)
+    -- Border Style | Border Size
     local sharedScaleBorderRow
     local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
     sharedScaleBorderRow, h = W:DualRow(parent, y,
@@ -454,6 +454,34 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
             UpdateCogVis()
         end
     end
+    local function CopyBorderColorModes(dst, unit)
+        dst.borderClassColored = SGet("borderClassColored") == true
+        if unit == "player" or optState.selectedUnit == "player" then return end
+        local src = SDB()
+        for _, key in ipairs({ "borderRareColored", "borderEliteColored", "borderExcludeFriendly" }) do
+            dst[key] = src[key] == true
+        end
+        for _, key in ipairs({ "borderRareColor", "borderEliteColor" }) do
+            local c = src[key]
+            dst[key] = c and { r=c.r, g=c.g, b=c.b } or nil
+        end
+    end
+
+    local function BorderColorModesMatch(dst, unit)
+        if (dst.borderClassColored == true) ~= (SGet("borderClassColored") == true) then return false end
+        if unit == "player" or optState.selectedUnit == "player" then return true end
+        local src = SDB()
+        if (dst.borderRareColored == true) ~= (src.borderRareColored == true)
+            or (dst.borderEliteColored == true) ~= (src.borderEliteColored == true)
+            or (dst.borderExcludeFriendly == true) ~= (src.borderExcludeFriendly == true) then return false end
+        for _, key in ipairs({ "borderRareColor", "borderEliteColor" }) do
+            local r, g, b = ns.UF_ClassificationBorderRGB(src, key)
+            local dr, dg, db = ns.UF_ClassificationBorderRGB(dst, key)
+            if r ~= dr or g ~= dg or b ~= db then return false end
+        end
+        return true
+    end
+
     -- Sync icon: Border Style (left region - dropdown)
     if not EllesmereUI._prebuilding then
         local bsLeftRgn = sharedScaleBorderRow._leftRegion
@@ -479,6 +507,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                         UNIT_DB_MAP[key]().borderTextureShiftY = sy
                         UNIT_DB_MAP[key]().borderBehind = bh
                         if bc then UNIT_DB_MAP[key]().borderColor = { r=bc.r, g=bc.g, b=bc.b } end
+                        CopyBorderColorModes(UNIT_DB_MAP[key](), key)
                         UNIT_DB_MAP[key]().borderAlpha = ba
                         UNIT_DB_MAP[key]().borderPowerSeam = ps
                     end
@@ -495,6 +524,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                 local ps = SGet("borderPowerSeam") == true
                 for _, key in ipairs(GROUP_UNIT_ORDER) do
                     if (UNIT_DB_MAP[key]().borderTexture or "solid") ~= bt then return false end
+                    if not BorderColorModesMatch(UNIT_DB_MAP[key](), key) then return false end
                     if UNIT_DB_MAP[key]().borderTextureOffset ~= ox then return false end
                     if UNIT_DB_MAP[key]().borderTextureOffsetY ~= oy then return false end
                     if UNIT_DB_MAP[key]().borderTextureShiftX ~= sx then return false end
@@ -527,6 +557,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                         UNIT_DB_MAP[key]().borderTextureShiftY = sy
                         UNIT_DB_MAP[key]().borderBehind = bh
                         if bc then UNIT_DB_MAP[key]().borderColor = { r=bc.r, g=bc.g, b=bc.b } end
+                        CopyBorderColorModes(UNIT_DB_MAP[key](), key)
                         UNIT_DB_MAP[key]().borderAlpha = ba
                         UNIT_DB_MAP[key]().borderPowerSeam = ps
                     end
@@ -577,6 +608,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                             t.borderSizePx = v
                         end
                         if bc then UNIT_DB_MAP[key]().borderColor = { r=bc.r, g=bc.g, b=bc.b } end
+                        CopyBorderColorModes(UNIT_DB_MAP[key](), key)
                         if ba then UNIT_DB_MAP[key]().borderAlpha = ba end
                         UNIT_DB_MAP[key]().borderTexture = bt
                         UNIT_DB_MAP[key]().borderTextureOffset = ox
@@ -598,6 +630,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                 for _, key in ipairs(GROUP_UNIT_ORDER) do
                     if (UNIT_DB_MAP[key]().borderSize or 1) ~= bs then return false end
                     if (UNIT_DB_MAP[key]().borderTexture or "solid") ~= bt then return false end
+                    if not BorderColorModesMatch(UNIT_DB_MAP[key](), key) then return false end
                     if EllesmereUI.BorderPx(UNIT_DB_MAP[key]().borderSizePx, bs, bt) ~= bpx then return false end
                     if (UNIT_DB_MAP[key]().cornerRadius or 0) ~= cr then return false end
                     if (UNIT_DB_MAP[key]().cornerMask or 15) ~= (cm or 15) then return false end
@@ -644,6 +677,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                             t.borderSizePx = v
                         end
                         if bc then UNIT_DB_MAP[key]().borderColor = { r=bc.r, g=bc.g, b=bc.b } end
+                        CopyBorderColorModes(UNIT_DB_MAP[key](), key)
                         if ba then UNIT_DB_MAP[key]().borderAlpha = ba end
                         UNIT_DB_MAP[key]().borderTexture = bt
                         UNIT_DB_MAP[key]().borderTextureOffset = ox
@@ -658,58 +692,284 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
             },
         })
     end
-    -- Inline Border color swatch; Highlight lives on "Hover Borders" below
-    -- (same highlightColor var).
+    -- Corner Radius cog on Border Size.
     do
-        local leftRgn = sharedScaleBorderRow._rightRegion
-        local ctrl = leftRgn._control
-        local PP = EllesmereUI.PanelPP
-
-        -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
-        -- border size control.
-        do
-            EllesmereUI.BuildInlineCog(sharedScaleBorderRow._rightRegion, {
-                title = "Corner Radius", tip = "Corner Radius",
-                disabled = function() return not EllesmereUI.RoundedStyleOK(SGet("borderTexture")) end,
-                disabledTooltip = "This option requires the Solid, Glow or Shadow border style.",
-                rows = EllesmereUI.RoundedJoinRow(EllesmereUI.RoundedCornerRows({
-                    { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
-                      get = function() return SVal("cornerRadius", 0) end,
-                      set = function(v) SSet("cornerRadius", v) end },
-                }, function() return SGet("cornerMask") end, function(v) SSet("cornerMask", v) end),
-                    "Join Power Bar", "Rounds a detached power bar right above or below the frame as one shape with it.",
-                    function() return SGet("cornerJoinPower") end, function(v) SSet("cornerJoinPower", v) end,
-                    function() local pos = SGet("powerPosition") or "below"; return pos == "detached_top" or pos == "detached_bottom" end,
-                    "Detached Power Bar"),
-            })
-        end
-
-        -- Border color (with alpha), left of the Corner Radius cog
-        if not EllesmereUI._prebuilding then
-            local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
-                leftRgn, sharedScaleBorderRow:GetFrameLevel() + 3,
-                function()
-                    local c = SGet("borderColor") or { r = 0, g = 0, b = 0 }
-                    return c.r, c.g, c.b, SVal("borderAlpha", 1)
-                end,
-                function(r, g, b, a)
-                    UNIT_DB_MAP[optState.selectedUnit]().borderColor = { r=r, g=g, b=b }
-                    UNIT_DB_MAP[optState.selectedUnit]().borderAlpha = a
-                    ReloadAndUpdate()
-                end,
-                true, 20)
-            PP.Point(borderSwatch, "RIGHT", leftRgn._lastInline or ctrl, "LEFT", -8, 0)
-            leftRgn._lastInline = borderSwatch
-            borderSwatch:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(borderSwatch, "Border")
-            end)
-            borderSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
-        end
+        EllesmereUI.BuildInlineCog(sharedScaleBorderRow._rightRegion, {
+            title = "Corner Radius", tip = "Corner Radius",
+            disabled = function() return not EllesmereUI.RoundedStyleOK(SGet("borderTexture")) end,
+            disabledTooltip = "This option requires the Solid, Glow or Shadow border style.",
+            rows = EllesmereUI.RoundedJoinRow(EllesmereUI.RoundedCornerRows({
+                { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                  get = function() return SVal("cornerRadius", 0) end,
+                  set = function(v) SSet("cornerRadius", v) end },
+            }, function() return SGet("cornerMask") end, function(v) SSet("cornerMask", v) end),
+                "Join Power Bar", "Rounds a detached power bar right above or below the frame as one shape with it.",
+                function() return SGet("cornerJoinPower") end, function(v) SSet("cornerJoinPower", v) end,
+                function() local pos = SGet("powerPosition") or "below"; return pos == "detached_top" or pos == "detached_bottom" end,
+                "Detached Power Bar"),
+        })
     end
 
-    -- Row 4: Show Tooltip For (checkbox-dropdown) | Frame Strata. "Show Tooltip
+    -- Border Color | Hover Borders
+    local borderColorRow
+    do
+        local function IsClassColored()
+            return SVal("borderClassColored", false)
+        end
+        local function SetColorMode(swatch, enabled)
+            local snap = EllesmereUI._SOAttribution(swatch)
+            SSet("borderClassColored", enabled)
+            EllesmereUI._settingsChanged = true
+            EllesmereUI._NotifySettingWrite(swatch, snap)
+            EllesmereUI:RefreshPage()
+        end
+        local function WriteCustomColor(settings, r, g, b, a)
+            local color = { r=r, g=g, b=b }
+            settings.borderColor = color
+            settings.borderAlpha = a
+            ReloadAndUpdate()
+            return color
+        end
+
+        borderColorRow, h = W:DualRow(parent, y,
+            EllesmereUI.BlizzStyle.Gate("unitframes", { type="multiSwatch", text="Border Color",
+              swatches = {
+                { tooltip = "Custom Color", hasAlpha = true,
+                  getValue = function()
+                      local c = SGet("borderColor")
+                      return c and c.r or 0, c and c.g or 0, c and c.b or 0, SVal("borderAlpha", 1)
+                  end,
+                  setValue = function(r, g, b, a)
+                      WriteCustomColor(SDB(), r, g, b, a)
+                  end,
+                  bindPicker = function()
+                      local unit, profile, settings = optState.selectedUnit, db.profile, SDB()
+                      local oldColor, oldAlpha = settings.borderColor, settings.borderAlpha
+                      local lastColor, lastAlpha
+                      return function(r, g, b, a)
+                          if optState.selectedUnit ~= unit or SDB() ~= settings or db.profile ~= profile then return false end
+                          lastColor, lastAlpha = WriteCustomColor(settings, r, g, b, a), a
+                      end, function()
+                          if profile[unit] ~= settings or settings.borderColor ~= lastColor
+                              or settings.borderAlpha ~= lastAlpha then return false end
+                          settings.borderColor, settings.borderAlpha = oldColor, oldAlpha
+                          if db.profile ~= profile then return false end
+                          ReloadAndUpdate()
+                      end
+                  end,
+                  onClick = function(self)
+                      if IsClassColored() then
+                          SetColorMode(self, false)
+                      elseif self._eabOrigClick then
+                          self._eabOrigClick(self)
+                      end
+                  end,
+                  refreshAlpha = function() return IsClassColored() and 0.3 or 1 end },
+                { tooltip = "Class Colored. Uses reaction colors for NPCs.", hasAlpha = false,
+                  getValue = function() return ns.UF_BorderColorSample(optState.selectedUnit) end,
+                  setValue = function() end,
+                  onClick = function(self)
+                      if not IsClassColored() then SetColorMode(self, true) end
+                  end,
+                  refreshAlpha = function() return IsClassColored() and 1 or 0.3 end },
+              } }),
+            { type="dropdown", text="Hover Borders",
+              values={ __placeholder = "All" }, order={ "__placeholder" },
+              getValue=function() return "__placeholder" end,
+              setValue=function() end });  y = y - h
+    end
+
+    if optState.selectedUnit == "target" or optState.selectedUnit == "focus" then
+        local rgn = borderColorRow._leftRegion
+        local unit = optState.selectedUnit
+        local GetSettings = UNIT_DB_MAP[unit]
+        local function SetOverride(key, value)
+            GetSettings()[key] = value
+            ReloadAndUpdate()
+        end
+        local function OverrideSwatch(label, enabledKey, colorKey)
+            local function Enabled() return GetSettings()[enabledKey] == true end
+            local function ColorOverride(r, g, b)
+                local dr, dg, db = ns.UF_ClassificationBorderRGB(nil, colorKey)
+                local function Channel(v) return math.floor(v * 255 + 0.5) end
+                -- Match the picker's hex representation when restoring the default.
+                if Channel(r) == Channel(dr) and Channel(g) == Channel(dg) and Channel(b) == Channel(db) then
+                    return nil
+                end
+                return { r=r, g=g, b=b }
+            end
+            return {
+                tooltip = label,
+                getValue = function() return ns.UF_ClassificationBorderRGB(GetSettings(), colorKey) end,
+                setValue = function(r, g, b)
+                    if Enabled() then SetOverride(colorKey, ColorOverride(r, g, b)) end
+                end,
+                bindPicker = function()
+                    local profile, settings = db.profile, GetSettings()
+                    local oldColor = settings[colorKey]
+                    local lastColor
+                    return function(r, g, b)
+                        if optState.selectedUnit ~= unit or db.profile ~= profile
+                            or GetSettings() ~= settings or not settings[enabledKey] then return false end
+                        lastColor = ColorOverride(r, g, b)
+                        settings[colorKey] = lastColor
+                        ReloadAndUpdate()
+                    end, function()
+                        if profile[unit] ~= settings or settings[colorKey] ~= lastColor then return false end
+                        settings[colorKey] = oldColor
+                        if db.profile ~= profile then return false end
+                        ReloadAndUpdate()
+                    end
+                end,
+                onClick = function(self)
+                    if Enabled() and self._eabOrigClick then self._eabOrigClick(self) end
+                end,
+                refreshAlpha = function() return Enabled() and 1 or 0.3 end,
+            }
+        end
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Border Color Settings",
+            disabled = function() return EllesmereUI.BlizzStyle.Get("unitframes") end,
+            disabledTooltip = function() return EllesmereUI.BlizzStyle.Label("unitframes") end,
+            rows = {
+                { type = "reordercheck", label = "Color Overrides", ddWidth = 170, hint = "Target Types",
+                  items = {
+                    { key = "borderEliteColored", label = "Elite", fixed = true },
+                    { key = "borderRareColored", label = "Rare", fixed = true },
+                  },
+                  get = function(key) return GetSettings()[key] == true end,
+                  set = function(key, v)
+                      local snap = EllesmereUI._SOAttribution(rgn)
+                      SetOverride(key, v)
+                      EllesmereUI._settingsChanged = true
+                      EllesmereUI._NotifySettingWrite(rgn, snap)
+                  end },
+                { type = "multiswatch", label = "Elite/Rare colors",
+                  swatches = {
+                    OverrideSwatch("Elite", "borderEliteColored", "borderEliteColor"),
+                    OverrideSwatch("Rare", "borderRareColored", "borderRareColor"),
+                  } },
+                { type = "toggle", label = "Exclude Friendly Targets",
+                  tooltip = "Friendly elites and rares keep their custom or class/reaction border color.",
+                  get = function() return GetSettings().borderExcludeFriendly == true end,
+                  set = function(v) SetOverride("borderExcludeFriendly", v) end },
+            },
+        })
+    end
+
+    -- Hover Borders dropdown (mirrors Raid Frames): Highlight (per-unit hover
+    -- border) + Player Threat (player frame only, global). Inline swatches:
+    -- Highlight / Has Aggro / Close to Aggro.
+    if not EllesmereUI._prebuilding then
+        local rightRgn = borderColorRow._rightRegion
+        if rightRgn._control then rightRgn._control:Hide() end
+        local isPlayer = (optState.selectedUnit == "player")
+        local hbItems = { { key = "highlight", label = "Highlight" } }
+        if isPlayer then
+            hbItems[#hbItems + 1] = {
+                key = "playerThreat",
+                label = "Player Threat (Non-Tank)",
+                tooltip = "Adds a Shadow border to your player frame when you pull or hold threat as a non-tank. Only active in dungeons, raids and delves.",
+            }
+        end
+        local UpdateHBSwatchVis  -- forward declare; assigned after swatches
+        local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
+            rightRgn, 170, rightRgn:GetFrameLevel() + 2,
+            hbItems,
+            function(k)
+                -- Highlight is shared across all 3 main frames; read the player copy.
+                if k == "highlight" then return UNIT_DB_MAP.player().highlightEnabled ~= false end
+                if k == "playerThreat" then return db.profile.playerThreatBorderEnabled or false end
+                return false
+            end,
+            function(k, v)
+                if k == "highlight" then
+                    -- Shared across all 3 main frames; threat stays player-only below.
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().highlightEnabled = v end
+                    ReloadAndUpdate()
+                elseif k == "playerThreat" then
+                    db.profile.playerThreatBorderEnabled = v
+                    if ns.SetPlayerThreatEnabled then ns.SetPlayerThreatEnabled(v) end
+                end
+                if UpdateHBSwatchVis then UpdateHBSwatchVis() end
+            end)
+        EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+        rightRgn._control = cbDD
+        rightRgn._lastInline = nil
+
+        local lvl = borderColorRow:GetFrameLevel() + 3
+        -- Highlight swatch (per-unit), nearest the dropdown.
+        local hlSwatch, updHl = EllesmereUI.BuildColorSwatch(
+            rightRgn, lvl,
+            function()
+                local c = UNIT_DB_MAP.player().highlightColor or { r = 1, g = 1, b = 1 }
+                return c.r, c.g, c.b, UNIT_DB_MAP.player().highlightAlpha or 1
+            end,
+            function(r, g, b, a)
+                -- Shared across all 3 main frames (see Highlight enable above).
+                for _, key in ipairs(GROUP_UNIT_ORDER) do
+                    local d = UNIT_DB_MAP[key]()
+                    d.highlightColor = { r=r, g=g, b=b }
+                    d.highlightAlpha = a
+                end
+                ReloadAndUpdate()
+            end, true, 20)
+        hlSwatch:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+        rightRgn._lastInline = hlSwatch
+        hlSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hlSwatch, "Highlight") end)
+        hlSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+        local hasSwatch, updHas, nearSwatch, updNear
+        if isPlayer then
+            -- Has Aggro swatch (global), left of Highlight.
+            hasSwatch, updHas = EllesmereUI.BuildColorSwatch(
+                rightRgn, lvl,
+                function()
+                    local c = db.profile.playerThreatHasAggroColor or { r = 1, g = 0.5, b = 0 }
+                    return c.r, c.g, c.b, 1
+                end,
+                function(r, g, b)
+                    db.profile.playerThreatHasAggroColor = { r=r, g=g, b=b }
+                    if ns.UpdatePlayerThreatBorder then ns.UpdatePlayerThreatBorder() end
+                end, false, 20)
+            hasSwatch:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
+            rightRgn._lastInline = hasSwatch
+            hasSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hasSwatch, "Has Aggro") end)
+            hasSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Close to Aggro swatch (global), left of Has Aggro.
+            nearSwatch, updNear = EllesmereUI.BuildColorSwatch(
+                rightRgn, lvl,
+                function()
+                    local c = db.profile.playerThreatNearAggroColor or { r = 0.81, g = 0.72, b = 0.19 }
+                    return c.r, c.g, c.b, 1
+                end,
+                function(r, g, b)
+                    db.profile.playerThreatNearAggroColor = { r=r, g=g, b=b }
+                    if ns.UpdatePlayerThreatBorder then ns.UpdatePlayerThreatBorder() end
+                end, false, 20)
+            nearSwatch:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
+            rightRgn._lastInline = nearSwatch
+            nearSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(nearSwatch, "Close to Aggro") end)
+            nearSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        end
+
+        -- Gray a swatch when its toggle is off (still clickable to pre-set).
+        UpdateHBSwatchVis = function()
+            hlSwatch:SetAlpha(UNIT_DB_MAP.player().highlightEnabled ~= false and 1 or 0.3)
+            if hasSwatch then
+                local on = db.profile.playerThreatBorderEnabled
+                hasSwatch:SetAlpha(on and 1 or 0.3)
+                nearSwatch:SetAlpha(on and 1 or 0.3)
+            end
+        end
+        EllesmereUI.RegisterWidgetRefresh(function()
+            updHl(); if updHas then updHas() end; if updNear then updNear() end; UpdateHBSwatchVis()
+        end)
+        UpdateHBSwatchVis()
+    end
+
+    -- Show Tooltip For (checkbox-dropdown) | Frame Strata. "Show Tooltip
     -- For" is a pure VIEW over per-unit showUnitTooltip/showAuraTooltips (zero
     -- migration); both setters write EVERY unit key, including boss.
     local ufStrataValues = EllesmereUI.FRAME_STRATA_LABELS
@@ -836,192 +1096,8 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
         })
     end
 
-    -- Show Decimal on Health Text (global): one decimal on health value (240.5k)
-    -- and health percent (77.3%) for every unit. Default off.
-    local decRow
-    decRow, h = W:DualRow(parent, y,
-        { type="toggle", text="Show Decimal on Health Text",
-          tooltip="Show one decimal place on health text: health values like 240.5k and health percent like 77.3%. Power text is unaffected. Off by default.",
-          getValue=function() return db.profile.showDecimalOnText end,
-          setValue=function(v)
-              db.profile.showDecimalOnText = v
-              if ns.ApplyTextDecimalGlobals then ns.ApplyTextDecimalGlobals() end
-              ReloadAndUpdate(); UpdatePreview()
-              EllesmereUI:RefreshPage()
-          end },
-        { type="dropdown", text="Hover Borders",
-          values={ __placeholder = "All" }, order={ "__placeholder" },
-          getValue=function() return "__placeholder" end,
-          setValue=function() end });  y = y - h
-    -- Dimmed "(Applies to All Units)" subtitle next to the label (CDM subtitle pattern).
-    do
-        local suffix = decRow._leftRegion:CreateFontString(nil, "OVERLAY")
-        suffix:SetFont(EllesmereUI.EXPRESSWAY, 11, "")
-        suffix:SetTextColor(1, 1, 1, 0.35)
-        suffix:SetText(EllesmereUI.L("(Applies to All Units)"))
-        local lbl
-        local regions = { decRow._leftRegion:GetRegions() }
-        for i = 1, #regions do
-            local reg = regions[i]
-            if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Show Decimal on Health Text" then
-                lbl = reg; break
-            end
-        end
-        if lbl then
-            suffix:SetPoint("LEFT", lbl, "RIGHT", 5, 0)
-        else
-            suffix:SetPoint("LEFT", decRow._leftRegion, "LEFT", 120, 0)
-        end
-    end
-
-    -- Inline cog: extra decimal options. "Show 2 for Boss" (default on) gives boss
-    -- frames a second decimal. Greyed out while the master decimal toggle is off.
-    do
-        EllesmereUI.BuildInlineCog(decRow._leftRegion, {
-            disabled = function() return not db.profile.showDecimalOnText end,
-            disabledTooltip = "Show Decimal on Health Text",
-            title = "Health Text Decimals",
-            rows = {
-                { type="toggle", label="Only Show for % Health",
-                  get=function() return db.profile.showDecimalPercentOnly == true end,
-                  set=function(v)
-                      db.profile.showDecimalPercentOnly = v
-                      if ns.ApplyTextDecimalGlobals then ns.ApplyTextDecimalGlobals() end
-                      ReloadAndUpdate(); UpdatePreview()
-                  end },
-                { type="toggle", label="Show 2 for Boss",
-                  get=function() return db.profile.showDecimalBoss2 ~= false end,
-                  set=function(v)
-                      db.profile.showDecimalBoss2 = v
-                      if ns.ApplyTextDecimalGlobals then ns.ApplyTextDecimalGlobals() end
-                      ReloadAndUpdate(); UpdatePreview()
-                  end },
-                { type="toggle", label="Hide Trailing Zeros",
-                  get=function() return db.profile.showDecimalTrimZeros == true end,
-                  set=function(v)
-                      db.profile.showDecimalTrimZeros = v
-                      if ns.ApplyTextDecimalGlobals then ns.ApplyTextDecimalGlobals() end
-                      ReloadAndUpdate(); UpdatePreview()
-                  end },
-            },
-        })
-    end
-
-    -- Hover Borders dropdown (mirrors Raid Frames): Highlight (per-unit hover
-    -- border) + Player Threat (player frame only, global). Inline swatches:
-    -- Highlight / Has Aggro / Close to Aggro.
-    if not EllesmereUI._prebuilding then
-        local rightRgn = decRow._rightRegion
-        if rightRgn._control then rightRgn._control:Hide() end
-        local isPlayer = (optState.selectedUnit == "player")
-        local hbItems = { { key = "highlight", label = "Highlight" } }
-        if isPlayer then
-            hbItems[#hbItems + 1] = {
-                key = "playerThreat",
-                label = "Player Threat (Non-Tank)",
-                tooltip = "Adds a Shadow border to your player frame when you pull or hold threat as a non-tank. Only active in dungeons, raids and delves.",
-            }
-        end
-        local UpdateHBSwatchVis  -- forward declare; assigned after swatches
-        local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
-            rightRgn, 170, rightRgn:GetFrameLevel() + 2,
-            hbItems,
-            function(k)
-                -- Highlight is shared across all 3 main frames; read the player copy.
-                if k == "highlight" then return UNIT_DB_MAP.player().highlightEnabled ~= false end
-                if k == "playerThreat" then return db.profile.playerThreatBorderEnabled or false end
-                return false
-            end,
-            function(k, v)
-                if k == "highlight" then
-                    -- Shared across all 3 main frames; threat stays player-only below.
-                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().highlightEnabled = v end
-                    ReloadAndUpdate()
-                elseif k == "playerThreat" then
-                    db.profile.playerThreatBorderEnabled = v
-                    if ns.SetPlayerThreatEnabled then ns.SetPlayerThreatEnabled(v) end
-                end
-                if UpdateHBSwatchVis then UpdateHBSwatchVis() end
-            end)
-        EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-        rightRgn._control = cbDD
-        rightRgn._lastInline = nil
-
-        local lvl = decRow:GetFrameLevel() + 3
-        -- Highlight swatch (per-unit), nearest the dropdown.
-        local hlSwatch, updHl = EllesmereUI.BuildColorSwatch(
-            rightRgn, lvl,
-            function()
-                local c = UNIT_DB_MAP.player().highlightColor or { r = 1, g = 1, b = 1 }
-                return c.r, c.g, c.b, UNIT_DB_MAP.player().highlightAlpha or 1
-            end,
-            function(r, g, b, a)
-                -- Shared across all 3 main frames (see Highlight enable above).
-                for _, key in ipairs(GROUP_UNIT_ORDER) do
-                    local d = UNIT_DB_MAP[key]()
-                    d.highlightColor = { r=r, g=g, b=b }
-                    d.highlightAlpha = a
-                end
-                ReloadAndUpdate()
-            end, true, 20)
-        hlSwatch:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
-        rightRgn._lastInline = hlSwatch
-        hlSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hlSwatch, "Highlight") end)
-        hlSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-        local hasSwatch, updHas, nearSwatch, updNear
-        if isPlayer then
-            -- Has Aggro swatch (global), left of Highlight.
-            hasSwatch, updHas = EllesmereUI.BuildColorSwatch(
-                rightRgn, lvl,
-                function()
-                    local c = db.profile.playerThreatHasAggroColor or { r = 1, g = 0.5, b = 0 }
-                    return c.r, c.g, c.b, 1
-                end,
-                function(r, g, b)
-                    db.profile.playerThreatHasAggroColor = { r=r, g=g, b=b }
-                    if ns.UpdatePlayerThreatBorder then ns.UpdatePlayerThreatBorder() end
-                end, false, 20)
-            hasSwatch:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
-            rightRgn._lastInline = hasSwatch
-            hasSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hasSwatch, "Has Aggro") end)
-            hasSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            -- Close to Aggro swatch (global), left of Has Aggro.
-            nearSwatch, updNear = EllesmereUI.BuildColorSwatch(
-                rightRgn, lvl,
-                function()
-                    local c = db.profile.playerThreatNearAggroColor or { r = 0.81, g = 0.72, b = 0.19 }
-                    return c.r, c.g, c.b, 1
-                end,
-                function(r, g, b)
-                    db.profile.playerThreatNearAggroColor = { r=r, g=g, b=b }
-                    if ns.UpdatePlayerThreatBorder then ns.UpdatePlayerThreatBorder() end
-                end, false, 20)
-            nearSwatch:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
-            rightRgn._lastInline = nearSwatch
-            nearSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(nearSwatch, "Close to Aggro") end)
-            nearSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        end
-
-        -- Gray a swatch when its toggle is off (still clickable to pre-set).
-        UpdateHBSwatchVis = function()
-            hlSwatch:SetAlpha(UNIT_DB_MAP.player().highlightEnabled ~= false and 1 or 0.3)
-            if hasSwatch then
-                local on = db.profile.playerThreatBorderEnabled
-                hasSwatch:SetAlpha(on and 1 or 0.3)
-                nearSwatch:SetAlpha(on and 1 or 0.3)
-            end
-        end
-        EllesmereUI.RegisterWidgetRefresh(function()
-            updHl(); if updHas then updHas() end; if updNear then updNear() end; UpdateHBSwatchVis()
-        end)
-        UpdateHBSwatchVis()
-    end
-
     -- Threat % text (WoW Forever only): one profile-wide setting for both
-    -- frames, drawn on the EllesmereUI frames only. Built before the
-    -- half-empty Blizz header row so its blank stays the last slot.
+    -- frames, drawn on the EllesmereUI frames only.
     if EllesmereUI.IS_FOREVER and (optState.selectedUnit == "target" or optState.selectedUnit == "focus") then
         local NO_FRAMES = "This option requires an EllesmereUI Target or Focus frame."
         local function noFrames() return not (frames.target or frames.focus) end
@@ -1084,22 +1160,88 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
         end
     end
 
-    -- Blizzard Style, target frame: the coloured strip behind the name,
-    -- or an uncoloured header matching the player frame.
+    -- The target header option shares the final row when Blizzard Style is active.
+    local targetHeaderCfg
     if optState.selectedUnit == "target" and EllesmereUI.BlizzStyle.Active("unitframes") == "blizzard" then
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Blizz Colored Target Header",
-              tooltip="Colors the strip behind the target's name by its reaction.",
-              getValue=function() return UNIT_DB_MAP.target().blizzColoredHeader ~= false end,
-              setValue=function(v)
-                  if v then
-                      UNIT_DB_MAP.target().blizzColoredHeader = nil
-                  else
-                      UNIT_DB_MAP.target().blizzColoredHeader = false
-                  end
-                  ReloadAndUpdate(); UpdatePreview()
-              end },
-            { type="label", text="" });  y = y - h
+        targetHeaderCfg = { type="toggle", text="Blizz Colored Target Header",
+          tooltip="Colors the strip behind the target's name by its reaction.",
+          getValue=function() return UNIT_DB_MAP.target().blizzColoredHeader ~= false end,
+          setValue=function(v)
+              if v then
+                  UNIT_DB_MAP.target().blizzColoredHeader = nil
+              else
+                  UNIT_DB_MAP.target().blizzColoredHeader = false
+              end
+              ReloadAndUpdate(); UpdatePreview()
+          end }
+    end
+
+    -- Show Decimal on Health Text (global): one decimal on health value (240.5k)
+    -- and health percent (77.3%) for every unit. Default off.
+    local decRow
+    decRow, h = W:DualRow(parent, y,
+        { type="toggle", text="Show Decimal on Health Text",
+          tooltip="Show one decimal place on health text: health values like 240.5k and health percent like 77.3%. Power text is unaffected. Off by default.",
+          getValue=function() return db.profile.showDecimalOnText end,
+          setValue=function(v)
+              db.profile.showDecimalOnText = v
+              if ns.ApplyTextDecimalGlobals then ns.ApplyTextDecimalGlobals() end
+              ReloadAndUpdate(); UpdatePreview()
+              EllesmereUI:RefreshPage()
+          end },
+        targetHeaderCfg or EllesmereUI.BlankRowCfg());  y = y - h
+    -- Dimmed "(Applies to All Units)" subtitle next to the label (CDM subtitle pattern).
+    do
+        local suffix = decRow._leftRegion:CreateFontString(nil, "OVERLAY")
+        suffix:SetFont(EllesmereUI.EXPRESSWAY, 11, "")
+        suffix:SetTextColor(1, 1, 1, 0.35)
+        suffix:SetText(EllesmereUI.L("(Applies to All Units)"))
+        local lbl
+        local regions = { decRow._leftRegion:GetRegions() }
+        for i = 1, #regions do
+            local reg = regions[i]
+            if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Show Decimal on Health Text" then
+                lbl = reg; break
+            end
+        end
+        if lbl then
+            suffix:SetPoint("LEFT", lbl, "RIGHT", 5, 0)
+        else
+            suffix:SetPoint("LEFT", decRow._leftRegion, "LEFT", 120, 0)
+        end
+    end
+
+    -- Inline cog: extra decimal options. "Show 2 for Boss" (default on) gives boss
+    -- frames a second decimal. Greyed out while the master decimal toggle is off.
+    do
+        EllesmereUI.BuildInlineCog(decRow._leftRegion, {
+            disabled = function() return not db.profile.showDecimalOnText end,
+            disabledTooltip = "Show Decimal on Health Text",
+            title = "Health Text Decimals",
+            rows = {
+                { type="toggle", label="Only Show for % Health",
+                  get=function() return db.profile.showDecimalPercentOnly == true end,
+                  set=function(v)
+                      db.profile.showDecimalPercentOnly = v
+                      if ns.ApplyTextDecimalGlobals then ns.ApplyTextDecimalGlobals() end
+                      ReloadAndUpdate(); UpdatePreview()
+                  end },
+                { type="toggle", label="Show 2 for Boss",
+                  get=function() return db.profile.showDecimalBoss2 ~= false end,
+                  set=function(v)
+                      db.profile.showDecimalBoss2 = v
+                      if ns.ApplyTextDecimalGlobals then ns.ApplyTextDecimalGlobals() end
+                      ReloadAndUpdate(); UpdatePreview()
+                  end },
+                { type="toggle", label="Hide Trailing Zeros",
+                  get=function() return db.profile.showDecimalTrimZeros == true end,
+                  set=function(v)
+                      db.profile.showDecimalTrimZeros = v
+                      if ns.ApplyTextDecimalGlobals then ns.ApplyTextDecimalGlobals() end
+                      ReloadAndUpdate(); UpdatePreview()
+                  end },
+            },
+        })
     end
 
     _, h = W:Spacer(parent, y, 20); y = y - h
