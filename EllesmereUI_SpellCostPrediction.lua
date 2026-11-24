@@ -12,8 +12,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- start from the bar's live texture, orientation and reverse fill, so
 -- texture swaps, fill direction and shape masks need no hooks. The cast is
 -- matched by castGUID: instants cast during it, and their failures, leave it
--- alone; a cast-time cast always ends with STOP, FAILED or INTERRUPTED, so
--- SUCCEEDED (every instant) is not heard.
+-- alone. Any end event (SUCCEEDED included) with no cast left running also
+-- clears it, so a missed or mismatched end event cannot leave it drawn.
 --
 -- Hosts ("uf" Unit Frames player power bar, "erb" Resource Bars power bar)
 -- Attach their StatusBar while their option is on and the bar can show, and
@@ -39,7 +39,8 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 local MANA = Enum.PowerType.Mana
 local WHITE = "Interface\\Buttons\\WHITE8X8"
 local EVENTS = { "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP",
-    "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED" }
+    "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED",
+    "UNIT_SPELLCAST_SUCCEEDED" }
 
 local hosts = {}   -- key -> host record while attached
 local built = {}   -- bar -> host record (kept across detach)
@@ -198,7 +199,9 @@ local function OnEvent(_, event, _, guid, spellID)
     local cur = castGUID
     if cur == nil then return end
     -- Player cast GUIDs are never secret; if one is, end on any stop.
-    if not (issecretvalue(guid) or issecretvalue(cur)) and guid ~= cur then
+    -- Another cast's event: keep the segment while a cast is still running.
+    if not (issecretvalue(guid) or issecretvalue(cur)) and guid ~= cur
+       and type((UnitCastingInfo("player"))) ~= "nil" then
         return
     end
     castGUID, castSpell, castCost = nil, nil, nil
