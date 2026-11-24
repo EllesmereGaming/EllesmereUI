@@ -1590,13 +1590,14 @@ end
 
 -- The nameplate token of the friendly plate showing an event's unit, nil with
 -- none. GetNamePlateForUnit refuses group tokens ("party1", "raid12",
--- "raidpet3": the client raises), so a group token is matched against the live
--- friendly plates (ns.pendingUnits, the few on screen) with UnitIsUnit, whose
--- answer is tested for secrecy before it is used; any other token ("target",
--- "mouseover", a nameplate token) is one call to the API.
+-- "raidpet3") and target-of tokens ("targettarget", "focustarget"): the client
+-- raises, so such a token is matched against the live friendly plates
+-- (ns.pendingUnits, the few on screen) with UnitIsUnit, whose answer is tested
+-- for secrecy before it is used; any other token ("target", "mouseover", a
+-- nameplate token) is one call to the API.
 local function FriendlyPlateToken(eventUnit)
     if type(eventUnit) ~= "string" then return nil end
-    if eventUnit:find("^party") or eventUnit:find("^raid") then
+    if eventUnit:find("^party") or eventUnit:find("^raid") or eventUnit:find(".target$") then
         local pending = ns.pendingUnits
         if not pending then return nil end
         for tok in pairs(pending) do
