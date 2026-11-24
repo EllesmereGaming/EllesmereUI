@@ -116,7 +116,7 @@ ns.ApplyBossBorderState = function(self)
         local c = s.bossTargetBorderColor or { r = 1, g = 1, b = 1 }
         r, g, b, a = c.r, c.g, c.b, s.bossTargetBorderAlpha or 1
     else
-        -- The normal colour the reload sweep painted: the same settings table
+        -- The normal color the reload sweep painted: the same settings table
         -- (the donor's while inheriting, never the unused boss copy).
         local bossPreview = ns._bossPreviewActive and self._euiUnit == "player"
         r, g, b, a = NormalBorderColor(ns.UF_BossBorderSettings(), self._euiUnit, self._euiBaseUnit, bossPreview)
@@ -221,7 +221,12 @@ function ns.UF_SyncBorderColor(frame, unit, source)
             frame:HookScript("OnHide", HideBorderColor)
         end
     elseif frame._euiWantedBorderColorChannel then
-        frame._euiBorderColorSource, frame._euiBorderColorHover = nil, nil
+        -- Turned off: paint the normal color once. The settings pass repaints the
+        -- border, but the portrait's Outer Ring keeps its color memo and would stay
+        -- on the last class / elite tint.
+        frame._euiBorderColorSource, frame._euiBorderColorHover = source, nil
+        PaintBorderColor(frame, frame._euiUnit)
+        frame._euiBorderColorSource = nil
     end
     frame._euiWantedBorderColorChannel = channel
     SetBorderColorChannel(frame, channel and frame:IsVisible() and channel or nil)
@@ -903,8 +908,8 @@ local function StyleSimpleFrame(frame, unit)
     local pSide = settings.portraitSide or "left"
     -- Power bar (Blizzard Style keeps its stock one instead): an attached bar
     -- adds its height to the stack and the portrait squares off the whole stack.
-    local petPower = ns.UF_MiniHasPower(unit) and not ns.UF_Blizz()
-    local ppPos = petPower and (settings.powerPosition or "below") or "none"
+    local miniPower = ns.UF_MiniHasPower(unit) and not ns.UF_Blizz()
+    local ppPos = miniPower and (settings.powerPosition or "below") or "none"
     local powerH = (ppPos == "below" or ppPos == "above") and (settings.powerHeight or 6) or 0
     local aboveOff = (ppPos == "above") and powerH or 0
     local barH = settings.healthHeight + powerH
@@ -955,7 +960,7 @@ local function StyleSimpleFrame(frame, unit)
     frame.Health = health
     -- Blizzard Style: the stock small-frame power bar. Otherwise built even at
     -- "none" so its position changes live (the painter is parked while hidden).
-    if petPower then
+    if miniPower then
         frame.Power = CreatePowerBar(frame, unit, settings)
         if ppPos == "none" then frame:DisableElement("Power") end
     else

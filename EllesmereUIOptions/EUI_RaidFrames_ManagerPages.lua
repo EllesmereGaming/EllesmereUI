@@ -106,7 +106,7 @@ function ns.RFO_AuraBorderSettings(parent, y, W, get, set, apply, disabled, disp
     local tex = Val("Texture", "solid")
     EllesmereUI.BuildInlineCog(row._rightRegion, EllesmereUI.AuraRadiusCogCfg(tex,
         function() return Val("CornerRadius", 0) end,
-        function(v) set("CornerRadius", v); apply() end, disabled, "Disable Hide Icons to use this option."))
+        function(v) set("CornerRadius", v); apply() end, disabled, "Hide Icons"))
     if not EllesmereUI._prebuilding then
         local rgn = row._rightRegion
         local swatch, refresh = EllesmereUI.BuildColorSwatch(rgn, row:GetFrameLevel() + 3,

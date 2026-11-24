@@ -49,7 +49,7 @@ local dirtySlots = {}                   -- [action slot] = true: re-test the but
 local ev = ns.TakeShell()
 
 -- Our Cooldown, dressed as the button's own: its rect and level, the profile's
--- swipe colour and the button's shape. The stamp names every input.
+-- swipe color and the button's shape. The stamp names every input.
 local function Style(btn)
     local cd = sweeps[btn]
     if not cd then

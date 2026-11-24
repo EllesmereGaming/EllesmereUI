@@ -1724,7 +1724,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
               end }); y = y - h
 
         if PFEnabled() then
-        -- The pets' colours are one set for both tabs. A colour edit repaints the pets on screen;
+        -- The pets' colors are one set for both tabs. A color edit repaints the pets on screen;
         -- a Fill Color pick can also change whether they draw dark, a style input (the
         -- background), so it runs the pets' restyle checks first.
         local function PetColors(restyle)
@@ -1736,7 +1736,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             PFRefreshPreview()
         end
         -- Nothing picked: the pets follow the Dark Mode of this tab's frames, and are otherwise
-        -- their own colour.
+        -- their own color.
         local function PetMode()
             return PFSet().healthColorMode or ns.PF_FollowMode(tabKey)
         end

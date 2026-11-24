@@ -223,7 +223,7 @@ local seen, isApp, passOf, sortVal = {}, {}, {}, {}
 -- pending applications your filters would now leave out, the ones cancelled for it,
 -- and each one's pass when first seen applied (only a pass that turns into a fail counts)
 local mismatch, autoCancelled, cancelSent, firstPass = {}, {}, {}, {}
--- only worked out while the colour or the auto cancel is on
+-- only worked out while the color or the auto cancel is on
 local function MismatchOn()
     if ns.OwnListGet("lineMismatch") ~= false then return true end
     local gc = GFNS.Cfg and GFNS.Cfg()
@@ -441,7 +441,7 @@ local NEED_ATLAS = { TANK = "groupfinder-icon-role-micro-tank", HEALER = "groupf
 local BLIZZ_RR_ATLAS = { TANK = "groupfinder-icon-role-large-tank", HEALER = "groupfinder-icon-role-large-heal",
     DAMAGER = "groupfinder-icon-role-large-dps" }
 local BLIZZ_RR_SCALE = 1.22  -- art size over its visible ring
--- a delisted group's text colour: the delisted row highlight colour, set on each paint (not DB: that's the settings)
+-- a delisted group's text color: the delisted row highlight color, set on each paint (not DB: that's the settings)
 local DelR, DelG, DelB = 0x5B / 255, 0x5B / 255, 0x5B / 255
 local REMAINING = { TANK = "TANK_REMAINING", HEALER = "HEALER_REMAINING", DAMAGER = "DAMAGER_REMAINING" }
 local PERSON_TEX = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-person.png"
@@ -916,7 +916,7 @@ local LIVE = {
 }
 
 -- line three: playstyle | region | time since you signed up
--- a font string in the delisted grey, or back to the colour it was made with
+-- a font string in the delisted grey, or back to the color it was made with
 local function Grey(fs, gone)
     if not fs.baseColor then fs.baseColor = { fs:GetTextColor() } end
     if gone then fs:SetTextColor(DelR, DelG, DelB)
@@ -1059,7 +1059,7 @@ local function Fill(r, id, src)
     local line = stale and LINE_MISMATCH or st and LINE_OF[st]
     local on = line and ns.OwnListGet(line[1]) ~= false or false
     local style = ns.OwnListGet("statusStyle")
-    if style == "none" then on = false end  -- the status text keeps its colour
+    if style == "none" then on = false end  -- the status text keeps its color
     local rowFx = on and style == "row" or false
     if on then
         local lr, lg, lb = StatusColor(line)

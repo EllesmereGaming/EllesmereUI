@@ -239,7 +239,7 @@ end
 -- Custom Border Style rows of a cast bar section, built only while the Cast
 -- Bar cog's "Custom Border Style" opt-in is on: Border Style (+ a DIRECTIONS
 -- cog for textured styles: Shift X, Shift Y, Show Behind) | Border Size (+ a
--- colour swatch), then Width Offset | Height Offset while the style is
+-- color swatch), then Width Offset | Height Offset while the style is
 -- textured. Every slot is BlizzStyle.Gate'd, so a stock style drops the rows
 -- and the Classic-only Border Size row stays the section's odd last slot.
 -- getS() returns the unit's settings table; onChange repaints; matchKey names
@@ -283,7 +283,7 @@ function ns.UF_CastBorderRows(W, parent, y, getS, onChange, matchKey, sync)
           getTex=function() return getS().castBorderStyle or "solid" end,
           getPx=function() return getS().castBorderSizePx end,
           setPx=function(v) getS().castBorderSizePx = v end,
-          -- The refresh dims the colour swatch at 0.
+          -- The refresh dims the color swatch at 0.
           apply=function() Changed(); EllesmereUI:RefreshPage() end })))
     y = y - h
     -- Width Offset | Height Offset: a textured style's outward offsets.
@@ -350,7 +350,7 @@ function ns.UF_CastBorderRows(W, parent, y, getS, onChange, matchKey, sync)
     end
     if EllesmereUI._prebuilding then return y0 - y end
 
-    -- Colour swatch (with alpha) on Border Size; greyed and blocked at 0.
+    -- Color swatch (with alpha) on Border Size; greyed and blocked at 0.
     do
         local rgn = row._rightRegion
         local sw, updateSw = EllesmereUI.BuildColorSwatch(rgn, row:GetFrameLevel() + 3,
@@ -391,8 +391,8 @@ function ns.UF_CastBorderRows(W, parent, y, getS, onChange, matchKey, sync)
     end
 
     -- Apply-to-all links (main frames page): the style link carries the style,
-    -- its offsets, shifts, layering and colour; the size link the size, its
-    -- exact px, colour and style. Both carry the opt-in itself.
+    -- its offsets, shifts, layering and color; the size link the size, its
+    -- exact px, color and style. Both carry the opt-in itself.
     if sync then
         local function CopyTo(units, withSize)
             local src = getS()
@@ -487,7 +487,7 @@ end
 -- Boss Frames DISPLAY "Border Style | Border Size": the boss frames' own frame
 -- border. "Inherit (Main Frames)" (the first entry; boss borderCustom false)
 -- keeps the mini frame donor's border, as before; any other pick stores the
--- boss table's own border, and the size, colour and Border Options cog then
+-- boss table's own border, and the size, color and Border Options cog then
 -- edit it (while inheriting they show what is drawn, greyed). A textured style
 -- adds Width Offset | Height Offset. Every slot is BlizzStyle.Gate'd, so the
 -- stock styles drop the rows. B = the boss settings table (boss1-5 share it);
@@ -542,7 +542,7 @@ function ns.UF_BossFrameBorderRows(W, parent, y, B, onChange)
           getTex=function() return Src().borderTexture or "solid" end,
           getPx=function() return Src().borderSizePx end,
           setPx=function(v) B.borderSizePx = v end,
-          -- The refresh dims the colour swatch at 0.
+          -- The refresh dims the color swatch at 0.
           apply=function() onChange(); EllesmereUI:RefreshPage() end })))
     y = y - h
     -- Width Offset | Height Offset: a textured style's outward offsets.
@@ -618,7 +618,7 @@ function ns.UF_BossFrameBorderRows(W, parent, y, B, onChange)
         end
     end
 
-    -- Colour swatch (with alpha) on Border Size: shows what is drawn; greyed
+    -- Color swatch (with alpha) on Border Size: shows what is drawn; greyed
     -- and blocked while inheriting or at 0.
     do
         local rgn = row._rightRegion
@@ -1943,7 +1943,6 @@ initFrame:SetScript("OnEvent", function(self)
         borderExcludeFriendly = { target=true, focus=true },
         borderRareColor      = { target=true, focus=true },
         borderEliteColor     = { target=true, focus=true },
-        powerHeight          = { player=true, target=true, focus=true },
         powerHeight          = { player=true, target=true, focus=true, targettarget=true, focustarget=true, pet=true },
         showPlayerAbsorb     = { player=true, target=true, focus=true },
         absorbCleanAlpha     = { player=true, target=true, focus=true },
@@ -2851,8 +2850,8 @@ initFrame:SetScript("OnEvent", function(self)
             local baseLevel = (pv._health and pv._health:GetFrameLevel() or 20) + 15
             local textLevel = baseLevel + 10
             if pv._health then CreateHitOverlay(pv._health, "healthBar", false, baseLevel, { hlAnchor = pv._border or pv._health }) end
-            -- WoW Forever's pet: power bar, power text and happiness icon (the
-            -- other mini previews build none of them).
+            -- Power bar and power text (target of target, focus target and the
+            -- WoW Forever pet), and the pet's happiness icon (WoW Forever only).
             if pv._power then CreateHitOverlay(pv._power, "powerBar", false, baseLevel) end
             if pv._ppFS and pv._ppFS:IsShown() then CreateHitOverlay(pv._ppFS, "powerBarText", true, textLevel) end
             if pv._happyInd then CreateHitOverlay(pv._happyInd, "petHappiness", false, baseLevel + 20) end

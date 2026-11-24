@@ -5,7 +5,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  The texts a raid frame can show, by their setting keys: Name, Level, Health,
 --  Power and Heal Absorb Text on their own keys, plus a second Health Text and
 --  up to four Custom texts. Every text keeps its position, offsets, size and
---  colour (texts may share a position). Read by the engine and the tiles.
+--  color (texts may share a position). Read by the engine and the tiles.
 -------------------------------------------------------------------------------
 local _, ns = ...
 local I = ns._internals
@@ -23,7 +23,7 @@ ns.RF_TEXT_POSITIONS, ns.RF_TEXT_POS_INDEX = POSITIONS, POS_INDEX
 
 -- One text: kind, label, and its keys. mode: the mode key (Health, Power, Heal
 -- Absorb); fmt: the template key (Custom); above: Show Above Icons (unset: as the
--- name's). The level is drawn in the name's colour.
+-- name's). The level is drawn in the name's color.
 local function Text(id, kind, label, prefix, mode)
     return { id = id, kind = kind, label = label, mode = mode and (prefix .. "Mode") or nil,
         pos = prefix .. "Position", x = prefix .. "OffsetX", y = prefix .. "OffsetY",

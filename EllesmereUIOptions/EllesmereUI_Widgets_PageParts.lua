@@ -342,7 +342,7 @@ local function BuildInlineRow(parent, y, cards, availW, fullW, footer)
         if not spec.accent then
             EllesmereUI.RegisterWidgetRefresh(function() Paint(card:IsMouseOver()) end)
         end
-        -- The labels' resting alpha is their text colour's (MakeFont), so the
+        -- The labels' resting alpha is their text color's (MakeFont), so the
         -- hover moves that alpha, never the region's: a leave puts back exactly
         -- the look a new card has.
         card:SetScript("OnEnter", function()
@@ -458,7 +458,7 @@ function EllesmereUI.BuildActionCardRow(parent, y, cards, opts)
             pulse:SetShown(on and true or false)
         end
 
-        -- The title's resting alpha is its text colour's (as BuildInlineRow's).
+        -- The title's resting alpha is its text color's (as BuildInlineRow's).
         card:SetScript("OnEnter", function()
             bg:SetColorTexture(0.119, 0.111, 0.104, 0.50)
             brd:SetColor(1, 1, 1, BRD_A + 0.10)
@@ -656,7 +656,7 @@ function EllesmereUI.BuildModuleCard(parent, y, W, tile, opts)
     local dd = enabled and opts.headerDD and opts.headerDD(hdr)
 
     local strip
-    -- The title's resting alpha is its text colour's (MakeFont), so the hover
+    -- The title's resting alpha is its text color's (MakeFont), so the hover
     -- moves that alpha: a leave puts back exactly the look a new card has.
     local function ApplyHeaderHover()
         hbg:SetColorTexture(1, 1, 1, 0.05)

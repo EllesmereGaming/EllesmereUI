@@ -737,7 +737,7 @@ EllesmereUI.GetRegionIcon = GetRegionIcon
 EllesmereUI.MINI_TO_FULL = MINI_TO_FULL
 
 -------------------------------------------------------------------------------
---  Class colour escape per class file (lazy-built cache)
+--  Class color escape per class file (lazy-built cache)
 -------------------------------------------------------------------------------
 local classColorCodes = {}
 function Kit.ClassColorCode(classFile)
@@ -1092,7 +1092,7 @@ local function BuildName(accountInfo)
     return accountInfo.accountName or ""
 end
 
--- The colour Blizzard uses for the location line, so the level suffix can match
+-- The color Blizzard uses for the location line, so the level suffix can match
 -- it rather than the character name.
 local function LocationColor(accountInfo)
     local gi = accountInfo.gameAccountInfo
@@ -1101,7 +1101,7 @@ local function LocationColor(accountInfo)
     return DARKGRAY_COLOR or GRAY_FONT_COLOR
 end
 
--- Line 2: character name (class-coloured) plus the level, the level tinted to
+-- Line 2: character name (class-colored) plus the level, the level tinted to
 -- match the location line below it. Empty when the friend is not on a character
 -- in this project, which collapses the row to two lines.
 local function BuildCharLine(accountInfo)
@@ -1167,7 +1167,7 @@ local function BuildInfo(accountInfo)
         text = FriendsListUtil.BuildLocationDisplayText(accountInfo) or ""
     end
     -- A WoW Forever friend on our own client: the ruleset after the zone, in
-    -- the zone's colour. Where Blizzard's line is the friend's rich presence
+    -- the zone's color. Where Blizzard's line is the friend's rich presence
     -- instead (seen from another client, or no zone yet), that names the
     -- ruleset already.
     local gi = accountInfo.gameAccountInfo
@@ -1426,7 +1426,7 @@ local function PaintCard(card)
     d.charLine:SetShown(hasChar)
     d.info:SetText(BuildInfo(accountInfo))
 
-    -- Every string arrives pre-wrapped in Blizzard colour codes, so the
+    -- Every string arrives pre-wrapped in Blizzard color codes, so the
     -- FontStrings stay white or they would tint the markup.
     d.name:SetTextColor(1, 1, 1, 1)
     d.charLine:SetTextColor(1, 1, 1, 1)
@@ -1472,7 +1472,7 @@ end
 -- its own rows with, so the two never drift apart. Skin builds the tile art,
 -- the three text lines and the status orb on any frame (a row of ours
 -- included); its state is the kit's frame data for that frame. LevelColor is
--- the colour the character line's level takes.
+-- the color the character line's level takes.
 Kit._tile = {
     Host         = function() return host end,
     FontPath     = FontPath,
@@ -1549,7 +1549,7 @@ local function DecorateStockCard(card)
         end
     end
 
-    -- Class-coloured character name: our string over Blizzard's (same font
+    -- Class-colored character name: our string over Blizzard's (same font
     -- object and rect, so its truncation still holds). Blizzard never resets
     -- the name's alpha itself, so it is restored here whenever ours stands down.
     local name = card.Name
@@ -1593,7 +1593,7 @@ end
 --    class icon  -> over Blizzard's 24px game logo (same-project friends; an
 --                   online character friend's logo slot is empty and takes it)
 --    class name  -> our string over Blizzard's name, built from the same
---                   pieces Blizzard uses, the character part class-coloured
+--                   pieces Blizzard uses, the character part class-colored
 --    region mark -> under the status icon (Show Region Icons)
 --  Runs from a post-hook on Blizzard's row update, after it has filled the
 --  row. A row updated while the list is hidden (or skipped by an options pass
@@ -1671,8 +1671,8 @@ local function DecorateStockRow(button, restore)
         end
     end
 
-    -- Class-coloured name: our string over Blizzard's (same font object and
-    -- rect, Blizzard's own colour as the base), so the favourite star Blizzard
+    -- Class-colored name: our string over Blizzard's (same font object and
+    -- rect, Blizzard's own color as the base), so the favourite star Blizzard
     -- anchors at the end of its name still lines up. Blizzard never resets
     -- the name's alpha itself, so it is restored whenever ours stands down.
     -- A friend Blizzard greys out as unable to group keeps its grey.
@@ -1709,7 +1709,7 @@ local function DecorateStockRow(button, restore)
                 ov:SetWordWrap(name:CanWordWrap())
                 d.stockName = ov
             end
-            -- Colour only: a region's alpha and its colour alpha are one
+            -- Color only: a region's alpha and its color alpha are one
             -- channel on this client, and Blizzard's name sits at our alpha 0
             -- from the last pass (its 3-arg SetTextColor keeps it), so a full
             -- copy would hand ours alpha 0 from the second update on.

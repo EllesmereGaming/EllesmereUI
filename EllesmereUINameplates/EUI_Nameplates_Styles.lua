@@ -143,7 +143,7 @@ function ns.NP_ClassicBarReserve(k)
 end
 -- WoW Forever's level box: 28 wide and 5 right of the bar (Blizzard's own
 -- nameplate constants), 5 taller than it; its target and focus border
--- colours. The box art is nine-sliced with a 1-unit shadow outside its rim,
+-- colors. The box art is nine-sliced with a 1-unit shadow outside its rim,
 -- so at 5 taller its rim spans the bar's own rim (at Blizzard's 3 it sits a
 -- unit below the bar's top rim).
 ns.NP_FOREVER_LVL = { w = 28, gap = 5, pad = 5, font = 10,
@@ -270,7 +270,7 @@ function ns.NP_ApplyClassicHealthArt(plate, h)
     ns.NP_UpdateClassicLevel(plate)
 end
 -- The level in the health border's plate: the effective level in its
--- difficulty colour, the skull for a boss, "??" for a level the client keeps
+-- difficulty color, the skull for a boss, "??" for a level the client keeps
 -- secret. Every unit read is treated as possibly secret.
 function ns.NP_UpdateClassicLevel(plate)
     local fs, sk = plate._classicLevel, plate._classicSkull
@@ -285,8 +285,8 @@ function ns.NP_UpdateClassicLevel(plate)
     end
     sk:Hide()
     fs:SetText(ns.GetUnitLevelText(unit))
-    -- The stock yellow, and the difficulty colour only where difficulty means
-    -- something: a unit you cannot attack is never colour-ranked.
+    -- The stock yellow, and the difficulty color only where difficulty means
+    -- something: a unit you cannot attack is never color-ranked.
     local r, g, b = 1, 0.82, 0
     local canAttack = UnitCanAttack("player", unit)
     if issecretvalue and issecretvalue(canAttack) then canAttack = false end
@@ -469,8 +469,8 @@ function ns.NP_SeatBarMask(mask, health)
 end
 -- Health bar: the stock shadowed background hugging the bar the way the
 -- stock plate anchors it, plus the bar's inner shadow. The fill keeps the
--- user's own Bar Texture (the stock fill art is pre-coloured and darkened
--- every colour rule), so colours, textures and opacity render as on the
+-- user's own Bar Texture (the stock fill art is pre-colored and darkened
+-- every color rule), so colors, textures and opacity render as on the
 -- EUI look.
 function ns.NP_ApplyBlizzBarArt(plate)
     local health = plate.health
@@ -650,7 +650,7 @@ end
 --  WoW Forever variant of Blizzard Style (the Forever client only, latched by
 --  ns.NP_Forever): the level box right of the health bar, as that client's
 --  own plates draw it -- a bronze-rimmed box with the unit's level in its
---  difficulty colour, a skull for a boss, and a border while the unit is your
+--  difficulty color, a skull for a boss, and a border while the unit is your
 --  target or focus. Built only under the variant; every call site tests the
 --  latch or the box, so the other looks never create or touch it.
 -------------------------------------------------------------------------------
@@ -732,7 +732,7 @@ function ns.NP_ApplyForeverLevelBox(plate, h)
     ns.SetFSFont(box._fs, ns.NP_ForeverLevelFont(bh))
     ns.NP_UpdateForeverLevel(plate)
 end
--- The unit's level in the box: its difficulty colour against yours when you
+-- The unit's level in the box: its difficulty color against yours when you
 -- can attack it, else the non-attackable gold; the skull for a level the
 -- client hides (a boss). No box on a game object. Every unit read is treated
 -- as possibly secret: a secret level is shown as it comes, in the gold.
@@ -778,7 +778,7 @@ function ns.NP_ForeverLevelSel(plate)
     end
 end
 -- Every enemy plate's box, for a change in the player's own level or
--- faction (only attackable units are colour-ranked, and the friendly plates
+-- faction (only attackable units are color-ranked, and the friendly plates
 -- never carry one).
 function ns.NP_ForeverSweepLevels()
     for _, pl in pairs(ns.plates) do
@@ -786,7 +786,7 @@ function ns.NP_ForeverSweepLevels()
     end
 end
 -- Level edges the plates' own events do not carry: a unit's level and the
--- player's own (every difficulty colour moves with it); a unit's faction
+-- player's own (every difficulty color moves with it); a unit's faction
 -- rides the shared faction dispatch. Its frame is born in this main chunk,
 -- so the events bill to this module, and is armed only while the variant's
 -- box shows: enable arms it, and every full settings refresh re-checks it
@@ -1063,9 +1063,9 @@ function ns.NP_ApplyRounding(plate, part, cornersOnly)
     end
 end
 
--- The Basic border's colour: its PP strips, plus the rounded ring that stands
+-- The Basic border's color: its PP strips, plus the rounded ring that stands
 -- in for them while Corner Radius is on (the strips are masked out then). A
--- hidden border still takes the colour, for its next show.
+-- hidden border still takes the color, for its next show.
 function ns.NP_BasicBorderColor(plate, r, g, b, a)
     EllesmereUI.PP.SetBorderColor(plate.health, r, g, b, a)
     if plate._npRounded then EllesmereUI.RoundedBorderColor(plate.health, r, g, b, a) end
@@ -1092,10 +1092,10 @@ function ns.ApplyCastBarTexture(plate)
     if plate._npRounded then ns.NP_ApplyRounding(plate, "cast") end
 end
 -- Bar backgrounds, painted on every enemy appearance pass so a profile switch or
--- an override reaches live plates: the Background / Cast Background colours, and
+-- an override reaches live plates: the Background / Cast Background colors, and
 -- Textured Background (Bar Texture / Cast Bar Texture cogs; off by default),
--- which puts the bar texture there tinted by that colour. While textured, a
--- background's own SetColorTexture tints the texture, so the colour rows' live
+-- which puts the bar texture there tinted by that color. While textured, a
+-- background's own SetColorTexture tints the texture, so the color rows' live
 -- repaints keep it: paint these backgrounds only through SetColorTexture
 -- (SetTexture / SetAtlas go around it). Blizzard Style draws its stock art there.
 do
@@ -1163,7 +1163,7 @@ function ns.ApplyAbsorbStyle(plate)
     local r, g, b = 1, 1, 1
     if style ~= "blizzard" then
         local c = (p and p.absorbColor) or defaults.absorbColor
-        -- Per-component default: a partial colour table would throw downstream.
+        -- Per-component default: a partial color table would throw downstream.
         if c then r, g, b = c.r or 1, c.g or 1, c.b or 1 end
     end
     local mask = plate._absorbMask

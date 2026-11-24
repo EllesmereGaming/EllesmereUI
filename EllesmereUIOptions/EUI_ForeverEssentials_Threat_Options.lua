@@ -136,7 +136,7 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
             setValue = function(v) ns.SetStyleValue(group, key, v) end }
     end
 
-    -- Inline swatches. A saved colour table is shared or converted, so every
+    -- Inline swatches. A saved color table is shared or converted, so every
     -- write stores a new one.
     local function ColorSwatch(key, tooltip, disabled, disabledTooltip)
         return { tooltip = tooltip, disabled = disabled, disabledTooltip = disabledTooltip,
@@ -154,8 +154,8 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
         end
         return sc
     end
-    -- The custom alternative to a class or accent colour: dimmed while that one
-    -- is in use, and its first click switches to the custom colour.
+    -- The custom alternative to a class or accent color: dimmed while that one
+    -- is in use, and its first click switches to the custom color.
     local function Alternative(sc, isActive, activate)
         sc.refreshAlpha = function() return isActive() and 1 or 0.3 end
         sc.onClick = function(self)
@@ -338,7 +338,7 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
                     rows = rows,
                 })
             end
-            -- What the text shows and how it is coloured. The Threat Gap colours
+            -- What the text shows and how it is colored. The Threat Gap colors
             -- sit on Color by Threat while the gap is picked.
             if withGap and PGet("threatPctEnabled") then
                 local function Gap() return PGet("threatPctMode") == "gap" end
@@ -708,7 +708,7 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
                 function() ns.SetStyleValues("colors", { rightTextUseClassColor = false, rightTextUseThreatGradient = false }) end)
             valueSwatch.disabled, valueSwatch.disabledTooltip, valueSwatch.rawTooltip = valueOff, valueTip, valueRaw
             Swatch(nameRow._rightRegion, valueSwatch)
-            -- Threat gradient: a swatch showing its colour scale, toggled by a click.
+            -- Threat gradient: a swatch showing its color scale, toggled by a click.
             Swatch(nameRow._rightRegion, {
                 tooltip = "Colors each value from green to red as that player nears pulling aggro.",
                 gradient = { { 0, 1, 0 }, { 1, 1, 0 }, { 1, 0, 0 } },

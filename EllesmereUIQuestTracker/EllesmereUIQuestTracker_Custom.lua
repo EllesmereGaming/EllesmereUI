@@ -201,7 +201,7 @@ local function AcquireLine(kind, id, text, x, y, width, key)
         l.lastText = nil
         l.dashW = nil  -- a timer bar's indent, measured in this font
     end
-    l:SetHitRectInsets(0, 0, 0, 0)  -- SpanRows widens quest rows again
+    l.spanned = false  -- SpanRows widens quest rows; Render resets the rest (SetInsets)
     l.id = id
     -- An objective clicks and hovers as its title.
     if kind == "obj" then
@@ -238,14 +238,23 @@ local function AcquireLine(kind, id, text, x, y, width, key)
     return l, l.lastH
 end
 
+-- A row's hit rect insets (the top is always 0), written only when they
+-- change: a render that spans the rows as the last one did writes nothing.
+local function SetInsets(l, left, right, bottom)
+    if l.insL == left and l.insR == right and l.insB == bottom then return end
+    l.insL, l.insR, l.insB = left, right, bottom
+    l:SetHitRectInsets(left, right, 0, bottom)
+end
+
 -- Widens rows first..used to one click area: x to right, down to bottom (child
 -- y); the title keeps its size for the overlay (ShowOverlay).
 local function SpanRows(first, x, right, bottom)
     for i = first, used do
         local l = lines[i]
         local nextY = i < used and lines[i + 1].lastY or bottom
-        l:SetHitRectInsets(math.min(0, x - l.lastX), math.min(0, l.lastX + l.lastWidth - right),
-            0, math.min(0, l.lastY + l.lastH - nextY))
+        l.spanned = true
+        SetInsets(l, math.min(0, x - l.lastX), math.min(0, l.lastX + l.lastWidth - right),
+            math.min(0, l.lastY + l.lastH - nextY))
     end
     local head = lines[first]
     head.spanW, head.spanH = right - x, bottom - head.lastY
@@ -289,9 +298,9 @@ local function TitleRGB(questID, complete)
     return EQT.GetTitleRGB()
 end
 
--- Zone headers: the colour picked on Group Quests by Zone (the accent or a
--- custom colour); with no pick, the Header Color. The fourth return is true
--- while that colour is the accent.
+-- Zone headers: the color picked on Group Quests by Zone (the accent or a
+-- custom color); with no pick, the Header Color. The fourth return is true
+-- while that color is the accent.
 local function ZoneRGB()
     local c = EQT.DB()
     local accent = c.customZoneUseAccent
@@ -531,7 +540,7 @@ local timerLines, timerN = {}, 0   -- the timer lines the last render placed
 local tickArmed = false
 local TimerTick                    -- defined below
 local BAR_H = 5
--- Fill: gold, red under a third of the time left (the skin's timer colours).
+-- Fill: gold, red under a third of the time left (the skin's timer colors).
 local TIMER_FILL, TIMER_LOW = { 1, 0.82, 0.2 }, { 1, 0.3, 0.3 }
 
 -- Blizzard's timer ramp: white, yellow under two thirds left, red under one.
@@ -876,6 +885,11 @@ local function RunRowHooks(l, questID)
         local s = slots[i]
         if not s then
             s = CreateFrame("Frame", nil, l)
+            -- Above the quest overlay (itemLayer + 1), which spans the quest's
+            -- rows and, with an item button on the row, the hook column: a
+            -- hook's button stays clickable. Set before the hook builds its
+            -- children, which take this level + 1; the slot takes no mouse.
+            if itemLayer then s:SetFrameLevel(itemLayer:GetFrameLevel() + 2) end
             s:SetPoint("TOPLEFT", l, "TOPRIGHT", h.x, 0)
             s:SetPoint("BOTTOMLEFT", l, "BOTTOMRIGHT", h.x, 0)
             s:SetWidth(h.width)
@@ -887,9 +901,9 @@ local function RunRowHooks(l, questID)
     end
 end
 
--- The header's filter button in the header colour, as the header's text and
+-- The header's filter button in the header color, as the header's text and
 -- the button on Blizzard's header are. Desaturated first, so the art's own
--- colour does not multiply with ours.
+-- color does not multiply with ours.
 local function TintFilterToggle()
     local btn = header.filter
     if not btn then return end
@@ -1031,6 +1045,12 @@ local function Render()
         y = AddRecipes(y, width, titleX, objX, collapsed, zr, zg, zb)
     end
     for i = used + 1, #lines do lines[i]:Hide() end
+    -- Rows no quest or recipe spanned this render (zone headers, a reused row)
+    -- take plain insets again.
+    for i = 1, used do
+        local l = lines[i]
+        if not l.spanned then SetInsets(l, 0, 0, 0) end
+    end
 
     local _, numQuests = C_QuestLog.GetNumQuestLogEntries()
     header.count:SetText((numQuests or 0) .. "/" .. C_QuestLog.GetMaxNumQuestsCanAccept())
@@ -1745,11 +1765,20 @@ evt:SetScript("OnEvent", function(_, event, questID, added)
         end
         return
     elseif event == "PLAYER_STOPPED_MOVING" then
+        -- Distance sort. Hidden, the next show renders anyway (empty: nothing to
+        -- sort); folded shut, no row shows the order (unfolding renders).
+        if not (frame and frame:IsShown()) then
+            if not emptyOnly then stale = true end
+            return
+        end
+        if CharDB().ctCollapsed.all then return end
         -- The item buttons cannot follow a re-sort in combat: wait for it to end.
         if InCombatLockdown() then
             ns.CombatQueue.Defer("EQT_CustomResort", Queue)
             return
         end
+        -- Re-sort only when a quest changed places.
+        if not EQT.DistanceOrderMoved(order) then return end
     elseif event == "BAG_UPDATE_COOLDOWN" then
         for _, b in ipairs(items) do
             if b:IsShown() then UpdateItemCooldown(b) end
@@ -1794,8 +1823,9 @@ local function Noop() end
 -- The muted tracker builds a block (the overlay's click target) only for quests
 -- that fit its height: a 1px font there lets every watched quest fit.
 local function ShrinkTrackerFont(font)
-    local path, _, flags = font:GetFont()
-    if path then font:SetFont(path, 1, flags or "") end
+    -- Through the shared writer: every member of the font's family takes 1 px
+    -- too (faces and outlines kept), so another alphabet's lines shrink as well.
+    EllesmereUI.SetFontObjectFace(font, nil, 1)
 end
 
 function EQT.InitCustom()

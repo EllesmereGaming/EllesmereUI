@@ -68,7 +68,7 @@ local function EntryOf(cdID)
 end
 
 local function Arm(frame, cd, start, dur, rate)
-    -- Blizzard's colour: our SetSwipeColor hook repaints it per the bar.
+    -- Blizzard's color: our SetSwipeColor hook repaints it per the bar.
     local c = frame.GetCooldownSwipeColor and frame:GetCooldownSwipeColor()
     if c then cd:SetSwipeColor(c.r, c.g, c.b, c.a) end
     cd:SetCooldown(start, dur, rate)

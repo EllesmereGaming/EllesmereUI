@@ -16,7 +16,7 @@ local PoolGen, PoolKeep = EllesmereUI._Pool.Gen, EllesmereUI._Pool.Keep
 local function GetNPOptOutline() return EllesmereUI.GetFontOutlineFlag("nameplates") end
 
 -- Rows the Blizzard kit replaces but the classic plate leaves to the user
--- (bar background, cast bar texture, cast background and colours, the
+-- (bar background, cast bar texture, cast background and colors, the
 -- border wrap): gated only while Blizzard Style renders, live under Classic
 -- WoW UI. ns fields so the page builders gain no upvalue; the gate returns
 -- cfg for inline use like BlizzStyle.Gate.

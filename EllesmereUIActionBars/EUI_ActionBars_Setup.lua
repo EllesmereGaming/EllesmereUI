@@ -760,6 +760,9 @@ function EAB:FinishSetup()
     end
 
     self:RegisterEvent("CURSOR_CHANGED", function()
+        -- Populate's own scripted pickups (EUI_ActionBars_Populate.lua) are no
+        -- drag: they would raise and restore every bar's strata per slot.
+        if ns._eabScriptedPickup then return end
         local cursorType = GetCursorInfo()
         if cursorType then
             if DRAG_TYPES[cursorType] then

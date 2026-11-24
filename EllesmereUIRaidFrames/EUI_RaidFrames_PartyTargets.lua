@@ -51,8 +51,8 @@ I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 -- Fill Color and Background.
 -- Updates: a party member's target has no unit events, so one hidden 0.5 s
 -- ticker reads the values while such a frame shows, and re-checks a mob's
--- tap and reaction (its colour); your own target is evented. Names and
--- colours otherwise repaint on target changes, unit re-assignments, roster
+-- tap and reaction (its color); your own target is evented. Names and
+-- colors otherwise repaint on target changes, unit re-assignments, roster
 -- edges and settings pushes only.
 -------------------------------------------------------------------------------
 ns._partyTargetFrames = ns._partyTargetFrames or {}
@@ -63,7 +63,7 @@ ns._ptInclDesired = false
 do
 local EUI = ns.EllesmereUI
 -- Layout state (the last applied size, side, gaps and offsets: the layout's delta gate and the
--- reserve's source), the colour settings the paint reads (cached by the restyle), the listeners,
+-- reserve's source), the color settings the paint reads (cached by the restyle), the listeners,
 -- and the owner bookkeeping: owner token -> "<token>target", header button -> its target frame.
 local PT = { tgtOf = {}, frameOf = setmetatable({}, { __mode = "k" }), tgtEv = {}, tgtWant = {}, acc = 0,
              DEF_FILL = { r = 37/255, g = 193/255, b = 29/255 },
@@ -126,8 +126,8 @@ local function PT_Classify(frame)
     return changed
 end
 
--- Class colour for players and party AI (the custom one where a restricted token still allows it),
--- grey for a tapped mob, the reaction colour for other NPCs. Returns ok, r, g, b; r/g/b may be
+-- Class color for players and party AI (the custom one where a restricted token still allows it),
+-- grey for a tapped mob, the reaction color for other NPCs. Returns ok, r, g, b; r/g/b may be
 -- SECRET on the restricted path: only ever handed to a setter, never compared. A mob's tap and
 -- reaction (neither secret) are kept on frame, for the ticker's re-check.
 local function PT_ClassRGB(u, frame)
@@ -168,11 +168,11 @@ local function PT_PaintDynamic(health, u)
     end
 end
 
--- Identity paint: name, fill and background colours, and the value, which jumps (a new unit). Runs
--- on target, unit and settings edges only. Names and colours can be secret: setters only.
+-- Identity paint: name, fill and background colors, and the value, which jumps (a new unit). Runs
+-- on target, unit and settings edges only. Names and colors can be secret: setters only.
 local function PT_Paint(frame)
     local u = frame._ptUnit
-    -- Set again below only for a mob whose colour reads its tap and reaction.
+    -- Set again below only for a mob whose color reads its tap and reaction.
     frame._ptNpc = nil
     if not (u and UnitExists(u)) then return end
     frame._nameText:SetText(UnitName(u))
@@ -235,7 +235,7 @@ local function PT_PaintValue(frame, u)
     end
 end
 
--- Every target frame on screen, in full (settings pushes: a restyle, Dark Mode and class colours
+-- Every target frame on screen, in full (settings pushes: a restyle, Dark Mode and class colors
 -- through ERF:UpdateAllFrames, roster edges). Nothing while off.
 ns._PT_RepaintVisible = function()
     if not ns._ptEnabled then return end
@@ -305,7 +305,7 @@ local function PT_Recount(except)
 end
 
 -- The ticker (hidden while idle): every 0.5 s, the values of the polled frames on screen. A mob's
--- colour follows its tap and reaction, which raise no events on these units: a change repaints.
+-- color follows its tap and reaction, which raise no events on these units: a change repaints.
 local function PT_Tick(_, elapsed)
     local acc = PT.acc + elapsed
     if acc < 0.5 then
@@ -577,8 +577,8 @@ ns._PT_Layout = function()
     if reserve then PT_NotifyReserve() end
 end
 
--- The target frames' own style inputs after the shared ones: Fill Color and its custom colour,
--- Custom Dynamic gradient stops, Background (class or custom colour, darkness), Text Color (class or custom) and Smooth Bars.
+-- The target frames' own style inputs after the shared ones: Fill Color and its custom color,
+-- Custom Dynamic gradient stops, Background (class or custom color, darkness), Text Color (class or custom) and Smooth Bars.
 local function PT_FpExtra(t)
     local p, n = db.profile, ns._PF.STYLE_N
     local fc = p.partyTargetCustomFillColor or PT.DEF_FILL
@@ -607,7 +607,7 @@ local function PT_TexBg(frame)
     ns.RF_TexBgLayer(frame._health, frame._bg, (not dark or ns.RF_TexBgOpaque(s, true)) and path or nil)
     if path then ns.RF_TexBgWatch() end
 end
--- A colour push (ns.RF_TexBgRecheck): Dark Mode Fill can cross 100 with no restyle.
+-- A color push (ns.RF_TexBgRecheck): Dark Mode Fill can cross 100 with no restyle.
 -- ERF:UpdateAllFrames repaints the frames on screen right after.
 ns._PT_TexBgRecheck = function()
     if not ns._ptEnabled then return end
@@ -615,9 +615,9 @@ ns._PT_TexBgRecheck = function()
 end
 
 -- Texture, name font and border from the party settings (the stock edge under a stock style), and
--- the colour settings the paint reads, fingerprinted together: a reload or setting that changed
+-- the color settings the paint reads, fingerprinted together: a reload or setting that changed
 -- none of them touches nothing; one that did repaints the frames on screen, restyling them only
--- when a shared input changed (a colour setting alone re-reads the colours). A change made while
+-- when a shared input changed (a color setting alone re-reads the colors). A change made while
 -- off lands on the enable edge. Combat-legal: nothing here touches the secure buttons.
 ns._PT_Restyle = function()
     if not ns._ptEnabled then return end
@@ -911,7 +911,7 @@ ns.PT_Refresh = function()
 end
 
 -- Options preview: a made-up target beside each party preview frame while Party Targets is on, on
--- the real frames' visuals and with their size, side, offsets and colours. Plain frames, built the
+-- the real frames' visuals and with their size, side, offsets and colors. Plain frames, built the
 -- first time a preview shows them; ns.PT_PreviewSpec measures them and the room they need.
 PT.pv, PT.pvSpec = {}, {}
 PT.PV = {

@@ -14,7 +14,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- One bar per timer: Breath (BREATH), Fatigue (EXHAUSTION), Feign Death
 -- (FEIGNDEATH, and DEATH, which Blizzard paints the same way), Battle Start
 -- and Group Countdown (the game's countdowns, see KINDS). They are set in the
--- OTHER BARS section of the Cast Bar page: a switch and a fill colour each,
+-- OTHER BARS section of the Cast Bar page: a switch and a fill color each,
 -- and in its cog the Low Warning.
 --
 -- Low Warning (optional, per bar): once a draining bar is down to Warn When
@@ -254,7 +254,7 @@ local function StockStyle()
 end
 
 -- Size, border, texture, background, spark and texts from cfg (the cast
--- bar's settings), and the fill colour from own (the bar's own settings).
+-- bar's settings), and the fill color from own (the bar's own settings).
 local function ApplyLook(obj, cfg, own)
     local f = obj.frame
     local style = StockStyle()
@@ -282,7 +282,7 @@ local function ApplyLook(obj, cfg, own)
     bar:SetAllPoints(clip)
     local fillAtlas = blizzKit and ns.ERB_BlizzAtlas and ns.ERB_BlizzAtlas("cast")
     if fillAtlas then
-        -- Blizzard Style: the stock fill art, greyed so the bar's own colour
+        -- Blizzard Style: the stock fill art, greyed so the bar's own color
         -- tints it and Breath stays blue.
         bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
         bar:GetStatusBarTexture():SetAtlas(fillAtlas)
@@ -427,7 +427,7 @@ end
 
 local WARN_R, WARN_G, WARN_B = 1, 0.1, 0.1
 
--- Low Warning on (red, blinking unless blink is false) or off (the fill colour).
+-- Low Warning on (red, blinking unless blink is false) or off (the fill color).
 local function Warn(K, on, blink)
     local cfg = Cfg(K.id)
     if on then

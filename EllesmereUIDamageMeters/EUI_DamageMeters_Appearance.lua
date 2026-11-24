@@ -82,7 +82,7 @@ function ns.DMPaintValueGradient(bar, window, src, index)
         end
     end
     t = math.max(0, math.min(1, t)) * 2
-    -- Painted only when the colour moves; the row's other colour passes clear
+    -- Painted only when the color moves; the row's other color passes clear
     -- the memo (a full rebuild, the pinned row's hand-back).
     if bar._gradT == t then return end
     bar._gradT = t

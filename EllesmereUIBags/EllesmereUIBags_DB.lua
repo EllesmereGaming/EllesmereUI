@@ -30,7 +30,7 @@ local BAGS_DEFAULTS = {
         bagCategorizeReagents = false,
         bagSplitSetGearBySet  = false,
         bagSetSectionsSeparate = false,  -- bags: each set its own section
-        bankNestSetGear       = false,   -- bank: sets fold into Item Set Gear
+        bankSetSectionsSeparate = true,  -- bank: each set its own section (false = under Item Set Gear)
         bagShowSetGearName    = false,
         bagSetNameFontSize    = 9,
         bagMergeDuplicates    = true,    -- every display

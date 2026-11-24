@@ -429,7 +429,7 @@ function ns.ApplyActiveOverlays(frame, fd, ss, isActive, bd)
                     gr, gg, gb = ss.activeGlowR, ss.activeGlowG or 0.85, ss.activeGlowB or 0
                 end
             end
-            -- (Re)start on first activation OR style/colour change (live edits
+            -- (Re)start on first activation OR style/color change (live edits
             -- apply); a steady active window never restarts (would flicker).
             if not fd._activeGlowOn or fd._activeGlowStyle ~= ss.activeGlow
                or fd._activeGlowR ~= gr or fd._activeGlowG ~= gg or fd._activeGlowB ~= gb then

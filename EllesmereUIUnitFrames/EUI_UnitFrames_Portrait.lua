@@ -919,10 +919,10 @@ end
 -- unit's settings, shape = its resolved shape; s == nil hides both. Nothing
 -- exists until a first non-default value. The ring is laid out from the host
 -- size (Outer Ring Size percent, minus a 4px inset, edges snapped by PP.Point)
--- and tinted with the frame border colour, which the hover path recolours in
+-- and tinted with the frame border color, which the hover path recolors in
 -- place. The ring's geometry is memoized on the texture (ring key, frame
 -- Border Style, ring size, host width and height, pixel grid) and its tint on
--- the colour (border r, g, b, alpha), so the per-target class-colour re-run
+-- the color (border r, g, b, alpha), so the per-target class-color re-run
 -- only compares. The Portrait Dragon is its own pass (ns.UF_PortraitDragon).
 function ns.UF_PortraitExtras(host, s, shape)
     local round = s and ns.UF_ROUND_SHAPES[shape]
@@ -1287,7 +1287,7 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
     -- === TGA BORDER OVERLAY ===
     -- Geometry (anchors, mask attach, art) re-applies only when one of its
     -- inputs changes -- shape, border size step, pixel grid, mask object -- so
-    -- the per-target class-colour re-run only recolours. A shape listed in
+    -- the per-target class-color re-run only recolors. A shape listed in
     -- ns.UF_UNMASKED_RING (Pixels Circle) keeps its ring art outside the mask,
     -- inset from the backdrop by that many px at Size 7; each step below 7
     -- moves it 1px outward, as the size step expands every other shape's art.

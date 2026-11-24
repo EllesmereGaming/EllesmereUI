@@ -301,7 +301,7 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
     -- Glows already lit at the very first enable of a session have no record
     -- until their own next edge; the option setter re-issues the bar and buff
     -- glows right away and everything is exact from the next login.
-    -- Stored verbatim, pre-defaulting, so a nil colour stays nil. The owner and
+    -- Stored verbatim, pre-defaulting, so a nil color stays nil. The owner and
     -- its resolved spellID ride along so the replay can tell a record that is
     -- still current from one whose pooled icon has since been handed a
     -- different spell (fc.spellID is our cached plain identity, never secret).

@@ -92,7 +92,7 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
         return Bind({ type = "slider", text = text, tooltip = tooltip, min = min, max = max, step = 1 },
             key, apply or LF.ApplyStyle)
     end
-    -- An inline swatch for the prefix .. "R" / "G" / "B" colour.
+    -- An inline swatch for the prefix .. "R" / "G" / "B" color.
     local function Swatch(region, prefix, tooltip, disabled, disabledTooltip)
         EllesmereUI.BuildInlineSwatches(region, { {
             tooltip = tooltip, disabled = disabled, disabledTooltip = disabledTooltip,

@@ -68,7 +68,7 @@ function ns.UF_MiniAuraTables(unitKey)
 end
 
 -- The settings whose border keys paint the boss frames' unified border (and
--- its normal colour between hover / target recolours): the boss table's own
+-- its normal color between hover / target recolors): the boss table's own
 -- once its Border Style leaves "Inherit (Main Frames)" (borderCustom), else the
 -- mini frame donor's. Boss1-5 share the one boss table.
 function ns.UF_BossBorderSettings()
@@ -257,12 +257,12 @@ local function ApplyClassColor(fs, unit, useClassColor, customR, customG, custom
     fs:SetTextColor(customR or 1, customG or 1, customB or 1)
 end
 
--- Recolours every text slot on a frame from its settings: the four text
--- positions, then the bottom text bar with its power colour re-applied last so
--- power-coloured slots win (class -> power, same order as ApplyBTBTextPositions).
+-- Recolors every text slot on a frame from its settings: the four text
+-- positions, then the bottom text bar with its power color re-applied last so
+-- power-colored slots win (class -> power, same order as ApplyBTBTextPositions).
 -- Shared by the target/focus-changed updater and the text painter's UNIT_FACTION
--- branch (the painter only renders strings; colour lives here). `s` optional:
--- resolved strictly from the unit token, so an unmapped token recolours nothing.
+-- branch (the painter only renders strings; color lives here). `s` optional:
+-- resolved strictly from the unit token, so an unmapped token recolors nothing.
 -- On ns for the 200-locals cap.
 function ns.UF_RecolorTexts(frame, unit, s)
     if not frame or not unit then return end
@@ -457,7 +457,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         local style = s.btbClassIcon or "none"
         if style == "none" then classIconTex:Hide(); return end
         -- Players and AI party members only: UnitClass reports most NPCs as
-        -- warriors (the class colour rule of ApplyClassColor).
+        -- warriors (the class color rule of ApplyClassColor).
         if not (UnitIsPlayer(unit) or (UnitInPartyIsAI and UnitInPartyIsAI(unit))) then
             classIconTex:Hide(); return
         end

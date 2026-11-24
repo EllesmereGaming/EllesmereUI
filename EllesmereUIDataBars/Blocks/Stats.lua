@@ -404,7 +404,7 @@ ns.BlockFactories.ms = function(blockCfg, slot, content, barCtx)
         ns.Tip_Begin(content)
         local inKB, outKB, home, world = GetNetStats()
         home = floor(home); world = floor(world)
-        -- The tooltip is the full quality read: the colours the bar does not carry, plus bandwidth that is on no bar at all.
+        -- The tooltip is the full quality read: the colors the bar does not carry, plus bandwidth that is on no bar at all.
         local hr, hg, hb = GetLatColor(home)
         local wr, wg, wb = GetLatColor(world)
         local ms = ns.GetMSSuffix()

@@ -452,7 +452,7 @@ end
 ns._RF_GRID_DEFAULT = 2
 
 -- Effective grid line length: the size tier override's own groupGridSize when it
--- has one, else the base key of `s` (default db.profile), clamped to 1-8.
+-- has one, else the base key of `s` (default db.profile), clamped to the sliders' 1-7.
 ns._RFGridSize = function(ov, s)
     local n = ov and ov.groupGridSize
     if n == nil then
@@ -460,7 +460,7 @@ ns._RFGridSize = function(ov, s)
         n = s and s.groupGridSize
     end
     n = floor(tonumber(n) or ns._RF_GRID_DEFAULT)
-    if n < 1 then n = 1 elseif n > 8 then n = 8 end
+    if n < 1 then n = 1 elseif n > 7 then n = 7 end
     return n
 end
 
@@ -607,8 +607,8 @@ end
 -- hand-edited SavedVariables). Group Growth wins here; the options UI's
 -- write-time KeepGrowthPerpendicular uses the same resolution EXCEPT its Unit
 -- Growth dropdown, which deliberately lets Unit Growth win instead. Also maps the
--- grid flow ("Down and then Right") onto the single column axis the flat header
--- can render; no-op if not merged.
+-- grid flows ("Down and then Right", "Right and then Down") onto the single column
+-- axis the flat header can render; no-op if not merged.
 ns._RFEffectiveGrowth = function(unitGrowth, groupGrowth, merged)
     if not merged then return unitGrowth, groupGrowth end
     -- The grid flow needs two axes; Blizzard's flat header only has one column
@@ -627,8 +627,8 @@ end
 -- (DOWN pins TOP, UP pins BOTTOM). Every ns._RFEffectiveGrowth caller heals a same-axis pair
 -- before reaching here whenever merged is true, so this only ever sees one for separated mode
 -- (merged=false is a no-op for _RFEffectiveGrowth), where every combination of the two
--- axes is legitimate -- including the grid flow, whose column advance is horizontal (so
--- it pins LEFT like RIGHT) and whose rows run down (so it pins TOP like DOWN). This
+-- axes is legitimate -- including the grid flows, which step right and down (so they
+-- pin LEFT like RIGHT and TOP like DOWN, whichever axis wraps). This
 -- tie-break (UP beats BOTTOM, LEFT beats RIGHT, default TOP+LEFT) is what existing
 -- per-tier offsets are calibrated against -- matching Blizzard's own same-axis corner instead
 -- would be dead code here for merged and a silent position-shift regression for separated.

@@ -346,20 +346,22 @@ end
 ---------------------------------------------------------------------------
 --  Page Builder
 ---------------------------------------------------------------------------
-local function BorderColorCfg()
+-- The Border Size slot's inline swatches (Custom | Class Colored): the two pick
+-- the mode, a click on the dimmed one switches to it. rgn = the slot.
+local function BorderColorSwatches(rgn)
     local env = ns._RFO_OptEnv
     local SGet, SVal, SWrite = env.SGet, env.SVal, env.SWrite
     local function IsClassColored()
         return SVal("borderClassColored", false)
     end
-    local function SetColorMode(swatch, enabled)
-        local snap = EllesmereUI._SOAttribution(swatch)
+    local function SetColorMode(enabled)
+        local snap = EllesmereUI._SOAttribution(rgn)
         env.SSet("borderClassColored", enabled)
         EllesmereUI._settingsChanged = true
-        EllesmereUI._NotifySettingWrite(swatch, snap)
+        EllesmereUI._NotifySettingWrite(rgn, snap)
         EllesmereUI:RefreshPage()
     end
-    local cfg = { type = "multiSwatch", text = "Border Color", swatches = {
+    return {
         { tooltip = "Custom Color", hasAlpha = true,
           getValue = function() return ns.RF_BaseBorderColor(nil, SGet("borderColor"), SVal("borderAlpha", 1)) end,
           setValue = function(r, g, b, a)
@@ -387,7 +389,7 @@ local function BorderColorCfg()
           end,
           onClick = function(self)
               if IsClassColored() then
-                  SetColorMode(self, false)
+                  SetColorMode(false)
               elseif self._eabOrigClick then
                   self._eabOrigClick(self)
               end
@@ -395,21 +397,18 @@ local function BorderColorCfg()
           refreshAlpha = function() return IsClassColored() and 0.3 or 1 end },
         { tooltip = "Class Colored", hasAlpha = false,
           disabled = function() return ns.RF_CompactOnTab(false) end,
-          disabledTooltip = "Class colors require individual frame borders. Disable Compact Mode first.",
-          rawTooltip = true,
+          disabledTooltip = "Compact Mode", requireState = "disabled",
           getValue = function()
               local c = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
               if c then return c.r, c.g, c.b end
               return 1, 1, 1
           end,
           setValue = function() end,
-          onClick = function(self)
-              if not IsClassColored() then SetColorMode(self, true) end
+          onClick = function()
+              if not IsClassColored() then SetColorMode(true) end
           end,
           refreshAlpha = function() return IsClassColored() and 1 or 0.3 end },
-    } }
-    if EllesmereUI.BlizzStyle then cfg = EllesmereUI.BlizzStyle.Gate("raidframes", cfg) end
-    return cfg
+    }
 end
 
 local function BuildMainPage(pageName, parent, yOffset)
@@ -459,7 +458,7 @@ local function BuildMainPage(pageName, parent, yOffset)
 
     -- Groups Before Wrap (base and per-tier): only the grid flows wrap. Locked
     -- in combat like Center Groups.
-    local GRID_TIP = "How many groups fill a column (Down and then Right) or a row (Right and then Down) before the next one starts."
+    local GRID_TIP = "How many groups fill each row or column before the next one starts."
     local GRID_OFF_TIP = "This option is only available with the Down and then Right or Right and then Down group growth."
     local function GridSizeBlocked(gg)
         if InCombatLockdown() then return true end
@@ -931,7 +930,7 @@ local function BuildMainPage(pageName, parent, yOffset)
         } })
     end
 
-    -- Border Style | Border Size
+    -- Border Style (+ options cog) | Border Size (+ Border swatches). Mirrors Unit Frames: ONE border recolored by state (hover/target), full SharedMedia support. Hover/Target swatches live on the row below.
     local bdrTexValues, bdrTexOrder = EllesmereUI.GetBorderTextureDropdown()
     local borderStyleRow
     borderStyleRow, h = W:DualRow(parent, y,
@@ -996,7 +995,8 @@ local function BuildMainPage(pageName, parent, yOffset)
     end
     do
         local rgn = borderStyleRow._rightRegion
-        -- Corner Radius (EllesmereUI_RoundedCorners.lua).
+        -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog beside
+        -- the control, the Border swatches left of it.
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Corner Radius", tip = "Corner Radius",
             disabled = function() return not EllesmereUI.RoundedStyleOK(SGet("borderTexture")) end,
@@ -1007,6 +1007,7 @@ local function BuildMainPage(pageName, parent, yOffset)
                   set = function(v) SSet("cornerRadius", v) end },
             }, function() return SGet("cornerMask") end, function(v) SSet("cornerMask", v) end),
         })
+        EllesmereUI.BuildInlineSwatches(rgn, BorderColorSwatches(rgn))
     end
 
     -- Width Offset | Height Offset: the textured edge's outward offsets as their
@@ -1050,10 +1051,22 @@ local function BuildMainPage(pageName, parent, yOffset)
         _, h = W:DualRow(parent, y, StockGate(ocfgL), StockGate(ocfgR));  y = y - h
     end
 
-    -- Border Color | Hover Borders
+    -- Show When Solo | Hover Borders: which highlight states are active. Disabling one skips that recolor entirely and the frame keeps its normal border. Hover + Target swatches are inline here.
     local hoverBordersRow
     hoverBordersRow, h = W:DualRow(parent, y,
-        BorderColorCfg(),
+        { type="toggle", text="Show When Solo",
+          -- Disabled only while Party's is the ONE that is on: a profile holding both
+          -- flags (older profile, override swap, import) shows the player twice, and
+          -- each toggle must stay clickable to switch itself off.
+          disabled=function() return db.profile.partyShowWhenSolo and not db.profile.showWhenSolo end,
+          disabledTooltip="Party Frames Show When Solo", requireState="disabled",
+          getValue=function() return SVal("showWhenSolo", false) end,
+          setValue=function(v)
+              SSet("showWhenSolo", v)
+              if ns.UpdateVisibility then ns.UpdateVisibility() end
+              if ns._UpdatePartyVisibility then ns._UpdatePartyVisibility() end
+              EllesmereUI:RefreshPage()
+          end },
         { type="dropdown", text="Hover Borders",
           values={ __placeholder = "All" }, order={ "__placeholder" },
           getValue=function() return "__placeholder" end,
@@ -1152,7 +1165,7 @@ local function BuildMainPage(pageName, parent, yOffset)
             rightRgn._lastInline = targetSwatch
             targetSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(targetSwatch, "Target") end)
             targetSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            -- Stock styles: the stock selection ring carries its own colour.
+            -- Stock styles: the stock selection ring carries its own color.
             local targetBlocked = EllesmereUI.BlizzStyle
                 and EllesmereUI.BlizzStyle.BlockInline("raidframes", targetSwatch) or false
 
@@ -1184,32 +1197,16 @@ local function BuildMainPage(pageName, parent, yOffset)
         end
     end
 
-    _, h = W:DualRow(parent, y,
-        { type="toggle", text="Show When Solo",
-          -- Disabled only while Party's is the ONE that is on: a profile holding both
-          -- flags (older profile, override swap, import) shows the player twice, and
-          -- each toggle must stay clickable to switch itself off.
-          disabled=function() return db.profile.partyShowWhenSolo and not db.profile.showWhenSolo end,
-          disabledTooltip="Party Frames Show When Solo", requireState="disabled",
-          getValue=function() return SVal("showWhenSolo", false) end,
-          setValue=function(v)
-              SSet("showWhenSolo", v)
-              if ns.UpdateVisibility then ns.UpdateVisibility() end
-              if ns._UpdatePartyVisibility then ns._UpdatePartyVisibility() end
-              EllesmereUI:RefreshPage()
-          end },
-        EllesmereUI.BlankRowCfg());  y = y - h
-
     -------------------------------------------------------------------
     --  LAYOUT
     -------------------------------------------------------------------
     _, h = W:SectionHeader(parent, "LAYOUT", y); y = y - h
 
     -- Group Growth | Unit Growth: separated groups (Merge Groups off) support every
-    -- combination of the two axes (5 Group Growth values x 4 Unit Growth ones), but
+    -- combination of the two axes (6 Group Growth values x 4 Unit Growth ones), but
     -- merged mode's single Blizzard flat header can only make its column direction
     -- perpendicular to Unit Growth, so a same-axis pair -- and the two-axis grid
-    -- flow, which it renders as a plain RIGHT run (see ReadGroupGrowth in
+    -- flows, which it renders as a plain RIGHT run (see ReadGroupGrowth in
     -- EUI_RaidFrames_Options.lua) -- gets silently reinterpreted (see the colAnchor
     -- comment in EUI_RaidFrames_Layout.lua)
     -- -- KeepGrowthPerpendicular bumps the other axis instead. A base edit can also

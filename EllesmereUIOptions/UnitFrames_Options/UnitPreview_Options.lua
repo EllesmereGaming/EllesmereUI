@@ -484,7 +484,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             return n
         end
         -- literal: the Target content's padded prefix in place of the
-        -- separator ("" = none); plain: the name in the slot colour.
+        -- separator ("" = none); plain: the name in the slot color.
         local function _pvTargetSuffix(literal, plain)
             local _, ct = UnitClass("player")
             local cc = ct and EllesmereUI.GetClassColor(ct)
@@ -1806,7 +1806,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         if pf._levelOv then pf._levelOv:SetShown(lvOn and true or false) end
 
         -- Health bar at the stock spot; horizontal fill (the stock track has
-        -- no vertical variant); colours, texture, gradient, opacity as set.
+        -- no vertical variant); colors, texture, gradient, opacity as set.
         health:ClearAllPoints()
         ns.UF_BlizzPoint(health, "TOPLEFT", barArea, "TOPLEFT", HB.x, -HB.y, mirror)
         health:SetSize(HB.w, HB.h)
@@ -4013,7 +4013,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         end
         -- Color Custom Borders: while the Magic border copy shows, both
         -- separators are tinted Magic at full opacity in place, as the live
-        -- copies draw them (the two passes above reset the border colour
+        -- copies draw them (the two passes above reset the border color
         -- first), so the preview does not depend on copy-frame draw order
         -- inside the options panel.
         if pf._pvDispelBorder and pf._pvDispelBorder:IsShown() then
@@ -4180,7 +4180,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 end
                 local _, classToken = UnitClass("player")
                 -- Custom combat icons (combat0..5) render untinted; Standard/Class
-                -- Theme are tinted by the colour mode below.
+                -- Theme are tinted by the color mode below.
                 if ciStyle:find("^combat%d") then
                     combatInd:SetTexture(COMBAT_MEDIA_P .. ciStyle .. ".tga")
                     combatInd:SetTexCoord(0, 1, 0, 1)

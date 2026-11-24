@@ -746,7 +746,7 @@ local function CreateMover(barKey)
         gdFS:SetTextColor(1, 0.7, 0.3, 0.85)
     end
 
-    -- Accent change (accent callback below): later repaints read the new colour; the
+    -- Accent change (accent callback below): later repaints read the new color; the
     -- resting border takes it now, a hovered or selected one on leave, link texts on hover.
     function mover._applyAccent()
         ar, ag, ab = GetAccent()

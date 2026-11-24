@@ -381,9 +381,9 @@ function ns.RFC_PreviewAuraBorder(icon, host, s, prefix)
         b and b.cornerRadius, b and b.texture, b and b.size)
 end
 
--- A Class-mode glow draws the palette's class colour, so that colour is an
+-- A Class-mode glow draws the palette's class color, so that color is an
 -- input of every glow print (a Colors page edit must restyle); "" for every
--- other mode. The colour last printed feeds the colours-changed hook below
+-- other mode. The color last printed feeds the colors-changed hook below
 -- RFC_ReloadAll. On ns: the Debuff Manager's prints use it too.
 function ns.RF_GlowClassFP(mode, classFlag)
     local G = EllesmereUI.Glows
@@ -3581,7 +3581,7 @@ end
 
 -- Colors page edits (swatches, darken, resets, profile switches) all end in
 -- ApplyColorsToOUF. Once a Class-mode glow was printed (ns.RF_GlowClassFP), a
--- changed class colour re-runs the fingerprinted reload, which restyles only
+-- changed class color re-runs the fingerprinted reload, which restyles only
 -- the glows whose print changed. Calls in one frame (a profile switch can
 -- make two) collapse into one check on the next frame: the flush frame stays
 -- hidden until a call and hides itself before working.

@@ -211,7 +211,7 @@ function npAddon:OnEnable()
         end
         ns.NP_SeedStock(p)
     end
-    -- The same for the Classic cast colours. An EllesmereUI slot banked before
+    -- The same for the Classic cast colors. An EllesmereUI slot banked before
     -- they rode the slots gains their current values first, so a switch back
     -- still restores the user's own.
     if ns.NP_Classic() and not p.classicCastSeeded then

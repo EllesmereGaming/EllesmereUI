@@ -298,6 +298,22 @@ initFrame:SetScript("OnEvent", function(self)
 
     EllesmereUI:RegisterOnShow(UpdatePreview)
 
+    -- Action Bar Spells (ActionBars_Options\BarSpells_Options.lua): the section
+    -- is built only while the profile has bar spells for this character, and a
+    -- spec change can bring them or take them away (Retail, one profile for
+    -- both specs). On the active Bar Display page: built again when the
+    -- section no longer matches, else its rows re-read (Auto Populate is per
+    -- spec). RefreshPage waits for the next show while the panel is closed.
+    local function BarSpellsRecheck()
+        if EllesmereUI:GetActiveModule() ~= "EllesmereUIActionBars"
+           or EllesmereUI:GetActivePage() ~= PAGE_DISPLAY then return end
+        if ns.ABO_BarSpellsStale() then
+            EllesmereUI:RefreshPage(true)
+        elseif optState.barSpellsBuilt then
+            EllesmereUI:RefreshPage()
+        end
+    end
+
     -- Rebuild the preview on spec change (new talent group).
     do
         local specChangeFrame = CreateFrame("Frame")
@@ -309,6 +325,10 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI:SetContentHeader(_barsHeaderBuilder)
                     UpdatePreviewAndResize()
                 end
+            end
+            -- Action Bar Spells: a frame later, when the new spec reads settled.
+            if ns.ABO_BarSpellsSpecSensitive and ns.ABO_BarSpellsSpecSensitive() then
+                C_Timer.After(0, BarSpellsRecheck)
             end
         end)
     end
@@ -850,6 +870,10 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         y = BuildSharedBarSettings(parent, y)
 
+        -- ACTION BAR SPELLS, the last section: built only while the profile has
+        -- bar spells for this character (ActionBars_Options\BarSpells_Options.lua).
+        if ns.ABO_BuildBarSpells then y = ns.ABO_BuildBarSpells(parent, y) end
+
         return math.abs(y)
     end
 
@@ -932,6 +956,12 @@ initFrame:SetScript("OnEvent", function(self)
         end,
         onPageCacheRestore = function(pageName)
             if pageName == PAGE_DISPLAY then
+                -- The ACTION BAR SPELLS section no longer matches the profile (a
+                -- spec change behind the kept page): build the page again a frame
+                -- later, once the page switch is done.
+                if ns.ABO_BarSpellsStale and ns.ABO_BarSpellsStale() then
+                    C_Timer.After(0, BarSpellsRecheck)
+                end
                 UpdatePreview()
                 ShowEditOverlay(SelectedKey())
                 local dismissed = IsPreviewHintDismissed()

@@ -63,7 +63,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  scrolling paints only the rows entering view.
 --
 --  Groups are account data in EllesmereUIDB.global (outside the profiles and
---  outside exports): the group list, order, colours and collapsed state, and
+--  outside exports): the group list, order, colors and collapsed state, and
 --  each friend's group by BattleTag. A "||EUI:Group||" tag an old Friends
 --  build left in a friend note is read once and never written.
 --
@@ -1139,7 +1139,7 @@ local function LayoutText(f, hasChar, stop, reserve)
     end
 end
 
--- The character line in brackets, the brackets in the colour of its level
+-- The character line in brackets, the brackets in the color of its level
 local bracketCache = setmetatable({}, { __mode = "k" })
 local function Bracketed(info, text)
     local color = T.LevelColor(info)
@@ -1218,7 +1218,7 @@ local function PaintRow(f, it)
 
     SetLink(f)
 
-    -- Every string arrives wrapped in Blizzard's colour codes
+    -- Every string arrives wrapped in Blizzard's color codes
     local charText = T.CharLine(info)
     local hasChar = charText ~= ""
     f.playing = hasChar
@@ -1366,7 +1366,7 @@ local function HeaderDelete(btn)
     PromptDeleteGroup(btn:GetParent().key)
 end
 
--- A section name's colour: the one picked for it, else the accent
+-- A section name's color: the one picked for it, else the accent
 local function SectionRGB(key)
     local color = Store().friendGroupColors[key]
     if color then return color.r, color.g, color.b end
@@ -1375,9 +1375,9 @@ end
 
 local RepaintHeaders   -- defined with the header painter below
 
--- The colour picker for a section's name (it lives in the options addon,
+-- The color picker for a section's name (it lives in the options addon,
 -- which the game will not load in combat). Each pick repaints the section
--- names in view, and a cancel puts the old colour back.
+-- names in view, and a cancel puts the old color back.
 local function PickSectionColor(key, anchor, onChange)
     if not key or InCombatLockdown() then return end
     EllesmereUI:EnsureLoaded()
@@ -1404,8 +1404,8 @@ local function PickSectionColor(key, anchor, onChange)
     }, anchor)
 end
 
--- A custom group's name and colour in one popup: the swatch beside the name
--- opens the colour picker, whose own OK and Cancel keep or drop the colour
+-- A custom group's name and color in one popup: the swatch beside the name
+-- opens the color picker, whose own OK and Cancel keep or drop the color
 -- (the popup's buttons are the name's alone).
 local function PromptEditGroup(name)
     EllesmereUI:ShowInputPopup({
@@ -1425,7 +1425,7 @@ local function PromptEditGroup(name)
     })
 end
 
--- The pencil: a custom group's popup, or the colour alone for a section that
+-- The pencil: a custom group's popup, or the color alone for a section that
 -- cannot be renamed
 local function HeaderEdit(btn)
     local h = btn:GetParent()
@@ -1911,7 +1911,7 @@ local function Build()
         hooksecurefunc(view, "RefreshSearchResults", OnBlizzardSearch)
     end
 
-    -- A new accent colour repaints the section names that follow it
+    -- A new accent color repaints the section names that follow it
     EllesmereUI.RegAccent({
         type = "callback",
         fn = function()

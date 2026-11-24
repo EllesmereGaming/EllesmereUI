@@ -101,7 +101,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Stock styles (Blizzard Style / Classic WoW UI) keep Blizzard's own
-        -- tracker art, text and quest icons: the background, font and colour
+        -- tracker art, text and quest icons: the background, font and color
         -- rows only apply to the EllesmereUI look.
         local BS = EllesmereUI.BlizzStyle
         local STOCK = BS and BS.Get("questtracker") and not CUSTOM
@@ -138,7 +138,7 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v) Set("customGroupByZone", v); RefreshAll(); EllesmereUI:RefreshPage() end })
             y = y - h
 
-            -- Zone header colour, on the Group Quests by Zone slot: Custom
+            -- Zone header color, on the Group Quests by Zone slot: Custom
             -- Colored | Accent Colored. With no pick the headers follow the
             -- Header Color, so the lit swatch is the one they show now.
             if not EllesmereUI._prebuilding then

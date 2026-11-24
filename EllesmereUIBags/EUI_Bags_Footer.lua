@@ -153,7 +153,7 @@ local function StripRealm(name)
     return name
 end
 
--- One row of the summary: its name, and its money in the shown coin columns in one colour.
+-- One row of the summary: its name, and its money in the shown coin columns in one color.
 -- Returns the name's width; each coin column's widest text collects in _coinW.
 local function FillGoldRow(row, name, money, cols, r, g, b)
     local nameFS = row[0]

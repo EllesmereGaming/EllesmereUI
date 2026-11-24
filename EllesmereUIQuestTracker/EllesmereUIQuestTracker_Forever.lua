@@ -309,13 +309,22 @@ local TYPE_RANK = {
     [QC.Questline] = 5, [QC.Normal] = 6, [QC.Recurring] = 7,
 }
 
+-- Zone sort keys by quest log header ("1" + the lowercased name), built once
+-- per header: zone names are a fixed set.
+local zoneSortKey = {}
+
 local function SortKeyFor(mode, questID, rank)
     if mode == "zone" then
         -- Current zone first, then A-Z: the log's own header order moves with the map.
         local header = logHeader[questID]
         if not header then return "2" end
         if header == passZone or (passInInstance and header == passInstance) then return "0" end
-        return "1" .. header:lower()
+        local key = zoneSortKey[header]
+        if not key then
+            key = "1" .. header:lower()
+            zoneSortKey[header] = key
+        end
+        return key
     elseif mode == "progress" then
         -- Most complete first: negated share of all objective counts.
         if C_QuestLog.IsComplete(questID) then return -1 end
@@ -363,6 +372,11 @@ end
 -- log snapshot.
 local function SortList(ids, mode, completed, thenBy)
     wipe(sortGroup); wipe(sortKey); wipe(sortKey2); wipe(sortRank)
+    -- A pass that reads every distance afresh starts clean, so a quest that left
+    -- the list does not come back later with the distance it had then.
+    if (mode == "distance" or thenBy == "distance") and not (IsPlayerMoving() or InCombatLockdown()) then
+        wipe(distKey)
+    end
     for i, questID in ipairs(ids) do
         sortRank[questID] = i
         local group = 1
@@ -431,6 +445,31 @@ function EQT.IsQuestFiltered(questID)
 end
 function EQT.AutoTrackOn() return AutoOn() end
 EQT.SortUses = SortUses
+-- The custom tracker's stop check: reads every listed quest's distance afresh
+-- (kept as the held distances) and answers whether the nearest-first order of
+-- any two of them changed, or one had none held: only then does a re-sort show
+-- anything. Out of combat only (in combat the held distances must stay).
+local probeOld = {}
+function EQT.DistanceOrderMoved(ids)
+    local n, moved = #ids, false
+    for i = 1, n do
+        local questID = ids[i]
+        local old = distKey[questID]
+        probeOld[i] = old
+        if old == nil then moved = true end
+        local distSq, onContinent = C_QuestLog.GetDistanceSqToQuest(questID)
+        distKey[questID] = onContinent and distSq or math.huge
+    end
+    if moved then return true end
+    for i = 1, n - 1 do
+        local oa, na = probeOld[i], distKey[ids[i]]
+        for j = i + 1, n do
+            local ob, nb = probeOld[j], distKey[ids[j]]
+            if (oa < ob) ~= (na < nb) or (ob < oa) ~= (nb < na) then return true end
+        end
+    end
+    return false
+end
 function EQT.SortQuestList(ids)
     SortList(ids, SortMode(), SortCompleted(), SortThenBy())
 end

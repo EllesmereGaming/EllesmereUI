@@ -641,7 +641,7 @@ local function ApplyUnitFrameCastColor(castbar)
     -- Zero-alloc: values flow as scalars instead of building up to three throwaway
     -- color tables per call (two default literals + the blended kick tint).
     local r, g, b
-    -- Base fill colour (what ReloadFrames gives the StatusBar), before the kick blend.
+    -- Base fill color (what ReloadFrames gives the StatusBar), before the kick blend.
     local br, bg, bb
     if settings and settings.castbarClassColored and ownerUnit == "player" then
         local _, classToken = UnitClass(ownerUnit)
@@ -664,9 +664,9 @@ local function ApplyUnitFrameCastColor(castbar)
     end
     local uc = (settings and settings.castbarUninterruptibleColor) or UF_UNINTERRUPT_GREY
     if not castbar._blizzCast then
-        -- Uninterruptible colour folded into the textured tint layer and the base
+        -- Uninterruptible color folded into the textured tint layer and the base
         -- fill under it (the nameplates' approach): the texture stays visible and
-        -- its transparent pixels cannot show the interruptible colour. The flat
+        -- its transparent pixels cannot show the interruptible color. The flat
         -- shield wash below would cover the texture. The fold is secret-safe.
         local ev = C_CurveUtil.EvaluateColorValueFromBoolean
         local uninterruptible = GetCastbarUninterruptible(castbar)
@@ -688,8 +688,8 @@ local function ApplyUnitFrameCastColor(castbar)
     castbar._shieldOff = nil
     castbar.castTintLayer:SetVertexColor(r, g, b)
     if castbar._shieldedTint then
-        -- Uninterruptible overlay colour (defaults to grey). Its alpha is toggled
-        -- from the secret "not interruptible" flag, so the colour is always set and
+        -- Uninterruptible overlay color (defaults to grey). Its alpha is toggled
+        -- from the secret "not interruptible" flag, so the color is always set and
         -- only becomes visible on uninterruptible casts. Only Blizzard Style
         -- (tint layer hidden) still uses this wash.
         -- Explicit vertex alpha: Midnight's 3-arg SetVertexColor leaves the
@@ -1216,7 +1216,7 @@ local function CreateCastBar(frame, unit, settings)
             self.castTintLayer:SetAlpha(self._fillOp or 1)
             self._castTintOn = true
             ApplyUnitFrameCastColor(self)
-            -- Blizzard Style: the fill art is its own colour, per cast kind.
+            -- Blizzard Style: the fill art is its own color, per cast kind.
             if self._blizzCast then
                 self.castTintLayer:SetAlpha(0)
                 self._castTintOn = nil
@@ -1278,7 +1278,7 @@ local function CreateCastBar(frame, unit, settings)
         -- two-secret test resolves by where the marker texture edge lands -- when the
         -- kick will NOT be ready in time the fill anchors cross to zero width and it
         -- self-hides with no Lua branch on a secret. ARTWORK sublevel 1 (created after
-        -- castTintLayer so it draws above the fill colour) sits below the cast text
+        -- castTintLayer so it draws above the fill color) sits below the cast text
         -- (OVERLAY) and the uninterruptible grey (sublevel 2). Anchors are (re)applied
         -- per cast in UpdateUnitFrameKickTick.
         local kickReadyFill = castbar:CreateTexture(nil, "ARTWORK", nil, 1)

@@ -23,8 +23,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --                  bars that join one above the other)
 --  The opts tables are only read during the call, so callers may reuse them;
 --  at radius 0 no opts are needed.
---  EllesmereUI.RoundedBorderColor(border, r, g, b, a) recolours the ring of a
---  border painted without EllesmereUI.SetBorderStyleColor (which recolours it
+--  EllesmereUI.RoundedBorderColor(border, r, g, b, a) recolors the ring of a
+--  border painted without EllesmereUI.SetBorderStyleColor (which recolors it
 --  on its own).
 --  EllesmereUI.RoundedSetCorners(owner, corners) moves only the round corners
 --  of an owner whose other inputs (radius, style, rect, border, clip, roots,
@@ -145,13 +145,15 @@ function EllesmereUI.AuraRadiusRow(get, set, disabled)
         get = get, set = set, disabled = disabled }
 end
 
+-- disabledTooltip: a whole "This option ..." sentence, or the name of what must
+-- be turned off ("Hide Icons", a stock style's label).
 function EllesmereUI.AuraRadiusCogCfg(texture, get, set, disabled, disabledTooltip)
     if texture and texture ~= "" and texture ~= "solid" then
         disabled = function() return true end
         disabledTooltip = "This option requires the Solid border style."
     end
     return { title = "Corner Radius", tip = "Corner Radius", disabled = disabled,
-        disabledTooltip = disabledTooltip, rawTooltip = true, rows = { EllesmereUI.AuraRadiusRow(get, set) } }
+        disabledTooltip = disabledTooltip, requireState = "disabled", rows = { EllesmereUI.AuraRadiusRow(get, set) } }
 end
 
 -- Options: appends the four corner toggles of a Corner Radius cog to rows.
@@ -966,7 +968,7 @@ end
 -- stadium h px tall with round ends of radius h / 2, sliced, so drawn on a
 -- pixel layer at any width; EllesmereUI.SetCircleArt(tex, d), a circle d px
 -- across, unsliced, so on any frame where the region is d px square. White:
--- the colour is the texture's vertex colour.
+-- the color is the texture's vertex color.
 local WEAK_K = { __mode = "k" }
 local layers = setmetatable({}, WEAK_K)   -- layer frame -> layer object
 local PILL = Paths("pill-%d.tga")
@@ -1097,7 +1099,7 @@ local function OutlineSetColor(self, r, g, b, a)
     self._fill:SetVertexColor(r, g, b, a or 1)
 end
 
--- o:SetCover(r, g, b): an opaque fill in the colour the control sits on,
+-- o:SetCover(r, g, b): an opaque fill in the color the control sits on,
 -- under the outline, over its band and the corners outside it. A control of
 -- stacked layers drawn square below it then reads rounded with its edge
 -- blended once, where masks on each layer let the lower ones show through.
@@ -1293,7 +1295,7 @@ end
 
 -- An outline's fill or cover and its hole: uncut it would draw a whole box,
 -- so it hides while the hole's art loads (Hide, as a texture's SetAlpha
--- writes its vertex colour's alpha) and the wait shows it with the mask.
+-- writes its vertex color's alpha) and the wait shows it with the mask.
 function HoleWhenLoaded(tex, m)
     if maskWaiting then maskWaiting[tex] = nil end
     MaskWhenLoaded(tex, m)
@@ -1419,7 +1421,7 @@ end
 -- settings card. A fill (default 0.077, 0.068, 0.058 at bgA 0.5) under a
 -- rounded 1 px white outline at brdA (0.12). accentH: a top accent edge on
 -- the outline's pixel layer under its inner shape (sharp, ends follow the
--- corners); the caller colours it. Returns the outline with o.bg, o.accent
+-- corners); the caller colors it. Returns the outline with o.bg, o.accent
 -- and o:Clip(tex), masking a texture of parent or a descendant to the
 -- inside of the outline (a side strip, a hover fill).
 local CARD_R, CARD_G, CARD_B = 0.077, 0.068, 0.058

@@ -1,7 +1,7 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_Colors.lua
---  Class, power and resource colour defaults, the custom-colour cache and
+--  Class, power and resource color defaults, the custom-color cache and
 --  getters, Dark Mode palette and toggles. Loads right after EllesmereUI_Popups.lua.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
@@ -108,9 +108,9 @@ function EllesmereUI.DarkenColor(r, g, b, frac)
     return r * (1 - frac), g * (1 - frac), b * (1 - frac)
 end
 
--- Effective in-game custom colours for all rendering consumers (lazy-init). Stored PER
+-- Effective in-game custom colors for all rendering consumers (lazy-init). Stored PER
 -- PROFILE (db.profiles[name].customColors: class / power / classResource / resource).
--- Each colour SECTION of the Colors page picks its own palette source (class, power,
+-- Each color SECTION of the Colors page picks its own palette source (class, power,
 -- classResource; resource rides classResource):
 --   "Apply to All Profiles" ON (default): ONE chosen profile's section (its "Pull
 --        Colors From", default the first profile) shared across EVERY profile.
@@ -120,7 +120,7 @@ end
 -- / colorsPullFrom), which a section with no key of its own still reads -- an account
 -- from before the split resolves exactly as it did, nothing migrated.
 -- Nothing is wiped/restored on a profile switch (the getter just resolves different
--- tables), so a spec-switch colour wipe cannot happen. Missing tables -> defaults.
+-- tables), so a spec-switch color wipe cannot happen. Missing tables -> defaults.
 EllesmereUI.COLOR_SECTIONS = { "class", "power", "classResource" }
 EllesmereUI._COLOR_SECTION_OF = { class = "class", power = "power",
     classResource = "classResource", resource = "classResource" }
@@ -166,7 +166,7 @@ function EllesmereUI.SetColorSectionPullFrom(section, name)
     EllesmereUIDB.colorsSectionPullFrom[section] = name
 end
 
--- True while any section reads the active profile's own colours (a profile switch
+-- True while any section reads the active profile's own colors (a profile switch
 -- then changes what renders).
 function EllesmereUI.AnyColorSectionPerProfile()
     for _, s in ipairs(EllesmereUI.COLOR_SECTIONS) do
@@ -175,7 +175,7 @@ function EllesmereUI.AnyColorSectionPerProfile()
     return false
 end
 
--- Point every global-mode section at profile `name` (an import that carries colours
+-- Point every global-mode section at profile `name` (an import that carries colors
 -- shows them): its own pointer when it has one, else the shared pointer it reads.
 -- Per-profile sections already read the active profile.
 function EllesmereUI.PointColorSectionsAt(name)
@@ -248,7 +248,7 @@ function EllesmereUI.GetCustomColorsDB()
     return out
 end
 
--- A section's colour editing locks ONLY in global mode while viewing a profile other
+-- A section's color editing locks ONLY in global mode while viewing a profile other
 -- than its source (editing a dormant palette would mislead). Per-profile mode is always
 -- editable; global mode is editable on the source profile. No section = Class.
 function EllesmereUI.IsColorEditingLocked(section)
@@ -264,7 +264,7 @@ end
 --  Dark Mode (per-profile)
 --  One shared palette feeds the Dark Mode look of Unit Frames, Raid Frames and
 --  Resource Bars, plus "darken" amounts that blacken class/power/class-resource
---  colours inside the colour getters below (every consumer gets adjusted values,
+--  colors inside the color getters below (every consumer gets adjusted values,
 --  no per-module logic). Stored at EllesmereUIDB.profiles[name].darkMode (sibling
 --  of customColors) and ALWAYS the ACTIVE profile's own table -- no "Apply to All
 --  Profiles" redirect. Defaults: #111111 fill @ 90%, #4f4f4f bg @ 100%, zero darken.
@@ -313,7 +313,7 @@ function EllesmereUI._RebuildDarkModeCache()
     c.gen = EllesmereUI._dmGen
 end
 
--- Dark Mode fill colour (r, g, b, a). Opacity is honoured by Unit Frames and
+-- Dark Mode fill color (r, g, b, a). Opacity is honoured by Unit Frames and
 -- Raid Frames; Resource Bars ignore the alpha and keep their own.
 function EllesmereUI.GetDarkModeFill()
     local c = EllesmereUI._dmCache
@@ -321,18 +321,18 @@ function EllesmereUI.GetDarkModeFill()
     return c.fr, c.fg, c.fb, c.fa
 end
 
--- Dark Mode background colour (r, g, b, a). Same opacity rules as the fill.
+-- Dark Mode background color (r, g, b, a). Same opacity rules as the fill.
 function EllesmereUI.GetDarkModeBg()
     local c = EllesmereUI._dmCache
     if c.gen ~= EllesmereUI._dmGen then EllesmereUI._RebuildDarkModeCache() end
     return c.br, c.bg, c.bb, c.ba
 end
 
--- Effective-colour cache. Class/power/resource getters run in hot render paths, so the FINAL
--- colours (palette + darken) are precomputed once and served as cached {r,g,b} tables: rebuilt
+-- Effective-color cache. Class/power/resource getters run in hot render paths, so the FINAL
+-- colors (palette + darken) are precomputed once and served as cached {r,g,b} tables: rebuilt
 -- lazily on first read after invalidation, reads are one lookup with zero allocation.
--- Invalidation inputs: ApplyColorsToOUF (the universal "colours changed" chokepoint -- swatch
--- edits, resets, mode toggles, profile switches) and RefreshDarkMode. READ-ONLY derived cache: worst failure is a stale colour.
+-- Invalidation inputs: ApplyColorsToOUF (the universal "colors changed" chokepoint -- swatch
+-- edits, resets, mode toggles, profile switches) and RefreshDarkMode. READ-ONLY derived cache: worst failure is a stale color.
 EllesmereUI._colorCache = { class = {}, classRaw = {}, power = {}, classResource = {}, resource = {}, classCustomized = {} }
 EllesmereUI._colorCacheDirty = true
 EllesmereUI._COLOR_WHITE = { r = 1, g = 1, b = 1 }
@@ -374,7 +374,7 @@ function EllesmereUI._RebuildColorCache()
     -- BG Power Color Darken: extra blacken for power-COLORED bar backgrounds, kept as a multiplier (not a palette) so it stacks on whatever power color a consumer resolved.
     local bgd = (dm and dm.powerBgDarken) or 0
     EllesmereUI._powerBgDarkenFactor = bgd > 0 and math.max(0, 1 - bgd / 100) or 1
-    -- Classes whose effective colour no longer matches Blizzard's default (a swatch edit, or any
+    -- Classes whose effective color no longer matches Blizzard's default (a swatch edit, or any
     -- nonzero class darken). Only these need the restricted-unit recovery below; an untouched
     -- palette leaves the table empty, so that path costs one next() and stops.
     local customized = cache.classCustomized
@@ -390,7 +390,7 @@ function EllesmereUI._RebuildColorCache()
     EllesmereUI._colorCacheDirty = false
 end
 
--- Modules register a callback re-reading the dark palette and repainting their frames; RefreshDarkMode() runs them all and re-pushes class/power colours via ApplyColorsToOUF.
+-- Modules register a callback re-reading the dark palette and repainting their frames; RefreshDarkMode() runs them all and re-pushes class/power colors via ApplyColorsToOUF.
 EllesmereUI._darkModeRefreshers = EllesmereUI._darkModeRefreshers or {}
 function EllesmereUI.RegisterDarkModeRefresh(fn)
     if type(fn) == "function" then
@@ -398,7 +398,7 @@ function EllesmereUI.RegisterDarkModeRefresh(fn)
     end
 end
 function EllesmereUI.RefreshDarkMode()
-    -- Darken amounts feed the colour cache; drop it so refreshers + the OUF push below resolve freshly darkened colours.
+    -- Darken amounts feed the color cache; drop it so refreshers + the OUF push below resolve freshly darkened colors.
     EllesmereUI.InvalidateColorCache()
     for _, fn in ipairs(EllesmereUI._darkModeRefreshers) do pcall(fn) end
     if EllesmereUI.ApplyColorsToOUF then EllesmereUI.ApplyColorsToOUF() end
@@ -446,7 +446,7 @@ function EllesmereUI.SetDarkModeAll(on, filter)
     if EllesmereUI.Conditions_Recheck then EllesmereUI.Conditions_Recheck() end
 end
 
--- Class color (custom or default) with Class Color Darken baked in by the cache, so every consumer gets the adjusted colour with no per-module logic. Unknown -> white.
+-- Class color (custom or default) with Class Color Darken baked in by the cache, so every consumer gets the adjusted color with no per-module logic. Unknown -> white.
 function EllesmereUI.GetClassColor(classToken)
     if EllesmereUI._colorCacheDirty then EllesmereUI._RebuildColorCache() end
     return EllesmereUI._colorCache.class[classToken] or EllesmereUI._COLOR_WHITE
@@ -477,14 +477,14 @@ function EllesmereUI.ClassTokenFromLocalized(name)
     return map[name]
 end
 
--- Custom class colour for a unit whose identity is RESTRICTED (target-of-target, focus-target):
+-- Custom class color for a unit whose identity is RESTRICTED (target-of-target, focus-target):
 -- UnitClass hands back a SECRET token there, and a secret cannot be a table key, so the palette
 -- above is unreachable and callers fall back to C_ClassColor.GetClassColor(secretToken) -- right
 -- class, but Blizzard's default shade instead of the user's.
 -- Such a unit is nearly always someone in the group, whose own token IS readable, so the class
 -- can be recovered without ever naming the unit: UnitIsUnit does the identity compare in C (its
 -- answer is itself secret when the comparison is restricted) and C_CurveUtil picks between two
--- colour components from that secret boolean, also in C. Lua only ever handles opaque values.
+-- color components from that secret boolean, also in C. Lua only ever handles opaque values.
 -- Returns ok, r, g, b -- ok is a PLAIN boolean, r/g/b may be SECRET numbers: feed them straight
 -- to a setter, never inspect or do arithmetic on them.
 --
@@ -492,13 +492,13 @@ end
 -- this unit me?" (CanCompareUnitTokens true, UnitIsUnit a SECRET boolean) and REFUSES every
 -- other pairing (CanCompareUnitTokens false, UnitIsUnit returns nil, both argument orders).
 -- Refuses by returning nothing, not by erroring, which is why the loop below type-checks the
--- answer instead of trusting it. So in practice this recovers the colour when the restricted
+-- answer instead of trusting it. So in practice this recovers the color when the restricted
 -- unit is the player, and other group members keep Blizzard's shade -- knowing WHICH other
 -- player an enemy is on is the exact fact the restriction exists to hide. The roster loop is
 -- kept general rather than hardcoded to "player" so it starts working if that ever relaxes.
 --
 -- Which group members are worth comparing against only changes on a roster or palette edit, so
--- the list is cached as a flat unit/colour array (no per-call allocation, no per-call UnitClass
+-- the list is cached as a flat unit/color array (no per-call allocation, no per-call UnitClass
 -- or token concat). Only the compares themselves have to run live.
 EllesmereUI._restrictedCandidates = {}
 EllesmereUI._restrictedCandidatesDirty = true
@@ -545,7 +545,7 @@ function EllesmereUI.GetClassColorForRestrictedUnit(unit, secretClassToken)
     if EllesmereUI._restrictedCandidatesDirty then EllesmereUI._RebuildRestrictedCandidates() end
     local candidates = EllesmereUI._restrictedCandidates
     local count = #candidates
-    -- Nobody around wears a customised colour: let the caller take Blizzard's shade unchanged.
+    -- Nobody around wears a customised color: let the caller take Blizzard's shade unchanged.
     if count == 0 then return false end
     local base = C_ClassColor.GetClassColor(secretClassToken)
     if not base then return false end
@@ -657,7 +657,7 @@ end
 -- its frames spawn, where repainting every module would change nothing (each paints
 -- the current palette as it builds).
 function EllesmereUI.SyncUFColors()
-    -- Drop the effective-colour cache; the GetClassColor/GetPowerColor reads below
+    -- Drop the effective-color cache; the GetClassColor/GetPowerColor reads below
     -- rebuild it from the palette + darken.
     EllesmereUI.InvalidateColorCache()
     -- NEVER modify _G.RAID_CLASS_COLORS: taint.
@@ -689,7 +689,7 @@ end
 
 -- Apply custom class colors to oUF (call after settings change)
 function EllesmereUI.ApplyColorsToOUF()
-    -- Universal "colours changed" entry point (swatch edits, resets, global-mode toggle,
+    -- Universal "colors changed" entry point (swatch edits, resets, global-mode toggle,
     -- Pull Colors From, profile switches).
     -- 1. The unit-frame engine's shared color objects, then a repaint of its frames.
     EllesmereUI.SyncUFColors()
@@ -706,7 +706,7 @@ function EllesmereUI.ApplyColorsToOUF()
             end
         end
         -- Friendly full plates repaint through the module, which respects Class
-        -- Colored Health Bar being off and repaints class-coloured names and
+        -- Colored Health Bar being off and repaints class-colored names and
         -- guild lines too.
         if ns_NP.RefreshFriendlyColors then ns_NP.RefreshFriendlyColors(true) end
     end

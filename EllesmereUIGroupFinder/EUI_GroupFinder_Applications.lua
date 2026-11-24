@@ -31,7 +31,7 @@ local SEGMENTS = {
 local SCOPES = { "session", "character", "account" }
 local VALID_SCOPE = { session = true, character = true, account = true }
 
--- Tooltip labels and colour escapes, built on the first hover (the locale is
+-- Tooltip labels and color escapes, built on the first hover (the locale is
 -- ready by then).
 local tipText
 local function TipText()
@@ -72,7 +72,7 @@ end
 
 local function On() return Get("enabled", false) == true end
 
--- The picked bar texture's file, or nil for a flat colour.
+-- The picked bar texture's file, or nil for a flat color.
 local function TexturePath()
     local key = Get("texture", "none")
     if key == "none" then return nil end
@@ -176,7 +176,7 @@ local function Layout()
     if not card then return end
     local npath, nsize = CountFont()
     CM.ApplyModuleFont(card.title, nil, TITLE_SIZE, ADDON_NAME, "")
-    -- The Premade Groups title, same size and colour as ours.
+    -- The Premade Groups title, same size and color as ours.
     local lbl = _G.LFGListFrame and _G.LFGListFrame.CategorySelection and _G.LFGListFrame.CategorySelection.Label
     if lbl and lbl.GetFont then
         local lpath, lsize, lflags = lbl:GetFont()

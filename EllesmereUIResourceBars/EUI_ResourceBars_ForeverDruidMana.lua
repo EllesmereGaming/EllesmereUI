@@ -12,7 +12,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- Inside lays it over the bar's bottom edge (a vertical bar: its right edge),
 -- above the fill and under the bar's text.
 -- The look follows the Power Bar (texture, background, border, fill opacity,
--- orientation); the fill is the mana power colour.
+-- orientation); the fill is the mana power color.
 --
 -- Settings: profile.primary.foreverDruidMana, a table that exists only on
 -- Forever (DEFAULTS in the main file). The main file calls ns.FDM_Apply at the
@@ -78,7 +78,7 @@ local function FormWantsBar()
     return type(pt) == "number" and pt ~= MANA
 end
 
--- The mana colour from the Power Bar's palette (dark mode, overrides and
+-- The mana color from the Power Bar's palette (dark mode, overrides and
 -- fallbacks included). Read per apply: the palette memo is wiped on edits.
 local function ManaColor()
     local pc = _G._ERB_PowerColors[MANA]
@@ -395,7 +395,7 @@ end
 
 -- Orientation, the Power Bar's fill texture (the plain user texture under
 -- every style), the mana fill, the Power Bar's background and fill opacity.
--- Returns the mana colour for the text.
+-- Returns the mana color for the text.
 local function ApplyLook(pp, g, p, ori)
     local sb = S.sb
     if ori == "VERTICAL_UP" or ori == "VERTICAL_DOWN" then
@@ -412,7 +412,7 @@ local function ApplyLook(pp, g, p, ori)
     if path ~= S.texPath then
         S.texPath = path
         sb:SetStatusBarTexture(path)
-        -- A new file resets the vertex colour: drop the fill memo so the
+        -- A new file resets the vertex color: drop the fill memo so the
         -- paint below lands.
         local ft = sb:GetStatusBarTexture()
         if ft then ft._lfOn, ft._lgOn = nil, nil end
@@ -429,8 +429,8 @@ local function ApplyLook(pp, g, p, ori)
     return r, gr, b
 end
 
--- Text style, same keys and colour rule as the Power Bar's text (custom, or
--- the power colour: here mana's).
+-- Text style, same keys and color rule as the Power Bar's text (custom, or
+-- the power color: here mana's).
 local function ApplyText(c, r, g, b)
     local fs = S.text
     ns.SetRBFont(fs, ns.GetRBFont(), c.textSize or 8)

@@ -694,7 +694,7 @@ function EUI_Bags:RefreshInventory()
                     -- The List view's iLvl column always needs the real level
                     d._giIlvl = isGear and (BP().showItemlevelInBags ~= false or EUI_Bags.IsListMode())
                         and GetItemLevelAtLocation(loc, itemLink) or nil
-                    -- Upgrade tracks: the grid's item level colour and rank; the
+                    -- Upgrade tracks: the grid's item level color and rank; the
                     -- List view only while its Track column shows or sorts.
                     if isGear and GetUpgradeTrack
                         and (not EUI_Bags.IsListMode() or ns.ListUsesColumn("track")) then

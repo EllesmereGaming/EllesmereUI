@@ -147,7 +147,7 @@ end
 
 -- Announcement action button, 38 tall: primary is bright, secondary dim. opts: w;
 -- secondary; hoverA (secondary border alpha on hover); hoverRGB {r,g,b} (secondary
--- hovers to that colour instead, border alpha 0.95); square (the square outline,
+-- hovers to that color instead, border alpha 0.95); square (the square outline,
 -- for a window that is square by design). The caller anchors it.
 function EllesmereUI.MakeActionButton(parent, font, text, r, g, b, opts)
     local secondary, hoverRGB = opts.secondary, opts.hoverRGB
@@ -188,8 +188,8 @@ function EllesmereUI.MakeActionButton(parent, font, text, r, g, b, opts)
 end
 
 -- Fading popup button (confirm and input popups): 125x27; text and border lerp from the
--- default to the hover colours over 0.1s. Exposes btn._lbl, btn._resetAnim and
--- btn._setColors (new colours, same argument order as the defaults below).
+-- default to the hover colors over 0.1s. Exposes btn._lbl, btn._resetAnim and
+-- btn._setColors (new colors, same argument order as the defaults below).
 -- square (optional): the square outline, for a window that is square by design.
 function EllesmereUI.MakePopupButton(parent, anchorPoint, anchorTo, anchorRef, xOff, yOff, defR, defG, defB, defA, hovR, hovG, hovB, hovA, bDefR, bDefG, bDefB, bDefA, bHovR, bHovG, bHovB, bHovA, square)
     local FADE_DUR = 0.1
@@ -232,7 +232,7 @@ function EllesmereUI.MakePopupButton(parent, anchorPoint, anchorTo, anchorRef, x
 
     btn._lbl = lbl
     btn._resetAnim = function() progress = 0; target = 0; Apply(0); btn:SetScript("OnUpdate", nil) end
-    -- Replaces the default and hover colours and repaints at the current hover progress.
+    -- Replaces the default and hover colors and repaints at the current hover progress.
     btn._setColors = function(...)
         defR, defG, defB, defA, hovR, hovG, hovB, hovA,
             bDefR, bDefG, bDefB, bDefA, bHovR, bHovG, bHovB, bHovA = ...
@@ -950,7 +950,7 @@ end
 --          in previewColor) and a hint line. complete(text, cursor) returns
 --          items { text, label, desc, detail }, from, to: a suggestion list under the input
 --          (Up/Down select, Tab inserts, Esc closes it). messageSize sets the message size,
---          messageColor { r, g, b[, a] } its colour (a red note). warning adds an
+--          messageColor { r, g, b[, a] } its color (a red note). warning adds an
 --          orange line under the input, redWarning a red one below it. numeric takes digits
 --          only. validate(text) runs on a confirm: a message it returns shows in red under
 --          the input and keeps the popup open. checkbox (a label) adds a box above the
@@ -1344,10 +1344,10 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._info._tip = opts.infoTooltip
     popup._info._tipOpts = opts.infoTooltipOpts
     popup._info:SetShown(opts.infoTooltip ~= nil)
-    -- Optional colour swatch left of the input (opts.swatch = { get, onClick,
+    -- Optional color swatch left of the input (opts.swatch = { get, onClick,
     -- tooltip }), built on its first use. It is painted from get() -> r, g, b
     -- as the popup shows and each time the caller's onClick(swatch, repaint)
-    -- calls repaint(). The caller opens the colour picker, and an open one
+    -- calls repaint(). The caller opens the color picker, and an open one
     -- closes with the popup: before a confirm runs its callback, and when the
     -- popup is dismissed (so the picker's own cancel comes first).
     local sw = opts.swatch

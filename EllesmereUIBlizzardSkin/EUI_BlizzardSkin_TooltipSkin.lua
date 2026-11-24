@@ -141,7 +141,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
     EllesmereUI._getPopupMenuButtonTextColor = _getElementColor
 
     -- Rounded corners (tooltipRoundedCorners, on unless false) for a solid
-    -- border: a rounded outline in the configured colour and width on our own
+    -- border: a rounded outline in the configured color and width on our own
     -- pixel layer, our bg masked to the same shape (state in FFD, nothing on
     -- the tooltip). A textured style keeps its square art. Returns true while
     -- the rounded outline stands in for the configured border.
@@ -1259,7 +1259,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
     -- The hook only collects and schedules; skinning runs from our own timer after
     -- the secure execution finishes. While a menu is open the compositor replaces
     -- the frame's metatable and disallows CreateTexture/CreateFontString/CreateLine,
-    -- so only the EXISTING background region may be recoloured -- already how _menuSkinFrame operates.
+    -- so only the EXISTING background region may be recolored -- already how _menuSkinFrame operates.
     local _stylePending, _styleArmed = {}, false
     local function _styleFlush()
         _styleArmed = false

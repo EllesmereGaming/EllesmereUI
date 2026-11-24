@@ -116,8 +116,8 @@ local castGlowSpec = {}
 -- capR / capB: the corners; left / top / right / bottom: how far the art reaches past the
 -- bar's corners, in the bar's units, as Blizzard's nameplates place it. The important cast
 -- art pulses between half and full alpha over two seconds (an engine animation; Blizzard's
--- own goes down to none); the targeted art is steady. A colour tints the art as it tints
--- the other art styles; the Default colour is the art's own. A client without the art keeps
+-- own goes down to none); the targeted art is steady. A color tints the art as it tints
+-- the other art styles; the Default color is the art's own. A client without the art keeps
 -- the old glow.
 -- The art shows above everything else on the plate, borders included: its frame sits on the
 -- strata the plate's custom borders and texts use (the cast bar's own while Casts In Front of
@@ -250,7 +250,7 @@ function CastArt.Place(plate, ov, art)
 end
 
 -- Shows the art on a plate's overlay (its frame and pieces are built once per overlay) in
--- colour r, g, b; r nil = its own colours. Repaints only when the colour changed.
+-- color r, g, b; r nil = its own colors. Repaints only when the color changed.
 function CastArt.Show(plate, ov, art, r, g, b)
     local f = ov._art
     if not f then
@@ -500,7 +500,7 @@ function NameplateFrame:UpdateCast()
             kickProtected = false
         end
         self._kickProtected = kickProtected
-        -- Cache the game's "important" flag for the cast bar colour. May be SECRET, so it is
+        -- Cache the game's "important" flag for the cast bar color. May be SECRET, so it is
         -- stored raw and only fed to a boolean-curve evaluator, never branched on. pcall
         -- guards a 0/invalid spellID. Persists across interruptible flips/kick ticker reuse.
         self._castImportant = false
@@ -518,7 +518,7 @@ function NameplateFrame:UpdateCast()
         local unintColor = cfg.castBarUninterruptible or defaults.castBarUninterruptible
         if self._blizzCastArt then
             -- Blizzard Style: the overlay IS the stock grey fill art (painted
-            -- white; the user's colour stays if that atlas never seated), and
+            -- white; the user's color stays if that atlas never seated), and
             -- the fill atlas follows the cast kind.
             if self._blizzShieldFill then
                 self.castBarOverlay:SetVertexColor(1, 1, 1)
@@ -659,7 +659,7 @@ function NameplateFrame:ApplyCastColor(uninterruptible)
     local cfg = p or defaults
     local kickReadyTint = cfg.interruptReady or defaults.interruptReady
     local normalCastTint = cfg.castBar or defaults.castBar
-    -- Blizzard Style: the fill atlas is its own colour, so the normal and
+    -- Blizzard Style: the fill atlas is its own color, so the normal and
     -- uninterruptible tints are white; the kick-ready and Important tints
     -- still layer on top exactly as before. No per-call allocation.
     local blizzCast = self._blizzCastArt
@@ -668,7 +668,7 @@ function NameplateFrame:ApplyCastColor(uninterruptible)
         normalCastTint = ns._npWhite
     end
     -- Important Cast Color (opt-in): a cast the game flags important shows the Important
-    -- colour. The flag may be SECRET, so blend per channel via EvaluateColorValueFromBoolean
+    -- color. The flag may be SECRET, so blend per channel via EvaluateColorValueFromBoolean
     -- (ifTrue=Important, ifFalse=the tint it replaces), never branch on it. Two priorities
     -- (importantCastKickReadyAsInterruptible): off (default), Important replaces Interruptible
     -- and Interrupt-on-CD still wins; on, Interruptible wins while the kick is ready and

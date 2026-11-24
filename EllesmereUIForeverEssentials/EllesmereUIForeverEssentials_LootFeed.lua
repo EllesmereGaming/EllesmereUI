@@ -142,7 +142,7 @@ local function Accent()
     return 0.05, 0.82, 0.62
 end
 
--- Gradient end colours, refilled for each paint (SetGradient copies them).
+-- Gradient end colors, refilled for each paint (SetGradient copies them).
 local gradFrom, gradTo = CreateColor(0, 0, 0, 0), CreateColor(0, 0, 0, 0)
 
 local backgroundTextures
@@ -157,7 +157,7 @@ local function SetBackgroundTexture(tex)
     tex:SetVertexColor(1, 1, 1, 1)
 end
 
--- Solid, or a two-colour fade to transparent (BAR).
+-- Solid, or a two-color fade to transparent (BAR).
 local function PaintBackground(tex, fade)
     local r, g, b, a = Get("bgR"), Get("bgG"), Get("bgB"), Get("bgA")
     SetBackgroundTexture(tex)
@@ -166,8 +166,8 @@ local function PaintBackground(tex, fade)
     tex:SetGradient("HORIZONTAL", gradFrom, gradTo)
 end
 
--- Item rows take their quality colour when quality colouring is on;
--- everything else the accent (BAR, the Icon Tray name row) or the border colour.
+-- Item rows take their quality color when quality coloring is on;
+-- everything else the accent (BAR, the Icon Tray name row) or the border color.
 local function RowColor(d, accent)
     if d.border and Get("qualityBorder") then return d.border.r, d.border.g, d.border.b end
     if accent then return Accent() end
@@ -240,7 +240,7 @@ local function StyleBorder(r, style)
     local PP = EllesmereUI.PP
     local size, tex, host = Get("borderSize"), Get("borderTexture"), r.lootBorder
     local px = tex and EllesmereUI.BorderPx(Get("borderSizePx"), size, tex)
-    -- The white Pixels artwork takes the item's quality colour without a baked-in tint.
+    -- The white Pixels artwork takes the item's quality color without a baked-in tint.
     if tex == "pixels-textured" and r.data.border and Get("qualityBorder") then tex = "pixels" end
     if Get("separator") or r.separator then StyleSeparator(r, style, size, tex, px) end
     if size <= 0 or ((style == "BAR" or style == "CALLOUT") and not tex) then
@@ -293,7 +293,7 @@ local function StyleRow(r)
         r.icon:SetSize(h, h)
         r.icon:SetPoint("LEFT")
     end
-    -- Legacy BAR icon: 1 px black; TOAST: 2 px quality colour (set by Fill).
+    -- Legacy BAR icon: 1 px black; TOAST: 2 px quality color (set by Fill).
     local edge = toast and 2 or 1
     r.iconBg:ClearAllPoints()
     r.iconBg:SetPoint("TOPLEFT", r.icon, "TOPLEFT", -edge, edge)
@@ -541,7 +541,7 @@ end
 
 -- Fills a row from its data: icon, text (first line), sub (second line,
 -- optional), value (right side, optional), badge (Icon Tray tile text),
--- border (quality colour, optional). Box rows keep their one-line form
+-- border (quality color, optional). Box rows keep their one-line form
 -- (flat) and show no quest line.
 local function Fill(r)
     local d, style = r.data, RowStyle(r)
@@ -858,7 +858,8 @@ local function ResetLeave(b)
 end
 
 -- Hover always shows the tooltip; clicks are taken only while Ctrl is held
--- (and it lights up), so it never blocks a click or a camera drag.
+-- (and it lights up), so it never blocks a click or a camera drag. Only a
+-- change of Ctrl (not Shift or Alt) repaints it.
 local function ResetArm(b)
     local on = IsControlKeyDown()
     if on == b.armed then return end
@@ -1144,7 +1145,7 @@ local function ShowRoll(key, link, itemName, winner, class, roll, retried)
     local item = color.hex .. (name or itemName or "?") .. "|r"
     local text
     if winner then
-        -- The suite's class colour (custom class colours included); an unknown class stays uncoloured.
+        -- The suite's class color (custom class colors included); an unknown class stays uncolored.
         local cc = class and RAID_CLASS_COLORS[class] and EllesmereUI.GetClassColor(class)
         if cc then winner = EllesmereUI.HexColor(cc.r, cc.g, cc.b) .. winner .. "|r" end
         text = EllesmereUI.Lf("%s won %s", winner, item)

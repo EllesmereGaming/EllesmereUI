@@ -39,7 +39,7 @@ ALLOW_RE = re.compile(r"guardrails-allow:\s*(?P<check>[\w-]+)(?:\s+until\s+(?P<d
                       r"\s*:\s*(?!\]=*\])\S")
 TAG_START_RE = re.compile(r"guardrails-allow\s*:")
 # One diff whatever the user's git config or environment says: plain a/ b/ prefixes, no
-# colour, no external diff tool, git's default algorithm, no inter-hunk context, every
+# color, no external diff tool, git's default algorithm, no inter-hunk context, every
 # file as text, renames found (a copy reads as a new file).
 DIFF = ["-c", "core.quotePath=false", "-c", "diff.renames=true", "-c",
         "diff.suppressBlankEmpty=false", "diff", "--no-color", "--no-ext-diff", "--no-textconv",

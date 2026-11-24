@@ -25,7 +25,7 @@ local eventFrame = CreateFrame("Frame")
 -- WoW Forever runs the talent channel on its dual spec (see "WoW Forever: dual spec").
 local IS_FOREVER = EllesmereUI.IS_FOREVER and true or false
 
--- Chat colours follow the live EllesmereUI accent.
+-- Chat colors follow the live EllesmereUI accent.
 local function AC() return EllesmereUI.HexColor(EllesmereUI.GetAccentColor()) end
 local ERR = EllesmereUI.COLOR_CODES.BAD
 local function Hi(text) return AC() .. tostring(text) .. "|r" end

@@ -1213,7 +1213,7 @@ local function InitializeFrames()
             if issecretvalue(classToken) then classToken = nil end
             -- All custom combat icons (Arcade/Dungeoneer/Classic/Cross/Circle/Square =
             -- combat0..5) are shown exactly as authored: no class theming, no tint, no
-            -- desaturation. Standard/Class Theme below are tinted by the colour mode.
+            -- desaturation. Standard/Class Theme below are tinted by the color mode.
             if style:find("^combat%d") then
                 combat:SetTexture(COMBAT_MEDIA .. style .. ".tga")
                 combat:SetTexCoord(0, 1, 0, 1)

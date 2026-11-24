@@ -475,7 +475,7 @@ local function OnEvent(self, event, arg1, ...)
         end
     elseif event == "UNIT_DISPLAYPOWER" then
         -- The displayed power type changed (forms, spec swaps, vehicles):
-        -- re-derive type + color + bounds once (Power Text's colour too), then push the value.
+        -- re-derive type + color + bounds once (Power Text's color too), then push the value.
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         local d = btn and GetFFD(btn)
         if d and d.power then

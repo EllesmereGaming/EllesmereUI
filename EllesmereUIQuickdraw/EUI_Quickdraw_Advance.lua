@@ -128,7 +128,7 @@ function PaletteView:AdvanceGrid(noPointer)
             s = max(minS, decay ^ k)
             a = max(minA, aDecay ^ k)
         end
-        -- The entry a nest hangs off keeps its colour: it is what the nest is
+        -- The entry a nest hangs off keeps its color: it is what the nest is
         -- about, and dimming it would leave nothing on screen saying which entry
         -- was opened. It may still draw back to make room -- the halo needs the
         -- ground its parent would otherwise be standing on.

@@ -69,7 +69,7 @@ function NameplateFrame:UpdateName()
     end
     -- Standalone level renders on its own FontString and can share the plate with a
     -- name-family slot. Refreshed here (plate acquire/unit swap) so pooled reuse never stales.
-    -- Plain text: its colour is the slot's Text Coloring mode (font string colour).
+    -- Plain text: its color is the slot's Text Coloring mode (font string color).
     if self.levelText and self.levelText:IsShown() then
         self.levelText:SetText(ns.GetUnitLevelText(unit))
     end
@@ -78,7 +78,7 @@ function NameplateFrame:UpdateName()
     -- WoW Forever: the level in the box right of the bar.
     if self._fvLevelBox then ns.NP_UpdateForeverLevel(self) end
     -- The slotted name-family variant decides what renders: name or a level+name
-    -- combo (in the slot's materialized part colours). A nil slot keeps the plain-name
+    -- combo (in the slot's materialized part colors). A nil slot keeps the plain-name
     -- write (RefreshNamePosition hides it).
     local slot = ns.FindNameSlot()
     local el = slot and GetTextSlot(slot) or "enemyName"
@@ -827,9 +827,9 @@ function NameplateFrame:ApplyTarget()
     else
         self:ApplyBorderColor()
     end
-    -- If this plate is wrapping its border around the cast bar, the colour just set landed on
+    -- If this plate is wrapping its border around the cast bar, the color just set landed on
     -- the HIDDEN health border: re-sync the visible unified border. One field read unless live.
-    -- (Custom wrap: re-syncs the lower piece and seam to the size and colour just set.)
+    -- (Custom wrap: re-syncs the lower piece and seam to the size and color just set.)
     if self._wrapActive or self._cbWrapActive then self:UpdateBorderWrap() end
     -- Blizzard Style: stock selection ring / deselected overlay. The classic
     -- plate marks its target through the EUI effects above alone.
@@ -902,7 +902,7 @@ function ns.ApplyHoverExtras(plate)
     if not plate or not plate.unit or not plate.health then return end
     local isTarget = plate._isTarget
     local any = false
-    local wrapSync = false  -- one cast bar wrap re-sync at the end, after size and colour
+    local wrapSync = false  -- one cast bar wrap re-sync at the end, after size and color
     -- EUI Glow (shared self.glow visual).
     if ns.GetHoverGlowEllesmereUI() and not (isTarget and ns.GetTargetGlowEllesmereUI()) then
         EnsureGlow(plate)
@@ -923,9 +923,9 @@ function ns.ApplyHoverExtras(plate)
             elseif PP and IsBorderEnabled() then
                 PP.SetBorderSize(plate.health, hbsz)
             end
-            -- The resize drew the base colour (custom rebuild) or the last clean one
+            -- The resize drew the base color (custom rebuild) or the last clean one
             -- (re-snap) over a Threat Colors tint: put it back unless a hover or target
-            -- border colour paints this border instead.
+            -- border color paints this border instead.
             if plate._threatBdOn and not ns.GetHoverGlowBorderColor()
                 and not (isTarget and ns.GetTargetGlowBorderColor()) then
                 plate:ApplyBorderColor()
@@ -951,8 +951,8 @@ function ns.ApplyHoverExtras(plate)
             end
             plate._hbThreatTint = nil
             any = true
-            -- A friendly plate's ApplyTarget has no border colour of its own to fall back
-            -- on: this flag tells it to repaint the base colour on the way out.
+            -- A friendly plate's ApplyTarget has no border color of its own to fall back
+            -- on: this flag tells it to repaint the base color on the way out.
             plate._fxBorderTinted = true
         end
         if plate._wrapActive or plate._cbWrapActive then wrapSync = true end

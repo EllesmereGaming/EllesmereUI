@@ -489,7 +489,7 @@ function EllesmereUI._BuildRaidHoroscopePage(parent, yOffset)
         star:SetColorTexture(1, 1, 1, 1)
     end
 
-    -- The Moon: a lit disc, a card-coloured disc over it for the shadow (the
+    -- The Moon: a lit disc, a card-colored disc over it for the shadow (the
     -- earthshine shows through) and an accent halo
     local moon = card:CreateTexture(nil, "ARTWORK", nil, 1)
     PP.Size(moon, MOON, MOON)
@@ -524,7 +524,7 @@ function EllesmereUI._BuildRaidHoroscopePage(parent, yOffset)
     body:SetWordWrap(true)
     body:SetSpacing(5)
     PP.Point(body, "TOP", card, "TOP", 0, -BODY_Y)
-    -- The verdict's own line, under the sky's lines in the verdict's colour
+    -- The verdict's own line, under the sky's lines in the verdict's color
     local verdict = EllesmereUI.MakeFont(content, 17)
     verdict:SetWidth(width - 60)
     verdict:SetJustifyH("CENTER")

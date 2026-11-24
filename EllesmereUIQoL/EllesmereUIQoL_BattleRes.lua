@@ -155,7 +155,7 @@ local function _snapOff(v)
 end
 
 -- Custom-shape outline: the shape's mask grown by the border size and filled with
--- the border colour behind the masked icon, leaving a ring exactly that thick.
+-- the border color behind the masked icon, leaving a ring exactly that thick.
 local function _applyShapeOutline(host, shape, bs, r, g, b, a)
     local t = host._euiOutline
     local maskPath = shape and EllesmereUI.SHAPE_MASKS[shape]
@@ -250,7 +250,8 @@ local function ApplyShape()
 
         local z = (p.iconZoom or 11) / 100
         if shape == "cropped" then
-            iconTex:SetTexCoord(z, 1 - z, z + 0.10, 1 - z - 0.10)
+            -- 80% as tall as wide: the top and bottom are cut, the art keeps its proportions.
+            iconTex:SetTexCoord(z, 1 - z, 0.1 + 0.8 * z, 0.9 - 0.8 * z)
         elseif z > 0 then
             iconTex:SetTexCoord(z, 1 - z, z, 1 - z)
         else

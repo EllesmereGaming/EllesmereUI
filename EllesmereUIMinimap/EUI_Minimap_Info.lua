@@ -2,7 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EUI_Minimap_Info.lua
 --
---  The clock, coordinates and location text: font, colours, anchors and
+--  The clock, coordinates and location text: font, colors, anchors and
 --  their update functions.
 --  Reads the earlier Minimap files through ns._internals.
 -------------------------------------------------------------------------------
@@ -27,7 +27,7 @@ I.locationBgSetters[#I.locationBgSetters + 1] = function(v) locationBg = v end
 
 local function ApplyMinimapFont(fs, size) EllesmereUI.ApplyModuleFont(fs, nil, size, "minimap") end
 
--- Description-text colour (clock AM/PM, the "fps"/"ms" suffixes): custom fpsColor swatch or the live accent; the dynamic values stay white. Returns r, g, b, hex.
+-- Description-text color (clock AM/PM, the "fps"/"ms" suffixes): custom fpsColor swatch or the live accent; the dynamic values stay white. Returns r, g, b, hex.
 local function GetDescColor(mp)
     local r, g, b
     if mp and mp.fpsUseAccent then
@@ -60,7 +60,7 @@ local function UpdateClock()
     if cachedUse24h then
         clockFrame:SetText(format("%02d:%02d", h, m))
     else
-        -- Unpadded hour in 12h (1:03, not 01:03) matching Blizzard; 24h keeps the pad. AM/PM takes the description colour only when opted in; digits stay white.
+        -- Unpadded hour in 12h (1:03, not 01:03) matching Blizzard; 24h keeps the pad. AM/PM takes the description color only when opted in; digits stay white.
         local ampm = h >= 12 and "PM" or "AM"
         h = h % 12
         if h == 0 then h = 12 end
@@ -193,7 +193,7 @@ local lastLocationText
 local function UpdateLocation()
     if not locationFrame then return end
     if InCombatLockdown() then return end
-    -- Colour before the text dedup so toggles/ruleset changes repaint the same zone.
+    -- Color before the text dedup so toggles/ruleset changes repaint the same zone.
     local mp = EBS.db and EBS.db.profile.minimap
     if mp and mp.zoneReactiveColor then
         local r, g, b = GetZoneReactionColor()

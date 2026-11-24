@@ -8,7 +8,7 @@ local qualities
 -- Built lines by item link, one table per callback (false = keep Blizzard's
 -- line). A shown tooltip is rebuilt every 0.2 s and every gear tooltip passes the
 -- item-level callback, so each link is worked out once. The link carries the
--- item's bonuses and upgrade rank; the season tables, quality colours and crest
+-- item's bonuses and upgrade rank; the season tables, quality colors and crest
 -- names are fixed for the session. A read that meets a secret value caches nothing.
 local MEMO_MAX = 200
 local memoPre, memoPost, memoN = {}, {}, 0

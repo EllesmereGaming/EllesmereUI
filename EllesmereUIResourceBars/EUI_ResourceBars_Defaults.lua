@@ -47,7 +47,7 @@ end
 local CUSTOM_FILL_DEFAULT = { 1, 1, 1 }
 
 -- Mirror Timers (EUI_ResourceBars_MirrorTimer.lua): one timer bar's own
--- settings, its switch, fill colour and Low Warning; the rest of its look is
+-- settings, its switch, fill color and Low Warning; the rest of its look is
 -- the Player Cast Bar's. A fresh table per call. OFF by default: nothing is
 -- built, registered or hidden until a bar is turned on.
 local function MirrorTimerDefaults(r, g, b)
@@ -351,7 +351,7 @@ local DEFAULTS = {
             timerX        = 0,
             timerY        = 0,
             timerSide     = "right",  -- "left" | "right" (duration position; "None" = showTimer false)
-            timerR = 1, timerG = 1, timerB = 1, timerA = 1,  -- Duration Text colour (white = untinted)
+            timerR = 1, timerG = 1, timerB = 1, timerA = 1,  -- Duration Text color (white = untinted)
             showSpellText = true,
             showSpellRank = false,
             spellTextSize = 11,
@@ -359,7 +359,7 @@ local DEFAULTS = {
             spellTextY    = 0,
             fitSpellName  = false,    -- Show Full Spell Name: long names shrink to fit instead of truncating
             spellTextSide = "left",   -- "left" | "right" | "center" (spell text position; "None" = showSpellText false)
-            spellTextR = 1, spellTextG = 1, spellTextB = 1, spellTextA = 1,  -- Spell Text colour (white = untinted)
+            spellTextR = 1, spellTextG = 1, spellTextB = 1, spellTextA = 1,  -- Spell Text color (white = untinted)
             unlockPos     = nil,
             showChannelTicks  = true,
             showTickMarks     = true,
@@ -411,7 +411,7 @@ local DEFAULTS = {
         },
         -- WoW Forever swing timer (EUI_ResourceBars_SwingTimer.lua): one row per
         -- weapon slot that can swing (Main Hand / Off Hand / Ranged), driven by the
-        -- client's native PLAYER_SWING event. Flat colour keys per module
+        -- client's native PLAYER_SWING event. Flat color keys per module
         -- convention; OFF by default, and nothing is built or registered until it
         -- is turned on. Ignored entirely on clients without C_SwingTimer.
         swingTimer = {
@@ -432,11 +432,11 @@ local DEFAULTS = {
             showSpark     = false,
             sparkWidth    = 8,
             sparkOverhang = 0,      -- how far the spark reaches past the bar's top and bottom
-            -- Spark colours (mhSparkR/G/B/A, ohSpark.., rSpark..) are unset by default:
-            -- white, and a combined off hand's spark its fill colour.
+            -- Spark colors (mhSparkR/G/B/A, ohSpark.., rSpark..) are unset by default:
+            -- white, and a combined off hand's spark its fill color.
             depleteFill   = true,   -- start full and deplete instead of filling up
             -- Idle Behavior (one dropdown over these three keys):
-            idleShowFill  = nil,    -- true = idle row sits full of its fill colour (Filled)
+            idleShowFill  = nil,    -- true = idle row sits full of its fill color (Filled)
             hideWhenIdle  = false,  -- hide the whole bar while no swing is running (Hidden)
             idleHidePerType = nil,  -- true with hideWhenIdle = each row hides while its weapon is not attacking
             showTime      = true,   -- remaining seconds on each row
@@ -452,11 +452,11 @@ local DEFAULTS = {
             textSize      = 11,
             rangeCheck    = true,   -- dim rows whose target is out of auto-attack range
             outOfRangeAlpha = 0.4,
-            -- Attack State: "off" | "queued" (melee rows take the queued attack's colour + name)
+            -- Attack State: "off" | "queued" (melee rows take the queued attack's color + name)
             -- | "full" (also On while the attack is on, Waiting while it is on with nothing swinging)
             attackState   = "queued",
             queueR = 1, queueG = 0.70, queueB = 0.20, queueA = 1,   -- Queued: shared fallback for Heroic Strike / Maul / Raptor Strike
-            -- Per-attack colours (queueHSR/G/B/A, queueRaptor..., queueMaul...) are unset by default: they inherit the shared Queued colour above.
+            -- Per-attack colors (queueHSR/G/B/A, queueRaptor..., queueMaul...) are unset by default: they inherit the shared Queued color above.
             queueCleaveR = 0.95, queueCleaveG = 0.35, queueCleaveB = 0.25, queueCleaveA = 1,   -- Queued: Cleave
             activeR = 0.047, activeG = 0.824, activeB = 0.616, activeA = 1,   -- On: EUI teal #0CD29D
             pendingR = 0.659, pendingG = 0.502, pendingB = 0.949, pendingA = 1,   -- Waiting: violet #A880F2
@@ -493,7 +493,7 @@ local DEFAULTS = {
             unlockPos = nil,
         },
         -- Sunfury Arcane Mage Arcane Soul callout (EUI_ResourceBars_ArcaneSoul.lua).
-        -- Flat colour keys per module convention; OFF by default, and nothing at
+        -- Flat color keys per module convention; OFF by default, and nothing at
         -- all is built or registered until it is turned on.
         arcaneSoul = {
             enabled     = false,

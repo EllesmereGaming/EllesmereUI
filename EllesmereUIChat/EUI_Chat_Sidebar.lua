@@ -2,7 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EUI_Chat_Sidebar.lua
 --
---  Sidebar side, icon colour, background and scale, free-moved icons, the
+--  Sidebar side, icon color, background and scale, free-moved icons, the
 --  portal flyout, the input position and the sidebar width.
 --  Reads the earlier Chat files through ns and ns._internals.
 -------------------------------------------------------------------------------

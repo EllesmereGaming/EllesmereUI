@@ -463,7 +463,7 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
                     DB().targetOverlayNoTint = v
                     RefreshAllTextures()
                     UpdatePreview()
-                    EllesmereUI:RefreshPage()  -- the row's colour swatch greys with it
+                    EllesmereUI:RefreshPage()  -- the row's color swatch greys with it
                   end },
             },
         })
@@ -835,7 +835,7 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
                     RefreshAllTextures()
                     RefreshAllPlates()
                     UpdatePreview()
-                    EllesmereUI:RefreshPage()  -- the row's colour swatch greys with it
+                    EllesmereUI:RefreshPage()  -- the row's color swatch greys with it
                   end },
             },
         })
@@ -1225,7 +1225,7 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
     local pv = env.optState.tfhPreview
     if pv and pv._glowFrame then
         -- Where parts overlap, the higher level takes the click: the effect's band
-        -- round the bar, then the bar's colour, the Highlight wash and the texture
+        -- round the bar, then the bar's color, the Highlight wash and the texture
         -- in the order the plate draws them, then the thin hash line over them,
         -- and the texts and arrows on top.
         local base = pv._health:GetFrameLevel() + 15
@@ -1237,7 +1237,7 @@ local function BuildTargetFocusHoverPage(pageName, parent, yOffset)
             return btn
         end
         for _, m in ipairs({ "target", "hover" }) do
-            -- the glow's band (its glow, border colour and border size)
+            -- the glow's band (its glow, border color and border size)
             local band = Add(P.Overlay(pv._healthWrapper, m .. "Effect", false, base), m, nil, nil, true)
             band:ClearAllPoints()
             band:SetAllPoints(pv._glowFrame)

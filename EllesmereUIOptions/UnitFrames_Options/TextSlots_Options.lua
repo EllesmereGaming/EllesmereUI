@@ -16,7 +16,7 @@ end
 -- onSave runs after the format is stored and selects Custom for the slot.
 function ns.UFO_EditCustomText(prefix, db, unit, onSave)
     local key = prefix .. "CustomFormat"
-    -- The preview in the slot's text colour, as the unit preview shows it.
+    -- The preview in the slot's text color, as the unit preview shows it.
     local color
     -- Power Colored: the page's unit while it exists (boss1 for Boss),
     -- else the player, as the unit preview shows it.
@@ -63,7 +63,7 @@ end
 -- For a dropdown whose selection keeps the page: rebuilds the given regions'
 -- menus once the list has closed, for Custom's pencil to follow the selection.
 -- The widget refresh is the menu's own deferred one, which Custom's popup path
--- never reaches: without it colour swatches and cogs keep the previous state.
+-- never reaches: without it color swatches and cogs keep the previous state.
 function ns.UFO_RefreshMenus(...)
     local n, rgns = select("#", ...), { ... }
     C_Timer.After(0, function()

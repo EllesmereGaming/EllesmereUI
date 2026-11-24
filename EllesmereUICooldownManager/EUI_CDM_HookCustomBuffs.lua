@@ -94,9 +94,12 @@ end
 -------------------------------------------------------------------------------
 
 -- The bar-wide Cooldown Swipe ("Apply to Bar"): hidden?, r, g, b. A shared engine
--- group can honor this tier but never a per-spell value.
+-- group can honor this tier but never a per-spell value. Only a buff bar's own
+-- tier: a buff hosted on a cooldown or utility bar never takes the host's Apply to
+-- Bar values (ResolveSpellSettings drops the tier for it too).
 function _AC.BarSwipe(bd)
-    local tier = bd and ns.GetBarTierSettings(ns.GetBarSpellData(bd.key), bd.key)
+    if not (bd and (bd.barType == "buffs" or bd.barType == "custom_buff")) then return false, 0, 0, 0 end
+    local tier = ns.GetBarTierSettings(ns.GetBarSpellData(bd.key), bd.key)
     local mode = tier and tier.cdSwipeColor
     if mode == "none" then return true, 0, 0, 0 end
     if mode == "class" then
@@ -216,8 +219,9 @@ function _AC.BuildStyle(bd, fixedIcon)
     local texCoord
     local SH = ns.CDM_SHAPES
     if shape == "cropped" then
-        local trim = ns.CdmCropTrim(bd)
-        texCoord = { zoom, 1 - zoom, zoom + trim, 1 - zoom - trim }
+        -- The top and bottom are cut, the art keeps its proportions (ApplyShapeToCDMIcon).
+        local half = (1 - 2 * zoom) * ns.CdmCropFactor(bd) / 2
+        texCoord = { zoom, 1 - zoom, 0.5 - half, 0.5 + half }
     elseif customShape and SH and SH.masks[shape] then
         local visRatio = (128 - 2 * (SH.insets[shape] or 17)) / 128
         local grow = ((1 / visRatio) - 1) * 0.5

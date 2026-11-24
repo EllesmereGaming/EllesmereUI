@@ -4,7 +4,7 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  EllesmereUIForeverEssentials_ThreatFeed.lua  (WoW Forever only)
 --  The threat list for the Damage Meters "Threat" meter type: the threat
 --  meter's data and settings (tracked unit, pets, pull aggro line, displayed
---  value, highlight colours) handed over as rows a Damage Meters window paints
+--  value, highlight colors) handed over as rows a Damage Meters window paints
 --  in its own style. Damage Meters starts it while one of its windows shows
 --  the list and stops it when none does, whatever the threat meter window's
 --  own state. The two read through separate collectors, so neither rewrites

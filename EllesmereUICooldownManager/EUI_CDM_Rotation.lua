@@ -416,7 +416,7 @@ end
 -- never the frame. The hook RE-POLLS instead of replaying a stored answer: it
 -- fires on every Blizzard repaint, including the one their own range event drives,
 -- so walking back into range clears the tint without a second event of our own. A
--- secret or unknown answer leaves their colour alone. Cleared to nil when no
+-- secret or unknown answer leaves their color alone. Cleared to nil when no
 -- override is live, since Blizzard's own check is correct for the base spell.
 -- On ns.* because the main chunk is at Lua 5.1's 200-local cap.
 function ns.ApplyOverrideRangeTint(icon, overrideSpellID)

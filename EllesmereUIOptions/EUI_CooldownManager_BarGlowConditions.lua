@@ -524,7 +524,7 @@ function ns.BuildBarGlowHealthRow(W, parent, y, entry, onChange)
 end
 
 -- "Duplicate" left of a glow's Remove button: inserts a full copy of the glow
--- (buff, style, colour, stacks, And condition, hero talent) right below it, so
+-- (buff, style, color, stacks, And condition, hero talent) right below it, so
 -- variants of the same buff (e.g. one per hero tree) start from the original.
 -- Returns the button so the buff icon can sit to its left.
 function ns.BarGlowDuplicateButton(region, removeBtn, buffList, index, onDone)

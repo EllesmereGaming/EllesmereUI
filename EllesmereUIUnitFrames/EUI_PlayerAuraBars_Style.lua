@@ -456,8 +456,10 @@ local function BuildStyle(isBuff, cfg)
     elseif shape == "cropped" then
         local zoom = style.iconZoom
         style.iconCropPercent = ns.PAB_CropPercent(cfg)
-        local trim = style.iconCropPercent / 100
-        style.texCoord = { zoom, 1 - zoom, zoom + trim, 1 - zoom - trim }
+        -- The icon is (1 - 2 x Crop %) as tall as wide: only the top and bottom are cut, so the
+        -- art keeps its proportions.
+        local half = (1 - 2 * zoom) * (1 - 2 * style.iconCropPercent / 100) / 2
+        style.texCoord = { zoom, 1 - zoom, 0.5 - half, 0.5 + half }
     end
 
     -- Engine dispel-type border, debuffs only (buffs have no dispel type). AK's gate

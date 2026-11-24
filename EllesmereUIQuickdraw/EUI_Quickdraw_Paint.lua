@@ -75,7 +75,7 @@ local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLa
     -- information. Discrete state changes are the exception (RefreshTints):
     -- combat, a flight path, a doorway for mounts. Such a re-read takes the
     -- whole answer as it stands, range and resources included. ApplySlotVisual
-    -- colours it.
+    -- colors it.
     w.usability = (showUsability and not placeholder) and SlotUsability(slot) or nil
 
     local icon, name = SlotDisplay(slot)
@@ -536,7 +536,7 @@ end
 -- ICON only, deliberately. The label stays the name the paint gave it -- for a
 -- macro that is the macro's own name, which is what Blizzard's action buttons
 -- show and what the player recognises -- and the usability tint stays where the
--- paint left it, for the reason PaintCell gives: a colour that moves under a
+-- paint left it, for the reason PaintCell gives: a color that moves under a
 -- settled hand reads as a flicker.
 --
 -- Five C calls per frame for a palette holding one of these kinds, none for one

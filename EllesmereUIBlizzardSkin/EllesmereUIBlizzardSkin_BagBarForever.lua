@@ -5,7 +5,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  The bag bar's slot buttons (backpack, four bag slots, reagent bag, keyring)
 --  in the micro menu pack's cell look: bevel and icon-frame art faded, icon
 --  cropped square, a theme background and border, a white hover wash, and a
---  quality-coloured border for a coloured bag. The BagsBar strip art is faded.
+--  quality-colored border for a colored bag. The BagsBar strip art is faded.
 --  Alpha and our own child frames only: nothing is hidden, reparented or hooked
 --  on show inside the BagsBar tree (Blizzard shows and hides it on the way to
 --  protected calls). Forever only (IS_FOREVER is false everywhere else).
@@ -73,7 +73,7 @@ local function FadeKeyRingArt(f, depth)
     end
 end
 
--- Per pass: icon crop, bevel art, masks and the border colour (bag quality).
+-- Per pass: icon crop, bevel art, masks and the border color (bag quality).
 local function PaintBag(btn)
     local d = FFD[btn]
     if not (d and d.box) then return end
@@ -110,7 +110,7 @@ local function PaintBag(btn)
             if atlas and atlas:lower():find("iconframe", 1, true) then r:SetAlpha(0) end
         end
     end
-    -- A coloured bag (uncommon and up) colours its border; the rest keep the theme border.
+    -- A colored bag (uncommon and up) colors its border; the rest keep the theme border.
     local id = btn.GetID and btn:GetID()
     local itemID = id and id > 0 and GetInventoryItemID("player", id)
     local q = itemID and C_Item.GetItemQualityByID(itemID)

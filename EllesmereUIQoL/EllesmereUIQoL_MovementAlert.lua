@@ -559,7 +559,7 @@ local function StyleSlot(slot)
         or "Interface\\Buttons\\WHITE8x8"
     local iconSz = math.max(16, math.min(128, ma.iconSize or 40))
 
-    -- Pin the engine's countdown FontString to the same font object and colour
+    -- Pin the engine's countdown FontString to the same font object and color
     -- every pass: left alone it sizes itself against its host frame rather than
     -- the user's Text Size.
     if slot.cdNumText then
@@ -600,8 +600,8 @@ local function StyleSlot(slot)
         movementCdFont:SetFont(fontPath, fontSize, outline)
     end
     -- The engine draws its countdown numbers straight from this font object,
-    -- so the colour has to live here too or the prototype's number ignores the
-    -- user's Text Colour.
+    -- so the color has to live here too or the prototype's number ignores the
+    -- user's Text Color.
     movementCdFont:SetTextColor(tR, tG, tB)
 
     if slot.bar._lastTexPath ~= texPath then

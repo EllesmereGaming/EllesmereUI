@@ -37,7 +37,7 @@ function ns.CharSheetForever()
     return EllesmereUI.IS_FOREVER == true and ns.CharSheetStock()
 end
 -- Stock styles' "Blizzard UI Color" (on unless turned off): every stat
--- category in Blizzard's yellow in place of its own colour. nil when it does
+-- category in Blizzard's yellow in place of its own color. nil when it does
 -- not apply (always under the EllesmereUI look).
 -- Stock styles: Blizzard's stats pane parked off-screen (method calls, never
 -- Hide) so the EllesmereUI stats section, a child of the pane anchored over
@@ -2554,7 +2554,7 @@ local function SkinCharacterSheet()
 
                 local value = sectionContainer:CreateFontString(nil, "OVERLAY")
                 value:SetFont(fontPath, 10, "")
-                -- "Blizzard UI Color" colours only the titles; values take the label grey.
+                -- "Blizzard UI Color" colors only the titles; values take the label grey.
                 if ns.CharSheetBlizzColor() then
                     value:SetTextColor(0.7, 0.7, 0.7, 0.8)
                 else
@@ -3632,7 +3632,7 @@ local function SkinCharacterSheet()
             -- longer names.
             label:SetPoint("RIGHT", button, "RIGHT", -24, 0)
             -- Gold set names read white here; red (items missing) and the
-            -- green New Set label stay as Blizzard colours them.
+            -- green New Set label stay as Blizzard colors them.
             if button.setID then
                 local _, _, _, _, _, _, _, numLost = C_EquipmentSet.GetEquipmentSetInfo(button.setID)
                 if (numLost or 0) == 0 then label:SetTextColor(1, 1, 1, 1) end
@@ -4704,7 +4704,7 @@ end
 -- dropped. A post-hook on EquipmentFlyout_UpdateItems, so it re-applies after
 -- every fill (Blizzard re-shows and re-sizes its strips each time). Regions
 -- only, plus child frames: no key is ever written onto a flyout button, and
--- the rarity edge takes an explicit colour read off Blizzard's ring, so no
+-- the rarity edge takes an explicit color read off Blizzard's ring, so no
 -- method hook lands on the buttons either.
 do
     local function FlyoutSkinActive()
@@ -4724,7 +4724,7 @@ do
             if btn.icon then WSkin.SquareIcon(btn.icon) end
         end
         -- The ring is Blizzard's quality cue, rounded: hidden by alpha, its
-        -- colour carried over to the square edge on every fill.
+        -- color carried over to the square edge on every fill.
         local ring = btn.IconBorder
         if ring then ring:SetAlpha(0) end
         if btn.icon then

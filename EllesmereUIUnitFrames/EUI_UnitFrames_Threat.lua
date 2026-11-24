@@ -232,7 +232,7 @@ if EllesmereUI.IS_FOREVER then
         end
     end
 
-    -- Options setters of the position, size, offset and colour keys (the
+    -- Options setters of the position, size, offset and color keys (the
     -- layout memo compares every layout input).
     ns.RefreshThreatPct = UpdateAll
 end -- IS_FOREVER

@@ -231,8 +231,8 @@ initFrame:SetScript("OnEvent", function(self)
                       Set("panelBorderTexture", v)
                       Set("panelBorderOffsetX", nil); Set("panelBorderOffsetY", nil)
                       Set("panelBorderShiftX", nil); Set("panelBorderShiftY", nil)
-                      -- A style with a select colour (Pixels grey) seeds the custom
-                      -- colour; the colour mode is kept, every other style keeps its colour.
+                      -- A style with a select color (Pixels grey) seeds the custom
+                      -- color; the color mode is kept, every other style keeps its color.
                       local selC = EllesmereUI.GetBorderSelectColor(v)
                       if selC then Set("panelBorderColor", selC) end
                       -- A style pick lands on the style's default step, so an exact
@@ -1198,8 +1198,8 @@ initFrame:SetScript("OnEvent", function(self)
                       Set("tabBorderTexture", v)
                       Set("tabBorderOffsetX", nil); Set("tabBorderOffsetY", nil)
                       Set("tabBorderShiftX", nil); Set("tabBorderShiftY", nil)
-                      -- A style with a select colour (Pixels grey) seeds the custom
-                      -- colour; the colour mode is kept, every other style keeps its colour.
+                      -- A style with a select color (Pixels grey) seeds the custom
+                      -- color; the color mode is kept, every other style keeps its color.
                       local selC = EllesmereUI.GetBorderSelectColor(v)
                       if selC then Set("tabBorderColor", selC) end
                       -- A style pick lands on the style's default step, so an exact

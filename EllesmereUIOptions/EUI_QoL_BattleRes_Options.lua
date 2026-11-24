@@ -763,7 +763,7 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
             function(v) BL_Set("desaturateSated", v); BL_Refresh() end,
             function() return BL_Cfg("showSated") == false end, "Show Icon when Sated")
 
-        -- Ready appearance: colour swatch, offset cog and size slider on one row,
+        -- Ready appearance: color swatch, offset cog and size slider on one row,
         -- disabled (not hidden) while Show Ready is off so the layout never
         -- reshuffles on the toggle.
         local function readyOff() return BL_Cfg("showReady") ~= true end
@@ -802,7 +802,7 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
             end)
             -- The slider's own "disabled" already blocks clicks on itself; the
             -- swatch is a manual inline extra, so it needs the same click-block
-            -- overlay the ActionBars range-colour swatch uses.
+            -- overlay the ActionBars range-color swatch uses.
             local readyColorBlock = CreateFrame("Frame", nil, swatch)
             readyColorBlock:SetAllPoints()
             readyColorBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)

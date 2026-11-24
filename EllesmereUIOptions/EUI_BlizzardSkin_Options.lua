@@ -1463,9 +1463,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- choice is latched at load; a change reloads).
         local stock = ns.CharSheetStock()
         -- Blizz Default only: "Blizzard UI Color" (on unless turned off)
-        -- paints every stat category in Blizzard's yellow, so the colour
+        -- paints every stat category in Blizzard's yellow, so the color
         -- swatches stand down while it is on. On WoW Forever Blizz Default
-        -- keeps Blizzard's own stats list, colours included, so they always
+        -- keeps Blizzard's own stats list, colors included, so they always
         -- stand down.
         local function blizzColorsOn()
             return stock
@@ -1528,7 +1528,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- position key (beside the slot unless set, or inside its icon).
         local function ItemLevelDropdown(showKey, posKey, refresh, disabled, disabledTooltip)
             return { type="dropdown", text="Show Item Level",
-              tooltip="Where each item's level shows on its slot, in the item's quality colour.",
+              tooltip="Where each item's level shows on its slot, in the item's quality color.",
               values={ never="Never", beside="Beside Slot", icontop="Icon Top", iconcenter="Icon Center", iconbottom="Icon Bottom" },
               order={ "never", "beside", "icontop", "iconcenter", "iconbottom" },
               disabled=disabled, disabledTooltip=disabledTooltip,
@@ -1766,7 +1766,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Durability on WoW Forever (the section's only option there).
         local flyoutLevelsCfg = { type="toggle",
               text=EllesmereUI.IS_FOREVER and "Flyout Item Levels" or "Show Item Levels",
-              tooltip="Shows the item level on each item in the character sheet gear flyout (the popup of same-slot bag items that appears when hovering an equipped slot), coloured by quality.",
+              tooltip="Shows the item level on each item in the character sheet gear flyout (the popup of same-slot bag items that appears when hovering an equipped slot), colored by quality.",
               getValue=function() return EllesmereUIDB and EllesmereUIDB.flyoutItemLevels or false end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -1938,7 +1938,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
         local leftRgn = sectionsRow._leftRegion
         if not EllesmereUI._prebuilding then
-            -- Each section's colour swatch sits on its row of the dropdown; dimmed while
+            -- Each section's color swatch sits on its row of the dropdown; dimmed while
             -- Blizzard UI Color applies or the section is unchecked.
             local items = {}
             for i, sec in ipairs(STAT_SECTIONS) do
@@ -4467,7 +4467,7 @@ initFrame:SetScript("OnEvent", function(self)
               disabled = Off, disabledTooltip = GATE_REQ },
             { type="label", text="" });  y = y - h
 
-        -- Colour and opacity are one swatch but two stored keys, so the write goes straight
+        -- Color and opacity are one swatch but two stored keys, so the write goes straight
         -- to the DB rather than through CBSetStyle.
         if not EllesmereUI._prebuilding then
             EllesmereUI.BuildInlineSwatches(bgRow._leftRegion, {
@@ -4659,7 +4659,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return EDR_Cfg("gap") end,
               setValue = function(v) EDR_Set("gap", v); EDR_Rebuild() end }
         ); y = y - h
-        -- Border Size: the EllesmereUI border and its colour on the
+        -- Border Size: the EllesmereUI border and its color on the
         -- EllesmereUI look; under Classic WoW UI the slot sizes the vanilla
         -- frame, as the Resource Bars' Border Size does; Blizzard Style's
         -- panel has no size to set.
@@ -4694,7 +4694,7 @@ initFrame:SetScript("OnEvent", function(self)
                 true, 20)
             EllesmereUI.PanelPP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
             rgn._lastInline = swatch
-            -- No border to colour at size 0: dimmed and blocked.
+            -- No border to color at size 0: dimmed and blocked.
             local block = CreateFrame("Frame", nil, swatch)
             block:SetAllPoints()
             block:SetFrameLevel(swatch:GetFrameLevel() + 10)

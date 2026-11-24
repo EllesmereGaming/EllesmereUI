@@ -709,18 +709,18 @@ initFrame:SetScript("OnEvent", function(self)
                 title = "Set Sections",
                 rows = {
                     { type="toggle", label="Separate Sets in Bags",
-                      tooltip="Show each set as its own section in the bags. Off: the sets share the Item Set Gear section.",
+                      tooltip="Shows each equipment set as its own section in the bags.",
                       get=function() return db.profile.bagSetSectionsSeparate == true end,
                       set=function(v)
                           db.profile.bagSetSectionsSeparate = v and true or false
                           if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                       end },
-                    -- Stored as its opposite so the saved default stays off
+                    -- On by default (today's bank); off nests the sets under Item Set Gear
                     { type="toggle", label=EllesmereUI.IS_FOREVER and "Separate Sets in Bank" or "Separate Sets in Bank & Warbank",
-                      tooltip="Show each set as its own section in the bank. Off: the sets share the Item Set Gear section.",
-                      get=function() return db.profile.bankNestSetGear ~= true end,
+                      tooltip="Shows each equipment set as its own section in the bank.",
+                      get=function() return db.profile.bankSetSectionsSeparate ~= false end,
                       set=function(v)
-                          db.profile.bankNestSetGear = not v
+                          db.profile.bankSetSectionsSeparate = v and true or false
                           local bank = _G.EUI_BankFrame
                           if bank and bank.RefreshBank then bank:RefreshBank() end
                       end },

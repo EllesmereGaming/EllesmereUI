@@ -150,8 +150,8 @@ local function RegisterUFUnlockElements()
                         if miniUnit then
                             -- A mini portrait squares off the bar stack, which
                             -- an attached power bar grows (StyleSimpleFrame).
-                            local petPowerH = (ns.UF_MiniHasPower(unit) and powerIsAtt) and (s.powerHeight or 6) or 0
-                            adjPH = s.healthHeight + petPowerH
+                            local miniPowerH = (ns.UF_MiniHasPower(unit) and powerIsAtt) and (s.powerHeight or 6) or 0
+                            adjPH = s.healthHeight + miniPowerH
                         else
                             local pSizeAdj = s.portraitSize or 0
                             local ptH = s.healthHeight + (powerIsAtt and (s.powerHeight or 6) or 0)

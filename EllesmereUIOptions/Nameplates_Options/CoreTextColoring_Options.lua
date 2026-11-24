@@ -29,13 +29,13 @@ local function BuildCoreTextColoring(parent, y, W)
     parent._showRowDivider = true
 
     -- Text Coloring halves: one per assigned text, in their own section. The
-    -- dropdown picks the slot's colour mode; ns.NP_SlotColorMode reads the saved
-    -- mode, or derives it from the older colour keys until one is picked, so the
+    -- dropdown picks the slot's color mode; ns.NP_SlotColorMode reads the saved
+    -- mode, or derives it from the older color keys until one is picked, so the
     -- page and the plates always agree.
-    -- Custom paints the slot colour; Hostility / Class paints enemy players by
-    -- class and NPCs by the Tapped / Neutral / Hostile name colours every slot
-    -- shares (Target of Target: the target's class, else the slot colour); Level
-    -- Difficulty paints the unit's level difficulty colour (every text but Target
+    -- Custom paints the slot color; Hostility / Class paints enemy players by
+    -- class and NPCs by the Tapped / Neutral / Hostile name colors every slot
+    -- shares (Target of Target: the target's class, else the slot color); Level
+    -- Difficulty paints the unit's level difficulty color (every text but Target
     -- of Target, which names another unit).
     local COLOR_MODE_ORDER = { "custom", "class" }
     local COLOR_MODE_ORDER_LEVEL = { "custom", "class", "level" }
@@ -66,12 +66,12 @@ local function BuildCoreTextColoring(parent, y, W)
     end
 
     -- A Text Coloring half's inline controls. The swatches sit beside the
-    -- dropdown, shown by the mode from the page refresh: Custom the slot colour,
-    -- Hostility / Class the three shared NPC colours (Target of Target: the slot
-    -- colour, used for an NPC target), Level Difficulty none. Level | Name and
+    -- dropdown, shown by the mode from the page refresh: Custom the slot color,
+    -- Hostility / Class the three shared NPC colors (Target of Target: the slot
+    -- color, used for an NPC target), Level Difficulty none. Level | Name and
     -- Name | Level add a cog beside the dropdown, the shown swatches left of it,
-    -- with the name and level part colours (inline escapes on that part
-    -- only; the rest of the text keeps the mode's colour). The NPC swatches are
+    -- with the name and level part colors (inline escapes on that part
+    -- only; the rest of the text keeps the mode's color). The NPC swatches are
     -- built only on a Hostility / Class half, so no other half traces the shared
     -- keys for Spec Overrides. Every write goes through the dropdown, a cog row or
     -- a swatch, which the Spec Overrides capture follows on its own.
@@ -88,14 +88,14 @@ local function BuildCoreTextColoring(parent, y, W)
             UpdatePreview()
         end
 
-        -- Level | Name and Name | Level: the part colours on a cog beside the
+        -- Level | Name and Name | Level: the part colors on a cog beside the
         -- dropdown, built first so the swatches chain left of it.
         local cog
         if el == "levelName" or el == "nameLevel" then
             local nameOnKey, nameColorKey = slotKey .. "NameColorOn", slotKey .. "NameColor"
             local lvlOnKey, lvlColorKey = slotKey .. "LevelColorOn", slotKey .. "LevelColor"
             local diffKey = slotKey .. "LevelDiffOn"
-            -- A part colour not picked yet starts from the slot colour.
+            -- A part color not picked yet starts from the slot color.
             local function PartColor(key)
                 local db = DB()
                 local c = (db and (db[key] or db[colorKey])) or defaults[colorKey]
@@ -123,7 +123,7 @@ local function BuildCoreTextColoring(parent, y, W)
                       hidden=function() return DBVal(lvlOnKey) ~= true end,
                       get=function() return PartColor(lvlColorKey) end,
                       set=function(r, g, b) DB()[lvlColorKey] = { r = r, g = g, b = b }; Apply() end },
-                    -- The whole text already takes the difficulty colour in Level
+                    -- The whole text already takes the difficulty color in Level
                     -- Difficulty mode.
                     { type="toggle", label="Level Difficulty Color",
                       hidden=function() return Mode() == "level" end,
@@ -174,7 +174,7 @@ local function BuildCoreTextColoring(parent, y, W)
                         local c = (DB() and DB()[key]) or defaults[fallbackKey]
                         return c.r, c.g, c.b
                     end,
-                    -- Read live by the per-unit painter, so a health colour pass repaints.
+                    -- Read live by the per-unit painter, so a health color pass repaints.
                     function(r, g, b)
                         DB()[key] = { r = r, g = g, b = b }
                         RefreshAllPlates()

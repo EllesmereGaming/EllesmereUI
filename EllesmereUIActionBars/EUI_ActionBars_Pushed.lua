@@ -159,7 +159,7 @@ ns._ixStyle = function(btn, fd, s)
 end
 
 -- The one painter: pressed > spell cast > hover (cast and hover share the
--- highlight tint). Recolours only on a real change, shows and hides only on an
+-- highlight tint). Recolors only on a real change, shows and hides only on an
 -- edge. Runs from hooks in and out of combat: our own frames only.
 ns._ixPaint = function(btn, fd)
     local w = fd.ixBorder
@@ -323,7 +323,7 @@ function EAB:ApplyPushedTextures()
     end
 
     -- Match Bar Border (pushed): eligible bars trade the flat edges for the
-    -- button's own border copy, tinted with this colour and its alpha. Once a
+    -- button's own border copy, tinted with this color and its alpha. Once a
     -- copy exists (ixEver), every path that does not arm the role disarms it.
     local ixOn = abStyle == "eui" and (ns._ixRolesOn(p))
     if ixOn then
@@ -512,9 +512,9 @@ function EAB:ApplyHighlightTextures()
     end
 
     -- Match Bar Border (hover), plus the tint the spell-cast copy shares with
-    -- it (this colour and its alpha). Once a copy exists (ixEver), every path
+    -- it (this color and its alpha). Once a copy exists (ixEver), every path
     -- that does not arm the hover role disarms it, and a lit cast copy picks
-    -- up a colour change here. The tint is refreshed on every pass, options
+    -- up a color change here. The tint is refreshed on every pass, options
     -- off included: the Spell Cast Highlight toggles arm the cast role through
     -- ApplyCheckedTextures alone, which paints with this slot as it stands.
     local _, ixOn, ixCast = ns._ixRolesOn(p)

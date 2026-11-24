@@ -5,22 +5,22 @@ if not ns then return end
 
 -------------------------------------------------------------------------------
 --  Nameplates\EUI_Nameplates_AlliedColors.lua
---  The colour of an allied (friendly or neutral) unit's name: which entity it
+--  The color of an allied (friendly or neutral) unit's name: which entity it
 --  is to you (friend, guild, group, standard NPC, pet, ...) and the override for
 --  that entity.
 --
 --  One catalog (ns.NAME_ONLY_TARGETS) drives both sides: this file resolves a
---  unit to a colour, and the options page builds a toggle + swatch per entry
+--  unit to a color, and the options page builds a toggle + swatch per entry
 --  from the same list, in the same order. A unit takes the first enabled entry
 --  that matches, so read the catalog top to bottom. Every entry is off by
---  default: with them all off, a name is coloured by the base fallback in
+--  default: with them all off, a name is colored by the base fallback in
 --  Allied.GetNameColor and nothing here costs more than the entries' own
 --  toggle reads -- a unit API call (a matcher, the flag, the combat test) is
 --  made only for an entry that is on.
 --
---  An entry's toggle only ever colours: off means "no entry paints this unit",
+--  An entry's toggle only ever colors: off means "no entry paints this unit",
 --  never "paint something else". A player's pet is the one case with a second
---  step: its own row first, then the colour its owner's flag state takes.
+--  step: its own row first, then the color its owner's flag state takes.
 --
 --  Read by EllesmereUINameplatesFriendly.lua (the name-only text and the NPC
 --  overlay) and by the Friendly options page.
@@ -104,10 +104,10 @@ local function IsUnflagged(unit)
 end
 
 -------------------------------------------------------------------------------
---  The catalog: every name colour override, in priority order within its
+--  The catalog: every name color override, in priority order within its
 --  section. sec groups the entries into the options popup's three sections
 --  (1 player relationships, 2 friendly and neutral units, 3 opposing faction
---  units). on / col are the profile keys of the entry's toggle and colour, so
+--  units). on / col are the profile keys of the entry's toggle and color, so
 --  the hot path indexes the profile rather than building a key per call.
 -------------------------------------------------------------------------------
 ns.NAME_ONLY_TARGETS = {
@@ -143,7 +143,7 @@ ns.NAME_ONLY_TARGETS = {
       col = "nameOnlyCustomColor_FRIENDLY_PLAYER_PVP",
       defColor = { r = 0.00, g = 1.00, b = 0.00 }, match = IsPvPFlagged },
     -- A player's pet is a player relationship, not an NPC one: it paints on the
-    -- same plates, and with its own row off it takes the colour its owner's flag
+    -- same plates, and with its own row off it takes the color its owner's flag
     -- state takes.
     { key = "PET_MINION_FRIENDLY", label = "Player Pets & Minions", sec = 1,
       tip = "Highlights player-controlled pets and minions.\n\nWhen disabled, uses the owner's color: the PvP Flagged or Unflagged Players swatch for the owner's flag state, else the default friendly player color.",
@@ -183,7 +183,7 @@ for _, item in ipairs(ns.NAME_ONLY_TARGETS) do
     if item.sec == 1 then PLAYER_ENTRIES[#PLAYER_ENTRIES + 1] = item end
 end
 
--- An entry's colour: the saved one, else the defaults table's, else the
+-- An entry's color: the saved one, else the defaults table's, else the
 -- catalog's own. Returns r, g, b, or nil.
 local function EntryColor(fp, item)
     if not item then return nil end
@@ -255,7 +255,7 @@ function Allied.GetCachedNPCTitle(unit) return CachedNPCTitle(unit) end
 -- Pet or minion: a unit a player controls -- a player's pet, minion or vehicle.
 -- An NPC's guardian has no flag of its own in either client's API, and its
 -- tooltip subtitle is English words that read titles like "Battle Pet Trainer"
--- as pets, so a non-player unit stays an NPC here and takes its section's colour.
+-- as pets, so a non-player unit stays an NPC here and takes its section's color.
 function Allied.IsPet(unit)
     if not unit or not UnitExists(unit) or UnitIsPlayer(unit) then return false end
     return UnitPlayerControlled(unit) and true or false
@@ -264,11 +264,11 @@ end
 -------------------------------------------------------------------------------
 --  Resolution
 --  One catalogue, one decision per unit: the enabled entry that paints it, or
---  nil. nil is not "no colour" -- it is "no entry paints this unit", so the name
---  keeps the base colour of its side (Allied.GetNameColor, below). An entry's
---  toggle therefore only ever colours.
+--  nil. nil is not "no color" -- it is "no entry paints this unit", so the name
+--  keeps the base color of its side (Allied.GetNameColor, below). An entry's
+--  toggle therefore only ever colors.
 -------------------------------------------------------------------------------
--- The enabled colour of one catalog key, or nil. A disabled entry paints nothing.
+-- The enabled color of one catalog key, or nil. A disabled entry paints nothing.
 local function ColorOf(fp, key)
     local item = CATALOG_BY_KEY[key]
     if item and On(fp, item) then return EntryColor(fp, item) end
@@ -285,7 +285,7 @@ local function PlayerColor(unit, fp)
         -- The matcher (a unit API call) runs only for an entry that is on.
         if item.match and On(fp, item) then
             -- An unflagged opposite-faction player is not attackable but no
-            -- friend either: no friendly relationship colour reaches it.
+            -- friend either: no friendly relationship color reaches it.
             if friend == nil then friend = UnitIsFriend("player", unit) and true or false end
             if not friend then return nil end
             if item.match(unit) then return EntryColor(fp, item) end
@@ -297,7 +297,7 @@ end
 -- A negative reaction: unfriendly, hostile or hated, attackable or not. This is
 -- the unit the Opposing Faction section is for: an unfriendly NPC shows a
 -- Blizzard plate like a friendly one, so it resolves here rather than through
--- the enemy nameplates' own colours.
+-- the enemy nameplates' own colors.
 local function IsOpposing(unit)
     local reaction = UnitReaction(unit, "player")
     return reaction ~= nil and reaction <= 3
@@ -330,12 +330,12 @@ local function NPCColor(unit, fp)
     return ColorOf(fp, "NEUTRAL_NPC_PASSIVE")
 end
 
--- The colour a player shows for its flag state, i.e. exactly what the owner's own
+-- The color a player shows for its flag state, i.e. exactly what the owner's own
 -- name takes: the PvP Flagged or Unflagged Players swatch when that entry is on,
--- else Blizzard's own friendly player colour (7788FF). UnitIsPVP answers for a
+-- else Blizzard's own friendly player color (7788FF). UnitIsPVP answers for a
 -- pet with its owner's flag, so a pet never needs to know who owns it -- which is
 -- also why the group and guild entries are not consulted here: they answer for a
--- pet too, and a pet must never wear a guild's colour its owner was never given.
+-- pet too, and a pet must never wear a guild's color its owner was never given.
 local PLAYER_DEFAULT_R, PLAYER_DEFAULT_G, PLAYER_DEFAULT_B = 0.467, 0.533, 1.00
 local function FlaggedColor(unit, fp)
     -- The flag is read only while one of its two entries can paint.
@@ -348,8 +348,8 @@ local function FlaggedColor(unit, fp)
 end
 
 -- A pet's override, in the order the palette reads: its own row first when that
--- row is on; otherwise the colour of the unit that controls it. A player's pet
--- takes the colour its owner's flag state takes (FlaggedColor); anything else it
+-- row is on; otherwise the color of the unit that controls it. A player's pet
+-- takes the color its owner's flag state takes (FlaggedColor); anything else it
 -- would have reached is an unfriendly pet outside the enemy nameplates' own, and
 -- the NPC section answers for that one.
 local function PetColor(unit, fp)
@@ -358,13 +358,13 @@ local function PetColor(unit, fp)
     local r, g, b = ColorOf(fp, "PET_MINION_FRIENDLY")
     if r then return r, g, b end
     -- A player's pet only inherits while it is friendly: an attackable pet's plate
-    -- is the enemy nameplates' and never reaches this palette, so the flag colours
+    -- is the enemy nameplates' and never reaches this palette, so the flag colors
     -- of the friendly side must not be able to paint one.
     if UnitPlayerControlled(unit) and not IsOpposing(unit) then return FlaggedColor(unit, fp) end
     return NPCColor(unit, fp)
 end
 
--- The override colour for a unit, or nil when no entry paints it.
+-- The override color for a unit, or nil when no entry paints it.
 function Allied.GetOverrideColor(unit, fp)
     if not unit or not UnitExists(unit) then return nil end
     fp = fp or FP()
@@ -392,9 +392,9 @@ end
 -- Each entry's eye previews it on one of the two samples at the top of the
 -- Friendly Plates page: the players' entries (a player's pet included) on the
 -- player sample, the NPCs' on the NPC sample. With no eye on, a sample paints the
--- plain unit in the colour the page passes it. An eye works only while its entry
+-- plain unit in the color the page passes it. An eye works only while its entry
 -- is on and can paint (ns.NPO_AlliedPreviewOff on the Friendly page), so a sample
--- never shows a colour the live plates would not.
+-- never shows a color the live plates would not.
 local PREVIEW_ENTRY = {
     FRIENDLY_PLAYER_FRIEND    = { sample = "player" },
     FRIENDLY_PLAYER_RECENT    = { sample = "player" },
@@ -417,8 +417,8 @@ function Allied.PreviewTarget(key)
     return p.sample, p.pet == true
 end
 
--- The colour an entry previews, or the sample's own base colour when no entry
--- is picked. This reads the same saved colour a live plate does.
+-- The color an entry previews, or the sample's own base color when no entry
+-- is picked. This reads the same saved color a live plate does.
 function Allied.PreviewNameColor(key, baseForSample)
     local item = key and PREVIEW_ENTRY[key] and CATALOG_BY_KEY[key]
     if not item then return baseForSample.r, baseForSample.g, baseForSample.b end
@@ -427,8 +427,8 @@ function Allied.PreviewNameColor(key, baseForSample)
     return baseForSample.r, baseForSample.g, baseForSample.b
 end
 
--- A hex colour escape for a colour, cached: the name-only text is rebuilt on
--- every plate add. Only ever called with our own (never secret) colours.
+-- A hex color escape for a color, cached: the name-only text is rebuilt on
+-- every plate add. Only ever called with our own (never secret) colors.
 local hexR, hexG, hexB, hexStr
 function Allied.HexEsc(r, g, b)
     if r ~= hexR or g ~= hexG or b ~= hexB then
@@ -438,8 +438,8 @@ function Allied.HexEsc(r, g, b)
     return hexStr
 end
 
--- The colour an NPC's or a pet's name keeps when no entry paints it, and the
--- bottom of every fallback in this file: the reaction colour, which is what
+-- The color an NPC's or a pet's name keeps when no entry paints it, and the
+-- bottom of every fallback in this file: the reaction color, which is what
 -- Blizzard itself paints such a plate.
 local function ReactionBase(unit, fp)
     local reaction = UnitReaction(unit, "player")
@@ -454,11 +454,11 @@ local function ReactionBase(unit, fp)
     return 0.00, 1.00, 0.00
 end
 
--- The overlay's name colour: the entry that paints the unit, else the reaction
--- base -- so a pet with no entry and nothing to inherit is Blizzard's own colour.
+-- The overlay's name color: the entry that paints the unit, else the reaction
+-- base -- so a pet with no entry and nothing to inherit is Blizzard's own color.
 -- Callers pass NPCs and pets only, the units EllesmereUI's name-only overlay
--- draws: a friendly PLAYER's name is coloured by NameOnlyEsc from
--- GetOverrideColor above (Name Color, else the class colour via the CVar), never
+-- draws: a friendly PLAYER's name is colored by NameOnlyEsc from
+-- GetOverrideColor above (Name Color, else the class color via the CVar), never
 -- from here.
 function Allied.GetNameColor(unit)
     local fp = FP()
@@ -468,8 +468,8 @@ function Allied.GetNameColor(unit)
     return ReactionBase(unit, fp)
 end
 
--- A pet's owner line colour: the pet's own name colour when Match Pet Name Color
--- is on (a pet takes no class colour, so this is the same colour its name takes),
+-- A pet's owner line color: the pet's own name color when Match Pet Name Color
+-- is on (a pet takes no class color, so this is the same color its name takes),
 -- else the Owner Text Color swatch, whose alpha is what sets the line apart from
 -- the name above it.
 function Allied.GetPetOwnerColor(unit)
@@ -484,10 +484,10 @@ function Allied.GetPetOwnerColor(unit)
     return 1, 1, 1, alpha
 end
 
--- The subtitle under the overlay's name: the name's own colour when Match NPC
--- Name Color is on, else the Title Color swatch's. Callers pass the colour the
+-- The subtitle under the overlay's name: the name's own color when Match NPC
+-- Name Color is on, else the Title Color swatch's. Callers pass the color the
 -- name actually takes on their own plate (the overlay's GetNameColor, the health
--- bar plate's bar & name colour), so Match matches the line above it in either
+-- bar plate's bar & name color), so Match matches the line above it in either
 -- friendly style. The configured alpha is what sets the subtitle apart.
 function Allied.GetTitleColor(unit, nameR, nameG, nameB)
     local fp = FP()

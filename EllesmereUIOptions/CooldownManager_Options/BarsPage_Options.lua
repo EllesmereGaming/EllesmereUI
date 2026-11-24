@@ -1883,6 +1883,8 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                 local bd = BD()
                 bd.borderCornerRadius = v
                 ns.RefreshCDMIconAppearance(bd.key)
+                -- WoW Forever's swing sweep copies the icon's swipe shape at a sync.
+                if ns.CDM_SwingSweepSync then ns.CDM_SwingSweepSync() end
                 UpdateCDMPreview()
             end,
             function() return IsCustomShape() or EllesmereUI.BlizzStyle.Get("cdmicons") end,
@@ -1893,7 +1895,7 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
     end
 
     -- Adjust Crop cog on Custom Icon Shape (both shape rows below). Writes the per-bar
-    -- iconCropPercent that ns.CdmCropFactor / ns.CdmCropTrim read; unset = 10 = the classic
+    -- iconCropPercent that ns.CdmCropFactor reads; unset = 10 = the classic
     -- crop. Disabled unless the shape is Cropped. Under a stock style both shape rows are
     -- fully gated, so the row (and this cog with it) is hidden by the widget factory.
     local function AttachCropCog(rgn)

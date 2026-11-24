@@ -627,7 +627,7 @@ initFrame:SetScript("OnEvent", function(self)
             menu:Show()
         end
 
-        -- The value's alpha lives in its text colour alone (built at TXT_A),
+        -- The value's alpha lives in its text color alone (built at TXT_A),
         -- so a hover and a leave land back on the resting look.
         ddBtn:SetScript("OnEnter", function()
             ddLbl:SetTextColor(1, 1, 1, 1)

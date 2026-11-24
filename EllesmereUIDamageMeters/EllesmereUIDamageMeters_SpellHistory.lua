@@ -1347,7 +1347,7 @@ local function BuildBarWindow()
     end
 
     -- Apply styling (bg from spell history settings, header from DM settings;
-    -- the classic header shade follows this window's own colour)
+    -- the classic header shade follows this window's own color)
     ns.DMPaintWindowBg(_barWin._bg, sh.bgR or 0, sh.bgG or 0, sh.bgB or 0, sh.bgAlpha or 0.25, true)
 
     local hc = dmCfg.hdrBgColor

@@ -213,7 +213,7 @@ local function XPPreviewPaint(noRetry)
 end
 
 -- Repaints a shown preview and fits the header to it. valueOnly: only the
--- fill changed (a colour), so the layout and texts are left as they are.
+-- fill changed (a color), so the layout and texts are left as they are.
 -- force: the header height is written even when unchanged (a restored
 -- header comes back at its cached height). noRetry: the queued measurement.
 XPPreviewRepaint = function(valueOnly, force, noRetry)
@@ -354,7 +354,7 @@ local function BuildXPBarPage(pageName, parent, yOffset)
 
     y = K.SizeRow(y, XP)
 
-    -- Show Dividers (its 5% and 10% colours inline; its settings row below
+    -- Show Dividers (its 5% and 10% colors inline; its settings row below
     -- exists only while it is on) | Orientation (its cog: Vertical Text).
     local divRowTop
     divRowTop, h = W:DualRow(parent, y,
@@ -409,7 +409,7 @@ local function BuildXPBarPage(pageName, parent, yOffset)
 
     -- 5% Line Style (its cog: Show Ticks Over Fill Bar, the inverse of the
     -- saved smartTicks, which hides the marks the fill has passed) | Divider
-    -- Text (its cog: the text's colour, size and offsets), while Show
+    -- Text (its cog: the text's color, size and offsets), while Show
     -- Dividers is on.
     if S().showDividers then
         local divRow
@@ -882,7 +882,7 @@ local function BuildXPBarPage(pageName, parent, yOffset)
         btn:SetPoint("TOPLEFT", label, "TOPLEFT", -4, 5)
         btn:SetPoint("BOTTOMRIGHT", arrow, "BOTTOMRIGHT", 2, -2)
         local menu
-        -- The name takes the chevron's colour while lit (its own white back).
+        -- The name takes the chevron's color while lit (its own white back).
         local function Lit(on)
             if on then
                 local r, g, b = ChevronHoverColor()
@@ -1042,7 +1042,7 @@ local function BuildXPBarPage(pageName, parent, yOffset)
     _, h = W:SectionHeader(parent, "DISPLAY", y);  y = y - h
 
     -- Text Size (the bar text's, and every other text's until its own is
-    -- set) | Text Background (its colour and opacity inline): a box behind
+    -- set) | Text Background (its color and opacity inline): a box behind
     -- every text shown.
     local textBgRow
     textBgRow, h = W:DualRow(parent, y, K.TextSizeCfg(XP),
@@ -1079,9 +1079,9 @@ local function BuildXPBarPage(pageName, parent, yOffset)
     -- shows as Solid 1px until the first edit turns the border on.
     y = K.BorderRows(y, XP, true)
 
-    -- Fill Style: Custom Color (the fill colour swatches inline: Custom,
+    -- Fill Style: Custom Color (the fill color swatches inline: Custom,
     -- Accent, Reactive), Horizontal / Vertical Gradient (s.fillGradient; its
-    -- Gradient Start and End colours inline, s.fillGradStart / fillGradEnd,
+    -- Gradient Start and End colors inline, s.fillGradStart / fillGradEnd,
     -- defaults in ns.XPBarGradient) or a profession skill-bar animation (its
     -- cog inline: Animate on XP Gain, on by default -- nil plays, false stops
     -- it -- and Loop Animation, off by default, one turning the other off;
@@ -1204,7 +1204,7 @@ local function BuildXPBarPage(pageName, parent, yOffset)
     end
 
     -- Background: its opacity (the slider, "Background Opacity" on hover) and
-    -- its colour inline, locked at 0%; both fall back to the style's own
+    -- its color inline, locked at 0%; both fall back to the style's own
     -- background until set, ns.XPBarBackground) | Bar Texture.
     local bgRow
     bgRow, h = W:DualRow(parent, y,
@@ -1219,7 +1219,7 @@ local function BuildXPBarPage(pageName, parent, yOffset)
               local _, _, _, was = ns.XPBarBackground(S())
               S().barBgOpacity = v
               ns.ApplyDataBarLayout(XP)
-              -- The colour swatch locks at 0%: refresh only on that edge.
+              -- The color swatch locks at 0%: refresh only on that edge.
               if (was <= 0) ~= (v <= 0) then EllesmereUI:RefreshPage() end
           end },
         K.TexCfg(XP));  y = y - h
@@ -1247,7 +1247,7 @@ local function BuildXPBarPage(pageName, parent, yOffset)
             rawTooltip = _blizzDis })
     end
 
-    -- Quest XP Overlay: the completed / incomplete colours as inline swatches
+    -- Quest XP Overlay: the completed / incomplete colors as inline swatches
     -- (green / gold at 60% until set, ns.XPQuestColor), the filters in its cog.
     local questRow
     questRow, h = W:DualRow(parent, y,

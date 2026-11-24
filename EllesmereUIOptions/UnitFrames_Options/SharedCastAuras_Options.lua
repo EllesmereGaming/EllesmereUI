@@ -2302,7 +2302,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
               -- state tracks the overlay selection live.
               setValue=function(v) db.profile.dispelOverlay = v; DispelRefresh(); EllesmereUI:RefreshPage() end },
             { type="multiSwatch", text="Dispel Colors",
-              -- The palette also colours the Color Custom Borders copies and,
+              -- The palette also colors the Color Custom Borders copies and,
               -- with Use Dispel Colors, the player debuff rings.
               disabled=function()
                   local p = db.profile

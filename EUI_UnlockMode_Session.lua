@@ -391,7 +391,7 @@ local function CreateHUD(parent)
 
     ---------------------------------------------------------------
     --  Controls help (right of hover): hovering the info icon lists the
-    --  mouse and keyboard controls, the keys in the accent colour.
+    --  mouse and keyboard controls, the keys in the accent color.
     ---------------------------------------------------------------
     local infoBtn = CreateFrame("Button", nil, UM.hudFrame)
     infoBtn:SetSize(INFO_ICON_SZ, max(iconSz, 24))

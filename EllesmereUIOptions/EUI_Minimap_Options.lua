@@ -479,7 +479,7 @@ initFrame:SetScript("OnEvent", function(self)
                 UpdateCogVis()
             end
         end
-        -- Inline accent + class + custom colour swatches on the Border Size
+        -- Inline accent + class + custom color swatches on the Border Size
         -- slider. Modes are mutually exclusive: class > accent > custom.
         if not EllesmereUI._prebuilding then
             local rgn = borderRow._rightRegion
@@ -503,7 +503,7 @@ initFrame:SetScript("OnEvent", function(self)
             PPl.Point(accentSwatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = accentSwatch
 
-            -- Class-colour swatch (to the left of accent): live player class colour.
+            -- Class-color swatch (to the left of accent): live player class color.
             local classSwatch, updateClass = EllesmereUI.BuildColorSwatch(
                 rgn, borderRow:GetFrameLevel() + 3,
                 function()
@@ -522,14 +522,14 @@ initFrame:SetScript("OnEvent", function(self)
             PPl.Point(classSwatch, "RIGHT", rgn._lastInline, "LEFT", -8, 0)
             rgn._lastInline = classSwatch
 
-            -- Custom-colour swatch (outermost): stored custom colour.
+            -- Custom-color swatch (outermost): stored custom color.
             local customSwatch, updateCustom = EllesmereUI.BuildColorSwatch(
                 rgn, borderRow:GetFrameLevel() + 3,
                 function()
                     local m = MinimapDB()
                     local c = m and m.borderColor
                     if c then return c.r, c.g, c.b, (m.borderA) or 1 end
-                    -- Legacy: pre-style users' border colour keys
+                    -- Legacy: pre-style users' border color keys
                     if m then return m.borderR or 0, m.borderG or 0, m.borderB or 0, m.borderA or 1 end
                     return 0, 0, 0, 1
                 end,
@@ -568,7 +568,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if updateAccent then updateAccent() end
                 if updateClass then updateClass() end
                 if updateCustom then updateCustom() end
-                -- Blizzard Style draws the stock ring: every border colour is inert.
+                -- Blizzard Style draws the stock ring: every border color is inert.
                 if EllesmereUI.BlizzStyle.Get("minimap") then
                     accentSwatch:SetAlpha(0.3); classSwatch:SetAlpha(0.3); customSwatch:SetAlpha(0.3)
                     return
@@ -1620,7 +1620,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
         -- Inline cog on Show FPS/MS (text size + which MS readouts show).
-        -- The description-colour swatches live on the Accented Text row at
+        -- The description-color swatches live on the Accented Text row at
         -- the bottom of this section.
         do
             local leftRgn = fpsRow._leftRegion
@@ -1803,11 +1803,11 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Accented Text | (empty) -- which Text elements colour their
+        -- Accented Text | (empty) -- which Text elements color their
         -- description parts (clock AM/PM, FPS/MS suffixes, difficulty letter) with the
-        -- accent/custom colour from the inline swatches. Dynamic values always render
+        -- accent/custom color from the inline swatches. Dynamic values always render
         -- white. Difficulty and Difficulty (Reactive) are mutually exclusive: flat
-        -- accent/custom colour vs colour-by-tier. Each locks while the other is
+        -- accent/custom color vs color-by-tier. Each locks while the other is
         -- checked, and the setters clear the sibling as a consistency net (the locked
         -- state repaints on the next menu open).
         local accentItems = {
@@ -1878,7 +1878,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(accentSwatch, "RIGHT", cbDD, "LEFT", -12, 0)
             rgn._lastInline = accentSwatch
 
-            -- Custom swatch (to the left of accent): stored custom colour.
+            -- Custom swatch (to the left of accent): stored custom color.
             local customSwatch, updateCustom = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
                 function()
                     local m = MinimapDB()

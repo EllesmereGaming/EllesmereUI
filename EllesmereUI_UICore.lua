@@ -46,7 +46,7 @@ local function MakeStyledButton(btn, text, fontSize, colours, onClick, square)
         brd = EllesmereUI.MakeRoundedBorder(btn, c[9], c[10], c[11], c[12], bg)
     end
     local lbl = MakeFont(btn, fontSize, nil, c[17], c[18], c[19])
-    -- The resting alpha lives in the text colour, as the hover scripts below set it
+    -- The resting alpha lives in the text color, as the hover scripts below set it
     -- (a region alpha on top would multiply with it after the first hover).
     lbl:SetTextColor(c[17], c[18], c[19], c[20])
     lbl:SetPoint("CENTER")
@@ -65,7 +65,7 @@ local function MakeStyledButton(btn, text, fontSize, colours, onClick, square)
     return bg, brd, lbl
 end
 
--- Pre-built colour arrays for the two button styles
+-- Pre-built color arrays for the two button styles
 local WB_COLOURS = {  -- Button hover style
     BTN_BG_R, BTN_BG_G, BTN_BG_B, BTN_BG_A,  BTN_BG_R, BTN_BG_G, BTN_BG_B, BTN_BG_HA,
     1, 1, 1, BTN_BRD_A,  1, 1, 1, BTN_BRD_HA,
@@ -274,7 +274,7 @@ local function IsPanelFamilyAnchor(region)
     return false
 end
 
--- opts (optional): { color = {r,g,b}, width = number } overrides text colour / forces width
+-- opts (optional): { color = {r,g,b}, width = number } overrides text color / forces width
 local function ShowWidgetTooltip(label, text, opts)
     -- Suppress in M+/raid/PvP combat: frame APIs return secret values in tainted execution; opts.force bypasses.
     if not (opts and opts.force) then
@@ -467,7 +467,7 @@ local function ResolveThemeColor(theme)
 end
 EllesmereUI.ResolveThemeColor = ResolveThemeColor
 
---- Internal: snap accent to all registered one-time elements (no transition). Colour objects are reused to avoid per-tick allocations.
+--- Internal: snap accent to all registered one-time elements (no transition). Color objects are reused to avoid per-tick allocations.
 local _gradStart = CreateColor(0, 0, 0, 0)
 local _gradEnd   = CreateColor(0, 0, 0, 0)
 
@@ -490,7 +490,7 @@ end
 
 --- Internal: apply accent instantly (for color picker dragging, resets, etc.)
 local function ApplyAccentLive(r, g, b)
-    -- Canonical colour table updated in place, then registered one-time elements
+    -- Canonical color table updated in place, then registered one-time elements
     ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b = r, g, b
     UpdateAccentElements(r, g, b)
 
@@ -501,7 +501,7 @@ local function ApplyAccentLive(r, g, b)
     EllesmereUI:RefreshPage()
 end
 
---- SetActiveTheme: persists and applies with an animated transition. Changes only the options panel background; accent colour is independent (accent swatch / class colour toggle).
+--- SetActiveTheme: persists and applies with an animated transition. Changes only the options panel background; accent color is independent (accent swatch / class color toggle).
 EllesmereUI.SetActiveTheme = function(theme)
     if not EllesmereUIDB then EllesmereUIDB = {} end
     EllesmereUIDB.activeTheme = theme
@@ -674,7 +674,7 @@ local CTX_LOOKS = {
                 left = 8, right = -18, noWrap = true, ctxBg = true, popupBorder = true,
                 plainFont = true },
     -- atlas: the panel's art in place of its fill and borders (drawn past
-    -- its edges); lit: the hovered and active label colour.
+    -- its edges); lit: the hovered and active label color.
     meterForever = { rowH = 22, sepH = 7, pad = 0, size = 11, minW = 100, textPad = 50,
                 left = 8, right = -18, noWrap = true, ctxBg = true, popupBorder = true,
                 plainFont = true, atlas = "common-dropdown-bg", lit = { r = 1, g = 0.82, b = 0 } },
@@ -1435,9 +1435,9 @@ end
 --  Threat % text paint (WoW Forever only; nil on retail, where no caller runs).
 --      EllesmereUI.PaintThreatPct(fs, pct, status, isTanking, colorByThreat)
 --  Pass UnitDetailedThreatSituation's first three returns. The percent can be
---  secret and goes straight to SetFormattedText. Colour: white when
---  colorByThreat is off; the status colour while status is readable; else the
---  isTanking fold between the has-aggro and low-threat colours; else white.
+--  secret and goes straight to SetFormattedText. Color: white when
+--  colorByThreat is off; the status color while status is readable; else the
+--  isTanking fold between the has-aggro and low-threat colors; else white.
 --  Only the plain white mode is remembered per font string (never a value).
 --      EllesmereUI.PaintThreatGap(fs, text, ahead, colorOn, aheadC, behindC)
 --  The Threat Gap text: the formatted gap in aheadC or behindC by who leads,

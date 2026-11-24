@@ -11,7 +11,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  the power bar on the side away from the health bar, sharing the border
 --  line; a stock look (Blizzard, Classic, WoW Forever) sets it under the frame
 --  art, lined up with the power bar. Texture, background, opacity and fill
---  direction follow the power bar; the fill is the form power's colour. Its
+--  direction follow the power bar; the fill is the form power's color. Its
 --  text follows the power bar's text settings (Power Text, Text Position and
 --  its cog, Text Color) with the form's power; Smart shows the value.
 --
@@ -84,7 +84,7 @@ local function Paint()
     end
 end
 
--- The form power's colour at Power Bar Opacity, and the power bar's background.
+-- The form power's color at Power Bar Opacity, and the power bar's background.
 local function Color()
     local s, bar = S.settings, S.bar
     local info = S.token and EllesmereUI.GetPowerColor(S.token)
@@ -93,7 +93,7 @@ local function Color()
     local op = s.powerBarOpacity or 100
     if op <= 1.0 then op = op * 100 end
     bar:SetStatusBarColor(r, g, b, op / 100)
-    -- Form Text Color: power-coloured takes the form's colour, else custom or
+    -- Form Text Color: power-colored takes the form's color, else custom or
     -- white. Neither set follows the power bar's Text Color.
     local pc, tc = s.foreverFormTextPowerColor, s.foreverFormTextColor
     if pc == nil and tc == nil then pc, tc = s.powerPercentTextPowerColor, s.powerTextColor end

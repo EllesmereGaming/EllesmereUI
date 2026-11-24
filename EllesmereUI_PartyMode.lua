@@ -876,7 +876,7 @@ end
 
 -------------------------------------------------------------------------------
 --  AFK Screen: while the player is AFK, the EUI logo bounces around a dimmed
---  screen and changes colour on every wall hit. Each leg between walls is one
+--  screen and changes color on every wall hit. Each leg between walls is one
 --  Translation animation, so Lua only runs once per bounce. Click to dismiss.
 -------------------------------------------------------------------------------
 do

@@ -29,8 +29,9 @@ local ICONS = {
     [ST.Corpse]       = "Navigation-Tombstone-Icon",
 }
 
-local EDGE = 0.38       -- edge path: an ellipse at this share of the screen from its centre
-local ARROW_GAP = 26    -- arrow centre from the icon centre
+local EDGE = 0.38       -- edge path: an ellipse at this share of the screen from its center
+local ARROW_GAP = 26    -- arrow center from the icon center
+local ARRIVE_MARGIN = 5 -- yards past the arrival point before the marker comes back
 local BEAM_HEIGHT = 220 -- the whole beam, its fade-in included
 local BEAM_BASE = 16    -- the beam fades in over this much above the icon
 
@@ -50,23 +51,16 @@ local infoDigits = {}     -- one text per digit of the distance
 local MAX_DIGITS = 6
 local cellW               -- the widest digit in the module font
 local rangeFormat         -- the distance with a short unit (Build)
-local tint, clear         -- gradient colours, reused
+local tint, clear         -- gradient colors, reused
 local navFrame            -- the game's navigation frame while one exists
 local shown, atEdge       -- last visibility and edge state applied
 local lastYards, lastEta  -- last distance and time written
-local lastShape           -- digit count and text lengths when the line was laid out
+local lastHead, lastTail, lastCount  -- the line's texts and digit count when it was laid out
+local cellText = {}       -- the digit each cell shows
 local lastDX, lastDY      -- last edge placement
 local arrivedAt           -- the distance when the game said you got there
 
--- Off the pixel grid, so the marker glides with the game's frame instead of
--- each texture stepping a pixel at a time on its own.
-local function Smooth(t)
-    t:SetSnapToPixelGrid(false)
-    t:SetTexelSnappingBias(0)
-    return t
-end
-
--- Accent colour: on each new navigation frame and on an accent change.
+-- Accent color: on each new navigation frame and on an accent change.
 local function Paint()
     local r, g, b = EllesmereUI.GetAccentColor()
     icon:SetVertexColor(r, g, b)
@@ -105,7 +99,6 @@ end
 local function UpdateTarget()
     local kind = C_SuperTrack.GetHighestPrioritySuperTrackingType()
     icon:SetAtlas(ICONS[kind] or ICONS[ST.Quest], true)
-    Smooth(icon)   -- in case a new atlas puts it back on the grid
     icon:SetDesaturated(true)
     local title
     if kind == ST.Quest then
@@ -119,20 +112,20 @@ local function UpdateTarget()
     else
         info:SetPoint("TOP", icon, "BOTTOM", 0, -4)
     end
-    lastYards, lastEta, lastShape, arrivedAt = nil, nil, nil, nil
+    lastYards, lastEta, lastHead, arrivedAt = nil, nil, nil, nil
 end
 
 -- Distance, and the time to get there at the current speed (none while
 -- standing still, or while the game keeps the speed secret). Rewritten only
--- when one of them changes: the time counts down in seconds under a minute,
--- in whole minutes above (SecondsToTime shows its largest unit only).
+-- when one of them changes: the time counts down in seconds up to 89, in
+-- whole minutes above (SecondsToTime with one unit turns to minutes at 90 s).
 local function UpdateTexts()
     local yards = math.floor(C_Navigation.GetDistance() + 0.5)
     local eta
     local speed = GetUnitSpeed("player")
     if not IsSecret(speed) and speed > 0 then
         eta = yards / speed
-        eta = eta < 60 and math.ceil(eta) or math.floor(eta / 60 + 0.5) * 60
+        eta = eta <= 89 and math.ceil(eta) or math.max(2, math.floor(eta / 60 + 0.5)) * 60
     end
     if yards == lastYards and eta == lastEta then return end
     lastYards, lastEta = yards, eta
@@ -140,20 +133,24 @@ local function UpdateTexts()
     local text = rangeFormat:format(yards < 1000 and tostring(yards) or AbbreviateNumbers(yards))
     if eta and eta > 0 then text = text .. "  -  " .. SecondsToTime(eta, false, false, 1) end
     -- Each digit of the distance in a cell as wide as the widest one, so a new
-    -- distance only changes digits in place; the line is laid out and centred
-    -- again only when its shape changes (digit count, text around them).
+    -- distance only changes the digits that differ, in place; the line is laid
+    -- out and centered again only when the text around them or the digit
+    -- count changes.
     local s, e = text:find("%d+")
     if not s or e - s >= MAX_DIGITS then s, e = #text + 1, #text end
     local head, tail = text:sub(1, s - 1), text:sub(e + 1)
     local count = e - s + 1
+    for i = 1, MAX_DIGITS do
+        local digit = i <= count and text:sub(s + i - 1, s + i - 1) or ""
+        if cellText[i] ~= digit then
+            cellText[i] = digit
+            infoDigits[i]:SetText(digit)
+        end
+    end
+    if head == lastHead and tail == lastTail and count == lastCount then return end
+    lastHead, lastTail, lastCount = head, tail, count
     infoHead:SetText(head)
     infoTail:SetText(tail)
-    for i = 1, MAX_DIGITS do
-        infoDigits[i]:SetText(i <= count and text:sub(s + i - 1, s + i - 1) or "")
-    end
-    local shape = count * 10000 + #head * 100 + #tail
-    if shape == lastShape then return end
-    lastShape = shape
     local x = infoHead:GetStringWidth()
     for i = 1, count do
         infoDigits[i]:SetPoint("LEFT", info, "LEFT", x, 0)
@@ -163,8 +160,8 @@ local function UpdateTexts()
     info:SetWidth(x + infoTail:GetStringWidth())
 end
 
--- Near the screen edge on the destination's side, the arrow turned towards
--- it. dx, dy: from the screen centre to the game's (clamped) frame.
+-- Near the screen edge on the destination's side, the arrow turned toward
+-- it. dx, dy: from the screen center to the game's (clamped) frame.
 local function PlaceAtEdge(dx, dy)
     if lastDX and math.abs(dx - lastDX) < 0.5 and math.abs(dy - lastDY) < 0.5 then return end
     local len = math.sqrt(dx * dx + dy * dy)
@@ -183,18 +180,29 @@ end
 -- events below.
 local function Refresh()
     if not navFrame then return end
-    -- Hidden once the game says you got there, until you walk back out past
-    -- that distance (coming back in, it says so again).
-    if arrivedAt and C_Navigation.GetDistance() > arrivedAt then arrivedAt = nil end
+    -- Hidden once the game says you got there, until you walk back out a few
+    -- yards past that distance (coming back in, it says so again).
+    if arrivedAt and C_Navigation.GetDistance() > arrivedAt + ARRIVE_MARGIN then arrivedAt = nil end
     -- Only in the state Forever reports, where the game shows no marker.
     local show = not arrivedAt and C_Navigation.HasValidScreenPosition()
         and C_Navigation.GetTargetState() == NS.Invalid
+    local edge, nx, ny, scale
+    if show then
+        edge = C_Navigation.WasClampedToScreen()
+        if edge then
+            -- The edge spot comes from the game's frame's geometry, which its
+            -- anchoring can make secret: no math on it, the marker waits hidden
+            -- until a pass can read it.
+            nx, ny = navFrame:GetCenter()
+            scale = navFrame:GetEffectiveScale()
+            if IsSecret(nx) or IsSecret(ny) or IsSecret(scale) then show = false end
+        end
+    end
     if show ~= shown then
         shown = show
         marker:SetShown(show)
     end
     if not show then return end
-    local edge = C_Navigation.WasClampedToScreen()
     if edge ~= atEdge then
         atEdge = edge
         beam:SetShown(not edge)
@@ -212,10 +220,9 @@ local function Refresh()
     end
     if edge then
         -- The game's frame lives at WorldFrame's scale, the marker at UIParent's.
-        local nx, ny = navFrame:GetCenter()
         local cx, cy = UIParent:GetCenter()
         if nx then
-            local s = navFrame:GetEffectiveScale() / UIParent:GetEffectiveScale()
+            local s = scale / UIParent:GetEffectiveScale()
             PlaceAtEdge(nx * s - cx, ny * s - cy)
         end
     else
@@ -224,7 +231,9 @@ local function Refresh()
 end
 
 local function BeamPart(layer, width, height, anchor)
-    local t = Smooth(marker:CreateTexture(nil, layer))
+    -- Off the pixel grid like every texture (the parent's image-setter hook),
+    -- so the marker glides with the game's frame.
+    local t = marker:CreateTexture(nil, layer)
     t:SetColorTexture(1, 1, 1, 1)
     t:SetBlendMode("ADD")
     t:SetSize(width, height)
@@ -240,17 +249,17 @@ local function Build()
     marker:SetSize(1, 1)
     marker:Hide()
 
-    icon = Smooth(marker:CreateTexture(nil, "ARTWORK"))
+    icon = marker:CreateTexture(nil, "ARTWORK")
     icon:SetPoint("CENTER")
 
     -- The beam: a thin core in a wider glow, both fading in just above the
-    -- icon and out towards the top.
+    -- icon and out toward the top.
     glowBase = BeamPart("BACKGROUND", 14, BEAM_BASE, icon)
     glow = BeamPart("BACKGROUND", 14, BEAM_HEIGHT - BEAM_BASE, glowBase)
     beamBase = BeamPart("BORDER", 3, BEAM_BASE, icon)
     beam = BeamPart("BORDER", 3, BEAM_HEIGHT - BEAM_BASE, beamBase)
 
-    arrow = Smooth(marker:CreateTexture(nil, "ARTWORK"))
+    arrow = marker:CreateTexture(nil, "ARTWORK")
     arrow:SetAtlas("Navigation-Tracked-Arrow", true)   -- points up unrotated
     arrow:SetDesaturated(true)
     arrow:Hide()

@@ -137,7 +137,7 @@ local function TBBUsesVisCondition(cfg)
     return false
 end
 
--- Name, icon, auto fill colour and stacks on a mirrored bar change only when
+-- Name, icon, auto fill color and stacks on a mirrored bar change only when
 -- Blizzard refreshes the bound frame's data: on player and target aura events
 -- and target changes (the wake frame counts both), a new binding or slot, and
 -- the active edge. So the tick re-reads them on those edges, once more on the
@@ -355,7 +355,7 @@ function ns.UpdateTrackedBuffBarTimers()
                 local wasShown = bar:IsShown()
                 if not wasShown then bar:Show() end
                 local sb = bar._bar
-                -- Name, icon, auto fill colour and stacks: on edges only (TBBContentDue).
+                -- Name, icon, auto fill color and stacks: on edges only (TBBContentDue).
                 local content = TBBContentDue(bar, blzChild, cfg, wasShown, now)
 
                 -- Stacks (gated)

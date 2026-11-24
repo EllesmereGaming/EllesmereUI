@@ -7,7 +7,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Does NOT parse secret values works around restricted APIs.
 -------------------------------------------------------------------------------
 local _, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer and EllesmereUI._Pool and EllesmereUI.NewFrameData and EllesmereUI.TalentConditionsHold and EllesmereUI.CharData and EllesmereUI.CharEntry and EllesmereUI.IsSecret and EllesmereUI.PlainString and EllesmereUI.ForeverNextSwingOf and EllesmereUI.ForeverNextSwingNames and EllesmereUI.StampSpecProfile) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the loot roll placement uses the parent's frame placer, the hooks file its frame-data constructor, Talent Conditions the parent's talent check; its per-character data is in the parent's roster: CharData, CharEntry; Buff Stacks and the aura icon files read the parent's secret test, IsSecret; the WoW Forever swing readers its PlainString and its attack lookup, ForeverNextSwingOf and ForeverNextSwingNames; a spec's new spell data takes the parent's migration flags, StampSpecProfile)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer and EllesmereUI._Pool and EllesmereUI.NewFrameData and EllesmereUI.TalentConditionsHold and EllesmereUI.CharData and EllesmereUI.CharEntry and EllesmereUI.IsSecret and EllesmereUI.PlainString and EllesmereUI.ForeverNextSwingOf and EllesmereUI.ForeverNextSwingNames and EllesmereUI.StampSpecProfile and EllesmereUI.MaskRoundedIconLayer) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the loot roll placement uses the parent's frame placer, the hooks file its frame-data constructor, Talent Conditions the parent's talent check; its per-character data is in the parent's roster: CharData, CharEntry; Buff Stacks and the aura icon files read the parent's secret test, IsSecret; the WoW Forever swing readers its PlainString and its attack lookup, ForeverNextSwingOf and ForeverNextSwingNames; a spec's new spell data takes the parent's migration flags, StampSpecProfile; rounded icons and Tracking Bars use its aura corner kit, MaskRoundedIconLayer and the calls that came with it)
 EllesmereUI._ModuleNS["EllesmereUICooldownManager"] = ns  -- LOD options files read this module ns via the registry
 
 -- CPU-attribution shell pool: the engine bills a handler's call tree to the addon
@@ -191,7 +191,6 @@ do
     -- Icon height as a fraction of width.
     function ns.CdmCropFactor(bd) return 1 - 2 * (CropPercent(bd) / 100) end
     -- Vertical texcoord trim per side, added on top of the bar's zoom.
-    function ns.CdmCropTrim(bd) return CropPercent(bd) / 100 end
 end
 
 -- Keybind cache: built once out-of-combat, looked up per tick

@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: EllesmereUI settings panel. Loads on demand when you open EllesmereUI options.
 ## Author: Ellesmere
-## Version: 9.9.2
+## Version: 9.9.3
 ## Dependencies: EllesmereUI
 ## LoadOnDemand: 1
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -45,6 +45,7 @@ ActionBars_Options\BarVisibilityLayout_Options.lua
 ActionBars_Options\LivePreview_Options.lua
 ActionBars_Options\XPBarPage_Options.lua
 ActionBars_Options\MenuBagsRepPage_Options.lua
+ActionBars_Options\BarSpells_Options.lua
 EUI_ActionBars_Options.lua
 EUI_AuraBuffReminders_Loadouts_Options.lua
 EUI_AuraBuffReminders_Options.lua

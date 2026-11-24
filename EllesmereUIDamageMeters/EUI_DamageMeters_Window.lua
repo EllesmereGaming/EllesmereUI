@@ -1467,8 +1467,13 @@ local function CreateDMWindow(winIdx)
         W.resizing = false; resizeFrame:Hide()
         wdb.width = math.floor(frame:GetWidth() + 0.5); wdb.height = math.floor(frame:GetHeight() + 0.5)
         -- Resize pins the TOPLEFT corner, so a point-based position from unlock mode (e.g.
-        -- CENTER-anchored) no longer describes this spot; re-save in TOPLEFT drag format to match
-        if wdb.position and wdb.position.point then
+        -- CENTER-anchored) no longer describes this spot; re-save in TOPLEFT drag format to match.
+        -- A window with no saved spot sits at ApplyWinPosition's default, which is worked out from
+        -- its size: it saves the pinned TOPLEFT too, or the next apply (a /reload) would move it.
+        -- An unlock-anchored window keeps its anchor.
+        local pos = wdb.position
+        if (pos and pos.point)
+            or (not pos and not (EUI.IsUnlockAnchored and EUI.IsUnlockAnchored("EDM_Win" .. W.idx))) then
             local left, top = frame:GetLeft(), frame:GetTop()
             if left and top then wdb.position = { x = left, y = top } end
         end
@@ -1641,7 +1646,7 @@ local function CreateDMWindow(winIdx)
             bar.fill:SetAlpha(c.barFillAlpha or 1)
             SetDMFont(bar.pos, leftFS); SetDMFont(bar.label, leftFS); SetDMFont(bar.amount, rightFS)
             bar.label:SetWidth(math.max(20, (frame:GetWidth() or 200) * 0.60))
-            W._stickyClassCache = false; W._stickySpecCache = nil  -- false: never a classFilename, forces the icon/colour pass
+            W._stickyClassCache = false; W._stickySpecCache = nil  -- false: never a classFilename, forces the icon/color pass
         end
         bar.row:Show()
         -- Icon + color: only when class changes
@@ -1747,7 +1752,7 @@ local function CreateDMWindow(winIdx)
             local labelMaxW = math.max(20, rowWidth * 0.60)
             local isDeaths = (W.curDMType == Enum.DamageMeterType.Deaths)
             local isCount = (W.curDMType == Enum.DamageMeterType.Interrupts or W.curDMType == Enum.DamageMeterType.Dispels)
-            -- WoW Forever's Threat rows carry their rank, value text and highlight colour.
+            -- WoW Forever's Threat rows carry their rank, value text and highlight color.
             local isThreat = (W.curDMType == "threat")
             -- Deaths: reverse to chronological (API returns most recent first) and filter feign
             -- deaths; CleanupFeignCache runs first so real deaths after Feign Death aren't hidden by the cached spell 5384 GUID
@@ -1865,7 +1870,7 @@ local function CreateDMWindow(winIdx)
                         end
 
                         -- Color (a Threat row's highlight wins; false makes the
-                        -- next plain row repaint its own colour, which drops the
+                        -- next plain row repaint its own color, which drops the
                         -- highlight memo)
                         local threatColor = isThreat and src.threatColor
                         if threatColor then
@@ -2324,7 +2329,7 @@ local function CreateDMWindow(winIdx)
                 SetDMFont(bar.label, leftFS); SetDMFont(bar.amount, rightFS)
                 local spellName
                 if spell.spellID then local okS, sn = pcall(function() return C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spell.spellID) end); spellName = (okS and sn) or nil end
-                bar.label:SetText(I.SpellEntryLabel(spellName, spell.creatureName) or L("Unknown"))
+                bar.label:SetText(ns._SpellEntryLabel(spellName, spell.creatureName) or L("Unknown"))
                 if canPercent and totalDmg > 0 then
                     bar.amount:SetText(format("%s  %.1f%%", AbbrevNumber(entry.amount), (entry.amount / totalDmg) * 100))
                 else
@@ -2944,7 +2949,7 @@ local function CreateDMWindow(winIdx)
         SetDMFont(W.timerText, titleFS)
         W.timerText:SetText("(0:00)")
         W.timerText:SetShown(not wdb.hideTimer)
-        -- Header buttons: size, glyph colour, meter type icon, close icon, lock state
+        -- Header buttons: size, glyph color, meter type icon, close icon, lock state
         local sz = ns.DMHdrIconSize(c)
         local ir, ig, ib = GetIconColor()
         for _, btn in ipairs(W.hdrBtns) do btn:SetSize(sz, sz) end

@@ -69,9 +69,9 @@ local function ColorSides(frame, cols)
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
     local c = PP and PP.GetBorders(frame)
     if not c then return end
-    -- Drop the ring's single stored colour: every re-snap (its own first
+    -- Drop the ring's single stored color: every re-snap (its own first
     -- frames, each loading screen and UI-scale change) repaints all four
-    -- strips from it, which would flatten these per-side colours to black.
+    -- strips from it, which would flatten these per-side colors to black.
     c._bdColor = nil
     local t, b, l, r = cols.top, cols.bottom, cols.left, cols.right
     if c._top then c._top:SetVertexColor(t[1], t[2], t[3], 1) end
@@ -209,9 +209,9 @@ function ns.RF_StockTarget(st, on)
     tex:SetShown(on)
 end
 
--- The stock aggro rim in the stock threat colour; `status` nil hides it.
--- Memoised on the status. Blizzard Style takes 12.1's own two colours
--- (gaining / high threat); Classic the pre-10.0 status colours.
+-- The stock aggro rim in the stock threat color; `status` nil hides it.
+-- Memoised on the status. Blizzard Style takes 12.1's own two colors
+-- (gaining / high threat); Classic the pre-10.0 status colors.
 function ns.RF_StockAggro(st, status)
     if not st.stockHl then return end
     if st._stAgg == status then return end
@@ -224,7 +224,7 @@ function ns.RF_StockAggro(st, status)
     end
     if status then
         local r, g, b
-        -- The stock party frame (the Party Frames kit's Flash) colours its
+        -- The stock party frame (the Party Frames kit's Flash) colors its
         -- aggro by threat status too.
         if (ns.RF_Classic() or st.kit) and GetThreatStatusColor then
             r, g, b = GetThreatStatusColor(status)
@@ -245,9 +245,9 @@ function ns.RF_StockAggro(st, status)
     end
 end
 
--- State recolour under a stock style: the stock ring for the target, and the
+-- State recolor under a stock style: the stock ring for the target, and the
 -- EllesmereUI hover border (stock has no hover) drawn solid in the user's
--- hover colour on the stood-down border frame `bf`. Its exact size counts only
+-- hover color on the stood-down border frame `bf`. Its exact size counts only
 -- while it was set against Solid (the texture drawn here).
 local SOLID_S = { borderTexture = "solid" }
 function ns.RF_StockHighlight(st, bf, s, hover, target)
@@ -367,7 +367,7 @@ ns.RF_KITS = {
         auraRow  = { x = 48, y = -29 },
     },
 }
--- The kit's target glow: the stock selection colour (not a user setting,
+-- The kit's target glow: the stock selection color (not a user setting,
 -- as the stock raid ring under Phase 1).
 local KIT_SEL_R, KIT_SEL_G, KIT_SEL_B = 1, 0.973, 0.678   -- #FFF8AD
 -- Defaults (user 2026-09-22): Frame Scale 120% (nil = this), and the gap
@@ -443,7 +443,7 @@ end
 -- Anchor To). Beside the frame the icons run along its top edge and the
 -- squares along its bottom edge; above it the icons run right from its
 -- left end and the squares left from its right end.
--- Fixed-slot indicators (per-spell cells that never compact: mixed-colour
+-- Fixed-slot indicators (per-spell cells that never compact: mixed-color
 -- squares) go end to end at the start of their run and the compacting run
 -- starts after them, so nothing shares a cell. Bars and effects keep the
 -- user's placement. A VIEW over the live indicator tables: each proxy reads
@@ -1033,7 +1033,7 @@ function ns.RF_KitPreviewPortrait(f, classToken, isPlayer, offline)
 end
 
 -- Hover and target: the art-tracing glow (stock has neither), hover in the
--- user's hover colour, target in the stock selection colour; target draws
+-- user's hover color, target in the stock selection color; target draws
 -- over hover. The stood-down border frame stays clear.
 function ns.RF_KitHighlight(st, bf, s, hover, target)
     local hov, sel = st._kitHov, st._kitSel

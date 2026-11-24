@@ -1777,7 +1777,7 @@ end
 -- The cast-lockout icon is hand-built outside AuraKit, so Custom Border on Aura Icons
 -- reaches it through its own child frame (the icon inset drops to 0 while that draws);
 -- off, the plain 1px edge. Runs on every lockout show, so the restyle is
--- skipped while its inputs (shown state, level, texture, size step, exact px, colour,
+-- skipped while its inputs (shown state, level, texture, size step, exact px, color,
 -- alpha, offsets, shifts) are unchanged; the child turns off through
 -- ApplyBorderStyle(frame, 0) so the UI scale re-apply cannot bring it back.
 local function NPLockoutBorder(f)
@@ -2162,7 +2162,7 @@ local function StyleFPFor(kind, idx)
     -- Custom Border on Aura Icons: every input of NPCustomIconBorder, folded in only
     -- while it is on (a constant "-" otherwise, so a border edit never restyles default
     -- users' icons): the toggle and Border = Custom (the gate), texture, size step, the
-    -- exact-size value, colour, alpha, both offsets and both shifts. Colour and alpha go
+    -- exact-size value, color, alpha, both offsets and both shifts. Color and alpha go
     -- in as exact strings, not FP's two-decimal numbers.
     local cbFP = "-"
     if NPIconCustomBorderOn() then
@@ -2295,8 +2295,8 @@ local function QueueBundleEnsure(b)
 end
 
 -- Class mode on an aura glow (Dispel or Pandemic) that takes a color: the style
--- prints hold the palette colour, kept here for the colours-changed hook below
--- NPC_ReloadAll. Any other state clears it, so later colour edits never reload.
+-- prints hold the palette color, kept here for the colors-changed hook below
+-- NPC_ReloadAll. Any other state clears it, so later color edits never reload.
 function NPB.SnapClassColor()
     local PB = EllesmereUI.Glows.PANDEMIC_BORDER
     local class = (PurgeGlowActive() and PVal("dispelGlowColorMode") == "class"
@@ -2425,7 +2425,7 @@ end
 
 -- Colors page edits (swatches, darken, resets, profile switches) all end in
 -- ApplyColorsToOUF. Once a Class-mode aura glow was printed, a changed class
--- colour re-runs the reload; the glow prints carry the colour, so only the
+-- color re-runs the reload; the glow prints carry the color, so only the
 -- glow styles restyle. Calls in one frame (a profile switch can make two)
 -- collapse into one check on the next frame: the flush frame stays hidden
 -- until a call and hides itself before working.

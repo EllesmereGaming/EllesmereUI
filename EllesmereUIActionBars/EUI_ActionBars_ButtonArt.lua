@@ -798,7 +798,9 @@ local function ApplyShapeToButton(btn, shape, brdOn, brdR, brdG, brdB, brdA, brd
             icon:SetAllPoints(btn)
             if shape == "cropped" then
                 local z = (zoom or 0)
-                icon:SetTexCoord(z, 1 - z, z + 0.10, 1 - z - 0.10)
+                -- 80% as tall as wide: only the top and bottom are cut, so the art keeps its
+                -- proportions (the middle 80% of the zoomed span).
+                icon:SetTexCoord(z, 1 - z, 0.1 + 0.8 * z, 0.9 - 0.8 * z)
                 fd.cropped = true
             else
                 fd.cropped = false
