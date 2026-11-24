@@ -791,15 +791,22 @@ local function CreateHeader()
     -- MultiBag sort defers to Blizzard's native sort (insecure-callable, no taint; BAG_UPDATE
     -- storm drives our refresh). Sort to Bottom rides their fill direction (right-to-left = start
     -- at backpack = our top), floating free slots to our top. Real Blizzard CVar (also drives their Clean Up); set only while the option is on, re-asserted each sort.
+    -- Hold on: a held window repaints without gaps; each click's timer ends its sort (clicks overlap)
+    local function BlizzSortDone()
+        UnlockSort()
+        ns.Hold.EndSort("bags")
+    end
     local function DoBlizzardSort()
         if InCombatLockdown() then return end
         PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
         LockSort()
+        local hold = ns.Hold.On("bags")
+        if hold and ns.Hold.BeginSort("bags") then EUI_Bags:RefreshInventory() end
         if BP().bagSortToBottom and C_Container.SetSortBagsRightToLeft then
             C_Container.SetSortBagsRightToLeft(false)
         end
         C_Container.SortBags()
-        C_Timer.After(3, UnlockSort)
+        C_Timer.After(3, hold and BlizzSortDone or UnlockSort)
     end
 
     sort:SetScript("OnClick", function()
