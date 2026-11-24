@@ -113,7 +113,34 @@ local EXTRA_DRAG_TARGETS = {
     ["ContainerFrameCombinedBags"] = function(frame) return frame.TitleContainer or _G["ContainerFrameCombinedBags"] end,
     -- WoW Forever's group finder: each tab is a full window laid over the parent
     ["LFGParentFrame"] = { "LFGBrowseFrame", "LFGListingFrame", "LFGWhoListFrame" },
+    -- WoW Forever's keyring (below): the bag window's title bar
+    ["Keyring"] = function(frame) return frame.TitleContainer end,
 }
+
+-- WoW Forever's keyring opens in one of Blizzard's pooled bag windows
+-- (ContainerFrame1..N, whichever is free), so those windows are hooked under
+-- the one name "Keyring". Each hook acts only while its window shows the
+-- keyring and no visible bag window comes after it: Blizzard stacks the shown
+-- bags in window-number order, each on the one before, and moving the keyring
+-- would carry the bags after it along. Read from that order, not from the
+-- anchors, which Blizzard is rewriting while our hooks run. Bags kept shown
+-- but out of sight (EUI Bags parks Blizzard's) do not count.
+local KEYRING = EllesmereUI.IS_FOREVER and Enum.BagIndex and Enum.BagIndex.Keyring or nil
+local KEYRING_NAME = "Keyring"
+
+local function HoldsKeyring(frame)
+    if not (frame:IsShown() and frame.MatchesBagID and frame:MatchesBagID(KEYRING)) then return false end
+    local n = tonumber((frame:GetName() or ""):match("(%d+)$"))
+    if not n then return false end
+    for i = n + 1, NUM_CONTAINER_FRAMES or 0 do
+        local other = _G["ContainerFrame" .. i]
+        if other and other:IsVisible() then return false end
+    end
+    return true
+end
+
+-- Windows hooked under a name that is theirs only at times: name -> test.
+local GATES = { [KEYRING_NAME] = HoldsKeyring }
 
 -- Blizzard windows that normally dock beside CharacterFrame (Item Upgrade, Transmog,
 -- Item Socketing, Merchant -- covers vendors like the Crest Exchange -- plus Friends,
@@ -253,6 +280,55 @@ local function PointFrac(p)
     return x, y
 end
 
+-- A window kept shown but anchored fully off screen, or shrunk below any
+-- Shifter zoom (SCALE_MIN), is hidden on purpose by other code: leave it be.
+local PARK_LIMIT = 10000
+local HIDDEN_SCALE = 0.05
+
+local function IsParked(frame)
+    local p, rel, rp, x, y = frame:GetPoint(1)
+    -- All five returns read secret while the frame's anchoring is: the offsets
+    -- are tested before anything else is.
+    if type(x) ~= "number" or type(y) ~= "number" then return false end
+    if issecretvalue(x) or issecretvalue(y) or not p then return false end
+    if x >= PARK_LIMIT or x <= -PARK_LIMIT or y >= PARK_LIMIT or y <= -PARK_LIMIT then
+        return true
+    end
+    -- Only a UIParent anchor maps to a screen position without a layout walk.
+    if rel == nil then rel = frame:GetParent() end
+    if rel ~= UIParent then return false end
+    local es, ues = frame:GetEffectiveScale() or 1, UIParent:GetEffectiveScale() or 1
+    local sw, sh = (UIParent:GetWidth() or 0) * ues, (UIParent:GetHeight() or 0) * ues
+    if sw <= 0 or sh <= 0 then return false end
+    local w, h = (frame:GetWidth() or 0) * es, (frame:GetHeight() or 0) * es
+    -- A window with no size yet has no rect to lie off screen.
+    if w <= 0 or h <= 0 then return false end
+    local rx, ry = PointFrac(rp or p)
+    local px, py = PointFrac(p)
+    local left = rx * sw + x * es - px * w
+    local bottom = ry * sh + y * es - py * h
+    return left >= sw or left + w <= 0 or bottom >= sh or bottom + h <= 0
+end
+
+local function IsHiddenByScale(frame)
+    local s = frame:GetScale()
+    return type(s) == "number" and s < HIDDEN_SCALE
+end
+
+-- Tracks park edges (a foreign SetPoint, each show) and drops our screen clamp
+-- while parked (it would pull the window back). Returns parked, justReturned.
+local function SyncParkState(frame)
+    local ffd = GetFFD(frame)
+    local parked = IsParked(frame)
+    local was = ffd._shParked or false
+    if parked == was then return parked, false end
+    ffd._shParked = parked
+    if not Secured(frame) and not ffd._shGated then
+        frame:SetClampedToScreen(not parked)
+    end
+    return parked, not parked
+end
+
 -- Whether a window placed at its saved position would overlap CharacterFrame
 -- (screen-absolute units, so Shifter scaling on either frame is accounted for).
 local function SavedPosOverlaps(frame, pos, cf)
@@ -279,6 +355,7 @@ end
 
 local function ApplyPosition(frame, name)
     if InCombatLockdown() and Secured(frame) then return end
+    if GetFFD(frame)._shParked then return end
     local pos = tempPos[frame] or GetSavedPos(name)
     if not pos or not pos.point then return end
     local ffd = GetFFD(frame)
@@ -288,6 +365,14 @@ local function ApplyPosition(frame, name)
     else
         frame:ClearAllPoints()
         frame:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
+        ffd._shIgnoreSP = false
+        -- Other code that parks the window from its own SetPoint hook did so
+        -- inside ours, unseen: an anchor that is no longer ours is read (our
+        -- own spot, even off screen, stays clamped).
+        local p, _, rp, x, y = frame:GetPoint(1)
+        if p ~= pos.point or rp ~= pos.relPoint or x ~= pos.x or y ~= pos.y then
+            SyncParkState(frame)
+        end
     end
     ffd._shIgnoreSP = false
 end
@@ -334,6 +419,7 @@ end
 local function ApplyScale(frame, name)
     if InCombatLockdown() and Secured(frame) then return end
     local ffd = GetFFD(frame)
+    if ffd._shParked or IsHiddenByScale(frame) then return end
     local target = tempScale[frame] or GetSavedScale(name)
     if target then
         if ffd._shOrigScale == nil then ffd._shOrigScale = frame:GetScale() end
@@ -442,7 +528,7 @@ local WheelArm = { shown = 0 }
 local function FindWheelTarget()
     for i = 1, #hookedFrames do
         local e = hookedFrames[i]
-        if e.frame:IsVisible() and e.frame:IsMouseOver() then
+        if e.frame:IsVisible() and e.frame:IsMouseOver() and not (e.gate and not e.gate(e.frame)) then
             return e.frame, e.name
         end
     end
@@ -611,7 +697,10 @@ local function HookFrame(frame, name)
     local ffd = GetFFD(frame)
     if ffd._shHooked then return end
     ffd._shHooked = true
-    hookedFrames[#hookedFrames + 1] = { frame = frame, name = name }
+    -- A gated window (GATES) is Shifter's only while its test passes.
+    local gate = GATES[name]
+    local function Off() return gate ~= nil and not gate(frame) end
+    hookedFrames[#hookedFrames + 1] = { frame = frame, name = name, gate = gate }
 
     if SECURE_PATH[name] then ffd._shSecure = true end
     -- Lifted over a moved CharacterFrame by strata and Raise, or by Raise alone (NO_STRATA_LIFT).
@@ -621,18 +710,49 @@ local function HookFrame(frame, name)
     -- are all top-level closable panels, so OnShow/OnHide track exactly the
     -- IsVisible state FindWheelTarget tests. A frame hooked while already
     -- open (LoD addon load, /reload with the map up) counts immediately.
-    frame:HookScript("OnShow", function() WheelArm.Note(1) end)
-    frame:HookScript("OnHide", function() WheelArm.Note(-1) end)
-    if frame:IsShown() then WheelArm.Note(1) end
+    -- A gated window counts only while it is Shifter's (an ordinary bag
+    -- does not arm the wheel): from its show, or from the SetPoint that
+    -- places it once the bag after it closes; it comes off as it hides.
+    local Count
+    if gate then
+        Count = function()
+            if not ffd._shCounted and gate(frame) then
+                ffd._shCounted = true
+                WheelArm.Note(1)
+            end
+        end
+        frame:HookScript("OnShow", Count)
+        frame:HookScript("OnHide", function()
+            if ffd._shCounted then
+                ffd._shCounted = nil
+                WheelArm.Note(-1)
+            end
+        end)
+        if frame:IsShown() then Count() end
+    else
+        frame:HookScript("OnShow", function() WheelArm.Note(1) end)
+        frame:HookScript("OnHide", function() WheelArm.Note(-1) end)
+        if frame:IsShown() then WheelArm.Note(1) end
+    end
 
     -- Non-protected frames use the cheap native StartMoving path. Protected frames
     -- (and SECURE_PATH windows) are NEVER made movable / SetMovable'd / StartMoving'd /
     -- SetPoint'd by insecure code (it taints them); they drag via the secure
     -- cursor-delta path above. SetMovable is only needed for StartMoving, so they
     -- skip it entirely.
+    ffd._shParked = IsParked(frame)
+    -- A gated window also shows Blizzard's other bags: it keeps its own clamp
+    -- (here, in SyncParkState, InitShifter and _ShutdownShifter).
+    ffd._shGated = gate ~= nil
     if not Secured(frame) then
         frame:SetMovable(true)
-        frame:SetClampedToScreen(true)
+        if not gate then
+            -- The clamp the window had before us, handed back while Shifter is off
+            -- (_ShutdownShifter). No clamp on a parked window: it would pull it
+            -- back into view.
+            ffd._shClampWas = frame:IsClampedToScreen() and true or false
+            frame:SetClampedToScreen(not ffd._shParked)
+        end
     end
 
     local dragging  -- non-protected only: "save" | "temp" | nil
@@ -642,6 +762,7 @@ local function HookFrame(frame, name)
         dragTarget:HookScript("OnMouseDown", function(_, button)
             if not IsEnabled() then return end
             if button ~= "LeftButton" then return end
+            if Off() then return end
             if InCombatLockdown() and Secured(frame) then return end
             local noShift = EllesmereUIDB and EllesmereUIDB.shifterNoShift
             local mode
@@ -701,6 +822,10 @@ local function HookFrame(frame, name)
 
     frame:HookScript("OnShow", function()
         if not IsEnabled() then return end
+        if Off() then return end
+        -- A window parked or brought back by anything but a SetPoint (all
+        -- points, a size, a new UI scale) reads right from here on.
+        SyncParkState(frame)
         -- Scale first: stored position offsets are frame-local units, so the
         -- pin only lands right once the final scale is in effect.
         ApplyScale(frame, name)
@@ -734,6 +859,7 @@ local function HookFrame(frame, name)
             -- through the SecureSetPoint branch below; their strata/Raise
             -- touches are skipped in the OnShow/OnHide hooks (insecure writes
             -- taint a protected tree -- the PVEFrame SetMovable incident).
+            if ffd._shParked then return false end
             local cf = _G.CharacterFrame
             if not (cf and cf:IsShown() and (tempPos[cf] or GetSavedPos("CharacterFrame"))) then return false end
             local own = tempPos[frame] or GetSavedPos(name)
@@ -828,14 +954,21 @@ local function HookFrame(frame, name)
         -- Blizzard strata, possibly buried but never tainted.
         local defaultStrata = frame:GetFrameStrata()
         frame:HookScript("OnHide", function()
+            -- A gated window is handed back only after a lift of ours, so an
+            -- ordinary bag's close writes nothing.
+            if gate and not ffd._shLifted then return end
+            ffd._shLifted = nil
             if liftStrata and not Secured(frame) then frame:SetFrameStrata(defaultStrata) end
         end)
         frame:HookScript("OnShow", function()
             if not IsEnabled() then return end
-            if Secured(frame) then return end
+            if Secured(frame) or ffd._shParked or Off() then return end
             local cf = _G.CharacterFrame
             if cf and cf:IsShown() and (tempPos[cf] or GetSavedPos("CharacterFrame")) then
-                if liftStrata then frame:SetFrameStrata("DIALOG") end
+                if liftStrata then
+                    frame:SetFrameStrata("DIALOG")
+                    ffd._shLifted = true
+                end
                 frame:Raise()
             end
         end)
@@ -844,8 +977,14 @@ local function HookFrame(frame, name)
     hooksecurefunc(frame, "SetPoint", function()
         if not IsEnabled() then return end
         if ffd._shIgnoreSP then return end
+        if Off() then return end
+        if Count then Count() end
+        local parked, returned = SyncParkState(frame)
+        if parked then return end
         if secureDrag.frame == frame then return end  -- don't fight an active drag
         if InCombatLockdown() and Secured(frame) then return end
+        -- Back on screen: scale was left alone while parked, restore it first.
+        if returned then ApplyScale(frame, name) end
         if DockToCharacterFrame and ShouldDock() then
             DockToCharacterFrame()
             return
@@ -863,6 +1002,7 @@ local function HookFrame(frame, name)
     hooksecurefunc(frame, "SetScale", function()
         if not IsEnabled() then return end
         if ffd._shIgnoreSS then return end
+        if Off() then return end
         if InCombatLockdown() and Secured(frame) then return end
         if tempScale[frame] or GetSavedScale(name) then
             ApplyScale(frame, name)
@@ -870,7 +1010,7 @@ local function HookFrame(frame, name)
     end)
 
     -- If the frame is already visible, apply saved scale + position now
-    if frame:IsVisible() then
+    if frame:IsVisible() and not Off() then
         ApplyScale(frame, name)
         ApplyPosition(frame, name)
     end
@@ -1477,8 +1617,22 @@ local function InitShifter()
     -- forbidden popup then freezes the client). Dragging needs a mouse anyway,
     -- so nothing is hooked while that style is on (false on retail).
     if EllesmereUI.PadGamepadUI() then return end
+    -- A re-enable: windows hooked before (HookFrame skips them) read their park
+    -- state again and take Shifter's clamp back.
+    for i = 1, #hookedFrames do
+        local frame = hookedFrames[i].frame
+        local ffd = GetFFD(frame)
+        ffd._shParked = IsParked(frame)
+        if not Secured(frame) and not ffd._shGated then frame:SetClampedToScreen(not ffd._shParked) end
+    end
     for i = 1, #PRELOADED do
         TryHook(PRELOADED[i])
+    end
+    if KEYRING then
+        for i = 1, NUM_CONTAINER_FRAMES or 0 do
+            local frame = _G["ContainerFrame" .. i]
+            if frame and frame.HookScript then HookFrame(frame, KEYRING_NAME) end
+        end
     end
     for addon, frames in pairs(ADDON_FRAMES) do
         if C_AddOns.IsAddOnLoaded(addon) then
@@ -1529,12 +1683,18 @@ function EllesmereUI._InitShifter()
 end
 
 -- Exposed for the options toggle (mid-session disable). Stops the modifier
--- key listener and parks the wheel overlay; re-enable re-runs InitShifter,
--- which registers the event again. Frame hooks are irreversible and stay
--- installed, but every hook body bails first-line while disabled.
+-- key listener, parks the wheel overlay and hands each window back the screen
+-- clamp it had before it was hooked; re-enable re-runs InitShifter, which
+-- registers the event again and clamps again. Frame hooks are irreversible and
+-- stay installed, but every hook body bails first-line while disabled.
 function EllesmereUI._ShutdownShifter()
     eventFrame:UnregisterEvent("MODIFIER_STATE_CHANGED")
     UpdateWheelOverlay()
+    for i = 1, #hookedFrames do
+        local frame = hookedFrames[i].frame
+        local was = GetFFD(frame)._shClampWas
+        if was ~= nil and not Secured(frame) then frame:SetClampedToScreen(was) end
+    end
 end
 
 -- Exposed for the options reset button (positions AND zoom)

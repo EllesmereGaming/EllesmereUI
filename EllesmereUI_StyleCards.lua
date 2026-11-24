@@ -21,7 +21,7 @@ local GOLD_R, GOLD_G, GOLD_B = 1.0, 0.80, 0.18
 local BRONZE_R, BRONZE_G, BRONZE_B = 0.86, 0.65, 0.42
 local FOREVER_R, FOREVER_G, FOREVER_B = 0.47, 0.75, 0.95
 -- The EllesmereUI card and its mock keep the stock #0CD29D teal (the
--- EllesmereUI theme preset) on every client, whatever accent colour the user
+-- EllesmereUI theme preset) on every client, whatever accent color the user
 -- has picked.
 local EUI_TEAL = EllesmereUI.THEME_PRESETS["EllesmereUI"]
 local IS_FOREVER = EllesmereUI.IS_FOREVER == true
@@ -339,7 +339,7 @@ end
 --  EllesmereUI.STYLE_CARDS_W wide), centred on parent's centre line, their
 --  tops topY below parent's TOP. Each card is one click target: the whole
 --  card and its button pick that style, and hover lights the card in its own
---  colour. opts:
+--  color. opts:
 --    onPick(styleKey)  called on a pick ("eui" | "blizzard" | "classic",
 --                      or "forever" on the WoW Forever client)
 --    buttonText        a string for every card, or a table keyed by style
@@ -408,7 +408,7 @@ function EllesmereUI.BuildStyleCards(parent, topY, opts)
         card:SetFrameLevel(parent:GetFrameLevel() + 1)
         PP.Size(card, CARD_W, display and DISPLAY_CARD_H or CARD_H)
         PP.Point(card, "TOP", parent, "TOP", (index - mid) * (CARD_W + CARD_GAP), topY)
-        -- Accent band along the top edge: the colour is the first indicator.
+        -- Accent band along the top edge: the color is the first indicator.
         local brd = EllesmereUI.MakeRoundedCard(card, 0.14, 1, 3, 0.103, 0.095, 0.088)
         brd.accent:SetColorTexture(accentR, accentG, accentB, 0.9)
 

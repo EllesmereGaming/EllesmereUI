@@ -111,6 +111,50 @@ function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
     local ghostList = ghostSd and ghostSd.assignedSpells
     local FindVar = ns.FindVariantIndexInList
 
+    -- A slot can show another spell than its own (the active seal in WoW
+    -- Forever's Seals slot, Wither in an Immolate slot): it is placed when its
+    -- OWN spell (cooldownInfo.spellID, the frame cache's baseSpellID) is on a
+    -- bar, the rule of the import hide pass (ns.MigrateSpecToBarFilterModelV6).
+    -- Returns this bar's index of the own spell, true for another bar or the
+    -- hidden list, nil when no bar lists it or the frame shows its own spell.
+    -- The rank keys of the other bars' spells (WoW Forever, typed custom IDs
+    -- aside) are read on the first slot that needs them.
+    local ownerNames
+    local function OwnPlacement(fc, sid, list)
+        local own = fc and not fc.replacesCd and fc.baseSpellID
+        if type(own) ~= "number" or (issecretvalue and issecretvalue(own)) or own <= 0
+           or own == sid then
+            return nil
+        end
+        local at = FindVar and FindVar(list, own)
+        if at then return at end
+        if ownerOf and ns.ResolveVariantValue and ns.ResolveVariantValue(ownerOf, own) then return true end
+        local RankName = ns.CDMRankName
+        if RankName then
+            if ownerNames == nil then
+                ownerNames = {}
+                local bsAll = aprof and aprof.barSpells
+                if bsAll then
+                    for k, bsd in pairs(bsAll) do
+                        if k ~= GHOST_CD_BAR_KEY
+                           and type(bsd) == "table" and type(bsd.assignedSpells) == "table" then
+                            for _, csid in ipairs(bsd.assignedSpells) do
+                                local n = type(csid) == "number" and csid > 0
+                                    and not (bsd.customSpellIDs and bsd.customSpellIDs[csid])
+                                    and RankName(csid)
+                                if n then ownerNames[n] = true end
+                            end
+                        end
+                    end
+                end
+            end
+            local n = RankName(own)
+            if n and ownerNames[n] then return true end
+        end
+        if ghostList and FindVar and FindVar(ghostList, own) then return true end
+        return nil
+    end
+
     -- Cd-claimed collided-buff slots (cd-claim markers in assignedSpells, see ns.CdClaimMarker)
     -- are tracked by COOLDOWN ID, not by the shared spellID. Materializing such an icon's shared
     -- spellID here would, at the next route rebuild, drag the UNCLAIMED twin onto the claiming bar
@@ -228,9 +272,18 @@ function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
                     if type(sid) == "number" and sid ~= 0 then
                         -- FindVar handles negatives by exact scan internally, and variant matching is a strict superset of exact equality for stored positives -- no exact fallback needed.
                         local at = FindVar and FindVar(sd.assignedSpells, sid)
+                        -- A slot placed by its own spell (OwnPlacement above):
+                        -- its own entry is its slot here; listed elsewhere, nothing is added.
+                        local ownPlaced
+                        if not at and sid > 0 then
+                            ownPlaced = OwnPlacement(fc, sid, sd.assignedSpells)
+                            if type(ownPlaced) == "number" then at = ownPlaced end
+                        end
                         if at then
                             -- Already has a slot (any variant form, or a custom trinket/item marker): advance the cursor so the next NEW spell lands after it, matching on-screen order.
                             insertPos = at
+                        elseif ownPlaced then
+                            -- The slot is listed under its own spell on another bar or hidden.
                         elseif sid > 0 then
                             -- Never materialize a hidden (ghosted) spell, or a spell a DIFFERENT bar already owns (variant-aware).
                             local owner = ownerOf and ns.ResolveVariantValue
@@ -310,6 +363,37 @@ do
         ns._cdmDropPending = true
         ns.CombatQueue.Defer("CDMDropPass", DropPassAfterCombat)
     end
+end
+
+-- Import protection. The profile import writes, per imported spec, the set of
+-- spell IDs its layout places (aprof._importKeep). An entry of that set is
+-- never dropped by the two automatic passes below until Blizzard tracks it:
+-- a layout imported before its Blizzard layout is picked keeps its spells,
+-- and once Blizzard tracks a spell the normal rules judge it again. An entry
+-- is matched by its base spell on both sides (the options normalize pass
+-- rewrites stored entries to their base) and, on WoW Forever, by rank name.
+-- Both functions walk the small set, and only for an entry about to be
+-- dropped or just seen tracked; a spec with no set costs one table read.
+local function ImportKeepKey(keep, id)
+    if keep[id] then return id end
+    local NormalizeToBase, RankName = ns.NormalizeToBase, ns.CDMRankName
+    local nb = NormalizeToBase(id)
+    local rn = RankName and RankName(id)
+    for k in pairs(keep) do
+        if k == nb or NormalizeToBase(k) == nb then return k end
+        if rn and RankName(k) == rn then return k end
+    end
+    return nil
+end
+
+-- Blizzard tracks the entry: its protection ends (every key that names it).
+local function ImportKeepRelease(aprof, keep, id)
+    local k = ImportKeepKey(keep, id)
+    while k do
+        keep[k] = nil
+        k = ImportKeepKey(keep, id)
+    end
+    if not next(keep) then aprof._importKeep = nil end
 end
 
 --- ns.ReconcileAssignedSpellDrops(barKey): single resident implementation of
@@ -538,6 +622,7 @@ function ns.ReconcileAssignedSpellDrops(barKey)
         if defaultHidden == nil then defaultHidden = ns.CDMDefaultHiddenSet() or false end
         return not defaultHidden or ns.CDMIsDefaultHidden(defaultHidden, id)
     end
+    local importKeep = aprof._importKeep
     local writeIdx = 1
     for readIdx = 1, #sd.assignedSpells do
         local id = sd.assignedSpells[readIdx]
@@ -571,8 +656,10 @@ function ns.ReconcileAssignedSpellDrops(barKey)
             local have = IsPlayerSpell and (IsPlayerSpell(id)
                          or IsPlayerSpell(NormalizeToBase(id))
                          or IsPlayerSpell(ResolveToLive(id)))
+            local tracked = false
             if shown then
                 keep = true
+                tracked = true
             elseif catalogSet
                    and (catalogSet[id] or catalogSet[NormalizeToBase(id)]
                         or catalogSet[ResolveToLive(id)]) then
@@ -581,6 +668,7 @@ function ns.ReconcileAssignedSpellDrops(barKey)
                 -- tracked cooldown is a talent override the player dropped.
                 -- Hold rank.
                 keep = true
+                tracked = true
             elseif DefaultHidden(id) then
                 -- WoW Forever: in Not Displayed by Blizzard's default, not by
                 -- the player: it holds its slot until displayed.
@@ -610,6 +698,16 @@ function ns.ReconcileAssignedSpellDrops(barKey)
                 -- rank as the safe fallback so a transient gap never wipes
                 -- an untalented assignment.
                 keep = true
+            end
+            -- An imported layout's spell holds its place until Blizzard
+            -- tracks it (ImportKeepKey above); tracked, it is judged as any
+            -- other from the next pass on.
+            if importKeep then
+                if tracked then
+                    ImportKeepRelease(aprof, importKeep, id)
+                elseif not keep and ImportKeepKey(importKeep, id) then
+                    keep = true
+                end
             end
         elseif sd.nativeItems and sd.nativeItems[id] and ns.IsItemPresetKey(id) then
             -- An entry the reseed listed for Blizzard's own item row: it goes
@@ -1235,7 +1333,13 @@ function ns.ReconcileBuffFamilyDrops(barKey)
                     end
                 end
             end
-            if vouched and not anyPresent and not unseen then
+            -- An imported layout's buff holds its place until Blizzard tracks
+            -- it (ImportKeepKey above).
+            local importKeep = prof._importKeep
+            if importKeep and anyPresent then
+                ImportKeepRelease(prof, importKeep, id)
+            elseif vouched and not anyPresent and not unseen
+                   and not (importKeep and ImportKeepKey(importKeep, id)) then
                 keep = false
                 dropped = true
             end
@@ -1341,6 +1445,12 @@ function ns.RepopulateFromBlizzard(fromRequest)
     if ghostSD then
         FilterListPreservingUserAdded(ghostSD, ghostSD.assignedSpells)
         FilterSetPreservingUserAdded(ghostSD, ghostSD.removedSpells)
+    end
+    -- The player asked for Blizzard's layout: nothing of an import is held any more.
+    do
+        local spR = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
+        local profR = spR and spR[specKey]
+        if profR then profR._importKeep = nil end
     end
     -- Ghost buff bar removed: buff visibility managed by Blizzard CDM.
 

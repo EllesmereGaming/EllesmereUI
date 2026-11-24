@@ -86,6 +86,9 @@ local SP, frame, body, rows, shown = nil, nil, nil, {}, {}
 local scrollPx = 0
 local active = false
 local guard = false
+-- blizzard's start a group button sits in its list, which takes no clicks under ours: our button
+-- hands the click over through the secure click action, so the click stays blizzard's own
+local startBtn, startProxy
 local lastClickID, lastClickTime, clickCount = nil, 0, 0
 local selected  -- ours, blizzard's is never touched
 local Paint  -- defined further down
@@ -220,7 +223,7 @@ local seen, isApp, passOf, sortVal = {}, {}, {}, {}
 -- pending applications your filters would now leave out, the ones cancelled for it,
 -- and each one's pass when first seen applied (only a pass that turns into a fail counts)
 local mismatch, autoCancelled, cancelSent, firstPass = {}, {}, {}, {}
--- only worked out while the colour or the auto cancel is on
+-- only worked out while the color or the auto cancel is on
 local function MismatchOn()
     if ns.OwnListGet("lineMismatch") ~= false then return true end
     local gc = GFNS.Cfg and GFNS.Cfg()
@@ -249,17 +252,27 @@ local function MismatchOf(id, note)
     end
     return firstPass[id] and not pass
 end
--- cancelling needs a click, so it waits for your next one on the list
-local function SendMismatchCancels()
+-- cancelling needs a click, so it waits for your next one on the list.
+-- except: the row whose own cancel that click is. true when it sent one.
+local function SendMismatchCancels(except)
     local gc = GFNS.Cfg and GFNS.Cfg()
-    if not (gc and gc.autoCancelMismatch) then return end
+    if not (gc and gc.autoCancelMismatch) then return false end
+    -- a party member who is not the leader cannot cancel the party's applications
+    if LFGListUtil_IsAppEmpowered and not LFGListUtil_IsAppEmpowered() then return false end
+    local sent = false
     for id in pairs(mismatch) do
-        if not autoCancelled[id] then
-            autoCancelled[id] = true
-            cancelSent[id] = true
-            C_LFGList.CancelApplication(id)
+        if id ~= except and not autoCancelled[id] then
+            -- the set is from the last collect: still pending now?
+            local status, pending = AppStatus(id)
+            if status == "applied" and not pending then
+                autoCancelled[id] = true
+                cancelSent[id] = true
+                C_LFGList.CancelApplication(id)
+                sent = true
+            end
         end
     end
+    return sent
 end
 local noteOf, tops = {}, {}  -- shown groups with a note, each shown row's top
 
@@ -428,7 +441,7 @@ local NEED_ATLAS = { TANK = "groupfinder-icon-role-micro-tank", HEALER = "groupf
 local BLIZZ_RR_ATLAS = { TANK = "groupfinder-icon-role-large-tank", HEALER = "groupfinder-icon-role-large-heal",
     DAMAGER = "groupfinder-icon-role-large-dps" }
 local BLIZZ_RR_SCALE = 1.22  -- art size over its visible ring
--- a delisted group's text colour: the delisted row highlight colour, set on each paint (not DB: that's the settings)
+-- a delisted group's text color: the delisted row highlight color, set on each paint (not DB: that's the settings)
 local DelR, DelG, DelB = 0x5B / 255, 0x5B / 255, 0x5B / 255
 local REMAINING = { TANK = "TANK_REMAINING", HEALER = "HEALER_REMAINING", DAMAGER = "DAMAGER_REMAINING" }
 local PERSON_TEX = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-person.png"
@@ -504,6 +517,7 @@ local function StatusColor(line)
     if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end
     return line[2], line[3], line[4]
 end
+ns.StatusColor = StatusColor
 local LINE_OF = {
     [STATUS.declined_delisted] = LINE_DELISTED,
     [STATUS.applied] = LINE_SIGNED, [STATUS.invited] = LINE_ACCEPTED, [STATUS.inviteaccepted] = LINE_ACCEPTED,
@@ -625,9 +639,11 @@ local function MakeRow(i, parent)
     end)
     r.cancel:SetScript("OnClick", function(self)
         if self:GetParent().preview then return end
-        SendMismatchCancels()
         local id = self:GetParent().resultID
-        if id and not Secret(id) then C_LFGList.CancelApplication(id) end
+        if id and Secret(id) then id = nil end
+        -- this row's cancel is the click itself; the other mismatched ones go with it
+        SendMismatchCancels(id)
+        if id then C_LFGList.CancelApplication(id) end
     end)
     r.status = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     r.status:SetJustifyH("RIGHT")
@@ -708,15 +724,16 @@ local function MakeRow(i, parent)
         if self.preview then return end
         local id = self.resultID
         if not id or not active then return end
-        SendMismatchCancels()
+        local cancelled = SendMismatchCancels()
         if button == "RightButton" then return ns.OwnListMenu(self, id) end
         local now = GetTime()
         if lastClickID == id and (now - lastClickTime) < 0.4 then clickCount = clickCount + 1 else clickCount = 1 end
         lastClickID, lastClickTime = id, now
         local need = CLICKS_NEEDED[ns.OwnListGet("signupClicks")] or 2
         local signup = EllesmereUIDB and EllesmereUIDB.quickSignup and clickCount >= need
-        -- at the app limit, cancel the oldest
-        if ns.GFCancelOldest then ns.GFCancelOldest(id) end
+        -- at the app limit, cancel the oldest (not in a click that just cancelled
+        -- a mismatched one: that slot is freeing up)
+        if not cancelled and ns.GFCancelOldest then ns.GFCancelOldest(id) end
         -- same check blizzard's row click does
         if not Selectable(id) then return end
         if selected ~= id then
@@ -899,7 +916,7 @@ local LIVE = {
 }
 
 -- line three: playstyle | region | time since you signed up
--- a font string in the delisted grey, or back to the colour it was made with
+-- a font string in the delisted grey, or back to the color it was made with
 local function Grey(fs, gone)
     if not fs.baseColor then fs.baseColor = { fs:GetTextColor() } end
     if gone then fs:SetTextColor(DelR, DelG, DelB)
@@ -1042,7 +1059,7 @@ local function Fill(r, id, src)
     local line = stale and LINE_MISMATCH or st and LINE_OF[st]
     local on = line and ns.OwnListGet(line[1]) ~= false or false
     local style = ns.OwnListGet("statusStyle")
-    if style == "none" then on = false end  -- the status text keeps its colour
+    if style == "none" then on = false end  -- the status text keeps its color
     local rowFx = on and style == "row" or false
     if on then
         local lr, lg, lb = StatusColor(line)
@@ -1753,6 +1770,24 @@ function Paint()  -- forward-declared up top
     else
         empty:SetText("")
     end
+    -- blizzard only offers it with no results at all: here also when your filters leave none
+    ns.PlaceStartGroup(#shown == 0 and not SP.searching and not SP.searchFailed)
+end
+
+-- over the middle of our list: a child of the list (not protected), so it moves, scales,
+-- dims and hides with it, in combat too. Blizzard's button decides whether it can be used.
+function ns.PlaceStartGroup(want)
+    if not startProxy then return end
+    if not want then
+        startProxy:Hide()
+        return
+    end
+    local w, h = startBtn:GetSize()
+    startProxy:SetSize(math.max(w or 0, 140), math.max(h or 0, 22))
+    -- above the rows, also after something raised the list
+    startProxy:SetFrameLevel(frame:GetFrameLevel() + 20)
+    startProxy:SetEnabled(startBtn:IsEnabled())
+    startProxy:Show()
 end
 
 -- keep blizzard's list hidden while ours shows
@@ -1875,32 +1910,68 @@ local function Build()
     thumb = frame:CreateTexture(nil, "OVERLAY")
     thumb:SetWidth(3)
     thumb:SetColorTexture(1, 1, 1, 0.3)
-    -- our sign up button over blizzard's
-    local sb = SP.SignUpButton
-    if sb then
-        local stock = not Skinned()
-        signBtn = CreateFrame("Button", nil, SP, stock and "UIPanelButtonTemplate" or nil)
-        signBtn:SetAllPoints(sb)
-        signBtn:SetFrameLevel(sb:GetFrameLevel() + 5)
-        signBtn:SetNormalFontObject("GameFontNormal")
-        signBtn:SetHighlightFontObject("GameFontHighlight")
-        signBtn:SetDisabledFontObject("GameFontDisable")
-        signBtn:SetText(SIGN_UP or "Sign Up")
-        signBtn:SetMotionScriptsWhileDisabled(true)
+    -- our buttons: the skin's look, or blizzard's template with the skin off
+    local stock = not Skinned()
+    local function NewButton(parent, template, text)
+        local b = CreateFrame("Button", nil, parent, (stock and template) and (template .. ",UIPanelButtonTemplate")
+            or stock and "UIPanelButtonTemplate" or template)
+        b:SetNormalFontObject("GameFontNormal")
+        b:SetHighlightFontObject("GameFontHighlight")
+        b:SetDisabledFontObject("GameFontDisable")
+        b:SetText(text)
         local skin = EUI._ModuleNS and EUI._ModuleNS.EllesmereUIBlizzardSkin
         local S = skin and skin.WSkin
         -- stock keeps the template's art
         if not stock and S and S.Button then
-            S.Button(signBtn)
+            S.Button(b)
         elseif not stock then
-            local bg = signBtn:CreateTexture(nil, "BACKGROUND")
+            local bg = b:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints()
             bg:SetColorTexture(0.06, 0.06, 0.06, 0.95)
-            EUI.MakeBorder(signBtn, 0.25, 0.25, 0.25, 1, EUI.PanelPP)
-            local hl = signBtn:CreateTexture(nil, "HIGHLIGHT")
+            EUI.MakeBorder(b, 0.25, 0.25, 0.25, 1, EUI.PanelPP)
+            local hl = b:CreateTexture(nil, "HIGHLIGHT")
             hl:SetAllPoints()
             hl:SetColorTexture(1, 1, 1, 0.1)
         end
+        return b
+    end
+    startBtn = SP.ScrollBox.StartGroupButton or SP.StartGroupButton
+    -- start a group: InsecureActionButtonTemplate (the confirm popup's confirmClick shape) is not
+    -- protected, so it is built at any time and lives in our list; its click runs blizzard's own
+    -- secure click action out of combat and nothing in combat, as blizzard's template does.
+    if startBtn then
+        startProxy = NewButton(frame, "InsecureActionButtonTemplate", START_A_GROUP or "Start a Group")
+        startProxy:Hide()
+        startProxy:SetPoint("CENTER", frame, "CENTER", 0, 0)
+        -- the left release only: left unset, the secure handler follows the key-down CVar
+        startProxy:RegisterForClicks("LeftButtonUp")
+        startProxy:SetAttribute("useOnKeyDown", false)
+        startProxy:SetAttribute("type", "click")
+        startProxy:SetAttribute("clickbutton", startBtn)
+        startProxy:SetMotionScriptsWhileDisabled(true)
+        startProxy:HookScript("PreClick", function()
+            if InCombatLockdown() then EUI.PrintError(ERR_NOT_IN_COMBAT) end
+        end)
+        -- blizzard's reason when its button is off (not the leader, already listed, queued)
+        startProxy:HookScript("OnEnter", function(self)
+            local tip = not startBtn:IsEnabled() and startBtn.tooltip
+            if type(tip) == "string" and tip ~= "" then EUI.ShowWidgetTooltip(self, tip) end
+        end)
+        startProxy:HookScript("OnLeave", function() EUI.HideWidgetTooltip() end)
+        -- blizzard turns its button on and off here (leader, roster, queue and listing changes)
+        if LFGListSearchPanel_UpdateButtonStatus then
+            hooksecurefunc("LFGListSearchPanel_UpdateButtonStatus", function()
+                if startProxy:IsShown() then startProxy:SetEnabled(startBtn:IsEnabled()) end
+            end)
+        end
+    end
+    -- our sign up button over blizzard's
+    local sb = SP.SignUpButton
+    if sb then
+        signBtn = NewButton(SP, nil, SIGN_UP or "Sign Up")
+        signBtn:SetAllPoints(sb)
+        signBtn:SetFrameLevel(sb:GetFrameLevel() + 5)
+        signBtn:SetMotionScriptsWhileDisabled(true)
         signBtn:SetScript("OnClick", function()
             SendMismatchCancels()
             SignUp(selected)
@@ -1945,7 +2016,8 @@ local function Build()
         elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
             -- an auto cancel went through
             if cancelSent[id] and newStatus == "cancelled" then
-                EUI.Print(EllesmereUI.L("Cancelled an application that no longer matches your filters."))
+                EUI.Print(EUI.COLOR_CODES.BRAND .. "EllesmereUI|r "
+                    .. EllesmereUI.L("Cancelled an application that no longer matches your filters."))
             end
             if type(id) == "number" then cancelSent[id] = nil end
             -- applications reorder the list (applied groups on top)
@@ -2062,6 +2134,11 @@ if ns.WhenGroupFinder then
                 -- a profile switched while the window was closed brings its own sizes
                 styleGen = styleGen + 1
                 if ns.OwnListOn() then ns.OwnListRefresh() end
+            end)
+            -- the panel went away (window closed, another panel): hand the list back, so none of
+            -- its events stay registered while nothing shows (the refresh reads SP:IsVisible())
+            sp:HookScript("OnHide", function()
+                if active then ns.OwnListRefresh() end
             end)
         end
     end)

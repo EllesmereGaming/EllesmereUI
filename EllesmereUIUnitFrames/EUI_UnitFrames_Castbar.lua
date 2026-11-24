@@ -641,7 +641,7 @@ local function ApplyUnitFrameCastColor(castbar)
     -- Zero-alloc: values flow as scalars instead of building up to three throwaway
     -- color tables per call (two default literals + the blended kick tint).
     local r, g, b
-    -- Base fill colour (what ReloadFrames gives the StatusBar), before the kick blend.
+    -- Base fill color (what ReloadFrames gives the StatusBar), before the kick blend.
     local br, bg, bb
     if settings and settings.castbarClassColored and ownerUnit == "player" then
         local _, classToken = UnitClass(ownerUnit)
@@ -664,9 +664,9 @@ local function ApplyUnitFrameCastColor(castbar)
     end
     local uc = (settings and settings.castbarUninterruptibleColor) or UF_UNINTERRUPT_GREY
     if not castbar._blizzCast then
-        -- Uninterruptible colour folded into the textured tint layer and the base
+        -- Uninterruptible color folded into the textured tint layer and the base
         -- fill under it (the nameplates' approach): the texture stays visible and
-        -- its transparent pixels cannot show the interruptible colour. The flat
+        -- its transparent pixels cannot show the interruptible color. The flat
         -- shield wash below would cover the texture. The fold is secret-safe.
         local ev = C_CurveUtil.EvaluateColorValueFromBoolean
         local uninterruptible = GetCastbarUninterruptible(castbar)
@@ -688,8 +688,8 @@ local function ApplyUnitFrameCastColor(castbar)
     castbar._shieldOff = nil
     castbar.castTintLayer:SetVertexColor(r, g, b)
     if castbar._shieldedTint then
-        -- Uninterruptible overlay colour (defaults to grey). Its alpha is toggled
-        -- from the secret "not interruptible" flag, so the colour is always set and
+        -- Uninterruptible overlay color (defaults to grey). Its alpha is toggled
+        -- from the secret "not interruptible" flag, so the color is always set and
         -- only becomes visible on uninterruptible casts. Only Blizzard Style
         -- (tint layer hidden) still uses this wash.
         -- Explicit vertex alpha: Midnight's 3-arg SetVertexColor leaves the
@@ -783,7 +783,10 @@ local function UpdateUnitFrameKickTick(castbar)
     castbar.kickPositioner:SetValue(castDuration:GetElapsedDuration())
     castbar.kickMarker:SetValue(interruptCD:GetRemainingDuration())
     castbar.kickTick:SetColorTexture(1, 1, 1, 1)
-    if isChannel and not isEmpowered then
+    -- Time runs right to left for a draining channel; Reverse Fill mirrors the
+    -- bar, so there a cast runs right to left and a channel left to right.
+    local timeRunsLeft = (isChannel and not isEmpowered) ~= (castbar:GetReverseFill() and true or false)
+    if timeRunsLeft then
         castbar.kickPositioner:SetFillStyle(Enum.StatusBarFillStyle.Reverse)
         castbar.kickMarker:SetFillStyle(Enum.StatusBarFillStyle.Reverse)
         -- LOAD-BEARING: SetFillStyle resets the inner fill to snap-ON and the global
@@ -799,8 +802,9 @@ local function UpdateUnitFrameKickTick(castbar)
         castbar.kickTick:SetPoint("TOP", castbar.kickMarker, "TOP", 0, 0)
         castbar.kickTick:SetPoint("BOTTOM", castbar.kickMarker, "BOTTOM", 0, 0)
         castbar.kickTick:SetPoint("RIGHT", castbar.kickMarker:GetStatusBarTexture(), "LEFT")
-        -- Reverse fill (draining channel): kick-ready point is the marker texture LEFT
-        -- edge; the available window runs from the channel end (bar left) to it.
+        -- Time runs right to left (a draining channel, or a cast on a reversed bar):
+        -- kick-ready point is the marker texture LEFT edge; the available window
+        -- runs from the cast's end (bar left) to it.
         -- Not-in-time pushes that edge past the left edge, crossing anchors to zero width.
         castbar.kickReadyFill:ClearAllPoints()
         castbar.kickReadyFill:SetPoint("TOP", castbar, "TOP", 0, 0)
@@ -822,8 +826,9 @@ local function UpdateUnitFrameKickTick(castbar)
         castbar.kickTick:SetPoint("TOP", castbar.kickMarker, "TOP", 0, 0)
         castbar.kickTick:SetPoint("BOTTOM", castbar.kickMarker, "BOTTOM", 0, 0)
         castbar.kickTick:SetPoint("LEFT", castbar.kickMarker:GetStatusBarTexture(), "RIGHT")
-        -- Standard fill (cast/empowered channel): kick-ready point is the marker
-        -- texture RIGHT edge; the window runs from it to the cast end (bar right).
+        -- Time runs left to right (a cast or empowered cast, or a channel on a
+        -- reversed bar): kick-ready point is the marker texture RIGHT edge; the
+        -- window runs from it to the cast's end (bar right).
         -- Not-in-time pushes that edge past the right edge, crossing anchors to zero width.
         castbar.kickReadyFill:ClearAllPoints()
         castbar.kickReadyFill:SetPoint("TOP", castbar, "TOP", 0, 0)
@@ -1211,7 +1216,7 @@ local function CreateCastBar(frame, unit, settings)
             self.castTintLayer:SetAlpha(self._fillOp or 1)
             self._castTintOn = true
             ApplyUnitFrameCastColor(self)
-            -- Blizzard Style: the fill art is its own colour, per cast kind.
+            -- Blizzard Style: the fill art is its own color, per cast kind.
             if self._blizzCast then
                 self.castTintLayer:SetAlpha(0)
                 self._castTintOn = nil
@@ -1273,7 +1278,7 @@ local function CreateCastBar(frame, unit, settings)
         -- two-secret test resolves by where the marker texture edge lands -- when the
         -- kick will NOT be ready in time the fill anchors cross to zero width and it
         -- self-hides with no Lua branch on a secret. ARTWORK sublevel 1 (created after
-        -- castTintLayer so it draws above the fill colour) sits below the cast text
+        -- castTintLayer so it draws above the fill color) sits below the cast text
         -- (OVERLAY) and the uninterruptible grey (sublevel 2). Anchors are (re)applied
         -- per cast in UpdateUnitFrameKickTick.
         local kickReadyFill = castbar:CreateTexture(nil, "ARTWORK", nil, 1)
@@ -1596,6 +1601,10 @@ local function SetupShowOnCastBar(frame, unit)
         if not stages then return end
         local isHoriz = element:GetOrientation() == "HORIZONTAL"
         local elementSize = isHoriz and element:GetWidth() or element:GetHeight()
+        -- The stages run with the fill: from the far end on a Reverse Fill bar.
+        local fromEnd = element:GetReverseFill() and true or false
+        local edge = isHoriz and (fromEnd and "RIGHT" or "LEFT") or (fromEnd and "TOP" or "BOTTOM")
+        local sign = fromEnd and -1 or 1
         local lastOffset = 0
         for stage, stageSection in next, stages do
             local offset = lastOffset + (elementSize * stageSection)
@@ -1609,9 +1618,9 @@ local function SetupShowOnCastBar(frame, unit)
             end
             pip:ClearAllPoints()
             if isHoriz then
-                pip:SetPoint("CENTER", element, "LEFT", offset, 0)
+                pip:SetPoint("CENTER", element, edge, sign * offset, 0)
             else
-                pip:SetPoint("CENTER", element, "BOTTOM", 0, offset)
+                pip:SetPoint("CENTER", element, edge, 0, sign * offset)
             end
             pip:Show()
         end

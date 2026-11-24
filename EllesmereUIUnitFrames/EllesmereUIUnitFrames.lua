@@ -1,7 +1,7 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local GetSpecialization = (C_SpecializationInfo and C_SpecializationInfo.GetSpecialization) or GetSpecialization
 local addonName, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.AbsorbGlow and EllesmereUI.SetCraftBatch and EllesmereUI.FitCastName and EllesmereUI.CleanCastName and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.OwnSurnameHidden and EllesmereUI.PadGamepadUI and EllesmereUI.SetEditModeChildInert and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.PadModeOn and EllesmereUI.UIScaledAlpha and EllesmereUI.OnUIAlphaChanged and EllesmereUI.CastChromeGeom and EllesmereUI.SetLeftClickTarget) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard frame suppression hides through the parent's HideFrame, the player absorb glow line is the parent's AbsorbGlow, the player cast bar's Full Craft Time is the parent's SetCraftBatch, Show Full Spell Name is the parent's FitCastName, the cast name drops the quest-object " - No Text" through its CleanCastName, and the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, and the Name Format asks its UnitNameFormat, the [name:last] and [target:last] tags its OwnSurnameHidden, and the WoW Forever gamepad target menu keeps Blizzard's TargetFrame live through its PadGamepadUI and SetEditModeChildInert, and the frame texts take their font family through its ApplyModuleFontFamily, and the gamepad cast bar hide follows its PadModeOn, and the 3D portraits follow a faded UI through its UIScaledAlpha and OnUIAlphaChanged, and the stock cast bar art seats from its CastChromeGeom, and the unit buttons' left-click target comes from its SetLeftClickTarget)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.AbsorbGlow and EllesmereUI.SetCraftBatch and EllesmereUI.FitCastName and EllesmereUI.CleanCastName and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.OwnSurnameHidden and EllesmereUI.PadGamepadUI and EllesmereUI.SetEditModeChildInert and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.PadModeOn and EllesmereUI.UIScaledAlpha and EllesmereUI.OnUIAlphaChanged and EllesmereUI.CastChromeGeom and EllesmereUI.SetLeftClickTarget and EllesmereUI.ForeverDruidLacksCat and EllesmereUI.FitFactionArt and EllesmereUI.FactionBoxCenter and EllesmereUI.RoundAuraOverlay and EllesmereUI.TextTags and EllesmereUI.TextTags.UNIT.keys["classification:abbr"]) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard frame suppression hides through the parent's HideFrame, the player absorb glow line is the parent's AbsorbGlow, the player cast bar's Full Craft Time is the parent's SetCraftBatch, Show Full Spell Name is the parent's FitCastName, the cast name drops the quest-object " - No Text" through its CleanCastName, and the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, and the Name Format asks its UnitNameFormat, the [name:last] and [target:last] tags its OwnSurnameHidden, and the WoW Forever gamepad target menu keeps Blizzard's TargetFrame live through its PadGamepadUI and SetEditModeChildInert, and the frame texts take their font family through its ApplyModuleFontFamily, and the gamepad cast bar hide follows its PadModeOn, and the 3D portraits follow a faded UI through its UIScaledAlpha and OnUIAlphaChanged, and the stock cast bar art seats from its CastChromeGeom, and the unit buttons' left-click target comes from its SetLeftClickTarget, and a WoW Forever druid without Cat Form gets no combo point row through its ForeverDruidLacksCat, and the Faction/PvP Indicator sizes and centres its art through its FitFactionArt and FactionBoxCenter, and Player Aura Bars round a rounded icon's filter border through its RoundAuraOverlay, and the [classification] tags bind its TextTags schema keys)
 EllesmereUI._ModuleNS[addonName] = ns  -- LOD options files read this module ns via the registry
 
 local math_floor, math_ceil, math_max, math_min, math_abs =
@@ -188,6 +188,11 @@ EllesmereUI.RegisterBorderDefaults("unitframes", EllesmereUI.BORDER_DEFAULTS_FRA
 -- External lookup for portrait side per frame (writing custom props onto oUF frames would taint their secure execution chain).
 EllesmereUI._ufPortraitSide = EllesmereUI._ufPortraitSide or setmetatable({}, { __mode = "k" })
 
+ns.UF_ClassificationBorderDefaults = {
+    borderRareColor = { r = 0.75, g = 0.78, b = 0.82 },
+    borderEliteColor = { r = 1, g = 0.82, b = 0.25 },
+}
+
 local db
 local defaults = {
     profile = {
@@ -371,6 +376,7 @@ local defaults = {
             btbClassIconLocation = "left",
             btbClassIconX = 0,
             btbClassIconY = 0,
+            pingSelfOnly = false,
             showPortrait = true,
             portraitStyle = "attached",
             portraitMode = "2d",
@@ -483,6 +489,7 @@ local defaults = {
             -- client.
             foreverComboLocation = (EllesmereUI.IS_FOREVER == true) and "target" or nil,
             borderSize = 1,
+            borderClassColored = false,
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
             borderPowerSeam = false,  -- Border Options cog "Power Bar Seam" (opt-in)
@@ -519,12 +526,16 @@ local defaults = {
             leaderIndicatorY = 0,
             leaderIndicatorStyle = "blizzard",  -- "blizzard" | "pixels"
             factionIndicatorMode = "off",
-            factionIndicatorStyle = "pvp",
+            factionIndicatorStyle = "crest",
             factionIndicatorPvP = "only",
             factionIndicatorSize = 18,
             factionIndicatorPosition = "topright",
             factionIndicatorX = 0,
             factionIndicatorY = 0,
+            factionIndicatorTimer = "none",  -- PvP Flagged Timer: "none" | "left" | "right" | "top" | "bottom"
+            factionIndicatorTimerSize = 12,
+            factionIndicatorTimerX = 0,
+            factionIndicatorTimerY = 0,
             healthReverseFill = false,
             healthVerticalFill = false,
             smoothBars = false,
@@ -544,6 +555,7 @@ local defaults = {
             healthHeight = 46,
             powerHeight = 6,
             powerPosition = "below",
+            hideEmptyPower = false,  -- Hide Empty Power Bar (WoW Forever, opt-in)
             powerWidth = 0,
             powerX = 0,
             powerY = -4,
@@ -718,6 +730,12 @@ local defaults = {
             healthBarOpacity = 90,
             powerBarOpacity = 100,
             borderSize = 1,
+            borderClassColored = false,
+            borderRareColored = false,
+            borderEliteColored = false,
+            borderExcludeFriendly = false,
+            borderRareColor = ns.UF_ClassificationBorderDefaults.borderRareColor,
+            borderEliteColor = ns.UF_ClassificationBorderDefaults.borderEliteColor,
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
             borderPowerSeam = false,  -- Border Options cog "Power Bar Seam" (opt-in)
@@ -761,7 +779,7 @@ local defaults = {
             eliteIndicatorWinglessStrata = "inherit",
             eliteIndicatorWinglessLevel = 1,
             factionIndicatorMode = "off",
-            factionIndicatorStyle = "pvp",
+            factionIndicatorStyle = "crest",
             factionIndicatorPlayersOnly = false,
             factionIndicatorPvP = "dim",
             factionIndicatorSize = 18,
@@ -858,6 +876,21 @@ local defaults = {
             borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             powerPosition = "none",
+            powerHeight = 6,
+            powerWidth = 0,
+            powerX = 0,
+            powerY = -4,
+            powerPercentText = "none",
+            powerTextFormat = "perpp",
+            powerShowPercent = true,
+            powerPercentSize = 9,
+            powerPercentX = 0,
+            powerPercentY = 0,
+            powerPercentPowerColor = true,
+            powerBgPowerColored = false,
+            powerPercentTextPowerColor = false,
+            powerBarOpacity = 100,
+            powerReverseFill = false,
             healthReverseFill = false,
             healthVerticalFill = false,
             smoothBars = false,
@@ -894,6 +927,21 @@ local defaults = {
             borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             powerPosition = "none",
+            powerHeight = 6,
+            powerWidth = 0,
+            powerX = 0,
+            powerY = -4,
+            powerPercentText = "none",
+            powerTextFormat = "perpp",
+            powerShowPercent = true,
+            powerPercentSize = 9,
+            powerPercentX = 0,
+            powerPercentY = 0,
+            powerPercentPowerColor = true,
+            powerBgPowerColored = false,
+            powerPercentTextPowerColor = false,
+            powerBarOpacity = 100,
+            powerReverseFill = false,
             healthReverseFill = false,
             healthVerticalFill = false,
             smoothBars = false,
@@ -984,6 +1032,7 @@ local defaults = {
             healthHeight = 34,
             powerHeight = 6,
             powerPosition = "below",
+            hideEmptyPower = false,  -- Hide Empty Power Bar (WoW Forever, opt-in)
             powerWidth = 0,
             powerX = 0,
             powerY = -4,
@@ -1164,6 +1213,12 @@ local defaults = {
             debuffOffsetY = 0,
             textSize = 12,
             borderSize = 1,
+            borderClassColored = false,
+            borderRareColored = false,
+            borderEliteColored = false,
+            borderExcludeFriendly = false,
+            borderRareColor = ns.UF_ClassificationBorderDefaults.borderRareColor,
+            borderEliteColor = ns.UF_ClassificationBorderDefaults.borderEliteColor,
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
             borderPowerSeam = false,  -- Border Options cog "Power Bar Seam" (opt-in)
@@ -1536,7 +1591,7 @@ local function ApplyHealthBarTexture(health, unitKey, texKeyOverride)
     ns.UF_TexBgApply(health, unitKey, texKey, power)
     -- Blizzard Style: the swaps above replaced the fill objects, so the stock
     -- masks are seated again on the new fills. The textures themselves stay
-    -- the user's choice, so every colour renders exactly as picked.
+    -- the user's choice, so every color renders exactly as picked.
     if frame and frame.Health == health and ns.UF_Blizz() then ns.UF_ApplyBlizzBarArt(frame) end
 end
 
@@ -1557,11 +1612,11 @@ end
 -------------------------------------------------------------------------------
 --  Textured Background (per-frame textureBg, profile castTextureBg; unset = off).
 --  While on, our own background textures swap SetColorTexture (and on health
---  SetAlpha) for versions that draw the bar texture tinted by the colour each
+--  SetAlpha) for versions that draw the bar texture tinted by the color each
 --  paint passes, so these backgrounds are painted ONLY through those two methods
 --  (SetTexture / SetAtlas would go around it). Health's bg hugs the fill edge,
 --  where a texture would stretch, so a fixed full-size layer over it carries the
---  texture, shown only while the fill is opaque. Colours are forwarded, never
+--  texture, shown only while the fill is opaque. Colors are forwarded, never
 --  read: the class background can be secret.
 -------------------------------------------------------------------------------
 do
@@ -1625,7 +1680,7 @@ do
     end
 
     -- Swap a background to the texture at path, tinted by its paints; nil puts the
-    -- flat colour back at the next paint. Also the Forever form bar's.
+    -- flat color back at the next paint. Also the Forever form bar's.
     function ns.UF_TexBgTint(bg, path)
         if path then
             TexM = TexM or { SetColorTexture = bg.SetColorTexture, SetAlpha = bg.SetAlpha }
@@ -1737,7 +1792,7 @@ ns.ApplyCastBarTexture = function(castbar, texKey)
     if texKey == "blizzard" then
         -- The "Blizzard" fill: the vanilla cast bar's own texture (the same
         -- entry the Resource Bars cast bar offers), tinted by the bar's
-        -- colours like any file; the cast tint rides the same art.
+        -- colors like any file; the cast tint rides the same art.
         castbar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
         local fill = castbar:GetStatusBarTexture()
         if fill then
@@ -1762,7 +1817,7 @@ ns.ApplyCastBarTexture = function(castbar, texKey)
     -- 2026-08-12, the invisible-interrupt-shield report), so re-pointing it
     -- at the art killed the shield entirely. Only Blizzard Style still shows
     -- that wash; elsewhere ApplyUnitFrameCastColor folds the uninterruptible
-    -- colour into the textured tint layer and base fill instead.
+    -- color into the textured tint layer and base fill instead.
 end
 
 -- Cast bar Fill Opacity (player/target/focus). Below 100 the active-cast tint layer
@@ -1774,7 +1829,7 @@ end
 -- (relational anchors + plain alphas only), so secret cast states render identically.
 -- castbar._castTintOn mirrors "the last alpha we wrote to castTintLayer was
 -- above zero". It exists because castTintLayer:GetAlpha() cannot be trusted to
--- return a plain number: this castbar's tint layer and base fill take colours
+-- return a plain number: this castbar's tint layer and base fill take colors
 -- folded from the SECRET notInterruptible flag (and Blizzard Style drives the
 -- shield's alpha from it), and once secrecy is in a castbar's render state an
 -- alpha read comes back secret. Comparing that
@@ -1888,7 +1943,7 @@ end
 -------------------------------------------------------------------------------
 --  Dark Mode -- flat dark health bar with gray background
 -------------------------------------------------------------------------------
--- Fallback bg colour (#111) when no class/custom colour source exists. Dark Mode
+-- Fallback bg color (#111) when no class/custom color source exists. Dark Mode
 -- fill/bg come from the global per-profile palette via GetDarkModeFill()/GetDarkModeBg().
 local DARK_HEALTH_R, DARK_HEALTH_G, DARK_HEALTH_B = 0x11/255, 0x11/255, 0x11/255  -- #111111
 
@@ -2419,11 +2474,43 @@ local function ApplyDarkTheme(health, unit)
         -- the element has not resolved one yet.
         if health.PostUpdateColor then health:PostUpdateColor(unit, nil) end
     end
+    -- Hide Empty Power Bar's second health bar takes the same paint (WoW
+    -- Forever; EUI_UnitFrames_ForeverEmptyPower.lua). Off: one field read.
+    if health._epMirror then ns.UF_EmptyPowerPaint(health, unit) end
+    -- The Forever druid combo row's health strip takes the same paint (EUI_UnitFrames_Init.lua).
+    if health._euiStrip then ns.UF_PaintHealthMirror(health, unit, "_euiStrip", "_euiStripChain") end
 end
 ns.ApplyDarkTheme = ApplyDarkTheme
 
+-- A second health bar of ours over part of the frame (Hide Empty Power Bar's,
+-- the WoW Forever druid combo row's strip), held in health[mirrorKey]: painted
+-- as the health bar is painted, its PostUpdateColor chained behind the health
+-- bar's (health[chainKey] marks the chain). Returns the bar, nil without one.
+function ns.UF_PaintHealthMirror(health, unit, mirrorKey, chainKey)
+    local m = health[mirrorKey]
+    if not m then return nil end
+    local key = health._euiUnitKey
+    m._euiUnitKey = key
+    ApplyHealthBarTexture(m, key)
+    m:SetStatusBarColor(health:GetStatusBarColor())
+    ApplyHealthBarAlpha(m, key)
+    m:SetReverseFill(health:GetReverseFill() and true or false)
+    ApplyDarkTheme(m, unit)
+    local puc = health.PostUpdateColor
+    if puc and puc ~= health[chainKey] then
+        local function chain(self, u, color)
+            puc(self, u, color)
+            local mm = self[mirrorKey]
+            if mm and mm.PostUpdateColor then mm:PostUpdateColor(u, color) end
+        end
+        health[chainKey] = chain
+        health.PostUpdateColor = chain
+    end
+    return m
+end
+
 -- Re-apply dark theme to every frame when the global Dark Mode palette changes
--- (fill/bg colour + opacity). Class/power darken propagates via ApplyColorsToOUF,
+-- (fill/bg color + opacity). Class/power darken propagates via ApplyColorsToOUF,
 -- which RefreshDarkMode() calls right after these refreshers.
 if EllesmereUI.RegisterDarkModeRefresh then
     EllesmereUI.RegisterDarkModeRefresh(function()
@@ -2576,7 +2663,11 @@ local FOREVER_CLASS_POWER = {
 }
 
 local function ClassPowerEntry(playerClass)
-    if EllesmereUI.IS_FOREVER == true then return FOREVER_CLASS_POWER[playerClass] end
+    if EllesmereUI.IS_FOREVER == true then
+        -- Druid: no combo points until Cat Form is learned, so no empty row.
+        if EllesmereUI.ForeverDruidLacksCat() then return nil end
+        return FOREVER_CLASS_POWER[playerClass]
+    end
     return CLASS_POWER_TYPES[playerClass]
 end
 

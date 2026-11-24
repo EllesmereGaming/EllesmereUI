@@ -22,11 +22,22 @@ I.totemBarFrameSetters[#I.totemBarFrameSetters + 1] = function(v) totemBarFrame 
 local _totemHooked = false
 local _totemOrigParent
 local _totemOrigStrata
+local _totemOrigScale
+-- TotemFrame is ours (reparented and dressed) until the next hand-back.
+local _totemHeld = false
 
 -- Totem Bar: reparents Blizzard TotemFrame, repositions buttons in a clean
 -- row, adds overlay border frames (our own frames, never written to Blizzard).
 local function GetTotemSettings()
     return ERB.db and ERB.db.profile and ERB.db.profile.totemBar
+end
+
+-- Whether the bar is on for the player's class (enabledClasses nil = off for all).
+local function ActiveForClass(tb)
+    local ec = tb and tb.enabledClasses
+    if not ec then return false end
+    local _, classFile = UnitClass("player")
+    return (classFile and ec[classFile]) and true or false
 end
 
 -- Effective totem-bar grow direction, clamped to the CURRENT orientation. Horizontal:
@@ -71,7 +82,9 @@ end
 local function LayoutTotemBar()
     if not totemBarFrame or not TotemFrame then return end
     local tb = GetTotemSettings()
-    if not tb or not tb.enabledClasses then return end
+    -- Off for this class: the Update hooks leave TotemFrame alone.
+    if not ActiveForClass(tb) then return end
+    _totemHeld = true
 
     local spacing = tb.spacing or 2
     local PP = EllesmereUI and EllesmereUI.PP
@@ -263,27 +276,68 @@ end
 -- changing totemBar.growDirection (LayoutTotemBar is file-local).
 EllesmereUI.LayoutTotemBar = LayoutTotemBar
 
+-- Hands Blizzard's pooled totem buttons back as its template and
+-- TotemButtonMixin:OnLoad built them (TotemFrame.xml): nothing of Blizzard's
+-- resets what LayoutTotemBar changed, so each change is undone here. Every
+-- button LayoutTotemBar dressed is a key of _totemBorderOverlays.
+local function RestoreTotemButtons()
+    local circle = C_Texture.GetAtlasInfo("CircleMask")
+    for btn, overlay in pairs(_totemBorderOverlays) do
+        overlay:Hide()
+        if btn.Border then btn.Border:Show() end
+        local icon = btn.Icon
+        if icon then
+            icon:ClearAllPoints()
+            icon:SetPoint("CENTER")
+            icon:SetSize(22, 22)
+            local tex, mask = icon.Texture, icon.TextureMask
+            if tex then
+                tex:SetTexCoord(0, 1, 0, 1)
+                if mask then
+                    pcall(tex.RemoveMaskTexture, tex, mask)
+                    tex:AddMaskTexture(mask)
+                    mask:Show()
+                end
+            end
+            local cd = icon.Cooldown
+            if cd then
+                cd:SetHideCountdownNumbers(true)
+                cd:SetSwipeColor(0, 0, 0, 0.65)
+                if circle then
+                    cd:SetSwipeTexture(circle.file or circle.filename)
+                    cd:SetTexCoordRange({ x = circle.leftTexCoord, y = circle.topTexCoord },
+                        { x = circle.rightTexCoord, y = circle.bottomTexCoord })
+                end
+            end
+        end
+        -- The "Xs" text: its font's own color (Blizzard tints it with SetVertexColor).
+        local dur = btn.Duration
+        local fo = dur and dur:GetFontObject()
+        if fo then dur:SetTextColor(fo:GetTextColor()) end
+    end
+end
+
 local function BuildTotemBar()
     local tb = GetTotemSettings()
     if not tb then return end
 
-    -- enabledClasses nil = disabled; table with class keys = enabled for those classes
-    local ec = tb.enabledClasses
-    local _, classFile = UnitClass("player")
-    local active = ec and classFile and ec[classFile]
-
-    if not active then
+    if not ActiveForClass(tb) then
         if totemBarFrame then
             EllesmereUI.SetElementVisibility(totemBarFrame, false)
         end
-        -- Restore TotemFrame to original parent and strata
-        if TotemFrame and _totemOrigParent and not InCombatLockdown() then
+        -- Hand TotemFrame back once (every later apply would pin it again over
+        -- Blizzard's own placement); in combat it waits for the next apply.
+        if _totemHeld and TotemFrame and _totemOrigParent and not InCombatLockdown() then
+            _totemHeld = false
             TotemFrame:SetParent(_totemOrigParent)
             TotemFrame:ClearAllPoints()
             TotemFrame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 155)
             if _totemOrigStrata then
                 TotemFrame:SetFrameStrata(_totemOrigStrata)
             end
+            TotemFrame:SetScale(_totemOrigScale or 1)
+            _totemLayoutCache.iconScale = nil
+            RestoreTotemButtons()
         end
         return
     end
@@ -302,6 +356,7 @@ local function BuildTotemBar()
     if TotemFrame and not _totemOrigParent then
         _totemOrigParent = TotemFrame:GetParent()
         _totemOrigStrata = TotemFrame:GetFrameStrata()
+        _totemOrigScale = TotemFrame:GetScale()
     end
 
     -- Position our container
@@ -352,10 +407,8 @@ local function BuildTotemBar()
     -- Hook Blizzard updates (once)
     if not _totemHooked and TotemFrame then
         _totemHooked = true
-        local function OnTotemUpdate()
-            local s = GetTotemSettings()
-            if s and s.enabledClasses then LayoutTotemBar() end
-        end
+        -- LayoutTotemBar returns at once while the bar is off for this class.
+        local function OnTotemUpdate() LayoutTotemBar() end
         hooksecurefunc(TotemFrame, "Update", OnTotemUpdate)
         TotemFrame:HookScript("OnShow", OnTotemUpdate)
         if TotemButtonMixin then

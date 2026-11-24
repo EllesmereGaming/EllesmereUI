@@ -29,7 +29,7 @@ local KNOWN = { enemyName = true, levelName = true, nameLevel = true, level = tr
 -- Target).
 local ADD_ORDER = { "enemyName", "healthPercent", "level", "healthNumber", "targetOfTarget" }
 -- Keys a moved text takes along: as saved (MOVE_RAW), and as the difference
--- from each position's default (MOVE_OFFSETS). Its Size and colour mode go
+-- from each position's default (MOVE_OFFSETS). Its Size and color mode go
 -- along through MoveText too.
 local MOVE_RAW = { "Strata", "Color", "NameColorOn", "NameColor", "LevelColorOn", "LevelColor", "LevelDiffOn",
                    "WidthPct", "Wrap", "PctDecimal", "NameFormat", "CustomFormat" }
@@ -60,8 +60,8 @@ end
 function ns.NPO_EditCustomText(slotKey, onSave)
     local env = ns._NPO_OptEnv
     local key = slotKey .. "CustomFormat"
-    -- The slot's colour as the nameplate preview paints it (Text Coloring mode),
-    -- copied: the level colour is a reused table.
+    -- The slot's color as the nameplate preview paints it (Text Coloring mode),
+    -- copied: the level color is a reused table.
     local c = ns.NPO_PreviewSlotColor(slotKey)
     EllesmereUI.TextTags.EditPopup({
         cat = ns.NP_TextTags, color = c and { r = c.r, g = c.g, b = c.b }, onSave = onSave,
@@ -83,7 +83,7 @@ end
 function ns.NPO_TextSlotShown(slotKey) return KNOWN[ns._NPO_OptEnv.DBVal(slotKey)] == true end
 
 -- The texts' structure: each position's element and, for a shown text, its
--- colour mode (which decides its Core Text Coloring controls). Taken at each
+-- color mode (which decides its Core Text Coloring controls). Taken at each
 -- page build; a cached Display page whose structure changed behind it is
 -- rebuilt on restore (EUI_Nameplates_Options.lua, onPageCacheRestore).
 function ns.NPO_TextStructureFP()
@@ -197,6 +197,24 @@ local function BuildDisplayLayout(parent, y, ctx)
     -- border size control. The stock styles keep every plate square, and so
     -- does Wrap Around Castbar (the plates stand rounding down while it is on).
     do
+        local rows = EllesmereUI.RoundedCornerRows({
+            EllesmereUI.AuraRadiusRow(function() return DBVal("cornerRadius") or 0 end,
+                function(v) DB().cornerRadius = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end),
+        }, function() return DBVal("cornerMask") end,
+           function(v) DB().cornerMask = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end)
+        -- Greyed only for what is set outside this cog (ns.NP_AuraCornerRadius's
+        -- textured aura border): a cog's sliders do not refresh its other rows, so
+        -- a radius of 0 is told by the tooltip instead.
+        rows[#rows + 1] = { type = "toggle", label = "Apply Radius to Auras",
+            tooltip = "Rounds aura icons with a solid border to the Corner Radius above.",
+            disabled = function()
+                if not (DBVal("customBorderEnabled") and DBVal("auraIconCustomBorder") == true) then return false end
+                local tex = DBVal("customBorderTexture")
+                return tex ~= nil and tex ~= "" and tex ~= "solid"
+            end,
+            disabledTooltip = "This option requires the Solid border style.",
+            get = function() return DBVal("cornerRadiusAuras") == true end,
+            set = function(v) DB().cornerRadiusAuras = v; ns.NPC_ReloadAll(); UpdatePreview() end }
         EllesmereUI.BuildInlineCog(borderStyleRow._rightRegion, {
             title = "Corner Radius", tip = "Corner Radius",
             disabled = function()
@@ -210,18 +228,13 @@ local function BuildDisplayLayout(parent, y, ctx)
                 return "This option requires the Solid, Glow or Shadow border style."
             end,
             requireState = "disabled",
-            rows = EllesmereUI.RoundedJoinRow(EllesmereUI.RoundedCornerRows({
-                { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
-                  get = function() return DBVal("cornerRadius") or 0 end,
-                  set = function(v) DB().cornerRadius = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end },
-            }, function() return DBVal("cornerMask") end,
-               function(v) DB().cornerMask = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end),
+            rows = EllesmereUI.RoundedJoinRow(rows,
                 "Join Cast Bar", "While a cast shows, rounds the health bar and the cast bar under it as one shape.",
                 function() return DBVal("cornerJoinCast") end,
                 function(v) DB().cornerJoinCast = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end),
         })
     end
-    -- Inline cog on the Border region: opt-in "Wrap Around Castbar" (beside the control; the colour swatch sits left of it); dimmed only for "None" mode (wrap applies to both Basic and Custom).
+    -- Inline cog on the Border region: opt-in "Wrap Around Castbar" (beside the control; the color swatch sits left of it); dimmed only for "None" mode (wrap applies to both Basic and Custom).
     do
         local leftRgn = borderStyleRow._leftRegion
         local function wrapCogOff()
@@ -407,7 +420,7 @@ local function BuildDisplayLayout(parent, y, ctx)
                 EllesmereUI:RefreshPage(true)
               end }),
             EllesmereUI.BlizzStyle.Gate("nameplates", EllesmereUI.BorderPxSliderCfg({
-              -- Narrower track: the slot also carries the colour swatch and the Icon Borders cog.
+              -- Narrower track: the slot also carries the color swatch and the Icon Borders cog.
               text="Custom Border Size", trackWidth=120,
               getStep=function() return DBVal("customBorderSize") or defaults.customBorderSize end,
               setStep=function(step) DB().customBorderSize = step end,
@@ -485,7 +498,7 @@ local function BuildDisplayLayout(parent, y, ctx)
             })
         end
 
-        -- "Icon Borders" cog on the Custom Border Size region, beside the control (the colour
+        -- "Icon Borders" cog on the Custom Border Size region, beside the control (the color
         -- swatch below chains left of it): the custom border on the aura icons and on the
         -- cast spell icon. A cog, not a row: both are niche, and the whole block exists
         -- only while Border = Custom. The if-body scopes its locals (builder budget).
@@ -2363,7 +2376,7 @@ local function BuildDisplayLayout(parent, y, ctx)
 
     -- Moves the text at S to the free position T with its look: its element,
     -- its effective Size, its offsets (the tweak from S's default, added to
-    -- T's default), the MOVE_RAW keys as saved and its colour mode (saved only
+    -- T's default), the MOVE_RAW keys as saved and its color mode (saved only
     -- when T would derive another, as the coloring dropdown does). T's old
     -- keys are replaced; S keeps its other keys, unused. A cell gone stale
     -- since its menu opened only resyncs the page.

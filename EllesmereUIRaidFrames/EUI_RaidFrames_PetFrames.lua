@@ -72,7 +72,7 @@ PF.pvBlock = setmetatable({}, { __mode = "k" })
 PF.Raw = function()
     return db and db.profile and db.profile.petFrames
 end
--- The pets' colour settings are one set for both tabs, read off the saved table (never the per-tab
+-- The pets' color settings are one set for both tabs, read off the saved table (never the per-tab
 -- view): Fill Color (healthColorMode, nothing saved until a pick differs from what following the
 -- frames gives), its Custom Color (healthColor), the three gradient stops, and Text Color.
 
@@ -86,14 +86,14 @@ PF.Dark = function(s)
 end
 
 -- The Fill Color unpicked pets take beside ctx's frames ("party" or "raid"): Dark Mode with them,
--- else the pets' own colour. The options show it, and save a pick only where it differs.
+-- else the pets' own color. The options show it, and save a pick only where it differs.
 function ns.PF_FollowMode(ctx)
     local s
     if ctx == "party" then s = PF.PartySource() else s = ns._scaledProfile or db.profile end
     return (s and s.healthColorMode == "dark") and "dark" or "custom"
 end
 
--- The owner's class colour for pet token u (a preview pet, no token, is yours). Plain numbers;
+-- The owner's class color for pet token u (a preview pet, no token, is yours). Plain numbers;
 -- nothing while the class cannot be read.
 PF.OwnerRGB = function(u)
     local _, ct = UnitClass(u and PF.OWNER_OF[u] or "player")
@@ -104,7 +104,7 @@ PF.OwnerRGB = function(u)
 end
 
 -- Text Color, the pet's name only (the text engine asks through the button's _txName): the owner's
--- class colour or the custom colour. Nothing while neither is set: the name keeps the Name Color of
+-- class color or the custom color. Nothing while neither is set: the name keeps the Name Color of
 -- the frames the pets are styled from.
 PF.NameRGB = function(u)
     local raw = PF.Raw()
@@ -134,7 +134,7 @@ end
 
 -- The pets' own fill (FB.PaintBarColor calls it once it has ruled Dark Mode out and reset the fill's
 -- alpha): the picked Fill Color at the frames' Fill Opacity a; nothing picked is the pets' own
--- colour. Class Color is the owner's. pv: a preview pet's made-up health (0 to 1), which stands in
+-- color. Class Color is the owner's. pv: a preview pet's made-up health (0 to 1), which stands in
 -- for the unit.
 PF.Fill = function(b, s, a, pv)
     local health = b._health
@@ -391,7 +391,7 @@ PF.Revalidate = function(b)
     PF.Refresh(b)
 end
 
--- Every pet button on screen (cross-module colour and name pushes).
+-- Every pet button on screen (cross-module color and name pushes).
 function ns._PF_RefreshVisible()
     PF.EachShown(PF.Refresh)
 end
@@ -566,7 +566,7 @@ end
 -- True when the inputs differ from the ones last styled under key ("hdr": the header, "owner": the
 -- Beside Owner pets, "pt": the party target frames), which they then become (two lists trade
 -- places, nothing allocated). extra(t), when given, writes the key's own inputs after the shared
--- ones, n slots in all (the party target frames' colour settings). The second return is the first
+-- ones, n slots in all (the party target frames' color settings). The second return is the first
 -- slot that differs (0 with nothing styled yet), so a key with extra slots can tell a change to
 -- its own inputs alone (past PF.STYLE_N) from one the styler reads.
 PF.StyleChanged = function(key, s, texPath, extra, n)
@@ -661,7 +661,7 @@ PF.PaintHealth = function(b, u)
     if not UnitExists(u) then return end
     local s = FB.Source(b)
     FB.PaintHealth(b, u, s)
-    -- The gradient Fill Colors follow the health, so every tick recolours them (a picked mode, so
+    -- The gradient Fill Colors follow the health, so every tick recolors them (a picked mode, so
     -- the pets are not drawing dark).
     local raw = PF.Raw()
     local mode = raw and raw.healthColorMode
@@ -1283,7 +1283,7 @@ PF.PvStyle = function()
 end
 
 -- One preview pass's shared paint values (reused table). The texts are the frame's texts (no
--- class for pets: a class colour mode reads white).
+-- class for pets: a class color mode reads white).
 PF.pvc = {}
 PF.PvColors = function(s)
     local c = PF.pvc
@@ -1418,11 +1418,12 @@ function ns.PF_PreviewSpec(party, s, w, h, sp, boxW, boxH, ptSpec)
         gap = ns.RF_GroupSpacing(s)
         grow = s.unitGrowth or "DOWN"
         side = s.groupGrowth or "RIGHT"
-        -- The grid flow ends in the rightmost column too, so the pets hang off
-        -- the same edge a plain RIGHT run uses -- FB.Anchor agrees. Read raw,
+        -- The grid flows attach like a plain RIGHT run: the pets hang off the
+        -- right of the last group (with Right and then Down and a short last
+        -- row, that is inside the grid's empty cells) -- FB.Anchor agrees. Read raw,
         -- PF.OPPOSITE would return nil for it and the side would fall through
         -- to the vertical branch, drawing the pets above the groups.
-        if side == "DOWNRIGHT" then side = "RIGHT" end
+        if ns._RFIsGridFlow(side) then side = "RIGHT" end
         if before then side = PF.OPPOSITE[side] end
     end
 

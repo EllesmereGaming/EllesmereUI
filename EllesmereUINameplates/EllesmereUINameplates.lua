@@ -1,6 +1,6 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local addon, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI._Pool and EllesmereUI.Glows and EllesmereUI.Glows.FlatKeys and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.OwnSurnameHidden and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.SetFontObjectFace and EllesmereUI.SnapshotFontObject and EllesmereUI.RestoreFontObject) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, the Name Format asks its UnitNameFormat, the [name:last] and [target:last] tags its OwnSurnameHidden, the plate texts take font families through its ApplyModuleFontFamily / SetFontFamily, and the friendly name-only fonts change through its SetFontObjectFace / SnapshotFontObject / RestoreFontObject)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI._Pool and EllesmereUI.Glows and EllesmereUI.Glows.FlatKeys and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.OwnSurnameHidden and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.SetFontObjectFace and EllesmereUI.SnapshotFontObject and EllesmereUI.RestoreFontObject and EllesmereUI.FitFactionArt and EllesmereUI.SetBorderEdgeFill and EllesmereUI.SetBorderSnapHost and EllesmereUI.RoundAuraCorners) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, the Name Format asks its UnitNameFormat, the [name:last] and [target:last] tags its OwnSurnameHidden, the plate texts take font families through its ApplyModuleFontFamily / SetFontFamily, and the friendly name-only fonts change through its SetFontObjectFace / SnapshotFontObject / RestoreFontObject, and the faction badges size their art through its FitFactionArt, and the custom borders take their edge fill and snap host through its SetBorderEdgeFill / SetBorderSnapHost, and the cast-lockout aura icon rounds through its RoundAuraCorners)
 EllesmereUI._ModuleNS[addon] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
@@ -290,12 +290,18 @@ local defaults = {
     showCastLockoutAsCrowdControl = false,
     healthBarHeight = 17,
     friendlyNameOnly = true,
+    friendlyNameOnlyInInstances = false,
     friendlyNameOnlyYOffset = -20,
     friendlyNameSize = 15,
     friendlyPlateYOffset = 0,
     friendlyHealthBarHeight = 17,
     friendlyHealthBarWidth = 150,
     showFriendlyNPCs = false,
+    -- Always Show Marked NPCs: a raid-marked friendly NPC gets a plate -- name and
+    -- marker -- even with its nameplate toggle off or Blizzard's NPC-names
+    -- filter against it. Off by default: a mark never brings up a plate the
+    -- user switched off.
+    friendlyShowMarkedNPCs = false,
     showNPCTitles = true,
     showNPCRaidMarker = true,
     showFriendlyPlayers = true,
@@ -303,28 +309,79 @@ local defaults = {
     friendlyShowDefaultNames = false,
     classColorFriendly = true,
     friendlyNameClassColor = false,
-    -- Name Color's Custom colour (friendlyNameColorMode, "class" or "custom", has no
+    -- Name Color's Custom color (friendlyNameColorMode, "class" or "custom", has no
     -- default: unset, each friendly style reads one of the two keys above).
     friendlyNameColor = { r = 1, g = 1, b = 1 },
     -- Target Border Effects (Friendly Nameplate Settings cog): the target Border Color
     -- and Border Size effects on friendly plates too.
     friendlyTargetBorderFx = false,
     friendlyBarColor = { r = 0.314, g = 0.800, b = 0.408 },
+    -- Name Only target highlights (EUI_Nameplates_AlliedColors.lua): one toggle +
+    -- color per entity type (below). All off by default.
+    -- Show Friendly Pet Nameplates has no default: nil means the user never
+    -- chose, and nil reads as off everywhere. Only the option's own click
+    -- writes the pet and minion CVars (ns.ApplyPetCVars), so a profile that
+    -- never touched it leaves the client's settings alone.
+    nameOnlyCustomEnabled_FRIENDLY_PLAYER_FRIEND = false,
+    nameOnlyCustomColor_FRIENDLY_PLAYER_FRIEND = { r = 1.00, g = 0.84, b = 0.00 },
+    nameOnlyCustomEnabled_FRIENDLY_PLAYER_RECENT = false,
+    nameOnlyCustomColor_FRIENDLY_PLAYER_RECENT = { r = 0.70, g = 0.53, b = 1.00 },
+    nameOnlyCustomEnabled_FRIENDLY_PARTY_RAID = false,
+    nameOnlyCustomColor_FRIENDLY_PARTY_RAID = { r = 0.616, g = 0.651, b = 1.00 },
+    nameOnlyCustomEnabled_FRIENDLY_GUILD = false,
+    nameOnlyCustomColor_FRIENDLY_GUILD = { r = 0.25, g = 0.88, b = 0.55 },
+    nameOnlyCustomEnabled_FRIENDLY_PLAYER_UNFLAGGED = false,
+    nameOnlyCustomColor_FRIENDLY_PLAYER_UNFLAGGED = { r = 0.467, g = 0.533, b = 1.00 },
+    nameOnlyCustomEnabled_FRIENDLY_PLAYER_PVP = false,
+    nameOnlyCustomColor_FRIENDLY_PLAYER_PVP = { r = 0.00, g = 1.00, b = 0.00 },
+    nameOnlyCustomEnabled_FRIENDLY_NPC_STANDARD = false,
+    nameOnlyCustomColor_FRIENDLY_NPC_STANDARD = { r = 0.00, g = 1.00, b = 0.00 },
+    nameOnlyCustomEnabled_FRIENDLY_NPC_ESCORT = false,
+    nameOnlyCustomColor_FRIENDLY_NPC_ESCORT = { r = 0.00, g = 1.00, b = 0.00 },
+    nameOnlyCustomEnabled_NEUTRAL_NPC_PASSIVE = false,
+    nameOnlyCustomColor_NEUTRAL_NPC_PASSIVE = { r = 1.00, g = 1.00, b = 0.00 },
+    nameOnlyCustomEnabled_HOSTILE_NPC_STANDARD = false,
+    nameOnlyCustomColor_HOSTILE_NPC_STANDARD = { r = 0.949, g = 0.549, b = 0.098 },
+    nameOnlyCustomEnabled_PET_MINION_FRIENDLY = false,
+    nameOnlyCustomColor_PET_MINION_FRIENDLY = { r = 0.467, g = 0.533, b = 1.00 },
     friendlyNPCColor = { r = 0, g = 1, b = 0 },
     friendlyNPCNameColor = { r = 0, g = 1, b = 0 },
     friendlyNPCTitleColor = { r = 0, g = 1, b = 0, a = 0.7 },
+    -- The subtitle under a friendly NPC's name keeps its own swatch by default;
+    -- Match NPC Name Color is the opt-in that makes the line follow the name
+    -- above it. The swatch's alpha sets the line apart either way.
+    friendlyNPCTitleMatchNameColor = false,
     friendlyNPCNameSize = 13,
+    friendlyPetNameSize = 13,
     friendlyNPCTitleSize = 10,
+    friendlyPetTitleSize = 10,
+    -- A pet's owner line has settings of its own, so a pet never depends on what
+    -- the friendly NPCs are configured to show. It always shows its owner, with
+    -- the name in Blizzard's own white and the softer alpha a subtitle takes.
+    friendlyPetOwnerColor = { r = 1, g = 1, b = 1, a = 0.7 },
+    friendlyPetOwnerMatchNameColor = false,
+    -- Owner Text Uses Its Own Size: off, the owner line under a pet's name takes
+    -- the pet name's size; on, Owner Text Size sets it.
+    friendlyPetOwnerOwnSize = false,
     friendlyNameTextSize = 12,
     friendlyBelowName = "none",
+    -- Guild Text Size: the guild line under a friendly player's name, a text of
+    -- its own in both styles.
     friendlyBelowNameSize = 12,
     friendlyBelowNameColor = { r = 0.8, g = 0.8, b = 0.8 },
     friendlyBelowNameClassColor = false,
     friendlyBelowNameGuildBrackets = true,
+    friendlyBelowNameMatchNameColor = false,
     friendlyShowLevel = false,
     friendlyLevelDiffColor = false,
     friendlyGroupBrackets = false,
-    showEnemyPets = false,
+    -- Status Tags (AFK, Do Not Disturb): Blizzard's own nameplates print no away
+    -- or busy tag, so each is a choice of its own and off until asked.
+    friendlyStatusTagAFK = false,
+    friendlyStatusTagDND = false,
+    -- Show Enemy Pet Nameplates has no default either: nil means the user never
+    -- chose, and nil reads as off. Its click writes nameplateShowEnemyPets alone
+    -- (ns.ApplyPetCVars); the enemy minion CVars stay the client's own.
     -- Blizzard's nameplateSize CVar (1 Small .. 5 Huge), applied on load; 3 = Large, the old forced value.
     nameplateSize = 3,
     font = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF",
@@ -633,7 +690,7 @@ local defaults = {
     textSlotBottomRightColor = { r = 1, g = 1, b = 1 },
     textSlotTopLeftColor = { r = 1, g = 1, b = 1 },
     textSlotTopRightColor = { r = 1, g = 1, b = 1 },
-    -- Core Text Positions: per-slot class colour flag, read only by ns.NP_SlotColorMode
+    -- Core Text Positions: per-slot class color flag, read only by ns.NP_SlotColorMode
     -- while the slot's Text Coloring mode (<slot>ColorMode, no default) is unset.
     textSlotTopClassColor = false, textSlotRightClassColor = false,
     textSlotLeftClassColor = false, textSlotCenterClassColor = false,
@@ -719,6 +776,8 @@ function ns.ApplyCustomBorderStyle(plate, szOverride)
         plate._customBorder = bf
         -- Plates move by sub-pixels: the Pixels styles need their edge fill.
         EllesmereUI.SetBorderEdgeFill(bf, true)
+        -- Snap ignoring the engine's grow-in scale on the Blizzard nameplate.
+        EllesmereUI.SetBorderSnapHost(bf, plate)
     end
     -- Health bars flatten render layers: a BORDER-layer backdrop would be clipped by the
     -- ARTWORK health fill, so lift it onto MEDIUM strata (same escape the plate uses for
@@ -762,7 +821,7 @@ end
 -- itself spans the health bar's top to the cast bar's bottom. Casts In Front of
 -- Nameplates moves the cast bar out of the plate: the border then stays on the health
 -- bar and a lower piece (a child of the cast bar, drawn with the border's style, size
--- and live colour) spans the health bar's bottom to the cast bar's bottom. The two
+-- and live color) spans the health bar's bottom to the cast bar's bottom. The two
 -- pieces drop the edges where they touch (solid: the strips; textured: the backdrop
 -- pieces, ns.NP_SetWrapJoin), so both modes draw the same single outline and the seam
 -- follows Show Seam Line alone. While wrapped, the cast bar's 1px icon separator is
@@ -779,7 +838,7 @@ function ns.NP_UpdateCustomBorderWrap(plate)
     local EUI = EllesmereUI
     local tex, sz, px = bf._cbTex, bf._cbSz, bf._cbPx
     local solid = not tex or tex == "" or tex == "solid"
-    -- The colour the border shows right now (base, hover or target), read back from it.
+    -- The color the border shows right now (base, hover or target), read back from it.
     local uc = PP.GetBorders(bf)
     local r, g, b, a
     local bd = not solid and EUI._bdBorderData[bf]
@@ -808,6 +867,7 @@ function ns.NP_UpdateCustomBorderWrap(plate)
             lower:SetPoint("BOTTOM", cast, "BOTTOM", 0, 0)
             plate._cbWrapLower = lower
             EUI.SetBorderEdgeFill(lower, true)
+            EUI.SetBorderSnapHost(lower, plate)
         end
         -- Above the cast spell icon, re-set every pass (a strata change on the lifted
         -- cast bar resets its children's levels).
@@ -815,7 +875,7 @@ function ns.NP_UpdateCustomBorderWrap(plate)
         local offX, offY = p and p.customBorderOffset, p and p.customBorderOffsetY
         local shX, shY = p and p.customBorderShiftX, p and p.customBorderShiftY
         -- Full restyle only when a style input moved, the level was reset or the piece
-        -- is down; a colour change alone is a tint.
+        -- is down; a color change alone is a tint.
         if not lower:IsShown() or lower:GetFrameLevel() ~= lvl
             or lower._sTex ~= tex or lower._sSz ~= sz or lower._sPx ~= px
             or lower._sOX ~= offX or lower._sOY ~= offY or lower._sSX ~= shX or lower._sSY ~= shY then

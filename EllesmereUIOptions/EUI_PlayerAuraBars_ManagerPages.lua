@@ -1235,7 +1235,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
             rows = borderCogRows,
         })
         local function UpdateBorderCogVisibility()
-            if cogBtn then cogBtn:SetShown((cfg.borderTexture or "solid") ~= "solid"
+            if cogBtn then cogBtn:SetShown((cfg.borderTexture or "solid") ~= "solid" and cfg.borderTexture ~= ""
                 and not IsMaskShape(cfg.iconShape)
                 and not EllesmereUI.BlizzStyle.Get("playerauras")) end
         end
@@ -1357,6 +1357,14 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
     ); sy = sy - hh
     do
         local rgn = styleRow._rightRegion
+        EllesmereUI.BuildInlineCog(rgn, EllesmereUI.AuraRadiusCogCfg(cfg.borderTexture,
+            function() return cfg.borderCornerRadius or 0 end,
+            function(v) cfg.borderCornerRadius = v; apply() end,
+            function() return IsMaskShape(cfg.iconShape) or EllesmereUI.BlizzStyle.Get("playerauras") end,
+            function()
+                if EllesmereUI.BlizzStyle.Get("playerauras") then return EllesmereUI.BlizzStyle.Label("playerauras") end
+                return "This option requires a non-custom shape to be selected"
+            end))
         local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
             rgn, styleRow:GetFrameLevel() + 3,
             function()
@@ -1380,6 +1388,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
         end
         local function CopyBorderTo(entry)
             entry.cfg.borderSize = cfg.borderSize
+            entry.cfg.borderCornerRadius = cfg.borderCornerRadius or 0
             -- The exact size travels with its step, verbatim (string/false/nil);
             -- a target whose value was set is cleared with false, never nil.
             local px = cfg.borderSizePx
@@ -1399,7 +1408,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
         end
         EllesmereUI.BuildSyncIcon({
             region  = rgn,
-            tooltip = "Apply Border Size and Color to all Bars",
+            tooltip = "Apply Border Size, Corner Radius and Color to all Bars",
             onClick = function()
                 for _, entry in ipairs(PabAllBarEntries()) do
                     if entry.cfg ~= cfg then CopyBorderTo(entry) end
@@ -1413,6 +1422,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
                     local c = entry.cfg
                     if (c.borderSize or 1) ~= size or (c.borderR or 0) ~= r or (c.borderG or 0) ~= g
                         or (c.borderB or 0) ~= b or (c.borderA or 1) ~= a
+                        or (c.borderCornerRadius or 0) ~= (cfg.borderCornerRadius or 0)
                         or (c.borderSizePx or false) ~= (cfg.borderSizePx or false) then
                         return false
                     end
@@ -1717,7 +1727,7 @@ local function BuildDispelColorFields(frame, fontPath, sy, cfg, apply)
     end
 
     -- Blizzard Style paints the stock per-type border art, so the palette has
-    -- nothing to colour: the whole section stays out (fully gated rows hide).
+    -- nothing to color: the whole section stays out (fully gated rows hide).
     if EllesmereUI.BlizzStyle.Get("playerauras") then return sy end
 
     _, hh = W:SectionHeader(frame, "DISPEL COLORS", sy); sy = sy - hh

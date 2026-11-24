@@ -121,7 +121,9 @@ end
 
 -- Mirror angles (degrees) for playable-race models, whether used by a player or NPC.
 -- Non-playable NPC models are excluded.
--- Unlisted/missing/restricted IDs stay normal; never infer facing from unit type.
+-- Unlisted/missing/restricted IDs stay normal. A 3D model turns only by this
+-- list; a 2D portrait flips for every player (forms included) and, for an NPC,
+-- by this list.
 do
     local mirrorAngles -- Built only when portrait mirroring first needs a model ID.
     local function GetMirrorAngle(id)
@@ -203,7 +205,7 @@ do
             if v ~= nil then return v end
             -- This unit's load is still in flight: take the answer if it is in.
             if model._mirPending == key then
-                if type(model:GetModelFileID()) == "nil" then return false end
+                if type((model:GetModelFileID())) == "nil" then return false end
                 model._mirReady = nil
                 return Resolve(model, key)
             end
@@ -332,12 +334,13 @@ function PortraitOverride(self, event, evtUnit, fallback)
         -- with guid and availability both reading unchanged, field-traced).
         -- Models only: 2D textures survive Hide/Show.
         or (event == "Show" and isModel)
-    -- A changed model can also change 2D mirror eligibility, including class
-    -- mode's NPC fallback: drop the cached answer and repaint, only when opted in.
+    -- A changed model can also change an NPC's 2D mirror eligibility, including
+    -- class mode's NPC fallback: drop the cached answer and repaint, only when
+    -- opted in. A player's flip never depends on the model.
     if event == "UNIT_MODEL_CHANGED" and not isModel then
         local uk = UnitToSettingsKey(self._euiBaseUnit or u)
         local us = uk and db.profile[uk]
-        if us and us.portraitMirror and not ns.UF_Blizz() then
+        if us and us.portraitMirror and not ns.UF_Blizz() and not UnitIsPlayer(u) then
             ns.UF_ForgetPortraitMirror(u)
             hasStateChanged = true
         end
@@ -448,8 +451,13 @@ function PortraitOverride(self, event, evtUnit, fallback)
         element.state = isAvailable
     end
     if hasStateChanged and element.PostUpdate then
-        return element:PostUpdate(u, hasStateChanged)
+        element:PostUpdate(u, hasStateChanged)
     end
+    -- For the engine's same-frame collapse: only a model reload closes the
+    -- portrait channel for the frame. A 2D paint is one texture call, and its
+    -- art comes with UNIT_PORTRAIT_UPDATE, which can follow UNIT_MODEL_CHANGED
+    -- in the same frame (a shapeshift sends both).
+    return isModel and hasStateChanged
 end
 
 -- Portraits: PortraitOverride was already the complete painter (GUID/state
@@ -461,7 +469,7 @@ ns.Engine.SetPainter("portrait", function(frame, unit, event)
         -- before the paint so both read the same unit (no 2D flash between).
         local swap, fb = ns.UF_ClassFallbackNeedsSwap(frame, unit)
         if swap then SwapPortraitMode(frame, true) end
-        PortraitOverride(frame, event or "ForceUpdate", unit, fb)
+        return PortraitOverride(frame, event or "ForceUpdate", unit, fb)
     end
 end)
 -- Element ForceUpdate stamp: the settings code refreshes portraits through
@@ -551,6 +559,10 @@ function ns.UF_AttachEngineFrame(frame, unit, polled)
         ns.Engine.AttachPolled(frame, unit, channels)
     else
         ns.Engine.Attach(frame, unit, channels)
+    end
+    ns.UF_SyncBorderColor(frame, unit)
+    if frame._euiTextClassification then
+        ns.Engine.SetChannelOn(frame, "textclassification", true)
     end
     -- Opt-in heal prediction joins its channel here when the unit has it on.
     if frame.HealthPrediction and ns.UF_HEAL_PRED_UNITS[unit] then
@@ -907,10 +919,10 @@ end
 -- unit's settings, shape = its resolved shape; s == nil hides both. Nothing
 -- exists until a first non-default value. The ring is laid out from the host
 -- size (Outer Ring Size percent, minus a 4px inset, edges snapped by PP.Point)
--- and tinted with the frame border colour, which the hover path recolours in
+-- and tinted with the frame border color, which the hover path recolors in
 -- place. The ring's geometry is memoized on the texture (ring key, frame
 -- Border Style, ring size, host width and height, pixel grid) and its tint on
--- the colour (border r, g, b, alpha), so the per-target class-colour re-run
+-- the color (border r, g, b, alpha), so the per-target class-color re-run
 -- only compares. The Portrait Dragon is its own pass (ns.UF_PortraitDragon).
 function ns.UF_PortraitExtras(host, s, shape)
     local round = s and ns.UF_ROUND_SHAPES[shape]
@@ -1275,7 +1287,7 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
     -- === TGA BORDER OVERLAY ===
     -- Geometry (anchors, mask attach, art) re-applies only when one of its
     -- inputs changes -- shape, border size step, pixel grid, mask object -- so
-    -- the per-target class-colour re-run only recolours. A shape listed in
+    -- the per-target class-color re-run only recolors. A shape listed in
     -- ns.UF_UNMASKED_RING (Pixels Circle) keeps its ring art outside the mask,
     -- inset from the backdrop by that many px at Size 7; each step below 7
     -- moves it 1px outward, as the size step expands every other shape's art.
@@ -1562,9 +1574,12 @@ local function CreatePortrait(frame, side, frameHeight, unit)
         -- when the flip state changes (the first on-to-off pass restores the
         -- creation crop). Never under a stock style (its full-art coords
         -- stand), and the unavailable question mark always reads unflipped.
+        -- A player always flips, shapeshift forms and transforms included
+        -- (UnitIsPlayer is never secret); only an NPC asks the model lookup.
         local mir = (uS2 and uS2.portraitMirror and not ns.UF_Blizz()
             and not (hasStateChanged and self.state == false)
-            and ns.UF_CanMirrorPortrait2D(EnsureModel3D(), u, MirrorReady)) and true or false
+            and (UnitIsPlayer(u)
+                or ns.UF_CanMirrorPortrait2D(EnsureModel3D(), u, MirrorReady))) and true or false
         if mir ~= (self._mirrored or false) then
             self._mirrored = mir
             if mir then

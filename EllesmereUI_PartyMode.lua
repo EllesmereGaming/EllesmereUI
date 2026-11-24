@@ -540,13 +540,11 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
 
     elseif event == "PVP_MATCH_COMPLETE" then
         local winner = ...
-        if not EllesmereUIDB then return end
-        -- Determine if the player's faction won
-        local playerFaction = UnitFactionGroup("player")
-        local playerWon = false
-        if playerFaction == "Horde" and winner == 0 then playerWon = true end
-        if playerFaction == "Alliance" and winner == 1 then playerWon = true end
-        if not playerWon then return end
+        local db = EllesmereUIDB
+        if not (db and (db.partyModeTriggerRatedBG or db.partyModeTriggerRatedArena)) then return end
+        -- winner is a team index; compare it to the player's team, not faction
+        local myTeam = GetBattlefieldArenaFaction()
+        if myTeam == nil or winner ~= myTeam then return end
         -- Check which type of rated PvP
         local triggered = false
         if C_PvP and C_PvP.IsRatedBattleground and C_PvP.IsRatedBattleground() and EllesmereUIDB.partyModeTriggerRatedBG then
@@ -878,7 +876,7 @@ end
 
 -------------------------------------------------------------------------------
 --  AFK Screen: while the player is AFK, the EUI logo bounces around a dimmed
---  screen and changes colour on every wall hit. Each leg between walls is one
+--  screen and changes color on every wall hit. Each leg between walls is one
 --  Translation animation, so Lua only runs once per bounce. Click to dismiss.
 -------------------------------------------------------------------------------
 do

@@ -62,7 +62,7 @@ do
         local prof = sp[specKey]
         if not prof then
             if not create then return nil end
-            prof = { barSpells = {} }
+            prof = EllesmereUI.StampSpecProfile({ barSpells = {} })
             sp[specKey] = prof
         end
         if not prof.tbbUnlockLinks and create then
@@ -454,6 +454,10 @@ function ns.AddBarToAllSpecs(srcIdx)
     local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     if not sp then return 0 end
 
+    -- Wider than RemoveBarFromAllSpecs' match on purpose: a custom bar is not copied into a spec
+    -- that already tracks its spell from Blizzard's list (that spec would show two bars for one
+    -- buff), while Remove takes only bars carrying this bar's broadcast key, so that spec's own
+    -- bar survives a later Remove.
     local function HasSameBar(bars)
         for _, b in ipairs(bars) do
             -- A cooldown-tracking bar is never the same bar as a buff bar for the same spell: track types must match first.
@@ -478,7 +482,7 @@ function ns.AddBarToAllSpecs(srcIdx)
         if specID then
             local key = tostring(specID)
             if key ~= activeKey then
-                if not sp[key] then sp[key] = { barSpells = {} } end
+                if not sp[key] then sp[key] = EllesmereUI.StampSpecProfile({ barSpells = {} }) end
                 local prof = sp[key]
                 if not prof.trackedBuffBars then
                     prof.trackedBuffBars = { selectedBar = 1, bars = {} }
@@ -541,12 +545,8 @@ function ns.RemoveBarFromAllSpecs(srcIdx)
         if (b.trackType or "buff") ~= (srcBar.trackType or "buff") then
             return false
         end
-        if srcBar.popularKey and srcBar.popularKey ~= "" then
-            return b.popularKey == srcBar.popularKey
-        else
-            return (not b.popularKey or b.popularKey == "")
-                   and b.spellID and b.spellID == srcBar.spellID
-        end
+        -- Same broadcast identity only: another spec's Blizzard CDM bar for this spell must survive.
+        return ns.TBBBroadcastKey(b) == broadcastKey
     end
 
     local removed = 0

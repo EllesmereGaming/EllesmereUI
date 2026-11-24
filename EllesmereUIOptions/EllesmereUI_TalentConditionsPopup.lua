@@ -14,6 +14,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  (EUI_CooldownManager_TalentConditions.lua) and the WoW Forever swing
 --  timer's Forms and Talents cog. Each caller keeps its own list and decides
 --  what the list hides; the check is the parent's EllesmereUI.TalentConditionsHold.
+--  Talent Reminders opens it to pick ONE talent (opts.pick): a click picks
+--  that talent and closes, the current pick wears the accent border, and
+--  there is nothing to save or clear.
 --  The tree read here is the ACTIVE talent config's committed build, the same
 --  one the check reads, so what the popup shows is exactly what decides. A
 --  saved condition no drawn node can show (a talent a patch removed, or a
@@ -23,6 +26,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  opts: title; conds (the saved list, read only); onConfirm(newList or nil);
 --  texts = { hint, none, met(count), notMet(count) }, what the conditions
 --  decide in the caller's words; fontKey, the caller's module font.
+--  Or, to pick one talent: opts.pick = { spellID (the current pick or nil),
+--  onPick({ spellID, nodeID, entryID }) }, with texts = { hint, none } (none:
+--  the footer line) and no conds.
 --
 --  Frames are built on first open and reused; nothing exists until then.
 -------------------------------------------------------------------------------
@@ -237,9 +243,10 @@ local pending = {}     -- nodeID -> { nodeID, entryID, spellID, taken }
 local offTree = {}     -- saved conditions no drawn node shows; kept unless removed
 local onConfirm
 local texts            -- the open's texts (opts.texts)
+local pick             -- opts.pick while a pick open is up
 local tipOwner         -- node button that set GameTooltip up (hidden only while it owns it)
 
-local RepaintAll, UpdateStatus, LayoutOffTree
+local RepaintAll, UpdateStatus, LayoutOffTree, Close
 
 local function ConditionOn(btn)
     local c = pending[btn.node.nodeID]
@@ -249,7 +256,16 @@ end
 
 local function PaintButton(btn)
     local c = ConditionOn(btn)
-    if c then
+    if pick then
+        if pick.spellID ~= nil and btn.spellID == pick.spellID then
+            local ar, ag, ab = EllesmereUI.GetAccentColor()
+            PP.SetBorderColor(btn, ar, ag, ab, 1)
+            PP.SetBorderSize(btn, MARK_PX)
+        else
+            PP.SetBorderColor(btn, 0.35, 0.35, 0.35, 0.9)
+            PP.SetBorderSize(btn, BORDER_PX)
+        end
+    elseif c then
         if c.taken then
             local ar, ag, ab = EllesmereUI.GetAccentColor()
             PP.SetBorderColor(btn, ar, ag, ab, 1)
@@ -261,7 +277,7 @@ local function PaintButton(btn)
         PP.SetBorderColor(btn, 0.35, 0.35, 0.35, 0.9)
         PP.SetBorderSize(btn, BORDER_PX)
     end
-    -- Current build at a glance: taken talents in full colour, the rest dimmed.
+    -- Current build at a glance: taken talents in full color, the rest dimmed.
     local t = btn.node.taken
     local takenNow = t ~= false and (btn.entryID == nil or t == btn.entryID)
     btn.icon:SetDesaturated(not takenNow)
@@ -274,7 +290,14 @@ local function ButtonOnEnter(btn)
     GameTooltip:SetSpellByID(btn.spellID)
     GameTooltip:AddLine(" ")
     local c = ConditionOn(btn)
-    if not c then
+    if pick then
+        if pick.spellID ~= nil and btn.spellID == pick.spellID then
+            local ar, ag, ab = EllesmereUI.GetAccentColor()
+            GameTooltip:AddLine(EllesmereUI.L("Picked"), ar, ag, ab, true)
+        else
+            GameTooltip:AddLine(EllesmereUI.L("Click: pick this talent"), 0.7, 0.7, 0.7, true)
+        end
+    elseif not c then
         GameTooltip:AddLine(EllesmereUI.L("Click: show only while this talent is taken"), 0.7, 0.7, 0.7, true)
     elseif c.taken then
         local ar, ag, ab = EllesmereUI.GetAccentColor()
@@ -297,6 +320,13 @@ end
 -- this node's buttons can change paint.
 local function ButtonOnClick(btn)
     local nodeID = btn.node.nodeID
+    if pick then
+        -- A pick open: this talent, and close. Closing clears pick (dimmer OnHide).
+        local onPick = pick.onPick
+        Close()
+        if onPick then onPick({ spellID = btn.spellID, nodeID = nodeID, entryID = btn.entryID }) end
+        return
+    end
     local c = ConditionOn(btn)
     if not c then
         pending[nodeID] = { nodeID = nodeID, entryID = btn.entryID, spellID = btn.spellID, taken = true }
@@ -346,6 +376,11 @@ RepaintAll = function()
 end
 
 UpdateStatus = function()
+    if pick then
+        statusFS:SetText(texts.none or "")
+        statusFS:SetTextColor(0.7, 0.7, 0.7, 0.9)
+        return
+    end
     local count, met = 0, true
     for _, c in pairs(pending) do
         count = count + 1
@@ -585,7 +620,7 @@ local function MakePanel(index)
                       lines = {}, buttons = {}, used = 0 }
 end
 
-local function Close()
+Close = function()
     if tipOwner and GameTooltip:IsOwned(tipOwner) then GameTooltip:Hide() end
     tipOwner = nil
     -- A chip hidden under the cursor never gets OnLeave; the modal dimmer means
@@ -646,6 +681,7 @@ local function Build()
     local saveBtn = EllesmereUI.MakeActionButton(popup, fontPath, EllesmereUI.L("Save"), ar, ag, ab, { w = BTN_W })
     saveBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -SIDE_PAD, BTN_BOTTOM)
     saveBtn:SetScript("OnClick", Commit)
+    popup._saveBtn = saveBtn
     KeepButtonLabel(saveBtn)
 
     local cancelBtn = EllesmereUI.MakeActionButton(popup, fontPath, EllesmereUI.L("Cancel"), 1, 1, 1,
@@ -665,6 +701,7 @@ local function Build()
         RepaintAll()
         UpdateStatus()
     end)
+    popup._clearBtn = clearBtn
     KeepButtonLabel(clearBtn)
 
     -- Status line: left of the buttons, on their centre line.
@@ -678,7 +715,7 @@ local function Build()
 
     -- Hooked, not set: hide hooks the popup shell or the controller cursor put
     -- on this dimmer must survive (with none, this is its only handler).
-    dimmer:HookScript("OnHide", function() onConfirm = nil end)
+    dimmer:HookScript("OnHide", function() onConfirm = nil; pick = nil end)
 end
 
 -------------------------------------------------------------------------------
@@ -691,6 +728,11 @@ function EllesmereUI.ShowTalentConditionsPopup(opts)
     texts = opts.texts
     titleFS:SetText(opts.title or "")
     hintFS:SetText(texts.hint)
+    -- A pick open has nothing to save or clear: Cancel alone (Escape and a
+    -- click outside close it too).
+    pick = type(opts.pick) == "table" and opts.pick or nil
+    popup._saveBtn:SetShown(not pick)
+    popup._clearBtn:SetShown(not pick)
 
     if EllesmereUI.IS_FOREVER then
         local trees, span = ReadForeverTrees()

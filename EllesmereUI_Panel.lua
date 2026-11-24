@@ -290,7 +290,7 @@ local function BuildFrame()
     -- Accent hue via desaturate + vertex tint: base images are teal, so desaturating
     -- removes the hue and vertex color re-tints to the chosen accent. Horde/Alliance
     -- have dedicated background images and are used as-is (never desaturated/tinted).
-    -- TintColor returns nil for those, else the vertex colour of the desaturated art.
+    -- TintColor returns nil for those, else the vertex color of the desaturated art.
     function tbox.TintColor(theme, r, g, b)
         if theme == "EllesmereUI" or theme == "EllesmereUI Original" or theme == "EllesmereUI Forever"
            or theme == "Horde" or theme == "Alliance" or theme == "Midnight" or theme == "Dark"
@@ -317,7 +317,7 @@ local function BuildFrame()
         end
     end
 
-    -- A colour picked off the art (r, g, b), as the art shows it under the theme's tint.
+    -- A color picked off the art (r, g, b), as the art shows it under the theme's tint.
     function tbox.Tinted(theme, tr, tg, tb, r, g, b)
         local fr, fg, fb = tbox.TintColor(theme, tr, tg, tb)
         if not fr then return r, g, b end
@@ -325,7 +325,7 @@ local function BuildFrame()
         return lum * fr, lum * fg, lum * fb
     end
 
-    -- Active theme and its colour (the tint input), for painting outside a theme change.
+    -- Active theme and its color (the tint input), for painting outside a theme change.
     function tbox.Theme()
         local theme = ResolveFactionTheme(EllesmereUIDB and EllesmereUIDB.activeTheme or EllesmereUI.DEFAULT_THEME)
         return theme, EllesmereUI.ResolveThemeColor(theme)
@@ -349,7 +349,7 @@ local function BuildFrame()
     -- (EllesmereUI.THEME_CLOSE_BOX), cut from the same art: its border as four
     -- strips (top and bottom carry the corners; the open centre shows the art
     -- below), dx canvas units left of the painted box, plus an arrow glyph in the
-    -- X's colours. owner holds the textures; canvas point (ox, oy) sits on
+    -- X's colors. owner holds the textures; canvas point (ox, oy) sits on
     -- anchor's TOPLEFT. With no glyph it is a hover glow instead: the border
     -- ring alone, additive, in owner's highlight layer.
     function tbox.New(owner, anchor, ox, oy, dx, glyph)
@@ -381,7 +381,7 @@ local function BuildFrame()
     end
 
     -- Draw order of a glyph set: strips at BACKGROUND stripSub, glyph pieces
-    -- (rim, colour, accent) at BORDER glyphSub, +2, +4.
+    -- (rim, color, accent) at BORDER glyphSub, +2, +4.
     function tbox.Layer(set, stripSub, glyphSub)
         for i = 1, 4 do set.s[i]:SetDrawLayer("BACKGROUND", stripSub) end
         set.shadow:SetDrawLayer("BORDER", glyphSub)
@@ -412,7 +412,7 @@ local function BuildFrame()
         end
     end
 
-    -- Paint a set from the theme's art (tr, tg, tb = the theme colour, the tint input).
+    -- Paint a set from the theme's art (tr, tg, tb = the theme color, the tint input).
     function tbox.Paint(set, theme, tr, tg, tb)
         local file = THEME_BG_FILES[theme] or THEME_BG_FILES["EllesmereUI"]
         local spec = EllesmereUI.THEME_CLOSE_BOX[file]
@@ -2985,7 +2985,7 @@ local function BuildFooter(rightW, rightX)
     footerFrame:SetFrameLevel(clickArea:GetFrameLevel() + 5)
 
     -----------------------------------------------------------------------
-    --  Footer button hover colours  (tweak these to adjust fade targets)
+    --  Footer button hover colors  (tweak these to adjust fade targets)
     -----------------------------------------------------------------------
     -- Reset to Defaults / Reload UI  (white, muted)
     local RS_TEXT_R,   RS_TEXT_G,   RS_TEXT_B,   RS_TEXT_A   = 1, 1, 1, .5
@@ -4424,7 +4424,6 @@ do
         EllesmereUIBags = true,
         EllesmereUIDataBars = true,
         EllesmereUIQuickdraw = true,
-        EllesmereUILoadoutManager = true,
         EllesmereUIGroupFinder = true,
         EllesmereUIForeverEssentials = true,
         EllesmereUISimpleLootCouncil = true,
@@ -5112,7 +5111,8 @@ end
 --  Reset EUI Module Settings (Global Settings): the suite's module resets
 --  in one menu, each behind the typed confirm. A module's config may set
 --  resetScope ("account": settings every profile shares, "character": this
---  character's own; default: the current profile) and resetMessage (a
+--  character's own; default: the current profile), resetDisclaimer (its own
+--  scope line, for a module whose settings mix those) and resetMessage (a
 --  string, or a function returning one, in place of the standard question).
 --  The reset runs as RequestReload's pre-reload work, as Reset ALL's wipe does.
 -------------------------------------------------------------------------------
@@ -5131,7 +5131,7 @@ local function ConfirmModuleReset(key, name)
     EllesmereUI:ShowConfirmPopup({
         title         = title,
         message       = msg or EllesmereUI.Lf("Are you sure you want to reset all %1$s settings to their defaults? This will reload your UI.", name),
-        disclaimer    = EllesmereUI.L(RESET_SCOPE_TEXT[config.resetScope] or RESET_SCOPE_TEXT.profile),
+        disclaimer    = EllesmereUI.L(config.resetDisclaimer or RESET_SCOPE_TEXT[config.resetScope] or RESET_SCOPE_TEXT.profile),
         typeToConfirm = "Confirm",
         confirmText   = "Reset & Reload",
         cancelText    = "Cancel",
@@ -5725,7 +5725,7 @@ end
 --  (a module can opt out of the latter with searchPrebuild = false).
 --  Developer guide: PLUGINS_API.md.
 -------------------------------------------------------------------------------
-EllesmereUI.PLUGIN_API_VERSION = 5
+EllesmereUI.PLUGIN_API_VERSION = 6
 
 do
     local PREFIX          = EUI_NS.PLUGIN_PREFIX

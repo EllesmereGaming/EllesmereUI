@@ -35,6 +35,7 @@ TextTags.UNIT = {
         { tag = "name", keys = { "name", "name:first", "name:last", "name:abbr" } },
         { tag = "target", keys = { "target", "target:first", "target:last", "target:abbr" } },
         { tag = "level", keys = { "level" } },
+        { tag = "classification", keys = { "classification", "classification:abbr" } },
         { tag = "group", keys = { "group" } },
     },
     keys = {
@@ -61,6 +62,8 @@ TextTags.UNIT = {
         ["target:last"]    = { reads = "tgt", width = 72, sample = "Proudmoore" },
         ["target:abbr"]    = { reads = "tgt", width = 72, sample = "J. Proudmoore" },
         ["level"]          = { reads = "id", width = 24, sample = "80" },
+        ["classification"] = { reads = "id", width = 58, sample = "Elite" },
+        ["classification:abbr"] = { reads = "id", width = 18, sample = "+" },
         ["group"]          = { reads = "roster", width = 10, sample = "3" },
     },
     -- Built on demand: the active locale is resolved only at ADDON_LOADED.
@@ -71,6 +74,7 @@ TextTags.UNIT = {
                 absorb = EllesmereUI.L("Absorb shield"), healabsorb = EllesmereUI.L("Heal absorb"),
                 name = EllesmereUI.L("Unit name"), target = EllesmereUI.L("Name of the unit's target"),
                 level = EllesmereUI.L("Unit level"), group = EllesmereUI.L("Raid group number"),
+                classification = EllesmereUI.L("Elite, Rare, or Rare Elite (abbr: +, R, R+)"),
             },
             mods = {
                 abr = EllesmereUI.L("Abbreviated (132 K)"),
@@ -97,6 +101,8 @@ TextTags.UNIT = {
                 ["target:first"] = EllesmereUI.L("Target, first name"), ["target:last"] = EllesmereUI.L("Target, last name"),
                 ["target:abbr"] = EllesmereUI.L("Target, abbreviated"),
                 ["level"] = EllesmereUI.L("Unit level"), ["group"] = EllesmereUI.L("Raid group"),
+                ["classification"] = EllesmereUI.L("Unit classification"),
+                ["classification:abbr"] = EllesmereUI.L("Unit classification, abbreviated"),
             },
         }
     end,
@@ -178,7 +184,7 @@ local strlen = strlenutf8 or string.len
 --- one %s per tag, keys the schema key of each, has / reads sets of the keys
 --- and value classes used, literalChars the UTF-8 length outside the tags,
 --- unknown the bracketed text that is no bound key (left as typed, no repeats).
---- "%" is escaped and "|" doubled: no colour or texture escape can be typed.
+--- "%" is escaped and "|" doubled: no color or texture escape can be typed.
 --- Cached and shared by every reader (read-only); transient (the popup's
 --- per-keystroke preview) reads the cache but never fills it.
 function TextTags.Parse(cat, template, transient)
@@ -238,8 +244,8 @@ local function Descs(cat)
 end
 local DIM, MOD, UNKNOWN = EllesmereUI.COLOR_CODES.DIM, "|cffffd27a", "|cffffa633"
 
---- The parse filled with the schema's samples. mark (a colour escape such as
---- "|cffffa633"), when given, colours the unknown tags left as text.
+--- The parse filled with the schema's samples. mark (a color escape such as
+--- "|cffffa633"), when given, colors the unknown tags left as text.
 function TextTags.Preview(cat, parsed, mark)
     local keys, defs = parsed.keys, cat.schema.keys
     for i = 1, #keys do scratch[i] = defs[keys[i]].sample end
@@ -334,7 +340,7 @@ function TextTags.HelpText(cat, opts)
                 lines[#lines + 1] = head .. EllesmereUI.L("Examples") .. "|r"
             end
             shown = shown + 1
-            -- Modifiers in their legend colour; "|" doubled before any colour escape is added.
+            -- Modifiers in their legend color; "|" doubled before any color escape is added.
             local shownText = sgsub(sgsub(examples[i], "|", "||"), "%[(%w+)(:[%w:]+)%]", "[%1" .. MOD .. "%2|r]")
             lines[#lines + 1] = shownText .. "  " .. DIM .. "=  " .. TextTags.Preview(cat, parsed) .. "|r"
         end
@@ -344,7 +350,7 @@ end
 
 --- Completion for the tag being typed: text up to cursor (in bytes, as
 --- EditBox:GetCursorPosition counts) ending in "[" plus an unclosed partial
---- tag. Returns nil, or (items, from, to): items { text = "hp:abr]", label (modifiers coloured),
+--- tag. Returns nil, or (items, from, to): items { text = "hp:abr]", label (modifiers colored),
 --- desc, detail = sample } in schema order, and the text[from..to] range an
 --- item replaces (a "]" right after the caret included). A bare tag name lists
 --- its variants, a partial name one entry per matching tag. An item with longer
@@ -467,7 +473,7 @@ local CLOSE_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png"
 TextTags.EDIT_ICON = EDIT_ICON
 
 --- The template popup. o: cat (the module's catalog), get() / set(text) (the stored
---- template, single pipes), color (the preview's text colour; nil = white), tagNotes
+--- template, single pipes), color (the preview's text color; nil = white), tagNotes
 --- (as TextTags.HelpText's), onSave (after the template is stored). Spaces only opens
 --- the popup again with a hint instead of closing unsaved.
 function TextTags.EditPopup(o, warning)

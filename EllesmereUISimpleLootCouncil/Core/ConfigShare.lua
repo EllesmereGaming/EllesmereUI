@@ -16,7 +16,32 @@ local MAX_COUNCIL = 40
 local pending
 
 
+local function IsAssistant(who)
+    if not IsInRaid() then return false end
+    local name = addon.Player:Get(who).fullName
+    if not name then return false end
+    local unit = addon.Player:IsSelf(name) and "player" or addon.Roster:UnitForName(name)
+    if not unit then return false end
+    local result = UnitIsGroupAssistant(unit)
+    return not addon.IsSecret(result) and result == true
+end
+
+
+
+function ConfigShare.MayOffer(who)
+    if addon.IsMasterLooter(who) or IsAssistant(who) then return true end
+    local name = addon.Player:Get(who).fullName
+    return name ~= nil and addon.Council:GetActive()[name] == true
+end
+
 function ConfigShare:MaySend()
+    if addon.PlayerIsMasterLooter() then return true end
+    return ConfigShare.MayOffer(addon.Player:GetFullName("player"))
+end
+
+
+
+function ConfigShare:MayBroadcast()
     if addon.PlayerIsMasterLooter() then return true end
     return addon.IsMasterLooter(addon.Player:GetFullName("player"))
 end
@@ -190,7 +215,7 @@ function ConfigShare.Parse(args, sender)
         local member = record.fullName and addon.GetCandidates()[record.fullName]
             or addon.Roster and addon.Roster.IsMember and addon.Roster:IsMember(sender)
         if not member then return nil, "outside_group" end
-        if not addon.IsMasterLooter(sender) then return nil, "not_loot_master" end
+        if not ConfigShare.MayOffer(sender) then return nil, "sender_not_allowed" end
     end
 
     local council = args.c ~= nil and ParseCouncil(args.c) or nil
@@ -232,7 +257,8 @@ local function OnOffer(args, sender)
         return
     end
     addon.Log:I("ConfigShare", "offer from", offer.from, "council",
-        tostring(offer.council ~= nil), "responses", tostring(offer.responses ~= nil))
+        tostring(offer.council ~= nil), "responses", tostring(offer.responses ~= nil),
+        "run", tostring(addon.Session:IsRunning()), "settled", tostring(addon.Session:Settled()))
     SetPending(offer)
 end
 
@@ -241,7 +267,8 @@ end
 function ConfigShare:AcceptBlocker(offer)
     offer = offer or pending
     if offer and offer.responses and addon.Session:IsRunning() then
-        return "run"
+
+        return addon.Session:Settled() and "settled" or "run"
     end
     return nil
 end
@@ -310,7 +337,7 @@ function ConfigShare:Accept()
     SetPending(nil)
     addon.Callbacks:Fire("CouncilChanged")
 
-    if ConfigShare:MaySend() then addon.Council:RequestBroadcast() end
+    if ConfigShare:MayBroadcast() then addon.Council:RequestBroadcast() end
     if addon.UI and addon.UI.Options and addon.UI.Options.Refresh then
         addon.UI.Options:Refresh()
     end

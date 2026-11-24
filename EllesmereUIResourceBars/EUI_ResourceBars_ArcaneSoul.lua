@@ -372,7 +372,7 @@ end
 -------------------------------------------------------------------------------
 
 -- Colors bake in at AddPoint time, so a curve exists per distinct color set.
--- Dragging a colour picker walks through hundreds of them, so the cache is
+-- Dragging a color picker walks through hundreds of them, so the cache is
 -- bounded rather than unbounded-but-small: past the cap it starts over, and
 -- the settled color is rebuilt once on the next apply.
 local CURVE_CACHE_MAX = 64
@@ -694,7 +694,7 @@ end
 -------------------------------------------------------------------------------
 --  Live preview: the combat sequence replayed for the options page, in its
 --  header and, while that page shows out of combat, as this sample at its real
---  spot. Texts and colours follow the formatters and curves above. The driver
+--  spot. Texts and colors follow the formatters and curves above. The driver
 --  only runs while a frame using it shows.
 -------------------------------------------------------------------------------
 

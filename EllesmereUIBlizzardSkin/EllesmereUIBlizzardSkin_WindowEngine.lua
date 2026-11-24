@@ -1097,7 +1097,7 @@ end
 -- headroom for another file-scope local.
 --
 -- NameFrame is the box round the name; IconBorder is the ROUNDED quality ring,
--- stripped because it defeats the square crop, with its colour read back onto
+-- stripped because it defeats the square crop, with its color read back onto
 -- the square border by SquareIcon's `quality` flag.
 local REWARD_TILE_ART = { "NameFrame", "IconBorder", "IconOverlay",
                           "IconOverlay2", "IconBorder2" }

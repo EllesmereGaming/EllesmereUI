@@ -43,7 +43,7 @@ I.groupNameSetters[#I.groupNameSetters + 1] = function(v) selectedGroupName = v 
 -- Invalidate categories after the equipment-set list changes (event or the
 -- split-mode toggle). Re-resolves the selection by stable key: the rebuild
 -- shifts indices, and "EquipSet:"..setID survives renames; a vanished
--- category/group falls back to All Items.
+-- category/group falls back to the view the bags open on.
 function EUI_Bags.InvalidateSetCategories()
     local mgr = _G.EUI_CategoryManager
     if not mgr then return end
@@ -54,7 +54,7 @@ function EUI_Bags.InvalidateSetCategories()
     end
     mgr:OnEquipmentSetsChanged()
     if selKey then
-        local found = 0
+        local found = ns.OpenBagViewIndex()
         for i, cat in ipairs(mgr:GetCategories()) do
             if cat._defaultName == selKey then found = i; break end
         end
@@ -65,7 +65,7 @@ function EUI_Bags.InvalidateSetCategories()
         for _, cat in ipairs(mgr:GetCategories()) do
             if cat.groupName == selectedGroupName then alive = true; break end
         end
-        if not alive then SetSelectedGroupName(nil); SetSelectedCategoryIndex(0) end
+        if not alive then SetSelectedGroupName(nil); SetSelectedCategoryIndex(ns.OpenBagViewIndex()) end
     end
 end
 
@@ -96,17 +96,21 @@ end
 local _openItemPanels = {}
 local _anyItemPanelOpen = false
 I.anyItemPanelOpenSetters[#I.anyItemPanelOpenSetters + 1] = function(v) _anyItemPanelOpen = v end
--- Returns true when the aggregate state flipped and the bags' view merges, so
--- the caller can refresh. A view that does not merge paints the same either
--- way: its painted state just follows, so neither this nor OnShow repaints.
+-- Returns true when the aggregate state flipped and the bags' view merges
+-- (Merge Duplicates, or Recent Items showing picked-up amounts), so the caller
+-- can refresh. A view that does not merge paints the same either way: its
+-- painted state just follows, so neither this nor OnShow repaints.
+-- A panel change ends a held bags layout: then true too.
 local function SetItemPanelOpen(key, open)
+    local refresh = ns.Hold and _openItemPanels[key] ~= (open or nil) and ns.Hold.ReleaseHeld("bags")
     _openItemPanels[key] = open or nil
     local any = next(_openItemPanels) ~= nil
-    if any == _anyItemPanelOpen then return false end
+    if any == _anyItemPanelOpen then return refresh end
     SetAnyItemPanelOpen(any)
-    local merges = BP().bagMergeDuplicates ~= false
+    local bp = BP()
+    local merges = bp.bagMergeDuplicates ~= false or bp.bagRecentShowGained == true
     if not merges then SetPaintedPanelOpen(any) end
-    return merges
+    return merges or refresh
 end
 
 -- Pre-cache sort fields onto item data tables to avoid API calls in comparator.
@@ -430,8 +434,39 @@ local function ReleaseAllSlotTables()
     _activeSlotN = 0
 end
 
--- Merge duplicate non-gear items by itemLink within an already-ordered list.
--- itemLink encodes stats/bonuses, so items with different stats stay separate.
+local function GetItemMergeKey(link)
+    if not link or not link:find(":Player-", 1, true) then return link end
+    -- Ignore the crafter GUID while keeping the item's quality and bonuses.
+    return (link:gsub("(|Hitem:[^|]-):Player%-%d+%-%x+([:|])", "%1:%2", 1))
+end
+
+-- Reagent Bag Icon choices (bagReagentBadge, bagReagentBadgeSize).
+local REAGENT_BADGES = {
+    order = { "none",
+              "goldleaf", "goldnugget", "goldhammer", "profession",
+              "wqherbalism", "wqmining", "wqskinning", "wqalchemy", "wqtailoring", "wqleatherworking",
+              "wqenchanting", "wqblacksmithing", "wqengineering" },
+    styles = {
+        goldleaf         = { atlas = "Professions_Tracking_Herb", label = "Golden Leaf" },
+        goldnugget       = { atlas = "Professions_Tracking_Ore", label = "Gold Nugget" },
+        goldhammer       = { atlas = "Professions-Crafting-Orders-Icon", label = "Golden Hammer" },
+        profession       = { atlas = "profession", label = "Profession" },
+        wqherbalism      = { atlas = "worldquest-icon-herbalism", label = "Herbalism" },
+        wqmining         = { atlas = "worldquest-icon-mining", label = "Mining" },
+        wqskinning       = { atlas = "worldquest-icon-skinning", label = "Skinning" },
+        wqalchemy        = { atlas = "worldquest-icon-alchemy", label = "Alchemy" },
+        wqtailoring      = { atlas = "worldquest-icon-tailoring", label = "Tailoring" },
+        wqleatherworking = { atlas = "worldquest-icon-leatherworking", label = "Leatherworking" },
+        wqenchanting     = { atlas = "worldquest-icon-enchanting", label = "Enchanting" },
+        wqblacksmithing  = { atlas = "worldquest-icon-blacksmithing", label = "Blacksmithing" },
+        wqengineering    = { atlas = "worldquest-icon-engineering", label = "Engineering" },
+    },
+}
+ns.BAG_REAGENT_BADGES = REAGENT_BADGES  -- also read by EllesmereUIBags_Grid.lua and the Bags options page
+-- Reagent bag keys of one MergeDuplicates call while a Reagent Bag Icon is on (reused)
+local _seenReag = {}
+
+-- Merge duplicate non-gear items within an already-ordered list.
 -- Must run AFTER ApplySavedOrder so the first occurrence in visual order wins.
 -- Returns a new list; the caller's tables are NEVER modified. A merged winner is
 -- replaced in the returned list by a pooled, display-only shallow copy carrying
@@ -445,19 +480,23 @@ local function MergeDuplicates(items)
     -- the state changed while they were hidden and repaint (see OnShow).
     SetPaintedPanelOpen(_anyItemPanelOpen)
     if _anyItemPanelOpen or BP().bagMergeDuplicates == false then return items end
-    -- Session-only unmerge marks (EUI_Bags._unmergedLinks: set by the split
-    -- dialog, wiped when the bags close, never persisted): a marked item keeps
+    -- Session-only unmerge marks (EUI_Bags._unmergedLinks, keyed by merge key,
+    -- GetItemMergeKey above, not by link: set by the split dialog, wiped when
+    -- the bags close, never persisted): a marked item keeps
     -- its real stacks apart so a split's pieces are visible in these views.
     local unmerged = EUI_Bags._unmergedLinks
     -- Painted-with-marks state, the same job _paintedPanelOpen does: the bags
     -- OnShow repaints when the marks were wiped by the close that hid them.
     EUI_Bags._paintedUnmerged = (unmerged ~= nil and next(unmerged) ~= nil) or nil
     local seen = {}
+    -- Reagent Bag Icon on: reagent bag stacks merge only with each other.
+    local seenReag = REAGENT_BADGES.styles[BP().bagReagentBadge] and wipe(_seenReag) or seen
     local out = {}
     for _, data in ipairs(items) do
-        local key = data.itemLink
-        if key and not IsGearCategory(data.categoryIndex or 0) and not (unmerged and unmerged[key]) then
-            local idx = seen[key]
+        local key = not data._isGear and not IsGearCategory(data.categoryIndex or 0) and GetItemMergeKey(data.itemLink)
+        if key and not (unmerged and unmerged[key]) then
+            local into = data.bag == 5 and seenReag or seen
+            local idx = into[key]
             if idx then
                 local prev = out[idx]
                 if not prev._mergedCount then
@@ -475,10 +514,71 @@ local function MergeDuplicates(items)
                 prev._mergedCount = prev._mergedCount + (data.info.stackCount or 1)
             else
                 out[#out + 1] = data
-                seen[key] = #out
+                into[key] = #out
             end
         else
             out[#out + 1] = data
+        end
+    end
+    return out
+end
+
+-- Recent Items "Show Picked-Up Amount" (bagRecentShowGained): a post-pass over
+-- an already built Recent list, merged or not. All entries of an item with a
+-- picked-up sum (EUI_Bags._recentGained) become one pooled, display-only proxy
+-- at the position of the first, carrying the sum in _mergedCount, capped by
+-- the amount those entries carry. The proxy copies the smallest stack (ties:
+-- lower bag, then slot), so a click or drag on it moves the least. Same
+-- contract as MergeDuplicates: input tables are never modified, the result
+-- dies with the render pass, and while an item panel is open the list stays
+-- as it is (a proxy showing x1 would hand over the whole real stack).
+local _gainedCarried, _gainedBest = {}, {} -- scratch, wiped per call
+local function RecentGainedItems(items)
+    if BP().bagRecentShowGained ~= true then return items end
+    SetPaintedPanelOpen(_anyItemPanelOpen)
+    if _anyItemPanelOpen then return items end
+    -- Split marks keep a link's real stacks apart, keyed as in MergeDuplicates.
+    local unmerged = EUI_Bags._unmergedLinks
+    EUI_Bags._paintedUnmerged = (unmerged ~= nil and next(unmerged) ~= nil) or nil
+    if not EUI_Bags._paintedUnmerged then unmerged = nil end
+    local gained = EUI_Bags._recentGained
+    if not gained or next(gained) == nil then return items end
+    -- First pass: the carried amount and the representative slot per item.
+    local carried, best = _gainedCarried, _gainedBest
+    wipe(carried); wipe(best)
+    for _, d in ipairs(items) do
+        local id = d.info and d.info.itemID
+        if id and gained[id] and not (unmerged and unmerged[GetItemMergeKey(d.itemLink) or false]) then
+            carried[id] = (carried[id] or 0) + (d._mergedCount or d.info.stackCount or 1)
+            local b = best[id]
+            local n = d.info.stackCount or 1
+            local bn = b and (b.info.stackCount or 1)
+            if not b or n < bn or (n == bn and (d.bag < b.bag or (d.bag == b.bag and d.slot < b.slot))) then
+                best[id] = d
+            end
+        end
+    end
+    if next(carried) == nil then return items end
+    -- Second pass: the proxy replaces the first entry, the others drop out.
+    local out = {}
+    for _, d in ipairs(items) do
+        local id = d.info and d.info.itemID
+        local c = id and carried[id]
+        if c and not (unmerged and unmerged[GetItemMergeKey(d.itemLink) or false]) then
+            local src = best[id]
+            if src then
+                best[id] = nil
+                local proxy = AcquireSlotTable()
+                for k, v in pairs(src) do proxy[k] = v end
+                local g = gained[id]
+                proxy._mergedCount = g < c and g or c
+                -- The "+N" count (EUI_Bags_Shared.lua)
+                proxy._recentGained = true
+                proxy._recentCarried = c
+                out[#out + 1] = proxy
+            end
+        else
+            out[#out + 1] = d
         end
     end
     return out
@@ -688,7 +788,10 @@ UpdatePawnArrow = function(btn, itemLink)
 end
 
 local function RefreshPawnArrows()
-    if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
+    if EUI_Bags:IsVisible() then
+        if ns.Hold then ns.Hold.events.bags = true end
+        EUI_Bags:RefreshInventory()
+    end
     if EUI_BagsReagent:IsVisible() then EUI_BagsReagent:RefreshInventory() end
 end
 
@@ -716,9 +819,11 @@ I.bagSlots, I.BuildExpansionBuckets = bagSlots, BuildExpansionBuckets
 I.BuildSlotBuckets, I.ClearGroupOrder = BuildSlotBuckets, ClearGroupOrder
 I.DetectAndApplySwaps, I.FOOTER_H = DetectAndApplySwaps, FOOTER_H
 I.GetArmorySlotBucket, I.HEADER_H = GetArmorySlotBucket, HEADER_H
+I.GetItemMergeKey = GetItemMergeKey
 I.IsArmoryGearCategory, I.IsGearOnlyGroup = IsArmoryGearCategory, IsGearOnlyGroup
 I.itemSlots, I.MergeDuplicates = itemSlots, MergeDuplicates
 I.PreCacheSortFields, I.reagentSlots = PreCacheSortFields, reagentSlots
+I.RecentGainedItems = RecentGainedItems
 I.RegisterPawnIntegration = RegisterPawnIntegration
 I.ReleaseAllSlotTables, I.ResortAfterGroupChange = ReleaseAllSlotTables, ResortAfterGroupChange
 I.SaveCategoryOrder, I.selectedCategoryIndex = SaveCategoryOrder, selectedCategoryIndex

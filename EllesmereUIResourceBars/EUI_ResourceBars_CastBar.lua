@@ -403,7 +403,7 @@ local fillTex = bar:GetStatusBarTexture()
 local fillOp = (cb.fillOpacity or 100) / 100
 
 if blizzKit then
-    -- Blizzard Style: the fill atlas carries its own colour; only Fill Opacity applies.
+    -- Blizzard Style: the fill atlas carries its own color; only Fill Opacity applies.
     fillTex:SetVertexColor(1, 1, 1, fillOp)
     if castBarFrame._gradClip then castBarFrame._gradClip:Hide() end
     castBarFrame._gradientFullBar = nil
@@ -449,7 +449,7 @@ else
 end
     -- The fill was just repainted from the settings: a live cast re-resolves its
     -- cached settings on the next tick and re-reads the Out of Range Gray, and a
-    -- live uninterruptible cast or channel takes its override colour back (or
+    -- live uninterruptible cast or channel takes its override color back (or
     -- keeps the configured paint with the option now off).
     castBarFrame._rangeOut = nil
     castBarFrame._cstKey = nil
@@ -1405,10 +1405,10 @@ function ns.ShowIdleCastBar()
     if not castBarFrame then return end
     local cb = ERB.db.profile.castBar
 
-    -- Empty the fill. A plain SetValue also cancels the engine-driven cast
-    -- timer armed by ns.ApplyCastTimer, which would otherwise keep animating
-    -- the fill from the finished cast's duration object.
+    -- Empty the fill and hide it: the idle bar (Always Show) draws nothing of
+    -- it. ns.ActivateCastBar shows it again.
     castBarFrame._bar:SetValue(0)
+    castBarFrame._bar:GetStatusBarTexture():Hide()
     castBarFrame._nativeFill = nil
     castBarFrame._cstKey = nil
     castBarFrame._craftMerge, castBarFrame._craftCastEnd = nil, nil
@@ -1447,6 +1447,7 @@ end
 function ns.ActivateCastBar()
     if not castBarFrame then return end
     local cb = ERB.db.profile.castBar
+    castBarFrame._bar:GetStatusBarTexture():Show()
     -- The idle state hides the spark unconditionally; a live cast brings it
     -- back if the user wants one. The icon is owned by the per-cast code,
     -- which knows whether the spell actually has one.
@@ -1731,23 +1732,23 @@ local function OnChannelStop()
 end
 
 -- Put the configured fill back after a tint (empower stages, Out of Range
--- Gray): Blizzard Style white, the gradient re-issued, or the solid colour.
+-- Gray): Blizzard Style white, the gradient re-issued, or the solid color.
 -- On ns.
 ns.ERB_RestoreCastFill = function()
     local cb = ERB.db.profile.castBar
-    -- Blizzard Style (build stamp): the fill atlas is its own colour; restore plain white.
+    -- Blizzard Style (build stamp): the fill atlas is its own color; restore plain white.
     if castBarFrame._blizzFill then
         castBarFrame._bar:GetStatusBarTexture():SetVertexColor(1, 1, 1, (cb.fillOpacity or 100) / 100)
         return
     end
     -- An uninterruptible cast under the Uninterruptible Color Override: its solid
-    -- colour, ahead of the channel override.
+    -- color, ahead of the channel override.
     if castBarFrame._uninterrupt then
         castBarFrame._bar:GetStatusBarTexture():SetVertexColor(cb.uninterruptibleR or 0.5,
             cb.uninterruptibleG or 0.5, cb.uninterruptibleB or 0.5, (cb.fillOpacity or 100) / 100)
         return
     end
-    -- A channel under the Channel Color Override: its solid colour.
+    -- A channel under the Channel Color Override: its solid color.
     if castBarFrame._channelPaint then
         castBarFrame._bar:GetStatusBarTexture():SetVertexColor(cb.channelR or 0.3,
             cb.channelG or 0.8, cb.channelB or 0.3, (cb.fillOpacity or 100) / 100)
@@ -1811,16 +1812,16 @@ ns.ERB_CastRangeTint = function(out)
     end
 end
 
--- Fill colour overrides (both off by default), each a solid colour over the
+-- Fill color overrides (both off by default), each a solid color over the
 -- configured fill (over a gradient too, which comes back after):
 --   Channel Color Override (castBar.channelOverride): a channel, empowers
---   excepted (their stage colours own them).
+--   excepted (their stage colors own them).
 --   Uninterruptible Color Override (castBar.uninterruptibleOverride): a cast
 --   the player cannot be interrupted out of, read at each start and on the
 --   interruptible flips of a live cast (a restricted answer counts as
---   interruptible). It wins over the channel colour.
+--   interruptible). It wins over the channel color.
 -- Repaints only on a change. Out of Range Gray stays on top; the empower stage
--- colours wait. Not under Blizzard Style, whose fill art is stock. idle = the
+-- colors wait. Not under Blizzard Style, whose fill art is stock. idle = the
 -- bar just went idle: both overrides clear.
 ns.ERB_CastOverrideApply = function(idle)
     local cb = ERB.db.profile.castBar

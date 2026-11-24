@@ -45,7 +45,7 @@ end
 -------------------------------------------------------------------------------
 local CustomText = {}
 do
-    -- The text's colour mode as the preview shows it, for the player's class and power.
+    -- The text's color mode as the preview shows it, for the player's class and power.
     function CustomText.Color(t)
         local SVal = ns._RFO_OptEnv.SVal
         local _, cls = UnitClass("player")
@@ -185,8 +185,8 @@ function ns.RFO_BuildTextDisplay(W, parent, y, opts)
     end
 
     -- The cog (nearest the dropdown), the swatches left of it (Custom first,
-    -- then Class, Accent, Power) and the colour mode accessor of one shown
-    -- text. The level is drawn in the name's colour: no swatches of its own.
+    -- then Class, Accent, Power) and the color mode accessor of one shown
+    -- text. The level is drawn in the name's color: no swatches of its own.
     local function Decorate(rgn, cell)
         local t = cell.text
         local rows = {
@@ -324,7 +324,7 @@ function ns.RFO_BuildTextDisplay(W, parent, y, opts)
         elseif t.kind == "name" and kit then
             cfg.tooltip = "On Party Frames style the name keeps the frame's own spot; its offsets still apply."
         elseif t.kind == "level" then
-            cfg.tooltip = "Drawn in the name's colour."
+            cfg.tooltip = "Drawn in the name's color."
         end
         cfg.values = CustomText.Values(MODE_VALUES[t.kind], t.kind == "custom" and function()
             CustomText.Edit(t.fmt, CustomText.Color(t), function()
@@ -337,7 +337,7 @@ function ns.RFO_BuildTextDisplay(W, parent, y, opts)
     end
 
     -- "+ Add Text": every hidden text; the Custom texts as one entry (the next free
-    -- one) on top, an action in the accent colour with the edit pencil, as in the
+    -- one) on top, an action in the accent color with the edit pencil, as in the
     -- tile dropdowns.
     local addOrder, addValues, addText = {}, {}, {}
     local customId

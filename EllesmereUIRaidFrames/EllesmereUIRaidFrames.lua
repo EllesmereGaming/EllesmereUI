@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Secret-value-safe absorb shields matching UnitFrames visuals.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.NewFrameData and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.OwnSurnameHidden and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.UIScaledAlpha and EllesmereUI.OnUIAlphaChanged and EllesmereUI.PREVIEW_ROSTER and EllesmereUI.SetLeftClickTarget and EllesmereUI.GetSecureTargetMacro) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard raid and party frame suppression hides and scales through the parent's HideFrame and SetFrameScale, and the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, and the Name Format asks its UnitNameFormat, and the [name:last] and [target:last] tags its OwnSurnameHidden, and the texts that show names take their font family through its ApplyModuleFontFamily and SetFontFamily, and the 3D portraits follow a faded UI through its UIScaledAlpha and OnUIAlphaChanged, and the preview names its members from its PREVIEW_ROSTER, and the unit buttons' left-click target comes from its SetLeftClickTarget, and click casting's target bindings take their macro from its GetSecureTargetMacro)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.NewFrameData and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.OwnSurnameHidden and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.UIScaledAlpha and EllesmereUI.OnUIAlphaChanged and EllesmereUI.PREVIEW_ROSTER and EllesmereUI.SetLeftClickTarget and EllesmereUI.GetSecureTargetMacro and EllesmereUI.ForeverFamilyAura and EllesmereUI.RoundAuraOverlay) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard raid and party frame suppression hides and scales through the parent's HideFrame and SetFrameScale, and the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, and the Name Format asks its UnitNameFormat, and the [name:last] and [target:last] tags its OwnSurnameHidden, and the texts that show names take their font family through its ApplyModuleFontFamily and SetFontFamily, and the 3D portraits follow a faded UI through its UIScaledAlpha and OnUIAlphaChanged, and the preview names its members from its PREVIEW_ROSTER, and the unit buttons' left-click target comes from its SetLeftClickTarget, and click casting's target bindings take their macro from its GetSecureTargetMacro, and the WoW Forever Missing Buffs indicator reads a member's buffs through its ForeverFamilyAura, and the filter and pandemic borders of rounded aura icons round through its RoundAuraOverlay)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 
 local ERF = EllesmereUI.Lite.NewAddon(ADDON_NAME)
@@ -337,9 +337,10 @@ local defaults = {
         raidCompactMode  = false,
         raidGridMode     = false,
         partyCompactMode = false,
-        groupGrowth      = "RIGHT",  -- "DOWN", "UP", "RIGHT", "LEFT", "DOWNRIGHT" (grid: ns._RF_GRID_ROWS per column)
+        groupGrowth      = "RIGHT",  -- "DOWN", "UP", "RIGHT", "LEFT", grids "DOWNRIGHT" / "RIGHTDOWN" (wrap every groupGridSize)
+        groupGridSize    = 2,        -- grid flows: groups per column (DOWNRIGHT) or per row (RIGHTDOWN) before wrapping
         unitGrowth       = "DOWN",   -- any direction; same-axis as groupGrowth = one continuous line
-        groupGrowthCentered = false, -- center the shown groups in the mover box along the group axis (not for DOWNRIGHT)
+        groupGrowthCentered = false, -- center the shown groups in the mover box along the group axis (not for grid flows)
         sortMode         = "ROLE",   -- "INDEX" (by group) or "ROLE" (by assigned role)
         roleOrder        = { "TANK", "HEALER", "DAMAGER" },
         prioritizeClass  = false,    -- sort by class within the main sort (raid)
@@ -397,7 +398,7 @@ local defaults = {
             freePos  = { x = 100, y = -200 },
             -- Fill Color: healthColorMode ("class" | "dark" | "classic" | "custom" | "customDynamic")
             -- has no default: unset, the pets follow the Dark Mode of the frames beside them
-            -- and are otherwise their own colour (healthColor); a pick is saved only where it
+            -- and are otherwise their own color (healthColor); a pick is saved only where it
             -- differs from that.
             healthColor     = { r = 23/255, g = 172/255, b = 49/255 },
             dynamicColor100 = { r = 0, g = 1, b = 0 },
@@ -412,7 +413,7 @@ local defaults = {
             mode       = "none",   -- "none" | "party" | "raid" | "both"
             textSize   = 12,
             spacing    = 2,        -- vertical space between rows
-            showNames  = true,     -- raid only; party shows the number alone
+            showNames  = true,     -- true/nil = raid only | false = never | "always"
             classNames = true,     -- class colored names
             align      = "LEFT",   -- "LEFT" | "CENTER" | "RIGHT"
             growth     = "DOWN",   -- "DOWN" | "UP" (row stacking direction)
@@ -496,7 +497,7 @@ local defaults = {
         namePosition     = "topleft", -- "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom"
         nameOffsetX      = 0,
         nameOffsetY      = 0,
-        -- Level Text: the unit's level in front of the name, or on its own spot in the name's colour
+        -- Level Text: the unit's level in front of the name, or on its own spot in the name's color
         -- (Health Text's host). None = nothing built.
         levelTextSize      = 10,
         levelTextPosition  = ns.RF_LEVEL_DEFAULT,  -- "name" ("60 Name"), "nameDiv" ("60 | Name"), "none" or a 9-point spot
@@ -529,6 +530,7 @@ local defaults = {
         -- Border (unified style/size, recolored by state -- matches Unit Frames)
         borderSize       = 1,
         borderColor      = { r = 0, g = 0, b = 0 },
+        borderClassColored = false,
         borderAlpha      = 1,
         borderTexture    = "solid",
         borderBehind     = false,
@@ -553,7 +555,9 @@ local defaults = {
         healAbsorbStyle  = "clean",
         healAbsorbOpacity = 75,
         healAbsorbColor  = { r = 0.8, g = 0.15, b = 0.15 },
-        healPrediction   = false,
+        -- On for WoW Forever only (per-client default); profiles made before keep
+        -- it off (rf_heal_prediction_forever_existing_v1, EllesmereUI_Migration.lua).
+        healPrediction   = (EllesmereUI.IS_FOREVER == true),
         healPredOpacity  = 75,
         healPredColor    = { r = 102/255, g = 243/255, b = 102/255 },
         -- Absorb / heal absorb placement, independent per bar: "overlay" (over
@@ -1269,7 +1273,7 @@ ns.RF_ApplyFillRotation = function(bar)
 end
 
 -- Inverted health fill: SetReverseFill swaps which SIDE of the seam the fill
--- texture paints -- missing health takes the bar colour and current health is
+-- texture paints -- missing health takes the bar color and current health is
 -- left to the background. Raid and party resolve through the caller's settings
 -- table (party gets its own when the Health Bar section is unsynced).
 ns.RF_IsInvertedFill = function(s)
@@ -1343,10 +1347,10 @@ ns.RF_TintOverBarFill = function(tex, bar, r, g, b, a)
     -- Inherit the bar's configured Fill Opacity, so a tinted frame is as
     -- translucent as its untinted neighbours instead of the one solid bar in the
     -- group. Read from the stamp the style pass leaves, NOT from the live fill
-    -- colour: _ApplyHealthBg drives that alpha down to 0.3 offline and 0.5 dead,
+    -- color: _ApplyHealthBg drives that alpha down to 0.3 offline and 0.5 dead,
     -- and nothing repaints tints when a unit reconnects, so a tint painted during
     -- either would latch dimmed. Dark Mode is deliberately not inherited -- it
-    -- dims the fill texture, and a colour the user picked should not be
+    -- dims the fill texture, and a color the user picked should not be
     -- auto-dimmed.
     if bar then a = a * (bar._euiFillOpacity or 1) end
     local fill = bar and bar.GetStatusBarTexture and bar:GetStatusBarTexture()

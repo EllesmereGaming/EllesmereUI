@@ -20,7 +20,7 @@ if EllesmereUI.IS_FOREVER then
               get=function() return get(key) end,
               set=function(v) set(key, v) end }
         end
-        -- The gap colours show while the gap is picked and coloured.
+        -- The gap colors show while the gap is picked and colored.
         local function GapColorOff()
             return get("threatPctMode") ~= "gap" or not get("threatPctColorByThreat")
         end

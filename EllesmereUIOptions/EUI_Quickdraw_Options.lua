@@ -1209,6 +1209,17 @@ initFrame:SetScript("OnEvent", function(self)
         return out
     end
 
+    -- Every emote the client knows, by token; see the Emotes block in
+    -- EUI_Quickdraw_Slots.lua for why the token and not the command text.
+    local function EmoteEntries()
+        local out = {}
+        for _, slot in ipairs(ns.EmoteSlots()) do
+            local icon, name = ns.SlotDisplay(slot)
+            out[#out + 1] = { icon = icon, name = name, slot = slot }
+        end
+        return out
+    end
+
     local function OutfitEntries()
         local out = {}
         for _, slot in ipairs(ns.OutfitSlots and ns.OutfitSlots() or {}) do
@@ -1272,6 +1283,7 @@ initFrame:SetScript("OnEvent", function(self)
         { key = "toy",       label = "Toys",         build = ToyEntries,
           keywordHint = true },
         { key = "macro",     label = "Macros",       build = MacroEntries },
+        { key = "emote",     label = "Emotes",       build = EmoteEntries },
         { key = "battlepet", label = "Battle Pets",  build = PetEntries },
         { key = "outfit",    label = "Outfits",      build = OutfitEntries,
           keepOrder = true },
@@ -2669,8 +2681,8 @@ initFrame:SetScript("OnEvent", function(self)
         bg:SetAllPoints()
         bg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
         local brd = EllesmereUI.MakeRoundedBorder(btn, 1, 1, 1, EllesmereUI.DD_BRD_A, bg)
-        -- The resting alpha is the text colour's, the channel the hover
-        -- colours below write, so a hover and leave land back on it.
+        -- The resting alpha is the text color's, the channel the hover
+        -- colors below write, so a hover and leave land back on it.
         local lbl = EllesmereUI.MakeFont(btn, 13, nil, 1, 1, 1, EllesmereUI.DD_TXT_A)
         lbl:SetJustifyH("LEFT")
         lbl:SetWordWrap(false)

@@ -588,7 +588,7 @@ end
 -- Lua 5.1 200 cap. WoW Forever has no housing: there the block never runs,
 -- so no bar is built, nothing registers and ns._CreateFavorBar stays nil.
 if not EllesmereUI.IS_FOREVER then
-local favorState  -- { level, displayLevel, favor, needed } from the last payload
+local favorState  -- { level, displayLevel, favor, base, needed } from the last payload
 local favorEv, favorArmed
 local ArmFavorEvents  -- forward: mutual recursion with UpdateFavorBar
 
@@ -628,11 +628,11 @@ local function UpdateFavorBar()
 
     local current = st.favor or 0
     if current > st.needed then current = st.needed end
-    bar:SetMinMaxValues(0, st.needed)
+    bar:SetMinMaxValues(st.base, st.needed)
     bar:SetValue(current)
     bar:SetStatusBarColor(ns.ResolveDataBarColor(s, DATA_BAR_COLORS.favor.r, DATA_BAR_COLORS.favor.g, DATA_BAR_COLORS.favor.b))
 
-    local pct = (current / st.needed) * 100
+    local pct = ((current - st.base) / (st.needed - st.base)) * 100
     text:SetText(format(EllesmereUI.L("House Level %d: %d / %d"), st.displayLevel or 1, current, st.needed))
 
     -- Auto-size text if bar is too narrow (too short, for text rotated to
@@ -665,10 +665,16 @@ local function OnFavorEvent(_, event, arg1)
             local level = arg1.houseLevel or 0
             local needed = C_Housing.GetHouseLevelFavorForLevel
                 and C_Housing.GetHouseLevelFavorForLevel(level + 1)
+            local favor = arg1.houseFavor or 0
+            -- Favor totals are cumulative: the bar runs from this level's
+            -- threshold to the next one.
+            local base = needed and C_Housing.GetHouseLevelFavorForLevel(level) or 0
+            if base > favor or base >= (needed or 0) then base = 0 end
             favorState = {
                 level = level,
                 displayLevel = level + 1,
-                favor = arg1.houseFavor or 0,
+                favor = favor,
+                base = base,
                 needed = needed or 0,
             }
         else
@@ -716,7 +722,7 @@ local function CreateFavorBar()
         GameTooltip:AddLine(EllesmereUI.L("House Favor"), 1, 1, 1)
         GameTooltip:AddDoubleLine(EllesmereUI.L("House Level"), tostring(st.displayLevel or 1), 1, 1, 1, 1, 1, 1)
         local current = math.min(st.favor or 0, st.needed)
-        local pct = (current / st.needed) * 100
+        local pct = ((current - st.base) / (st.needed - st.base)) * 100
         GameTooltip:AddDoubleLine(EllesmereUI.L("Favor"), format("%s / %s (%.1f%%)", BreakUpLargeNumbers(current), BreakUpLargeNumbers(st.needed), pct), 1, 1, 1, 1, 1, 1)
         GameTooltip:AddDoubleLine(EllesmereUI.L("Remaining"), BreakUpLargeNumbers(st.needed - current), 1, 1, 1, 1, 1, 1)
         GameTooltip:Show()

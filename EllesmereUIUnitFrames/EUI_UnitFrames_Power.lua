@@ -38,7 +38,7 @@ I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 -- border is above 0 and its style has seam art; flipped for a bar above health.
 -- It rides power._pbSeam, our own frame anchored to the power bar, built on first
 -- enable and parented outside the bar clip so its ends can overlap the border,
--- tinted with the frame border colour, which FrameBorderEnter / Leave recolour
+-- tinted with the frame border color, which FrameBorderEnter / Leave recolor
 -- with the border. Thickness follows the border's edge (exact size, else the
 -- step's), height and offsets snapped at the bar's effective scale; re-laid on
 -- every pass (a pass on a zero-height bar leaves no resolved rect) and, for an
@@ -77,7 +77,9 @@ function ns.UpdatePowerSeam(power, s, stock, preview)
     local owner = power:GetParent()
     while owner and not (owner.unifiedBorder or owner._border) do owner = owner:GetParent() end
     local border = owner and (owner.unifiedBorder or owner._border)
-    local parent = owner or power
+    -- Hide Empty Power Bar hosts the seam in its text clip (power._epHost), so
+    -- the seam goes with the bar; seam._owner keeps the frame for the layout.
+    local parent = power._epHost or owner or power
     if not seam then
         -- Through the options frame pool: a real frame for a live bar, handed
         -- back by the pool on the options preview's next build.
@@ -88,6 +90,7 @@ function ns.UpdatePowerSeam(power, s, stock, preview)
         seam:SetParent(parent)
     end
     seam._power = power
+    seam._owner = owner or power
     seam:ClearAllPoints()
     seam:SetAllPoints(power)
     -- Above the fills and the unit frame border, on the border's strata; capped
@@ -127,7 +130,7 @@ function ns.UF_LayoutPowerSeam(seam)
         t._path = seam._path
     end
     local raise = PP.SnapForES(thick * 5 / 32, es)
-    local portraitSeam = seam:GetParent()._portraitSeparator
+    local portraitSeam = (seam._owner or seam:GetParent())._portraitSeparator
     local leftInset, rightInset = 0, 0
     if portraitSeam and portraitSeam:IsShown() then
         -- Leave one physical pixel clear where the portrait divider meets the seam.
@@ -151,7 +154,7 @@ end
 
 -- Attached portrait divider: reuse the border style's vertical companion art.
 -- A sibling of the portrait avoids clipping the strip where it crosses into the
--- bars. Built only on opt-in; layout and colour updates use existing passes.
+-- bars. Built only on opt-in; layout and color updates use existing passes.
 function ns.UpdatePortraitSeparator(frame, portrait, s, side, attached, stock, preview, borderSettings)
     local seam = frame._portraitSeparator
     local power = frame.Power or frame._power

@@ -235,7 +235,7 @@ local function SaveCurrentSpecProfile()
     local specKey = ns.GetActiveSpecKey()
     if not specKey or specKey == "0" then return end
     local specProfiles = SpellStore.GetSpecProfiles()
-    if not specProfiles[specKey] then specProfiles[specKey] = { barSpells = {} } end
+    if not specProfiles[specKey] then specProfiles[specKey] = EllesmereUI.StampSpecProfile({ barSpells = {} }) end
     local prof = specProfiles[specKey]
 
     -- Bar Glows and Tracked Buff Bars live in specProfiles[specKey]; GetBarGlows()/GetTrackedBuffBars() read/write there directly, so nothing extra to copy here.

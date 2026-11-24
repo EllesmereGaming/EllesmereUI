@@ -482,7 +482,7 @@ local function Arm()
 
 
     addon.Callbacks:Register("RunEnded", function()
-        if stress then Perf:StressStop("the run ended") end
+        if stress then Perf:StressStop("the session ended") end
         if Perf.seededRun and addon.Session.run then
             Perf.ScrubSynthetic(addon.Session.run.completed)
             Perf.seededRun = nil
@@ -590,7 +590,7 @@ function Perf:StressStep(now)
     if not s then return end
     local Session = addon.Session
     if not Session:IsRunning() or Session:GetRunId() ~= s.runId then
-        Perf:StressStop("the run ended")
+        Perf:StressStop("the session ended")
         return
     end
     local elapsed = now - s.startedAt
@@ -670,7 +670,7 @@ function Perf:StressStart(raiders, items, seconds)
     if not Session:IsRunning() then
         local ok, why = Session:StartTest(nil, items)
         if not ok then
-            return false, ("could not start a simulated run - %s"):format(tostring(why))
+            return false, ("could not start a simulated session - %s"):format(tostring(why))
         end
         started = true
     end
@@ -679,7 +679,7 @@ function Perf:StressStart(raiders, items, seconds)
     for _, item in ipairs(runItems) do
 
         if not item.simulated then
-            return false, "a real run is active - /slc stress only runs on a /slc test run"
+            return false, "a real session is active - /slc stress only works on a /slc test session"
         end
     end
 
@@ -745,10 +745,10 @@ function Perf:StressCommand(rest)
         return
     end
     if started then
-        Print(("started a simulated run with %d items for the stress (its run_start was sent as /slc test's is)"):format(
+        Print(("started a simulated session with %d items for the stress (its run_start was sent as /slc test's is)"):format(
             itemCount))
     elseif itemCount ~= items then
-        Print(("using the active run's %d items, not %d"):format(itemCount, items))
+        Print(("using the active session's %d items, not %d"):format(itemCount, items))
     end
     Print(("stress: %d raiders x %d items over %ds - %d responses (%d autopass), %d notes, %d votes; nothing is sent"):format(
         raiders, itemCount, seconds, counts.response, counts.autopass,

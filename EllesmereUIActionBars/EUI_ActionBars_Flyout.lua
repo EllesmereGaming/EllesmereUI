@@ -125,7 +125,8 @@ local function SkinBlizzardFlyoutButton(btn, shape, zoom, brdOn, cr, cg, cb, ca,
         icon:SetAllPoints(btn)
         if shape == "cropped" then
             local z = zoom or 0
-            icon:SetTexCoord(z, 1 - z, z + 0.10, 1 - z - 0.10)
+            -- 80% as tall as wide: the top and bottom are cut, the art keeps its proportions.
+            icon:SetTexCoord(z, 1 - z, 0.1 + 0.8 * z, 0.9 - 0.8 * z)
         elseif zoom and zoom > 0 then
             icon:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
         else

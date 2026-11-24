@@ -261,6 +261,7 @@ local TBB_DEFAULT_BAR = {
     nameTextR = 1, nameTextG = 1, nameTextB = 1, nameTextA = 0.9,
     showSpark = true,
     iconDisplay = "none",
+    showIconDivider = false,
     iconSize    = 24,
     iconX = 0, iconY = 0,
     iconBorderSize = 0,
@@ -297,7 +298,7 @@ function ns.GetTrackedBuffBars()
     if not specKey then return { selectedBar = 1, bars = {} } end
     local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     if not sp then return { selectedBar = 1, bars = {} } end
-    if not sp[specKey] then sp[specKey] = { barSpells = {} } end
+    if not sp[specKey] then sp[specKey] = EllesmereUI.StampSpecProfile({ barSpells = {} }) end
     local prof = sp[specKey]
     if not prof.trackedBuffBars then
         prof.trackedBuffBars = { selectedBar = 1, bars = {} }

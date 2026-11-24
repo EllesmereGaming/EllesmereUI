@@ -288,7 +288,7 @@ FB.Dark = function(s)
 end
 
 -- The Dark Mode background of a button: the styler writes it, and the paint again once the palette
--- changed (a colour edit repaints without a restyle). FB.dbg: button -> the palette generation its
+-- changed (a color edit repaints without a restyle). FB.dbg: button -> the palette generation its
 -- dark background was written at (nil while it shows the frames' own background).
 FB.dbg = setmetatable({}, { __mode = "k" })
 FB.PaintDarkBg = function(b)
@@ -331,11 +331,11 @@ FB.AnchorBg = function(b, dark)
     end
 end
 
--- Bar colour. An owner drawing in Dark Mode (owner.Dark(s)) takes the palette's fill at the Dark
--- Mode Fill Opacity, on the palette's background, as the frames beside it do: the colour first and
+-- Bar color. An owner drawing in Dark Mode (owner.Dark(s)) takes the palette's fill at the Dark
+-- Mode Fill Opacity, on the palette's background, as the frames beside it do: the color first and
 -- the fill's alpha last (the two are one slot, so the last write stands). Otherwise the fill is
 -- the owner's own at the frames' Fill Opacity: owner.Fill(b, s, opacity, pv) where the owner has
--- colour modes of its own (the pet frames' Fill Color), else its colour setting (Boss Health
+-- color modes of its own (the pet frames' Fill Color), else its color setting (Boss Health
 -- Color, default #17AC31). The raid color modes mislead on the boss frames: gradient modes read as
 -- damage states, and many NPCs carry real class tokens (a friendly add can come out yellow).
 -- pv: a preview frame's made-up health (0 to 1), handed on to owner.Fill.
@@ -387,7 +387,7 @@ FB.PaintHealth = function(b, unit, s, full)
         and Enum.StatusBarInterpolation.ExponentialEaseOut
     -- Missing health under Inverted Fill (the _euiInv stamp FB.StyleVisuals leaves);
     -- the texts keep the current-health pct. Dead units are not special-cased: there
-    -- is no status colour here, so a full bar is what tells a dead unit apart.
+    -- is no status color here, so a full bar is what tells a dead unit apart.
     local barPct = pct
     if health._euiInv then barPct = GetSafeHealthPercent(unit, true) end
     if smooth then health:SetValue(barPct, smooth) else health:SetValue(barPct) end
@@ -898,9 +898,9 @@ FB.Anchor = function(owner)
             local gap = s.groupSpacing or -1
             local grow = s.groupGrowth or "RIGHT"
             local before = (fb.position == "left")
-            if grow == "RIGHT" or grow == "DOWNRIGHT" then
-                -- The grid flow's last group also ends in the rightmost column,
-                -- so it slots in along the same edge as a plain RIGHT run.
+            if grow == "RIGHT" or ns._RFIsGridFlow(grow) then
+                -- Both grid flows advance right like a plain RIGHT run, so the
+                -- frames slot in along the same edge of the end group.
                 if before then FB.Pin(c, "TOPRIGHT", anchorHdr, "TOPLEFT", -gap, 0)
                 else FB.Pin(c, "TOPLEFT", anchorHdr, "TOPRIGHT", gap, 0) end
             elseif grow == "LEFT" then

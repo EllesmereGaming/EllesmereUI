@@ -1439,7 +1439,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                   ns.FB_Apply()
                   if ns.FB_IsMoverShown() then ns.FB_SetMoverShown(true) end
               end },
-            { type="slider", text="Extra Height", min=-50, max=100, step=1,
+            { type="slider", text="Extra Height", min=-200, max=100, step=1,
               tooltip="Makes the boss frames taller or shorter relative to the raid frame size.",
               getValue = function() return FBSet().extraHeight or 0 end,
               setValue = function(v)
@@ -1622,7 +1622,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                   ns.XF_Apply()
                   if ns.XF_IsMoverShown() then ns.XF_SetMoverShown(true) end
               end },
-            { type="slider", text="Extra Height", min=-50, max=100, step=1,
+            { type="slider", text="Extra Height", min=-200, max=100, step=1,
               tooltip="Makes the extra frames taller or shorter relative to the raid frame size.",
               getValue = function() return XFSet().extraHeight or 0 end,
               setValue = function(v)
@@ -1724,7 +1724,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
               end }); y = y - h
 
         if PFEnabled() then
-        -- The pets' colours are one set for both tabs. A colour edit repaints the pets on screen;
+        -- The pets' colors are one set for both tabs. A color edit repaints the pets on screen;
         -- a Fill Color pick can also change whether they draw dark, a style input (the
         -- background), so it runs the pets' restyle checks first.
         local function PetColors(restyle)
@@ -1736,7 +1736,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             PFRefreshPreview()
         end
         -- Nothing picked: the pets follow the Dark Mode of this tab's frames, and are otherwise
-        -- their own colour.
+        -- their own color.
         local function PetMode()
             return PFSet().healthColorMode or ns.PF_FollowMode(tabKey)
         end
@@ -1835,7 +1835,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                   ns.PF_PlaceMover(tabKey)
                   PFRefreshPreview()
               end },
-            { type="slider", text="Extra Height", min=-50, max=100, step=1,
+            { type="slider", text="Extra Height", min=-200, max=100, step=1,
               tooltip="Makes the pet frames taller or shorter relative to the frame size.",
               getValue = function() return PFTab().extraHeight or 0 end,
               setValue = function(v)
@@ -2061,17 +2061,26 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                   values={ DOWN="Down", UP="Up" }, order={ "DOWN", "UP" },
                   get=function() return HMS().growth == "UP" and "UP" or "DOWN" end,
                   set=function(k) HMS().growth = k; HMRefresh() end },
-                { type="toggle", label="Show Names in Raid",
-                  tooltip="Shows each healer's name before the number while in a raid. In a party the display always shows numbers only.",
-                  get=function() return HMS().showNames ~= false end,
-                  -- if/else, NOT `v and nil or false`: that expression is
-                  -- ALWAYS false (the nil arm falls through the or).
-                  set=function(v)
-                      if v then HMS().showNames = nil
-                      else HMS().showNames = false end
+                { type="dropdown", label="Show Names",
+                  tooltip="When each healer's name is shown before the number.",
+                  values={ never="Never", raid="In Raid", always="In Party & Raid" },
+                  order={ "never", "raid", "always" },
+                  get=function()
+                      local v = HMS().showNames
+                      if v == false then return "never" end
+                      if v == "always" then return "always" end
+                      return "raid"
+                  end,
+                  set=function(k)
+                      local hm = HMS()
+                      if k == "never" then hm.showNames = false
+                      elseif k == "always" then hm.showNames = "always"
+                      else hm.showNames = nil end
                       HMRefresh()
                   end },
                 { type="toggle", label="Class Colored Names",
+                  disabled=function() return HMS().showNames == false end,
+                  disabledTooltip="Show Names",
                   get=function() return HMS().classNames ~= false end,
                   set=function(v)
                       if v then HMS().classNames = nil

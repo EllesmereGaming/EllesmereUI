@@ -196,7 +196,7 @@ local function CreateHeader()
     -- inheriting the first one's callbacks: EndDragDrop can unlock the button
     -- mid-run, and a stale callback clearing the live chain's OnEvent would
     -- strand it with refreshEnabled false (bags frozen until reload).
-    local consolidateFrame, retryFrame
+    local consolidateFrame, retryFrame, routeFrame
     local function LockSort()
         sortLocked = true
         ApplySortEnabled()
@@ -240,6 +240,9 @@ local function CreateHeader()
     local function DoPhysicalSort(mergeOnly)
         if InCombatLockdown() or physicalActive then return end  -- confirm popup can outlive the pull
         physicalActive = true
+        -- An item held on the cursor would be swapped into the first slot the run
+        -- picks up from: put it back where it came from first.
+        if CursorHasItem() then ClearCursor() end
         LockSort()
         EUI_Bags.refreshEnabled = false
 
@@ -277,6 +280,7 @@ local function CreateHeader()
             C_Timer.After(SORT_STUCK_AFTER, function()
                 if f._runToken ~= token or f._wait ~= wait then return end
                 StopWaiting(consolidateFrame)
+                StopWaiting(routeFrame)
                 StopWaiting(retryFrame)
                 FinishSort()
             end)
@@ -458,7 +462,7 @@ local function CreateHeader()
 
             if #items == 0 then return false end
 
-            EUI_CategoryManager:ClassifyAll(items)
+            EUI_CategoryManager:ClassifyAll(items, true)
             local cats = EUI_CategoryManager:GetCategories()
             local sectionOrder = {}
             local ord = 0
@@ -609,13 +613,89 @@ local function CreateHeader()
             WaitSettled(retryFrame, runToken, bagMin, bagMax, NextRound)
         end
 
-        local function RunSort()
-            RunRetryLoop(0, 4, function()
-                if C_Container.GetContainerNumSlots(5) > 0 then
-                    RunRetryLoop(5, 5, FinishSort)
-                else
-                    FinishSort()
+        -- Moves crafting reagents from the main bags into the reagent bag's
+        -- free slots, as Blizzard's sort does. Special bags are left alone.
+        -- refused: itemIDs the reagent bag turned away this run, skipped from then on.
+        -- reagent: itemID -> isCraftingReagent, read once per run (uncached data reads
+        -- nil and is asked again on the next pass).
+        local function RouteReagentsOnce(refused, reagent)
+            if InCombatLockdown() then return false end
+            local free = {}
+            for slot = 1, C_Container.GetContainerNumSlots(5) do
+                if not C_Container.GetContainerItemInfo(5, slot) then free[#free + 1] = slot end
+            end
+            if #free == 0 then return false end
+            local special = ns.SpecialBags()
+            local nextFree, moved = 1, false
+            for bag = 0, 4 do
+                if not (special and special[bag]) then
+                    for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                        if nextFree > #free then return moved end
+                        local info = C_Container.GetContainerItemInfo(bag, slot)
+                        local id = info and info.itemID
+                        local isReagent
+                        if id and not info.isLocked and not refused[id] then
+                            isReagent = reagent[id]
+                            if isReagent == nil then
+                                -- Uncached item data reads nil: the item stays put this pass.
+                                isReagent = select(17, C_Item.GetItemInfo(id))
+                                if isReagent ~= nil then reagent[id] = isReagent end
+                            end
+                        end
+                        if isReagent then
+                            C_Container.PickupContainerItem(bag, slot)
+                            C_Container.PickupContainerItem(5, free[nextFree])
+                            -- Still on the cursor: refused, so no bag update will come for it.
+                            if CursorHasItem() then
+                                ClearCursor()
+                                refused[info.itemID] = true
+                            else
+                                nextFree = nextFree + 1
+                                moved = true
+                            end
+                        end
+                    end
                 end
+            end
+            return moved
+        end
+
+        local function RouteReagents(onDone)
+            -- WoW Forever: the fifth slot also takes profession bags, which
+            -- report a family and refuse most reagents, so such a bag is
+            -- skipped; a reagent bag reports none.
+            local family = ns.FifthSlotFamily()
+            local refused, reagent = {}, {}
+            if C_Container.GetContainerNumSlots(5) == 0 or (family and family ~= 0)
+               or not RouteReagentsOnce(refused, reagent) then
+                onDone()
+                return
+            end
+            local passes = 1
+            if not routeFrame then routeFrame = CreateFrame("Frame") end
+            local runToken = {}
+            routeFrame._runToken = runToken
+            local function NextPass()
+                passes = passes + 1
+                if passes <= 3 and RouteReagentsOnce(refused, reagent) then
+                    WaitSettled(routeFrame, runToken, 0, 5, NextPass)
+                else
+                    routeFrame:SetScript("OnEvent", nil)
+                    onDone()
+                end
+            end
+            WaitSettled(routeFrame, runToken, 0, 5, NextPass)
+        end
+
+        local function RunSort()
+            RouteReagents(function()
+                RunRetryLoop(0, 4, function()
+                    if C_Container.GetContainerNumSlots(5) > 0 then
+                        RunRetryLoop(5, 5, FinishSort)
+                    else
+                        FinishSort()
+                    end
+                end)
             end)
         end
 
@@ -633,6 +713,7 @@ local function CreateHeader()
                 return
             end
             StopWaiting(consolidateFrame)
+            StopWaiting(routeFrame)
             StopWaiting(retryFrame)
             FinishSort(true)
         end)
@@ -710,15 +791,22 @@ local function CreateHeader()
     -- MultiBag sort defers to Blizzard's native sort (insecure-callable, no taint; BAG_UPDATE
     -- storm drives our refresh). Sort to Bottom rides their fill direction (right-to-left = start
     -- at backpack = our top), floating free slots to our top. Real Blizzard CVar (also drives their Clean Up); set only while the option is on, re-asserted each sort.
+    -- Hold on: a held window repaints without gaps; each click's timer ends its sort (clicks overlap)
+    local function BlizzSortDone()
+        UnlockSort()
+        ns.Hold.EndSort("bags")
+    end
     local function DoBlizzardSort()
         if InCombatLockdown() then return end
         PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
         LockSort()
+        local hold = ns.Hold.On("bags")
+        if hold and ns.Hold.BeginSort("bags") then EUI_Bags:RefreshInventory() end
         if BP().bagSortToBottom and C_Container.SetSortBagsRightToLeft then
             C_Container.SetSortBagsRightToLeft(false)
         end
         C_Container.SortBags()
-        C_Timer.After(3, UnlockSort)
+        C_Timer.After(3, hold and BlizzSortDone or UnlockSort)
     end
 
     sort:SetScript("OnClick", function()

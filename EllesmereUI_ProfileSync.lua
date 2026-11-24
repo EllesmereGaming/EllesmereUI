@@ -20,7 +20,7 @@ EUI_NS = EUI_NS.__euiCoreNS or EUI_NS  -- standalone builds: the core's own tabl
 do
     -- Modules that should NOT get a sync icon (no per-profile settings; Loadout
     -- Manager and Simple Loot Council keep stores of their own)
-    local SYNC_EXEMPT = { EllesmereUIPartyMode = true, EllesmereUILoadoutManager = true,
+    local SYNC_EXEMPT = { EllesmereUIPartyMode = true,
         EllesmereUISimpleLootCouncil = true }
     EllesmereUI._syncExempt = SYNC_EXEMPT
 
@@ -513,12 +513,17 @@ EllesmereUI.RegisterSyncExclusions("EllesmereUIDragonRiding", {
     "unlockPos",
 })
 
--- QoL Secondary Stats/FPS positions, the cursor slice (GCD ring, cast circle, at
+-- QoL Secondary Stats/FPS/Target Distance/alert positions, the cursor slice (GCD ring, cast circle, at
 -- profile.cursor) and the Battle Res and Bloodlust positions stay per-profile on
 -- sync: exported intact, never push-overwritten.
 EllesmereUI.RegisterSyncExclusions("EllesmereUIQoL", {
     "secondaryStatsPos",
     "fpsPos",
+    "targetDistancePos",
+    "alertsPos",
+    "combatAlertPos",
+    "groupDeathAlertPos",
+    "durWarnPos",
     "cursor.gcd.pos",
     "cursor.castCircle.pos",
     "battleRes.pos",
@@ -867,7 +872,7 @@ do
 
         popup:SetSize(POPUP_W, popupH)
         -- The popup's border, header, profile rows (pooled by position) and action
-        -- button are built once; every open re-applies their fonts, texts, colours,
+        -- button are built once; every open re-applies their fonts, texts, colors,
         -- positions and actions.
         local ui = popup._ui
         if not ui then

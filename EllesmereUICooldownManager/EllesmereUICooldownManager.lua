@@ -7,7 +7,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Does NOT parse secret values works around restricted APIs.
 -------------------------------------------------------------------------------
 local _, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer and EllesmereUI._Pool and EllesmereUI.NewFrameData and EllesmereUI.TalentConditionsHold and EllesmereUI.CharData and EllesmereUI.CharEntry) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the loot roll placement uses the parent's frame placer, the hooks file its frame-data constructor, Talent Conditions the parent's talent check; its per-character data is in the parent's roster: CharData, CharEntry)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer and EllesmereUI._Pool and EllesmereUI.NewFrameData and EllesmereUI.TalentConditionsHold and EllesmereUI.CharData and EllesmereUI.CharEntry and EllesmereUI.IsSecret and EllesmereUI.PlainString and EllesmereUI.ForeverNextSwingOf and EllesmereUI.ForeverNextSwingNames and EllesmereUI.StampSpecProfile and EllesmereUI.MaskRoundedIconLayer) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the loot roll placement uses the parent's frame placer, the hooks file its frame-data constructor, Talent Conditions the parent's talent check; its per-character data is in the parent's roster: CharData, CharEntry; Buff Stacks and the aura icon files read the parent's secret test, IsSecret; the WoW Forever swing readers its PlainString and its attack lookup, ForeverNextSwingOf and ForeverNextSwingNames; a spec's new spell data takes the parent's migration flags, StampSpecProfile; rounded icons and Tracking Bars use its aura corner kit, MaskRoundedIconLayer and the calls that came with it)
 EllesmereUI._ModuleNS["EllesmereUICooldownManager"] = ns  -- LOD options files read this module ns via the registry
 
 -- CPU-attribution shell pool: the engine bills a handler's call tree to the addon
@@ -17,7 +17,7 @@ EllesmereUI._ModuleNS["EllesmereUICooldownManager"] = ns  -- LOD options files r
 -- events/scripts. No release -- throwaways use CreateFrame directly.
 do
     local pool = {}
-    local n = 47 -- keep above every shell this module takes, with spare
+    local n = 52 -- keep above every shell this module takes, with spare (50 call sites)
     for i = 1, n do pool[i] = CreateFrame("Frame") end
     ns.TakeShell = function()
         if n > 0 then
@@ -191,7 +191,6 @@ do
     -- Icon height as a fraction of width.
     function ns.CdmCropFactor(bd) return 1 - 2 * (CropPercent(bd) / 100) end
     -- Vertical texcoord trim per side, added on top of the bar's zoom.
-    function ns.CdmCropTrim(bd) return CropPercent(bd) / 100 end
 end
 
 -- Keybind cache: built once out-of-combat, looked up per tick
@@ -597,9 +596,10 @@ if EllesmereUI.IS_FOREVER then
     end
 end
 
--- Pandemic Glow is the Anti-Clip Glow (EUI_CDM_ForeverAntiClip.lua) where auras
--- carry no time over on a refresh: WoW Forever. The one gate every reader asks.
-ns.CDM_ANTI_CLIP = EllesmereUI.IS_FOREVER == true
+-- WoW Forever has no Pandemic Glow: its auras carry no time over on a refresh, so
+-- Blizzard's Cooldown Manager opens no pandemic window there. The rows are not built
+-- and nothing draws or hooks for it. The one gate every reader asks.
+ns.CDM_NO_PANDEMIC = EllesmereUI.IS_FOREVER == true
 
 -- Built after the WoW Forever drop, so they describe the presets this client offers.
 do
@@ -672,6 +672,8 @@ local DEFAULTS = {
             -- Off by default: opt-in, and off means the gate in StartNativeGlow
             -- is a single boolean test that never fires.
             glowsOnlyInCombat = false,
+            -- The glow type a new Bar Glow entry starts with (ns.GLOW_STYLES index).
+            defaultBarGlowStyle = 1,
             -- Rotation Assist uses Blizzard's native highlight until the user
             -- explicitly opts into a custom style.
             rotationAssistStyle = "blizzard",

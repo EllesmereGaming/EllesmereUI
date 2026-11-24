@@ -343,6 +343,7 @@ local function CreatePreviewFrame(index, party)
             ns.RF_StockHighlight(f, bdrFrame, s, hover, f._isTarget and s.targetBorderEnabled ~= false)
             return
         end
+        local br, bg, bb, ba = ns.RF_BaseBorderColor(s.borderClassColored and f._classToken, s.borderColor, s.borderAlpha or 1)
         local r, g, b, a
         local raised, hlSize, hlPx = false, nil, nil
         if f._pvDispelBdrC and s.borderBehind then
@@ -370,8 +371,7 @@ local function CreatePreviewFrame(index, party)
             local c = f._pvDispelBdrC
             r, g, b, a = c.r, c.g, c.b, c.a or 1
         else
-            local c = s.borderColor or { r = 0, g = 0, b = 0 }
-            r, g, b, a = c.r, c.g, c.b, s.borderAlpha or 1
+            r, g, b, a = br, bg, bb, ba
         end
         -- Match real frames: raise the inset border above overlapping neighbors
         -- while highlighted (handles negative Frame Spacing in the preview too).
@@ -391,14 +391,18 @@ local function CreatePreviewFrame(index, party)
             ns.ApplyHighlightBorder(bdrFrame, s, hlSize, r, g, b, a, hlPx)
             return
         end
-        if hlSize then r, g, b = ns.RF_VisibleHighlight(s, r, g, b) end
+        if hlSize then r, g, b = ns.RF_VisibleHighlight(s, r, g, b, br, bg, bb) end
         bdrFrame._hlBorderSize = nil
         EllesmereUI.SetBorderStyleColor(bdrFrame, r, g, b, a)
         if s.powerBorderMatchColor == true and f._powerBorder and f._powerBorder._powerArtMode == "divider" then
             ns.RF_ColorPowerDivider(f._powerBorder, r, g, b, a)
+        elseif s.borderClassColored then
+            ns.RF_TintMatchedPowerBorder(f._powerBorder, br, bg, bb, ba)
         end
         if s.topNameBarDividerMatchColor == true and f._topNameBar and f._topNameBar._divider then
             ns.RF_ColorPowerDivider(f._topNameBar._divider, r, g, b, a)
+        elseif s.borderClassColored and f._topNameBar then
+            ns.RF_ColorPowerDivider(f._topNameBar._divider, br, bg, bb, ba)
         end
     end
     f._ApplyBorderColor = PvApplyBorderColor

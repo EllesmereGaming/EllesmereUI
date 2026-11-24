@@ -265,7 +265,7 @@ local function BuildColorPickerPopup()
     local EDGE_R, EDGE_G, EDGE_B = 0.077 * 0.94 + 0.06, 0.068 * 0.94 + 0.06, 0.058 * 0.94 + 0.06
     -- The three layers stay square: a mask on each let the hue show through
     -- the partly drawn gradients at the edge (a red rim). The cover in the
-    -- popup's colour rounds them, and they fill the outline's whole-pixel
+    -- popup's color rounds them, and they fill the outline's whole-pixel
     -- seat, so no part of an edge pixel lies outside it.
     local svEdge = EllesmereUI.MakeRoundedBorder(svPad, EDGE_R, EDGE_G, EDGE_B, 1)
     svEdge:SetCover(0.077, 0.068, 0.058)
@@ -424,7 +424,7 @@ local function BuildColorPickerPopup()
     alphaBar:SetScript("OnMouseUp", function(self) alphaDragging = false; self:SetScript("OnUpdate", nil) end)
 
     -- Controller cursor: the three pads read the pointer position, which its presses
-    -- do not move, so they are skipped (Hex#, Opacity and the swatches set colours);
+    -- do not move, so they are skipped (Hex#, Opacity and the swatches set colors);
     -- the drag bar is no stop, and Cancel clicks the close button.
     if EllesmereUI.PadCP() then
         EllesmereUI.PadHint(svPad, "nodeignore")
@@ -545,6 +545,8 @@ local function BuildColorPickerPopup()
         opacityBox:SetText(tostring(pct))
     end
     -- Parse the box and apply as alpha. commit=true snaps back to the live value when unparseable (Enter/focus loss).
+    -- The commit that runs once the box has lost focus writes a clamped value back ("150" reads 100); unfocused, the
+    -- write does not come back through OnTextChanged.
     local function ApplyOpacityText(commit)
         local n = tonumber(opacityBox:GetText())
         if n then
@@ -552,6 +554,9 @@ local function BuildColorPickerPopup()
             currentA = n / 100
             lastOpacityPct = n
             UpdateAllControls(); FireCallbacks()
+            if commit and not opacityBox:HasFocus() and opacityBox:GetText() ~= tostring(n) then
+                opacityBox:SetText(tostring(n))
+            end
             return true
         elseif commit then
             opacityBox:SetText(tostring(math.floor(currentA * 100 + 0.5)))
@@ -768,6 +773,9 @@ local function BuildColorPickerPopup()
         popup:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x, y)
         EllesmereUI._colorPickerOpen = true
         RefreshSwatchRows()
+        -- A hex typed then cancelled with Escape leaves this cache on the old color: reset it
+        -- so each open writes the box from the color being edited.
+        lastHexR, lastHexG, lastHexB = -1, -1, -1
         popup:Show(); UpdateAllControls()
         -- Controller cursor: into the picker, on OK (its first stop would be the close box).
         if EllesmereUI.PadCursorShown() then EllesmereUI.PadFocus(okBtn) end
@@ -785,7 +793,7 @@ function EllesmereUI:ShowColorPicker(info, anchorFrame)
 end
 
 -- Shared color swatch: border + fill + UpdateSwatch + OnClick. Returns swatch (Button), UpdateSwatch (function), caller positions it. Border textures are deferred until first show to keep page builds light.
-local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasAlpha, overrideSize)
+local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasAlpha, overrideSize, bindPicker)
     -- Search prebuild on an absorber row: the swatch indexes nothing, so none is built.
     local standIn = PrebuildStandIn(parentFrame)
     if standIn then return standIn, standIn end
@@ -849,31 +857,42 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
         -- every write names it, whatever a rebuild has made of the swatch
         -- since (dressed again for another slot, or left on a parked row).
         local openSlot = EllesmereUI._SOAttribution(parentFrame, {})
+        -- A bound picker owns the record and its rollback for this opening.
+        local writeColor, restoreColor = userSet
+        if bindPicker then writeColor, restoreColor = bindPicker() end
+        local changed
         -- Writes the setting the picker was opened for, naming that slot, and
         -- returns true while the swatch is still that dress (the caller then
         -- paints it); once it is not, nothing is painted and the frame is not
         -- named (it may hold another slot now).
-        local function Write(cr, cg, cb, ca)
+        local function Write(fn, cr, cg, cb, ca)
             local same = SameDress()
-            userSet(cr, cg, cb, ca)
+            if fn(cr, cg, cb, ca) == false then return false end
             EllesmereUI._NotifySettingWrite(same and parentFrame or nil, openSlot)
             EllesmereUI._settingsChanged = true
-            return same and SameDress()
+            return true, same and SameDress()
         end
         local function OnColorChanged()
             local popup = EllesmereUI._colorPickerPopup
             if not popup then return end
             local cr, cg, cb = popup:GetColorRGB()
             local ca = hasAlpha and popup:GetColorAlpha() or 1
-            if SameDress() then sFill:SetColorTexture(cr, cg, cb, ca) end
-            if Write(cr, cg, cb, ca) then UpdateSwatch() end
+            if not bindPicker and SameDress() then sFill:SetColorTexture(cr, cg, cb, ca) end
+            local applied, refreshed = Write(writeColor, cr, cg, cb, ca)
+            if applied then changed = true end
+            if refreshed then UpdateSwatch() end
         end
         local info = {
             swatchFunc = function() OnColorChanged() end,
             hasOpacity = hasAlpha,
             opacityFunc = function() OnColorChanged() end,
             opacity = a,
-            cancelFunc = function() if Write(snapR, snapG, snapB, snapA) then UpdateSwatch() end end,
+            cancelFunc = function()
+                if bindPicker and not changed then return end
+                changed = false
+                local _, refreshed = Write(restoreColor or writeColor, snapR, snapG, snapB, snapA)
+                if refreshed then UpdateSwatch() end
+            end,
             r = r, g = g, b = b,
         }
         EllesmereUI:ShowColorPicker(info, swatch)

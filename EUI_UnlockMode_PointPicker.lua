@@ -26,7 +26,7 @@ ns.unlockParts.PointPicker = function(UM)
         local elem = UM.registeredElements[key]
         if not elem or EllesmereUI.IsScreenEdgeKey(key) then return false end
         if source then
-            if elem.noAnchorTo or elem.ownsPosition or ns.IsMoverPosLocked(key) then return false end
+            if elem.noAnchorTo or elem.ownsPosition then return false end
             if elem.isAnchored and elem.isAnchored(key) then return false end
         elseif elem.noAnchorTarget then
             return false
@@ -114,7 +114,7 @@ ns.unlockParts.PointPicker = function(UM)
         local childKey, targetKey = source._barKey, target._barKey
         local info = { mode = "POINT", target = targetKey, sourcePoint = sourcePoint,
             targetPoint = point, offsetX = 0, offsetY = 0 }
-        if not PA.Center(childKey, UM.GetBarFrame(childKey), info, UM.GetBarFrame(targetKey)) then
+        if not PA.Center(childKey, UM.GetBarFrame(childKey), info, UM.GetAnchorTargetFrame(targetKey)) then
             Reject(target, EllesmereUI.L("This element's position is not available yet"))
             return
         end

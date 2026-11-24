@@ -20,7 +20,7 @@ local PAGE_LOOT    = "Loot"
 local PAGE_MACROS  = "Macros"
 
 -- Item quality dropdown values and order from Poor up to last, each in its
--- colour (the General and Loot pages).
+-- color (the General and Loot pages).
 _G._EUI_ItemQualityValues = function(last)
     local values, order = {}, {}
     for q = Enum.ItemQuality.Poor, last do
@@ -84,6 +84,8 @@ initFrame:SetScript("OnEvent", function(self)
                 -- the roster's spellUprank, the ranks each character has had, is not a setting: it stays, so the
                 -- option turned on again swaps only ranks learned since
                 EllesmereUIDB.spellUprank = nil
+                EllesmereUIDB.lfgLanguages = nil
+                EllesmereUIDB.lfgZones = nil
                 EllesmereUIDB.junkList = nil
                 EllesmereUIDB.junkListExcluded = nil
                 EllesmereUIDB.simplifiedStats = nil
@@ -93,6 +95,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.macroManager = nil
                 EllesmereUIDB.questRewards = nil
                 EllesmereUIDB.zoneLevels = nil
+                EllesmereUIDB.inGameNavigation = nil
                 -- The per-character favorites are the player's picks: only the switch resets.
                 if EllesmereUIDB.petSummon then EllesmereUIDB.petSummon.enabled = nil end
                 -- The CVars a session holds stay recorded, so Apply can give them back.
@@ -130,6 +133,7 @@ initFrame:SetScript("OnEvent", function(self)
                 LF.ApplyPosition()
             end
             if EllesmereUI._SpellUprank then EllesmereUI._SpellUprank.Apply() end
+            if EllesmereUI._LFGZones then EllesmereUI._LFGZones.Apply() end
             if EllesmereUI._JunkItems then EllesmereUI._JunkItems.Apply() end
             if EllesmereUI._ActiveForm then EllesmereUI._ActiveForm.Apply() end
             if EllesmereUI._ClassicSpellbook then EllesmereUI._ClassicSpellbook.Apply() end
@@ -140,6 +144,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._Fishing then EllesmereUI._Fishing.Apply() end
             if EllesmereUI._MapTravel then EllesmereUI._MapTravel.Apply() end
             if EllesmereUI._MapFade then EllesmereUI._MapFade.Apply() end
+            if EllesmereUI._InGameNavigation then EllesmereUI._InGameNavigation.Apply() end
             if EllesmereUI._GatherSkill then EllesmereUI._GatherSkill.Apply() end
             EllesmereUI:InvalidatePageCache()
         end,

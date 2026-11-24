@@ -569,9 +569,44 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     if ns.OfflinePanel then ns.OfflinePanel(sidebarW) end
 end
 
+-- A turned-off category (Enabled Categories, or Delete on a default one) shows
+-- nowhere: while it is open, or a group whose members are all off, the bags
+-- show the view they open on. Costs one category lookup per refresh (a walk of
+-- the list while a group is open), nothing while no category is off.
+local function LeaveTurnedOff()
+    local dc = BP().bagDisabledCategories
+    if not dc then return end
+    local mgr = EUI_CategoryManager
+    if selectedGroupName then
+        if mgr:FirstOnMember(selectedGroupName, dc) then return end
+        I.SetSelectedGroupName(nil)
+    elseif selectedCategoryIndex > 0 then
+        local cat = mgr:GetCategories()[selectedCategoryIndex]
+        if not (cat and mgr:IsCategoryOff(cat, dc)) then return end
+    else
+        return
+    end
+    I.SetSelectedCategoryIndex(ns.OpenBagViewIndex())
+    if EUI_Bags._scrollFrame then EUI_Bags._scrollFrame:SetVerticalScroll(0) end
+end
+
+-- Item totals of the gathered items (bags 0-5) for the hold's put-in check
+local holdTotals = {}
+local function HoldBagTotals(tempItems)
+    wipe(holdTotals)
+    for i = 1, #tempItems do
+        local info = tempItems[i].info
+        local id = info.itemID
+        if id then holdTotals[id] = (holdTotals[id] or 0) + (info.stackCount or 1) end
+    end
+    return holdTotals
+end
+local holdWasOn = false  -- the last pass ran the hold: an off pass drops its recording
+
 function EUI_Bags:RefreshInventory()
     if not EUI_Bags:IsVisible() then return end
     ns.ApplySlotMetrics()
+    LeaveTurnedOff()
 
     -- A select mode's hover box sits on a button this refresh may refill: put
     -- that button's border back now and re-test the hover after
@@ -598,14 +633,19 @@ function EUI_Bags:RefreshInventory()
     local regularUsed, regularTotal = 0, 0
     local reagentUsed, reagentTotal = 0, 0
     local special = ns.SpecialBags()
+    -- the option read first: an off pass makes no Hold call
+    local holdOn = BP().bagHoldLayout == true and ns.Hold.On("bags")
 
     for bag = 0, 5 do
         local numSlots = C_Container.GetContainerNumSlots(bag)
         local restricted = special and special[bag]
         if bag == 5 and EllesmereUI.IS_FOREVER then
-            -- A special bag in the fifth slot stays out of the header count too.
-            local _, family = C_Container.GetContainerNumFreeSlots(bag)
-            restricted = family and family ~= 0
+            -- The fifth slot is the reagent bag slot, so a bag that takes
+            -- materials counts there: a reagent bag (family 0) and a profession
+            -- bag alike. Only one that holds nothing but arrows (1), bullets (2)
+            -- or soul shards (4) stays out, as a special bag in slots 1-4 does.
+            local family = ns.FifthSlotFamily()
+            restricted = family == 1 or family == 2 or family == 4
         end
         if bag == 5 and not restricted then
             reagentTotal = numSlots
@@ -654,7 +694,7 @@ function EUI_Bags:RefreshInventory()
                     -- The List view's iLvl column always needs the real level
                     d._giIlvl = isGear and (BP().showItemlevelInBags ~= false or EUI_Bags.IsListMode())
                         and GetItemLevelAtLocation(loc, itemLink) or nil
-                    -- Upgrade tracks: the grid's item level colour and rank; the
+                    -- Upgrade tracks: the grid's item level color and rank; the
                     -- List view only while its Track column shows or sorts.
                     if isGear and GetUpgradeTrack
                         and (not EUI_Bags.IsListMode() or ns.ListUsesColumn("track")) then
@@ -718,6 +758,16 @@ function EUI_Bags:RefreshInventory()
     local swapDetected = DetectAndApplySwaps(tempItems, isAllItems)
     TakeBagSnapshot(tempItems)
 
+    -- Only an item-event pass with no put-in holds
+    local held = false
+    if holdOn then
+        holdWasOn = true
+        held = ns.Hold.BeginPass("bags", HoldBagTotals(tempItems))
+    elseif holdWasOn then
+        holdWasOn = false
+        ns.Hold.BeginPass("bags")
+    end
+
     -- Show blocked-swap tooltip in category/group views (not All Items, not OneBag)
     if swapDetected and not isAllItems and selectedCategoryIndex ~= -1 and selectedCategoryIndex ~= -2 then
         if EUI.ShowWidgetTooltip then
@@ -733,20 +783,24 @@ function EUI_Bags:RefreshInventory()
     local categoryCounts, totalCount = EUI_CategoryManager:ClassifyAll(tempItems)
 
     -- 2a. Snapshot slot->category mapping for partial refresh
+    local categorizeReagents = BP().bagCategorizeReagents == true
+    local reagentCount = 0
     wipe(_slotCategories)
     for _, data in ipairs(tempItems) do
         if data.categoryIndex and data.bag and data.slot then
             _slotCategories[data.bag * 1000 + data.slot] = data.categoryIndex
+            if categorizeReagents and data.bag == 5 then reagentCount = reagentCount + 1 end
         end
     end
 
-    -- 2b. Compute display-only counts for pinned and recent items
-    local recentCatIdx, pinnedCatIdx
+    -- 2b. Count the Pinned Items, Recent Items and Reagent Bag shortcuts
+    local recentCatIdx, pinnedCatIdx, reagentCatIdx
     do
         local cats = EUI_CategoryManager:GetCategories()
         for i, cat in ipairs(cats) do
             if cat.isRecent then recentCatIdx = i end
             if cat.isPinned then pinnedCatIdx = i end
+            if categorizeReagents and cat.isReagentBag then reagentCatIdx = i end
         end
     end
     local showPinned = BP().bagShowPinnedItems ~= false
@@ -767,7 +821,10 @@ function EUI_Bags:RefreshInventory()
                     -- Keep the category for sorting and gear/stack handling.
                     data._pinnedOnly = true
                     local ci = data.categoryIndex
-                    if ci then categoryCounts[ci] = categoryCounts[ci] - 1 end
+                    if ci then
+                        categoryCounts[ci] = categoryCounts[ci] - 1
+                        if reagentCatIdx and data.bag == 5 then reagentCount = reagentCount - 1 end
+                    end
                 end
             end
         end
@@ -777,12 +834,14 @@ function EUI_Bags:RefreshInventory()
     local showRecent = BP().bagShowRecentItems ~= false
     if recentCatIdx and EUI_Bags._recentItems and showRecent then
         for _, data in ipairs(tempItems) do
-            if not data._pinnedOnly and data.info and data.info.itemID and EUI_Bags._recentItems[data.info.itemID] then
+            if not data._pinnedOnly and EUI_Bags.IsRecentEntry(data) then
                 recentCount = recentCount + 1
             end
         end
         categoryCounts[recentCatIdx] = recentCount
     end
+    -- The Reagent Bag shortcut counts physical slots alongside their item categories.
+    if reagentCatIdx then categoryCounts[reagentCatIdx] = reagentCount end
 
     -- 2c. viewing an alt: the sidebar counts their bags instead
     local altView = ns.OfflineAlt and ns.OfflineAlt()
@@ -800,13 +859,15 @@ function EUI_Bags:RefreshInventory()
     -- 4. Filter items by selected category/group + search
     local isRecentView = recentCatIdx and selectedCategoryIndex == recentCatIdx
     local isPinnedView = pinnedCatIdx and selectedCategoryIndex == pinnedCatIdx
+    local reagentView = not selectedGroupName and selectedCategoryIndex == reagentCatIdx and reagentCatIdx or nil
     local filterSet = nil  -- nil = show all
     do
         local cats = EUI_CategoryManager:GetCategories()
         -- The "Item Set Gear" anchor view (and any group holding it) folds in the
-        -- split-mode set children, which hold the actual items.
-        local function AddSetChildren(anchorIdx)
+        -- split-mode set children; a group keeps them when they are separated too.
+        local function AddSetChildren(anchorIdx, inGroup)
             if not BP().bagSplitSetGearBySet then return end
+            if not inGroup and not EUI_CategoryManager:FoldSetChildren() then return end
             if not (cats[anchorIdx] and cats[anchorIdx].isSetGear and not cats[anchorIdx].isEquipSet) then return end
             for i, c in ipairs(cats) do
                 if c.isEquipSet then filterSet[i] = true end
@@ -817,9 +878,9 @@ function EUI_Bags:RefreshInventory()
             local members = EUI_CategoryManager:GetGroupMembers(selectedGroupName)
             for _, mi in ipairs(members) do
                 filterSet[mi] = true
-                AddSetChildren(mi)
+                AddSetChildren(mi, true)
             end
-        elseif selectedCategoryIndex > 0 and not isRecentView and not isPinnedView then
+        elseif selectedCategoryIndex > 0 and not isRecentView and not isPinnedView and not reagentView then
             filterSet = { [selectedCategoryIndex] = true }
             AddSetChildren(selectedCategoryIndex)
         end
@@ -831,13 +892,15 @@ function EUI_Bags:RefreshInventory()
         if offlineUp then
             show = false  -- the offline panel covers these
         elseif isRecentView then
-            show = data.info and data.info.itemID and EUI_Bags._recentItems and EUI_Bags._recentItems[data.info.itemID]
+            show = EUI_Bags._recentItems and EUI_Bags.IsRecentEntry(data)
         elseif isPinnedView then
             show = data.info and data.info.itemID and pinnedSet and IsItemPinned(pinnedSet, data.itemLink, data.info.itemID)
+        elseif reagentView then
+            show = data.bag == 5 and data.categoryIndex
         elseif filterSet then
             show = data.categoryIndex and filterSet[data.categoryIndex]
         end
-        if data._pinnedOnly and (isRecentView or filterSet) then show = false end
+        if data._pinnedOnly and (isRecentView or reagentView or filterSet) then show = false end
         if show and data.info and data.info.isFiltered then show = false end
         if show then displayItems[#displayItems + 1] = data end
     end
@@ -851,11 +914,14 @@ function EUI_Bags:RefreshInventory()
         -- As in All Items, such an item stays in its group too. Only a pinned item that is
         -- hidden in its category (_pinnedOnly, Hide Items in Their Categories) leaves it: _vgOnly.
         -- Junk (what Sell Junk sells, while the Junk Marker is on) is not offered to the
-        -- provider: _vgJunk files it in a Junk section of ours, drawn last. An item whose
-        -- link has not loaded is not offered either and stays unstamped (_vg nil): it is
-        -- not drawn, as in All Items.
+        -- provider: _vgJunk files it in a Junk section of ours, drawn last, or in Other
+        -- while the Junk category is turned off (elsewhere it goes to the catch-all
+        -- then). An item whose link has not loaded is not offered either and stays
+        -- unstamped (_vg nil): it is not drawn, as in All Items.
         local keepPin = view.keepPinned and showPinned and pinnedSet or nil
-        local keepRec = view.keepRecent and showRecent and EUI_Bags._recentItems or nil
+        local keepRec = view.keepRecent and showRecent and EUI_Bags._recentItems ~= nil
+        local junkCat = EUI_CategoryManager:GetCategories()[EUI_CategoryManager._junkCatIdx or 0]
+        local junkSection = not (junkCat and EUI_CategoryManager:IsCategoryOff(junkCat, BP().bagDisabledCategories))
         for _, data in ipairs(displayItems) do
             local info = data.info
             local itemID = info and info.itemID
@@ -863,12 +929,12 @@ function EUI_Bags:RefreshInventory()
             if link then
                 local quality = info and info.quality
                 local junk = EUI_CategoryManager:IsJunk(itemID, quality) or nil
-                data._vgJunk = junk
+                data._vgJunk = junkSection and junk or nil
                 data._vg = junk and 0
                     or EUI_CategoryManager:ClassifyView(view, link, itemID, data.bag, data.slot, quality)
                 data._vgPin = keepPin and itemID and IsItemPinned(keepPin, link, itemID) or nil
                 data._vgOnly = data._vgPin and data._pinnedOnly or nil
-                data._vgRec = keepRec and itemID and not data._pinnedOnly and keepRec[itemID] and true or nil
+                data._vgRec = keepRec and not data._pinnedOnly and EUI_Bags.IsRecentEntry(data) or nil
             else
                 data._vg, data._vgJunk, data._vgPin, data._vgOnly, data._vgRec = nil, nil, nil, nil, nil
             end
@@ -929,7 +995,7 @@ function EUI_Bags:RefreshInventory()
         if selectedCategoryIndex > 0 and not selectedGroupName then
             n = (categoryCounts and categoryCounts[selectedCategoryIndex]) or #tempItems
             -- The anchor view folds in its set children's items; count them too
-            if BP().bagSplitSetGearBySet then
+            if EUI_CategoryManager:FoldSetChildren() then
                 local szCats = EUI_CategoryManager:GetCategories()
                 local selCat = szCats[selectedCategoryIndex]
                 if selCat and selCat.isSetGear and not selCat.isEquipSet and categoryCounts then
@@ -945,10 +1011,10 @@ function EUI_Bags:RefreshInventory()
             S = 0
             if categoryCounts then
                 -- Set children fold into their anchor's section: count them as one
-                local sizeCats = BP().bagSplitSetGearBySet and EUI_CategoryManager:GetCategories() or nil
+                local sizeCats = EUI_CategoryManager:FoldSetChildren() and EUI_CategoryManager:GetCategories() or nil
                 local hasSetChild = false
                 for i, c in pairs(categoryCounts) do
-                    if c and c > 0 then
+                    if i ~= reagentCatIdx and c and c > 0 then
                         if sizeCats and sizeCats[i] and sizeCats[i].isEquipSet then hasSetChild = true
                         else S = S + 1 end
                     end
@@ -998,7 +1064,10 @@ function EUI_Bags:RefreshInventory()
         local maxCols = math.max(baseCols, math.floor(maxGridW / (SLOT_SIZE + SPACING)))
         if ideal < baseCols then ideal = baseCols end
         if ideal > maxCols then ideal = maxCols end
-        EUI_Bags._asCols = EUI_Bags.AutoSizeNext(ideal, EUI_Bags._asCols)
+        local cols = EUI_Bags.AutoSizeNext(ideal, EUI_Bags._asCols)
+        -- Shrink would reflow the held groups: a held pass keeps the columns
+        if held and EUI_Bags._asCols and cols < EUI_Bags._asCols then cols = EUI_Bags._asCols end
+        EUI_Bags._asCols = cols
     end
 
     local columns = GetColumns()
@@ -1025,8 +1094,10 @@ function EUI_Bags:RefreshInventory()
     end
 
     -- Both views below paint with the current panel state, merging or not
-    -- (slot views and an unmerged list never reach MergeDuplicates)
+    -- (slot views and an unmerged list never reach MergeDuplicates). The unmerge
+    -- state is set again by whichever merge helper runs in this paint.
     SetPaintedPanelOpen(_anyItemPanelOpen)
+    EUI_Bags._paintedUnmerged = nil
 
     -- no live items laid out under the offline panel (select modes would hit them)
     local liveItems, liveEmpty = tempItems, emptySlots
@@ -1051,6 +1122,7 @@ function EUI_Bags:RefreshInventory()
                 and EUI_Bags._recentItems or nil,
             -- The Recent Items tab: its items in one newest-first section
             recentOnly = isRecentView or nil,
+            reagentView = reagentView,
             -- Empty rows only when nothing is search-filtered out
             emptySlots = (#displayItems == #liveItems) and liveEmpty or nil,
             -- Same rule as the grid's Pinned Items section
@@ -1085,6 +1157,9 @@ function EUI_Bags:RefreshInventory()
     end
 
     FinishRefresh(curY, gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount)
+
+    -- A held group outgrew its cells: lay out once more without the hold
+    if held and ns.Hold.ReleaseOutgrown("bags") then EUI_Bags:RefreshInventory() end
 end
 
 -------------------------------------------------------------------------------

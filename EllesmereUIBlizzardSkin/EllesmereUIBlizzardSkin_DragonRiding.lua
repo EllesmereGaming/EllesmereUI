@@ -534,7 +534,7 @@ local STYLE_ROWS_GEMS = { "speed", "sw" }
 
 -- Stock style art (ns.EDR_Style). Both stock looks match the Resource Bars'
 -- ones so the HUD and the class resource bar read as one UI; the bars keep
--- the user's texture and colours in every style, and the column is framed as
+-- the user's texture and colors in every style, and the column is framed as
 -- one box with dividers (see ApplyColumnChrome).
 --
 -- Blizzard: the Cooldown Manager bar panel (the personal resource display's
@@ -1392,7 +1392,7 @@ local function LayoutSet(S, p, L)
 
 end
 
--- Textures, colours, texts, borders and bevels of one set.
+-- Textures, colors, texts, borders and bevels of one set.
 local function PaintSet(S, p, L)
     -- Apply bar texture to all StatusBars
     local texPath = EllesmereUI.ResolveTexturePath(ns.EDR_BAR_TEXTURES, p.barTexture or "none",

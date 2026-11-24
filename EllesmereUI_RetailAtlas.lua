@@ -87,7 +87,7 @@ if not EllesmereUI then return end
 --    EllesmereUI.ForeverBorderShown(ring, shown)
 --    EllesmereUI.ForeverBorderDivider(frame, layer, sub)   one straight
 --        piece of the shipped line, for a box split in two under one ring
---  Callers build a ring once per frame; a repaint is colour or shown only.
+--  Callers build a ring once per frame; a repaint is color or shown only.
 -------------------------------------------------------------------------------
 local RING_ATLAS = "UI-HUD-ActionBar-Frame"
 -- The shipped art: its file and its box's edges as texcoords (the same on
@@ -327,7 +327,7 @@ end
 --    EllesmereUI.ForeverHeavyTitle(ring, on)   keeps the title bar under the
 --        top rim (FOREVER_HEAVY.title: its band and divider below the rim's
 --        outer edge; the bar's drop shadow falls on the box below it)
---  Callers build a frame once per surface; a repaint is colour or shown only.
+--  Callers build a frame once per surface; a repaint is color or shown only.
 -------------------------------------------------------------------------------
 local HEAVY_ART = {
     tl = "UI-Frame-Metal-CornerTopLeft", tr = "UI-Frame-Metal-CornerTopRight",

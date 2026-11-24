@@ -26,6 +26,8 @@ local EnsurePalette, MAX_PALETTES, MAX_SLOTS = I.EnsurePalette, I.MAX_PALETTES, 
 local PA, ReadPalette, SelectColor, CycleNext = I.PA, I.ReadPalette, I.SelectColor, I.CycleNext
 local WORLD_MARKER_ENGINE, Rez, SlotCooldown = I.WORLD_MARKER_ENGINE, I.Rez, I.SlotCooldown
 local SlotCount, SlotDisplay, SlotUsability = I.SlotCount, I.SlotDisplay, I.SlotUsability
+-- Does this cell carry a tint a live menu re-reads on events (RefreshTints)?
+local HasTint = I.SlotHasTint
 local UsableSlots, ApplyIconCrop = I.UsableSlots, I.ApplyIconCrop
 local ApplySlotVisual, PaletteView = I.ApplySlotVisual, I.PaletteView
 local RefreshFonts, secureButtons = I.RefreshFonts, I.secureButtons
@@ -63,14 +65,6 @@ local function HasLiveIcon(slot)
     return slot.kind == "macro" or slot.kind == "dynamicrez"
 end
 
--- Does this cell's tint follow the mount rules (see SlotUsability)? Those are
--- re-read on the game's own events while a live menu is up -- see
--- RefreshMountTints.
-local function HasMountTint(slot)
-    local k = slot and slot.kind
-    return k == "mount" or k == "lastmount" or k == "randommount"
-end
-
 local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLabel,
                          iconSize, showUsability)
     w.isPlaceholder = placeholder
@@ -78,9 +72,10 @@ local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLa
     -- Read once per paint, which is once per open: range and resources do move
     -- while a palette is up, but a hold lasts a fraction of a second and a tint
     -- that changed under a settled hand would read as a flicker rather than as
-    -- information. Mounts are the exception (RefreshMountTints): where you can
-    -- mount changes a handful of times a session, at a doorway, and a menu
-    -- left open should follow it. ApplySlotVisual turns this into a colour.
+    -- information. Discrete state changes are the exception (RefreshTints):
+    -- combat, a flight path, a doorway for mounts. Such a re-read takes the
+    -- whole answer as it stands, range and resources included. ApplySlotVisual
+    -- colors it.
     w.usability = (showUsability and not placeholder) and SlotUsability(slot) or nil
 
     local icon, name = SlotDisplay(slot)
@@ -90,6 +85,16 @@ local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLa
     ApplyIconCrop(w.icon, icon)
     w.icon:SetShown(not placeholder)
     w.plus:SetShown(placeholder)
+
+    -- An emote's name on its icon (every emote wears the same bubble), whatever
+    -- the label settings say; it stays inside the icon's square in every layout.
+    local named = not placeholder and slot ~= nil and slot.kind == "emote"
+        and name ~= nil
+    if named then
+        w.iconName:SetTextHeight(max(7, floor((iconSize or 40) * 0.24)))
+        w.iconName:SetText(name)
+    end
+    w.iconName:SetShown(named)
 
     local labelled = showLabels and wantLabel and name ~= nil
     w.label:SetText((labelled and EllesmereUI.L(name)) or "")
@@ -297,12 +302,11 @@ function PaletteView:Layout(paletteIndex)
     if not pending then pending = {}; self._pendingCells = pending end
     for k = #pending, 1, -1 do pending[k] = nil end
 
-    -- The mount cells, collected the same way and kept the same way, for the
-    -- tint a live menu re-reads on events (see RefreshMountTints). None while
-    -- the tint is off.
-    local mountCells = self._mountCells
-    if not mountCells then mountCells = {}; self._mountCells = mountCells end
-    for k = #mountCells, 1, -1 do mountCells[k] = nil end
+    -- The tinted cells, collected the same way, for the tint a live menu
+    -- re-reads on events (see RefreshTints). None while the tint is off.
+    local tintCells = self._tintCells
+    if not tintCells then tintCells = {}; self._tintCells = tintCells end
+    for k = #tintCells, 1, -1 do tintCells[k] = nil end
 
     for i = 1, shown do
         local w = self.widgets[i]
@@ -332,7 +336,7 @@ function PaletteView:Layout(paletteIndex)
         -- company, and testing the stored array would collect the wrong cells.
         if HasLiveIcon(slots[i]) then liveCells[#liveCells + 1] = i end
         if ns.WarmSlot(slots[i]) then pending[#pending + 1] = i end
-        if showUsability and HasMountTint(slots[i]) then mountCells[#mountCells + 1] = i end
+        if showUsability and HasTint(slots[i]) then tintCells[#tintCells + 1] = i end
         w:Show()
     end
 
@@ -369,8 +373,8 @@ function PaletteView:Layout(paletteIndex)
                 if ns.WarmSlot(c.slots[j]) then
                     pending[#pending + 1] = cells
                 end
-                if showUsability and HasMountTint(c.slots[j]) then
-                    mountCells[#mountCells + 1] = cells
+                if showUsability and HasTint(c.slots[j]) then
+                    tintCells[#tintCells + 1] = cells
                 end
                 -- Hidden until its own claim is opened -- see UpdateNestShown.
                 w:Hide()
@@ -532,7 +536,7 @@ end
 -- ICON only, deliberately. The label stays the name the paint gave it -- for a
 -- macro that is the macro's own name, which is what Blizzard's action buttons
 -- show and what the player recognises -- and the usability tint stays where the
--- paint left it, for the reason PaintCell gives: a colour that moves under a
+-- paint left it, for the reason PaintCell gives: a color that moves under a
 -- settled hand reads as a flicker.
 --
 -- Five C calls per frame for a palette holding one of these kinds, none for one
@@ -670,12 +674,10 @@ function PaletteView:AdvanceLiveIcons()
     end
 end
 
--- The mount cells' tint, re-read when the game says where you can mount may
--- have changed (a doorway, a no-mount area, combat): the mount watch in
--- EUI_Quickdraw_Live.lua calls this while a live menu holding a mount entry is
--- up. Only a cell whose tint changed is repainted.
-function PaletteView:RefreshMountTints()
-    local cells = self._mountCells
+-- The cells' tint, re-read by the tint watch in EUI_Quickdraw_Live.lua on
+-- combat, flight path and mount-area changes. Repaints only changed cells.
+function PaletteView:RefreshTints()
+    local cells = self._tintCells
     if not cells or #cells == 0 then return end
     for k = 1, #cells do
         local index = cells[k]
@@ -691,9 +693,9 @@ function PaletteView:RefreshMountTints()
     end
 end
 
--- Whether the last layout drew a mount entry with the tint on.
-function PaletteView:HasMountCells()
-    local cells = self._mountCells
+-- Whether the last layout drew a tinted entry.
+function PaletteView:HasTintCells()
+    local cells = self._tintCells
     return cells ~= nil and #cells > 0
 end
 

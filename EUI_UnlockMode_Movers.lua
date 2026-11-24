@@ -356,9 +356,8 @@ local function CreateMover(barKey)
     local existing = movers[barKey]
 
     -- Skip elements that are intentionally hidden or currently anchored
-    -- (keepMoverWhenAnchored elements keep a position-locked mover instead).
     if elem and ((elem.isHidden and elem.isHidden())
-        or (elem.isAnchored and elem.isAnchored() and not elem.keepMoverWhenAnchored)) then
+        or (elem.isAnchored and elem.isAnchored())) then
         if existing then existing:Hide() end
         return nil
     end
@@ -583,7 +582,7 @@ local function CreateMover(barKey)
             if not elem or elem.setWidth then t[#t + 1] = { btn = wmBtn, fs = wmFS, fb = 50 } end
             if not elem or elem.setHeight then t[#t + 1] = { btn = hmBtn, fs = hmFS, fb = 55 } end
         end
-        if canAnchorTo and not ns.IsMoverPosLocked(barKey) then
+        if canAnchorTo then
             t[#t + 1] = { btn = atBtn, fs = atFS, fb = 45 }
         end
         if canGrow then
@@ -747,7 +746,7 @@ local function CreateMover(barKey)
         gdFS:SetTextColor(1, 0.7, 0.3, 0.85)
     end
 
-    -- Accent change (accent callback below): later repaints read the new colour; the
+    -- Accent change (accent callback below): later repaints read the new color; the
     -- resting border takes it now, a hovered or selected one on leave, link texts on hover.
     function mover._applyAccent()
         ar, ag, ab = GetAccent()
@@ -758,7 +757,7 @@ local function CreateMover(barKey)
     local function RefreshAnchoredIdle()
         -- A link on an element that places itself (ownsPosition) is inert.
         local ai = not (elem and elem.ownsPosition) and GetAnchorInfo(barKey) or nil
-        isAnchored = ai ~= nil or ns.IsMoverPosLocked(barKey)
+        isAnchored = ai ~= nil
         nameFS:SetText(EllesmereUI.L(label))
         if isAnchored then
             nameFS:SetTextColor(1, 0.7, 0.3, 0.85)
@@ -1186,7 +1185,6 @@ local function CreateMover(barKey)
 
     atBtn:SetScript("OnClick", function()
         EllesmereUI.HideWidgetTooltip()
-        if ns.IsMoverPosLocked(barKey) then return end
         if GetAnchorInfo(barKey) then
             ClearAnchorInfo(barKey)
             -- Capture current screen position so Save & Exit persists it.
@@ -1518,7 +1516,7 @@ local function CreateMover(barKey)
         -- `for _, m in pairs(movers) do m:Sync() end` loops can't re-show a mover
         -- CreateMover intentionally hid. Action bars resolve elem == nil (no-op); isHidden is read live, so an un-hidden element still syncs.
         if elem and ((elem.isHidden and elem.isHidden())
-                  or (elem.isAnchored and elem.isAnchored() and not elem.keepMoverWhenAnchored)) then
+                  or (elem.isAnchored and elem.isAnchored())) then
             self:Hide()
             return
         end
@@ -1707,8 +1705,6 @@ local function CreateMover(barKey)
         if InCombatLockdown() then return end
         if UM.pickMode == "pointAnchor" then return end
         if UM.PointPicker.Active() then CancelPickMode() end
-        -- Position-locked: the module's anchor option owns this bar's position
-        if ns.IsMoverPosLocked(self._barKey) then SelectMover(self); return end
         -- Anchored bars can be dragged -- the offset from parent is updated on drop
         SelectMover(self)
         self:SetAlpha(UM.darkOverlaysEnabled and 1 or MOVER_DRAG)
@@ -2022,7 +2018,7 @@ local function CreateMover(barKey)
                 UM.ApplyAnchorPosition(self._barKey, ai.target, nil, true)
             end
         elseif ai then
-            local targetBar = UM.GetBarFrame(ai.target)
+            local targetBar = UM.GetAnchorTargetFrame(ai.target)
             if targetBar then
                 local tS = targetBar:GetEffectiveScale()
                 local uiScale = UIParent:GetEffectiveScale()
@@ -3483,7 +3479,7 @@ local function CreateMover(barKey)
                     local val = math.max(1, math.floor(self:GetNumber() + 0.5))
                     local sb = UM.GetBarFrame(barKey)
                     local savedAlpha = sb and EllesmereUI._GetFFD(sb).restoreAlpha
-                    if sb and not savedAlpha then EllesmereUI._UnlockSetBarAlpha(sb, 0) end
+                    if sb and not savedAlpha then EllesmereUI._UnlockBlankBar(sb) end
                     if axis == "Width" then
                         if elem.setWidth then elem.setWidth(barKey, val) end
                         for childKey, targetKey in pairs(MatchH.GetWidthMatchDB() or {}) do
@@ -3499,7 +3495,7 @@ local function CreateMover(barKey)
                     self:ClearFocus()
                     EllesmereUI.RecenterBarAnchor(barKey)
                     if sb and not savedAlpha then
-                        C_Timer.After(0, function() EllesmereUI._UnlockSetBarAlpha(sb, 1) end)
+                        C_Timer.After(0, function() EllesmereUI._UnlockUnblankBar(sb) end)
                     end
                     local bm = movers[barKey]
                     if bm then bm:SyncSize() end
@@ -3956,7 +3952,7 @@ local function CreateMover(barKey)
         local seElem = registeredElements[barKey]
         local ownScreen = seElem and seElem.ownsPosition and seElem.getScreenPoint
             and seElem.setScreenPoint and seElem or nil
-        if not NO_SCREEN_ANCHOR[barKey] and not ns.IsMoverPosLocked(barKey)
+        if not NO_SCREEN_ANCHOR[barKey]
            and (ownScreen or not (seElem and seElem.ownsPosition)) then
             -- Primary link to a screen edge. The capture comes first: on an
             -- offset-less link ApplyAnchorPosition's side-snap branch stores the FLUSH

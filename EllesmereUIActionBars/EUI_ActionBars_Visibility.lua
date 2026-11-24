@@ -708,10 +708,12 @@ function EAB:RebuildVisToggleBindings()
             elseif self._visOverride and self._visOverride[info.key] then
                 -- An override change took the bar out of the toggle set: drop its
                 -- toggle state, its key may no longer be bound to undo it.
-                -- Spellbook / drag surfacing own their entries and restore them.
+                -- Spellbook / drag / Choose Bars surfacing own their entries
+                -- and restore them.
                 local g = _gridState
                 if not ((g._sbNeverForced and g._sbNeverForced[info.key])
-                        or (g._dragNeverForced and g._dragNeverForced[info.key])) then
+                        or (g._dragNeverForced and g._dragNeverForced[info.key])
+                        or (g._popForced and g._popForced[info.key])) then
                     self._visOverride[info.key] = nil
                 end
             end

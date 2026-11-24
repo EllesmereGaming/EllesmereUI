@@ -913,6 +913,8 @@ BuildAllCDMBars = function()
     ns.RescanActiveGlowFlag()     -- set the Active State Glow gate (once) before refresh
     ns.RescanTalentCondFlag()     -- set the Talent Conditions gate (once) before refresh
     ns.RescanStanceBarFlag()      -- set the Stance Bar gate (once) before refresh
+    -- WoW Forever: the Swing Timer swipe gate (EUI_CDM_ForeverSwingSweep.lua).
+    if ns.RescanSwingSweepFlag then ns.RescanSwingSweepFlag() end
 
     local p = ECME.db.profile
 
@@ -1055,10 +1057,6 @@ BuildAllCDMBars = function()
     -- Every full rebuild re-evaluates the FocusKick demand gate, so assigning the first kick spell (or removing the last) flips the feature family on/off live.
     if ns.RefreshFocusKickProxies then ns.RefreshFocusKickProxies() end
 
-    -- WoW Forever: the anti-clip glow (a bar's Pandemic Glow there) listens to
-    -- your casts only while a bar uses it (EUI_CDM_ForeverAntiClip.lua).
-    if ns.CDM_AntiClipSync then ns.CDM_AntiClipSync() end
-
     -- Match pads follow each bar's border settings: a bar whose pad changed is
     -- re-pushed through its matches once, deferred (compare-only here).
     if EllesmereUI.MatchPadChanged then
@@ -1168,7 +1166,15 @@ function ns.NormalizeRacialAssignments()
                     -- (the custom-bar copy when one exists, see keeperList).
                     kept = true
                 elseif not activePresent and not kept then
-                    -- No active racial anywhere: promote this foreign one.
+                    -- No active racial anywhere: promote this foreign one. Its
+                    -- per-icon settings (the profile's Custom Active State entry)
+                    -- follow the slot when this character's racial has none of
+                    -- its own; an entry it already has is left as it is.
+                    local cas = p.customActiveStates
+                    if cas and type(cas[sid]) == "table" and cas[active] == nil then
+                        cas[active] = EllesmereUI.Lite.DeepCopy(cas[sid])
+                        ns._cdmResGen = (ns._cdmResGen or 0) + 1
+                    end
                     list[i] = active
                     kept = true
                     ns._spellOrderDirty = true

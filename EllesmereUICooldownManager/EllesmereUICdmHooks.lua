@@ -92,12 +92,17 @@ do
     -- so the cached -- possibly secret -- applications value stays the
     -- gate's source there. Secret probes come FIRST everywhere: even a
     -- boolean or `~= nil` test on a secret is a hard error.
-    -- Returns a plain number, a SECRET number, or nil (unknown).
+    -- Returns a plain number, a SECRET number, or nil (unknown). With nil, the
+    -- second return says why: true while the game hides the aura's data (a
+    -- secret instance id, unit or cached table), false when there is none.
     local function ReadBuffApplications(frame)
         local iid = frame.auraInstanceID
-        if not (issecretvalue and issecretvalue(iid)) and iid then
+        local hidden = (issecretvalue and issecretvalue(iid)) and true or false
+        if not hidden and iid then
             local unit = frame.auraDataUnit
-            if not (issecretvalue and issecretvalue(unit)) and unit then
+            if issecretvalue and issecretvalue(unit) then
+                hidden = true
+            elseif unit then
                 local ok, data = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, iid)
                 if ok and data then
                     local a = data.applications
@@ -110,12 +115,12 @@ do
         local ad = frame.auraDataCached
         -- The whole cached aura can be a secret table (restricted unit
         -- auras): indexing it is a hard error, so it reads as unknown.
-        if issecretvalue and issecretvalue(ad) then return nil end
+        if issecretvalue and issecretvalue(ad) then return nil, true end
         local apps = ad and ad.applications
         if (issecretvalue and issecretvalue(apps)) or apps ~= nil then
             return apps
         end
-        return nil
+        return nil, hidden
     end
     -- Exported for the aura active-cache below (Bar Glows stack threshold):
     -- same secret-safe applications read, off whatever pool frame is active.
@@ -403,8 +408,6 @@ do
         if issecretvalue(rate) or type(rate) ~= "number" or rate <= 0 then rate = 1 end
         return exp, rate
     end
-    -- The WoW Forever anti-clip glow reads it too (EUI_CDM_ForeverAntiClip.lua).
-    ns.ReadAuraExpiration = ReadExpiration
 
     local function Disarm(fc)
         if fc._missingTimer then fc._missingTimer:Cancel(); fc._missingTimer = nil end

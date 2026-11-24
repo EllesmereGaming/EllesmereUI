@@ -326,7 +326,7 @@ function ns.RF_BuildPartyPortrait(parent, y, W, PSSet)
 
     if PV("partyPortraitStyle", "none") ~= "detached" then return y end
 
-    -- Row 3 (Detached): Shape | Shape Border (custom colour or class coloured).
+    -- Row 3 (Detached): Shape | Shape Border (custom color or class colored).
     local shapeRow
     shapeRow, h = W:DualRow(parent, y,
         { type="dropdown", text="Shape",
@@ -405,7 +405,7 @@ function ns.RF_BuildPartyTargets(parent, y, W)
     local function Preview()
         if ns.partyPvActive() then ns.ShowPartyPreview() end
     end
-    -- Colour and background: the fingerprint-gated restyle and repaint.
+    -- Color and background: the fingerprint-gated restyle and repaint.
     local function PtSet(k, v)
         db.profile[k] = v
         ns.PT_Refresh()
@@ -875,7 +875,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         -- Preview swatch behind each row via ns.ResolveAbsorbStyleTex. Default Blizz
         -- Frames draws its in-game compound: tinted tiled stripes over the solid base
-        -- (ns.ApplyModernAbsorbBar / the _modernBase colour).
+        -- (ns.ApplyModernAbsorbBar / the _modernBase color).
         local modernSwatch = { base = { 0.776, 0.784, 1.0 }, tint = { 0.569, 0.588, 1.0 }, tile = true }
         absorbStyleValues._menuOpts = {
             itemHeight = 28,
@@ -896,18 +896,21 @@ initFrame:SetScript("OnEvent", function(self)
     }
     local allGrowthOrder        = { "DOWN", "UP", "RIGHT", "LEFT" }
 
-    -- Group Growth additionally offers the grid flow: ns._RF_GRID_ROWS groups
-    -- stack down the first column (G1 above G2) before the next column starts to
-    -- the right (G3 above G4) -- a 2x2 raid block instead of one long run. Unit
-    -- Growth has no such mode: a header's children only ever run along one axis.
+    -- Group Growth additionally offers the two grid flows, which wrap every
+    -- Groups Before Wrap (ns._RFGridSize) groups: "Down and then Right" stacks
+    -- them down a column (G1 above G2) before the next column starts to the
+    -- right, "Right and then Down" fills a row (G1 G2 G3) before the next row
+    -- starts below. Unit Growth has no such mode: a header's children only ever
+    -- run along one axis.
     local groupGrowthValues = {
         DOWN      = "Down",
         UP        = "Up",
         RIGHT     = "Right",
         LEFT      = "Left",
         DOWNRIGHT = "Down and then Right",
+        RIGHTDOWN = "Right and then Down",
     }
-    local groupGrowthOrder  = { "DOWN", "UP", "RIGHT", "LEFT", "DOWNRIGHT" }
+    local groupGrowthOrder  = { "DOWN", "UP", "RIGHT", "LEFT", "DOWNRIGHT", "RIGHTDOWN" }
 
     -- Merge Groups renders through Blizzard's flat header, which has a single
     -- column axis and cannot wrap into a grid, so the grid flow degrades to the
@@ -915,7 +918,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- runtime). Report what actually renders instead of showing a value the
     -- merged grid ignores.
     local function ReadGroupGrowth(v)
-        if v == "DOWNRIGHT" and SVal("mergeGroups", false) then return "RIGHT" end
+        if ns._RFIsGridFlow(v) and SVal("mergeGroups", false) then return "RIGHT" end
         return v
     end
 
@@ -1195,7 +1198,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Every checkbox refresher, re-run together for mutual exclusion.
         local allRefreshFns = {}
         -- Shared edit-target glow, made on first use and again whenever the
-        -- accent changed (a glow takes its colour when it first plays).
+        -- accent changed (a glow takes its color when it first plays).
         local editGlow, glowR, glowG, glowB
 
         local function CheckboxRow(label, getVal, setVal, editTarget)

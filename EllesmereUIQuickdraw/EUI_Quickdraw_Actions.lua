@@ -117,28 +117,29 @@ end
 -- requests a push for the usability filter -- so a talent swap, a spec change,
 -- levelling into a rez and the spellbook warming up after login all rebuild it
 -- with no registration of its own.
+local function RezKnown(id, bank)
+    if not id then return nil end
+    -- A rank list (Forever) answers with the first rank in the book.
+    if type(id) == "table" then
+        for i = 1, #id do
+            local hit = RezKnown(id[i], bank)
+            if hit then return hit end
+        end
+        return nil
+    end
+    if C_SpellBook.IsSpellInSpellBook and bank
+       and not C_SpellBook.IsSpellInSpellBook(id, bank, true) then
+        return nil
+    end
+    return id
+end
+
 local function RezKit()
     local _, class = UnitClass("player")
     local kit = class and REZ_BY_CLASS[class]
     if not kit then return nil end
     local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
-    local function Known(id)
-        if not id then return nil end
-        -- A rank list (Forever) answers with the first rank in the book.
-        if type(id) == "table" then
-            for i = 1, #id do
-                local hit = Known(id[i])
-                if hit then return hit end
-            end
-            return nil
-        end
-        if C_SpellBook.IsSpellInSpellBook and bank
-           and not C_SpellBook.IsSpellInSpellBook(id, bank, true) then
-            return nil
-        end
-        return id
-    end
-    return Known(kit.battle), Known(kit.single), Known(kit.group)
+    return RezKnown(kit.battle, bank), RezKnown(kit.single, bank), RezKnown(kit.group, bank)
 end
 
 -- A corpse worth casting the single-target rez at. UnitIsDeadOrGhost rather
@@ -336,6 +337,10 @@ local function SlotUsable(slot)
         return ns.OutfitInfo(slot) ~= nil
     elseif k == "equipmentset" then
         return ns.EquipmentSetInfo(slot) ~= nil
+    elseif k == "emote" then
+        -- A token this client has no command for: saved on another build, or
+        -- by an emote since retired. It would fire nothing.
+        return ns.EmoteCommand(slot) ~= nil
     elseif k == "panel" then
         -- The one kind whose availability is the CLIENT's rather than the
         -- character's: Housing arrived in 12.0 and the Shop is not in every
@@ -604,6 +609,14 @@ local function ResolveAction(slot, p)
         -- that keeps a cycle predictable.
         local steps = CycleSteps(k)
         return "macro", "macrotext", steps[CycleNext(slot)], "macro"
+
+    elseif k == "emote" then
+        -- The client's own command for the token, in the client's language;
+        -- see the Emotes block in EUI_Quickdraw_Slots.lua. Aimed at the target
+        -- when there is one, exactly as the typed command would be.
+        local text = ns.EmoteCommand(slot)
+        if not text then return nil end
+        return "macro", "macrotext", text, "macro"
     end
 
     return nil
@@ -780,6 +793,10 @@ local function SlotDisplay(slot)
         -- slot.icon may be a { atlas = ... } table (the Pings preset stores
         -- one verbatim); SetIconTexture/ApplyIconCrop render both forms.
         return slot.icon or QUESTION_MARK, slot.name or "Macro"
+
+    elseif k == "emote" then
+        -- One glyph for every emote; PaintCell writes the name onto it.
+        return ns.EMOTE_ICON, ns.EmoteName(slot) or "Emote"
 
     elseif k == "dynamicrez" then
         -- The spell it would cast, not a fixed emblem: the entry is worth
@@ -1139,9 +1156,20 @@ local USABILITY_TINT = {
 -- palette is exactly what that produced. The toy box itself draws no
 -- usability tint -- Blizzard_ToyBox.lua desaturates only UNCOLLECTED toys --
 -- and the cooldown swipe already tells the one thing a toy has to tell.
+-- The kinds that can carry a tint: every kind with a branch below. Any other
+-- answers nil at once, and a live menu re-reads only these (SlotHasTint, the
+-- tint watch in EUI_Quickdraw_Live.lua). A new branch adds its kind here.
+local TINT_KINDS = { spell = true, dynamicrez = true, item = true, outfit = true,
+                     equipmentset = true, mount = true, lastmount = true, randommount = true }
+
+local function SlotHasTint(slot)
+    return slot ~= nil and TINT_KINDS[slot.kind] == true
+end
+
 local function SlotUsability(slot)
     if not slot then return nil end
     local k = slot.kind
+    if not TINT_KINDS[k] then return nil end
 
     if k == "spell" or k == "dynamicrez" then
         local id = SlotSpellID(slot)
@@ -1181,6 +1209,8 @@ local function SlotUsability(slot)
         -- indoors or in combat -- the test the last-mount entry falls back to
         -- before a mount is tracked, or when the journal answers nothing (its
         -- getter may return nothing).
+        -- The journal still answers usable on a flight path, so ask the taxi.
+        if UnitOnTaxi("player") then return "UNUSABLE" end
         if k == "randommount" then
             return (IsIndoors() or InCombatLockdown()) and "UNUSABLE" or nil
         end
@@ -1268,5 +1298,6 @@ I.FireInsecure, I.ResolveAction, I.Rez = FireInsecure, ResolveAction, Rez
 I.Hearth = Hearth
 I.SlotCooldown, I.SlotCount, I.SlotDisplay = SlotCooldown, SlotCount, SlotDisplay
 I.SlotUsability, I.USABILITY_TINT, I.usableMemo = SlotUsability, USABILITY_TINT, usableMemo
+I.SlotHasTint = SlotHasTint
 I.UsableSlots = UsableSlots
 I.broken = false

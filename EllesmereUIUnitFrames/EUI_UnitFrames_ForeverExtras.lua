@@ -39,19 +39,234 @@ function ns.UF_RefreshPetHappiness(h)
     end
 end
 
--- Hover text, read fresh: state, damage share, loyalty trend and diet.
-function ns.UF_PetHappinessOnEnter(self)
-    -- Faded out with its frame (the pet mirrors the player frame's alpha and
-    -- mouseover mode rests at 0): an unseen icon shows no tooltip. An alpha the
-    -- client withholds (secret, or no value at all when it refuses alpha
-    -- access) shows it, as on a visible icon.
+-- Faded out with its frame (the pet mirrors the player frame's alpha and
+-- mouseover mode rests at 0): an unseen icon takes no hover or click. An alpha
+-- the client withholds (secret, or no value at all when it refuses alpha
+-- access) counts as visible.
+local function PetHappyUnseen(self)
     local a = self:GetEffectiveAlpha()
-    if type(a) == "number" and not issecretvalue(a) and a < 0.05 then return end
+    return type(a) == "number" and not issecretvalue(a) and a < 0.05
+end
+
+-- Click to Feed, part of the icon whenever it shows (no switch of its own): a
+-- left click on the icon opens a grid of the bag foods the pet will eat, each a
+-- secure button casting Feed Pet on its bag slot. Built on first open; opened,
+-- filled and moved out of combat only, and closed as combat starts. Its events
+-- live only while it is shown.
+local FEED_PET_SPELL_ID = 6991
+local FEED_BTN, FEED_GAP, FEED_PAD, FEED_COLS = 30, 2, 3, 6
+local feedMenu
+-- Scan results by position; feedIndex maps itemID -> position, false = not food.
+local feedBag, feedSlot, feedCount, feedIcon, feedIndex = {}, {}, {}, {}, {}
+
+local function ScanPetFood()
+    wipe(feedIndex)
+    local n = 0
+    for bag = Enum.BagIndex.Backpack, NUM_BAG_SLOTS do
+        for slot = 1, C_Container.GetContainerNumSlots(bag) do
+            local info = C_Container.GetContainerItemInfo(bag, slot)
+            local id = info and info.itemID
+            if id then
+                local i = feedIndex[id]
+                if i == nil then
+                    if C_PetInfo.CanPetEatItem(id) then
+                        n = n + 1
+                        feedIndex[id] = n
+                        feedBag[n], feedSlot[n] = bag, slot
+                        feedCount[n] = info.stackCount or 1
+                        feedIcon[n] = info.iconFileID
+                    else
+                        feedIndex[id] = false
+                    end
+                elseif i then
+                    feedCount[i] = feedCount[i] + (info.stackCount or 1)
+                end
+            end
+        end
+    end
+    return n
+end
+
+local function FeedButtonOnEnter(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetBagItem(self._bag, self._slot)
+    GameTooltip:Show()
+end
+
+local function FeedButtonOnLeave()
+    GameTooltip:Hide()
+end
+
+local function FeedButtonPostClick()
+    feedMenu:Hide()
+end
+
+local function GetFeedButton(i)
+    local b = feedMenu._btns[i]
+    if b then return b end
+    b = CreateFrame("Button", nil, feedMenu, "SecureActionButtonTemplate")
+    b:SetSize(FEED_BTN, FEED_BTN)
+    -- Acts on release (addon clicks otherwise follow ActionButtonUseKeyDown):
+    -- PostClick closes the menu, so a down pass would close it first.
+    b:RegisterForClicks("LeftButtonUp")
+    b:SetAttribute("useOnKeyDown", false)
+    b:SetAttribute("type", "spell")
+    b:SetAttribute("spell", FEED_PET_SPELL_ID)
+    b._icon = b:CreateTexture(nil, "ARTWORK")
+    b._icon:SetAllPoints()
+    b._icon:SetTexCoord(6/64, 58/64, 6/64, 58/64)
+    local hl = b:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints()
+    hl:SetColorTexture(1, 1, 1, 0.20)
+    local PP = EllesmereUI.PP
+    if PP and PP.CreateBorder then PP.CreateBorder(b, 0, 0, 0, 1, 1, "OVERLAY", 7) end
+    b._count = b:CreateFontString(nil, "OVERLAY")
+    b._count:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 2)
+    b:SetScript("OnEnter", FeedButtonOnEnter)
+    b:SetScript("OnLeave", FeedButtonOnLeave)
+    b:HookScript("PostClick", FeedButtonPostClick)
+    feedMenu._btns[i] = b
+    return b
+end
+
+local function LayoutFeedMenu()
+    if InCombatLockdown() then return end
+    local n = ScanPetFood()
+    local font = EllesmereUI.GetFontPath("unitFrames") or STANDARD_TEXT_FONT
+    local btns = feedMenu._btns
+    local step = FEED_BTN + FEED_GAP
+    for i = 1, n do
+        local b = GetFeedButton(i)
+        b._bag, b._slot = feedBag[i], feedSlot[i]
+        b:SetAttribute("target-bag", feedBag[i])
+        b:SetAttribute("target-slot", feedSlot[i])
+        b._icon:SetTexture(feedIcon[i])
+        EllesmereUI.ApplyIconTextFont(b._count, font, 10, "unitFrames")
+        b._count:SetText(feedCount[i] > 1 and feedCount[i] or "")
+        b:ClearAllPoints()
+        b:SetPoint("TOPLEFT", feedMenu, "TOPLEFT",
+            FEED_PAD + ((i - 1) % FEED_COLS) * step,
+            -(FEED_PAD + math.floor((i - 1) / FEED_COLS) * step))
+        b:Show()
+    end
+    for i = n + 1, #btns do btns[i]:Hide() end
+    local empty = feedMenu._empty
+    if n == 0 then
+        EllesmereUI.ApplyModuleFont(empty, font, 11, "unitFrames", "")
+        empty:Show()
+        feedMenu:SetSize(math.ceil(empty:GetStringWidth()) + 16, FEED_BTN)
+    else
+        empty:Hide()
+        local cols = math.min(n, FEED_COLS)
+        local rows = math.ceil(n / FEED_COLS)
+        feedMenu:SetSize(FEED_PAD * 2 + cols * step - FEED_GAP, FEED_PAD * 2 + rows * step - FEED_GAP)
+    end
+end
+
+-- Opens away from the pet frame on the icon's side, at the icon's scale.
+-- Anchored through UIParent, never to the icon (it sits on the secure unit
+-- button, and the menu holds secure buttons of its own).
+local function PlaceFeedMenu(h)
+    local left, right, top = h:GetLeft(), h:GetRight(), h:GetTop()
+    if not (left and right and top) then return false end
+    local s = h:GetEffectiveScale()
+    feedMenu:SetScale(s / UIParent:GetEffectiveScale())
+    left, right, top = left * s, right * s, top * s
+    local fs = feedMenu:GetEffectiveScale()
+    local align = db.profile.pet.happinessAlign or "right"
+    feedMenu:ClearAllPoints()
+    if align == "left" then
+        feedMenu:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", (left - 4) / fs, top / fs)
+    elseif align == "top" then
+        feedMenu:SetPoint("BOTTOM", UIParent, "BOTTOMLEFT", (left + right) / 2 / fs, (top + 4) / fs)
+    else
+        feedMenu:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", (right + 4) / fs, top / fs)
+    end
+    return true
+end
+
+local FEED_MENU_EVENTS = { "GLOBAL_MOUSE_DOWN", "BAG_UPDATE_DELAYED", "PLAYER_REGEN_DISABLED" }
+
+local function FeedMenuOnEvent(self, event)
+    if event == "PLAYER_REGEN_DISABLED" then
+        -- Still unlocked on this edge: the last moment the menu may hide.
+        self:Hide()
+    elseif event == "GLOBAL_MOUSE_DOWN" then
+        -- A press on the icon is left to its own click, which toggles.
+        local icon = self._owner
+        if not InCombatLockdown() and not self:IsMouseOver()
+           and not (icon and icon:IsVisible() and icon:IsMouseOver()) then
+            self:Hide()
+        end
+    elseif event == "UNIT_PET" then
+        if InCombatLockdown() then return end
+        local _, isHunterPet = HasPetUI()
+        if isHunterPet then LayoutFeedMenu() else self:Hide() end
+    else
+        LayoutFeedMenu()
+    end
+end
+
+local function BuildFeedMenu()
+    local m = CreateFrame("Frame", nil, UIParent)
+    m:SetFrameStrata("DIALOG")
+    m:SetFrameLevel(100)
+    m:SetClampedToScreen(true)
+    m:Hide()
+    local bg = m:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.04, 0.04, 0.06, 0.95)
+    local PP = EllesmereUI.PP
+    if PP and PP.CreateBorder then PP.CreateBorder(m, 1, 1, 1, 0.06, 1, "OVERLAY", 7) end
+    m._empty = m:CreateFontString(nil, "OVERLAY")
+    m._empty:SetPoint("CENTER")
+    m._empty:SetTextColor(1, 1, 1, 0.6)
+    EllesmereUI.ApplyModuleFont(m._empty, EllesmereUI.GetFontPath("unitFrames") or STANDARD_TEXT_FONT, 11, "unitFrames", "")
+    m._empty:SetText(EllesmereUI.L("No food your pet will eat"))
+    m._btns = {}
+    m:SetScript("OnShow", function(self)
+        for _, ev in ipairs(FEED_MENU_EVENTS) do self:RegisterEvent(ev) end
+        self:RegisterUnitEvent("UNIT_PET", "player")
+    end)
+    m:SetScript("OnHide", function(self) self:UnregisterAllEvents() end)
+    m:SetScript("OnEvent", FeedMenuOnEvent)
+    feedMenu = m
+end
+
+local function HideFeedMenu()
+    if feedMenu and feedMenu:IsShown() and not InCombatLockdown() then feedMenu:Hide() end
+end
+
+function ns.UF_PetHappinessOnMouseUp(self, button)
+    if button ~= "LeftButton" or not self:IsMouseOver() or PetHappyUnseen(self) then return end
+    if InCombatLockdown() then
+        UIErrorsFrame:AddMessage(ERR_NOT_IN_COMBAT, 1, 0.1, 0.1)
+        return
+    end
+    if feedMenu and feedMenu:IsShown() then
+        feedMenu:Hide()
+        return
+    end
+    if not feedMenu then BuildFeedMenu() end
+    feedMenu._owner = self
+    LayoutFeedMenu()
+    if PlaceFeedMenu(self) then
+        EllesmereUI.HideWidgetTooltip()
+        feedMenu:Show()
+    end
+end
+
+-- Hover text, read fresh: state, damage share, loyalty level and trend, diet,
+-- and the click hint.
+function ns.UF_PetHappinessOnEnter(self)
+    if PetHappyUnseen(self) then return end
     local happiness, dmg, loyalty = C_PetInfo.GetPetHappiness()
     local text = (happiness == 1 and PET_HAPPINESS1) or (happiness == 2 and PET_HAPPINESS2)
         or (happiness == 3 and PET_HAPPINESS3)
     if not text then return end
     if dmg then text = text .. "\n" .. PET_DAMAGE_PERCENTAGE:format(dmg) end
+    local loyaltyName = C_PetInfo.GetPetLoyalty()
+    if loyaltyName and loyaltyName ~= "" then text = text .. "\n" .. loyaltyName end
     if loyalty and loyalty < 0 then
         text = text .. "\n" .. LOSING_LOYALTY
     elseif loyalty and loyalty > 0 then
@@ -61,6 +276,7 @@ function ns.UF_PetHappinessOnEnter(self)
     if diet and #diet > 0 then
         text = text .. "\n" .. PET_DIET_TEMPLATE:format(table.concat(diet, PET_FOOD_DELIMIT))
     end
+    text = text .. "\n" .. EllesmereUI.COLOR_CODES.DIM .. EllesmereUI.L("Left-click to feed your pet.") .. "|r"
     EllesmereUI.ShowWidgetTooltip(self, text)
 end
 
@@ -86,17 +302,20 @@ function ns.UF_ApplyPetHappiness()
             h:UnregisterAllEvents()
             h:Hide()
         end
+        HideFeedMenu()
         return
     end
     if not h then
         h = CreateFrame("Frame", nil, pf)
-        -- Hover only: clicks fall through to the unit button underneath.
         h:EnableMouseMotion(true)
         h._tex = h:CreateTexture(nil, "OVERLAY")
         h._tex:SetAllPoints()
         h:SetScript("OnEvent", ns.UF_RefreshPetHappiness)
         h:SetScript("OnEnter", ns.UF_PetHappinessOnEnter)
         h:SetScript("OnLeave", ns.UF_PetHappinessOnLeave)
+        h:SetScript("OnMouseUp", ns.UF_PetHappinessOnMouseUp)
+        -- Its left click opens the feed grid (Click to Feed is part of the icon).
+        h:SetMouseClickEnabled(true)
         h:Hide()
         pf._petHappy = h
     end
@@ -250,7 +469,7 @@ function ns.UF_ComboRingShift(G)
 end
 -- Which slots the arc uses (from the point cap, as the stock frame lays it
 -- out) and which empty pips show with the arc; re-run only on a cap or
--- colourblind change. A secret cap keeps the last layout.
+-- colorblind change. A secret cap keeps the last layout.
 function ns.UF_ComboArcLayout(arc)
     local mx = UnitPowerMax("player", Enum.PowerType.ComboPoints)
     if issecretvalue(mx) then
@@ -272,7 +491,7 @@ function ns.UF_ComboArcLayout(arc)
         if i >= 1 and i <= mx then
             gates[k]:SetMinMaxValues(i - 1, i)
             -- The empty pip shows with the arc, or only while filled (the
-            -- extra points; every point in colourblind mode).
+            -- extra points; every point in colorblind mode).
             local want = (cb or i >= extra) and pip._mask or arc._mask
             if pip._baseMask ~= want then
                 if pip._baseMask then pip._base:RemoveMaskTexture(pip._baseMask) end
@@ -404,7 +623,7 @@ function ns.UF_ApplyForeverComboArc()
     ev:RegisterEvent("PLAYER_ENTERING_WORLD")
     ev:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
     ev:RegisterUnitEvent("UNIT_MAXPOWER", "player")
-    -- Re-lays only on a cap or colourblind change (a colourblind change has
+    -- Re-lays only on a cap or colorblind change (a colorblind change has
     -- no event of its own, so every apply asks).
     ns.UF_ComboArcLayout(arc)
     arc:Show()

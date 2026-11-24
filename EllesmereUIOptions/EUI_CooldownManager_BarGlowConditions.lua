@@ -5,6 +5,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUICdmBarGlowConditions.lua). A glow entry on the page reads:
 --
 --    When (icon) Fingers of Frost is [Active v]  | And [(icon) Brain Freeze v] is [Missing v]  [toggle]
+--    Health         [Ignore v]                   | Health %        [slider]
 --    At Stacks      (gear) [toggle]              | Glow Type       [Pixel Glow v]
 --    Only In Combat [toggle]                     | Hero Talent     [Any v]
 --    Glow Color     ...                          | (icon) [Duplicate] [Remove]
@@ -13,7 +14,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  entry.andMode = "and" | nil (its buff and state grey out while off); the
 --  second buff and its state are entry.conditions[1]. Each glow starts with a
 --  collapse bar (collapsed: buff icon + name only, entry.collapsed); Duplicate
---  inserts a full copy right below.
+--  inserts a full copy right below. A Glow When Usable glow reads Require
+--  Resource [toggle] where At Stacks is (entry.requirePower).
 --  Frames are built with the page; nothing exists until it is opened.
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUICooldownManager"]
@@ -437,6 +439,19 @@ function ns.BarGlowCombatCfg(entry, onChange)
         end }
 end
 
+-- The Require Resource toggle's row config (entry.requirePower): a Glow When
+-- Usable glow also waits for the ability's resource. It takes the half At
+-- Stacks has for a buff glow.
+function ns.BarGlowResourceCfg(entry)
+    return { type = "toggle", text = "Require Resource",
+        tooltip = "Only glow while the ability also has the rage, energy, mana or other resource it costs.",
+        getValue = function() return entry.requirePower == true end,
+        setValue = function(v)
+            entry.requirePower = v or nil
+            if ns.RequestBarGlowUpdate then ns.RequestBarGlowUpdate() end
+        end }
+end
+
 -- Only In Combat | Hero Talent (the current spec's hero trees; glows are
 -- saved per spec). Retail only: WoW Forever has no hero talents, so the page
 -- pairs Only In Combat with Glow Color there instead. Returns the new y.
@@ -469,8 +484,47 @@ function ns.BuildBarGlowCombatRow(W, parent, y, entry, onChange)
     return y - h
 end
 
+-- Health [Ignore / Below / Above] | Health % (entry.healthBelow or
+-- entry.healthAbove, never both). The slider only re-evaluates the glows, not
+-- the whole Cooldown Manager, on each drag step. Returns the new y.
+function ns.BuildBarGlowHealthRow(W, parent, y, entry, onChange)
+    local _, h = W:DualRow(parent, y,
+        { type = "dropdown", text = "Health",
+          -- The At Stacks comparison's words (translated as comparisons, not positions).
+          values = { disabled = "Ignore", below = "Below (<)", above = "Above (>)" },
+          order = { "disabled", "below", "above" },
+          tooltip = "Only glow while your health is below or above the selected percentage.",
+          getValue = function()
+              if tonumber(entry.healthAbove) then return "above" end
+              if tonumber(entry.healthBelow) then return "below" end
+              return "disabled"
+          end,
+          setValue = function(v)
+              local pct = tonumber(entry.healthBelow) or tonumber(entry.healthAbove) or 35
+              entry.healthBelow = v == "below" and pct or nil
+              entry.healthAbove = v == "above" and pct or nil
+              if onChange then onChange() end
+              EllesmereUI:RefreshPage()
+          end },
+        { type = "slider", text = "Health %",
+          min = 1, max = 100, step = 1,
+          disabled = function()
+              return not (tonumber(entry.healthBelow) or tonumber(entry.healthAbove))
+          end,
+          disabledTooltip = "Health",
+          getValue = function()
+              return tonumber(entry.healthBelow) or tonumber(entry.healthAbove) or 35
+          end,
+          setValue = function(v)
+              if tonumber(entry.healthAbove) then entry.healthAbove = v
+              else entry.healthBelow = v end
+              if ns.RequestBarGlowUpdate then ns.RequestBarGlowUpdate() end
+          end })
+    return y - h
+end
+
 -- "Duplicate" left of a glow's Remove button: inserts a full copy of the glow
--- (buff, style, colour, stacks, And condition, hero talent) right below it, so
+-- (buff, style, color, stacks, And condition, hero talent) right below it, so
 -- variants of the same buff (e.g. one per hero tree) start from the original.
 -- Returns the button so the buff icon can sit to its left.
 function ns.BarGlowDuplicateButton(region, removeBtn, buffList, index, onDone)

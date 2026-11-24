@@ -125,6 +125,7 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
         local row = EnsureMenuRow(menu, idx)
         row._sep:Hide(); row._arrow:Hide(); row._hl:SetColorTexture(1, 1, 1, 0)
         if row._timer then row._timer:SetText("") end
+        if row._editBox then row._editBox:Hide() end
         if item == "---" then
             row:SetSize(menuW, CTX_SEP_H); row:ClearAllPoints(); row:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, y)
             row._lbl:SetText(""); row._sep:Show(); row:EnableMouse(false)
@@ -168,6 +169,9 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
                     local boxBg = box:CreateTexture(nil, "BACKGROUND")
                     boxBg:SetAllPoints(); boxBg:SetColorTexture(0, 0, 0, 0.4)
                     box:SetAutoFocus(false)
+                    -- A hidden box keeps the keyboard: release it whenever the box hides,
+                    -- the menu closing for combat while the player types included.
+                    box:SetScript("OnHide", box.ClearFocus)
                     box:SetNumeric(true)
                     box:SetMaxLetters(5)
                     row._editBox = box
@@ -225,7 +229,6 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
                     if onDismiss then onDismiss() end
                 end)
             end
-            if row._editBox then row._editBox:Hide() end
             row:Show(); y = y - rowH
             end -- close isInput else
         end
@@ -461,6 +464,8 @@ local function CreateDMWindow(winIdx)
         bar.ApplyTextOffsets()
         bar.row:SetScript("OnClick", function(_, button)
             if button == "LeftButton" then
+                -- Test Bars rows have no breakdown.
+                if ns._dmPreview then return end
                 -- In combat, rows open when a PLAIN guid exists for them:
                 -- death recaps (NeverSecret plain ID), the local player's
                 -- own breakdown (own GUID plain), and group members via the
@@ -505,8 +510,8 @@ local function CreateDMWindow(winIdx)
         bar._hl:SetAllPoints(bar.row); bar._hl:SetColorTexture(1, 1, 1, 0.08); bar._hl:Hide()
         bar.row:SetScript("OnEnter", function()
             bar._hl:Show()
-            -- Threat rows (WoW Forever) have no breakdown to show.
-            if W.curDMType == "threat" then return end
+            -- Threat rows (WoW Forever) and Test Bars rows have no breakdown to show.
+            if W.curDMType == "threat" or ns._dmPreview then return end
             -- Deaths without recap: show "no recap available" tooltip
             if W.curDMType == Enum.DamageMeterType.Deaths and bar._src then
                 local rid = bar._src.deathRecapID
@@ -1462,8 +1467,13 @@ local function CreateDMWindow(winIdx)
         W.resizing = false; resizeFrame:Hide()
         wdb.width = math.floor(frame:GetWidth() + 0.5); wdb.height = math.floor(frame:GetHeight() + 0.5)
         -- Resize pins the TOPLEFT corner, so a point-based position from unlock mode (e.g.
-        -- CENTER-anchored) no longer describes this spot; re-save in TOPLEFT drag format to match
-        if wdb.position and wdb.position.point then
+        -- CENTER-anchored) no longer describes this spot; re-save in TOPLEFT drag format to match.
+        -- A window with no saved spot sits at ApplyWinPosition's default, which is worked out from
+        -- its size: it saves the pinned TOPLEFT too, or the next apply (a /reload) would move it.
+        -- An unlock-anchored window keeps its anchor.
+        local pos = wdb.position
+        if (pos and pos.point)
+            or (not pos and not (EUI.IsUnlockAnchored and EUI.IsUnlockAnchored("EDM_Win" .. W.idx))) then
             local left, top = frame:GetLeft(), frame:GetTop()
             if left and top then wdb.position = { x = left, y = top } end
         end
@@ -1636,7 +1646,7 @@ local function CreateDMWindow(winIdx)
             bar.fill:SetAlpha(c.barFillAlpha or 1)
             SetDMFont(bar.pos, leftFS); SetDMFont(bar.label, leftFS); SetDMFont(bar.amount, rightFS)
             bar.label:SetWidth(math.max(20, (frame:GetWidth() or 200) * 0.60))
-            W._stickyClassCache = false; W._stickySpecCache = nil  -- false: never a classFilename, forces the icon/colour pass
+            W._stickyClassCache = false; W._stickySpecCache = nil  -- false: never a classFilename, forces the icon/color pass
         end
         bar.row:Show()
         -- Icon + color: only when class changes
@@ -1742,7 +1752,7 @@ local function CreateDMWindow(winIdx)
             local labelMaxW = math.max(20, rowWidth * 0.60)
             local isDeaths = (W.curDMType == Enum.DamageMeterType.Deaths)
             local isCount = (W.curDMType == Enum.DamageMeterType.Interrupts or W.curDMType == Enum.DamageMeterType.Dispels)
-            -- WoW Forever's Threat rows carry their rank, value text and highlight colour.
+            -- WoW Forever's Threat rows carry their rank, value text and highlight color.
             local isThreat = (W.curDMType == "threat")
             -- Deaths: reverse to chronological (API returns most recent first) and filter feign
             -- deaths; CleanupFeignCache runs first so real deaths after Feign Death aren't hidden by the cached spell 5384 GUID
@@ -1860,7 +1870,7 @@ local function CreateDMWindow(winIdx)
                         end
 
                         -- Color (a Threat row's highlight wins; false makes the
-                        -- next plain row repaint its own colour, which drops the
+                        -- next plain row repaint its own color, which drops the
                         -- highlight memo)
                         local threatColor = isThreat and src.threatColor
                         if threatColor then
@@ -1984,8 +1994,8 @@ local function CreateDMWindow(winIdx)
         -- read. The second-memo repaints on the first tick after it shows again, and a
         -- window's OnShow catch-up refresh runs this at once.
         if not W.timerText or not W.timerText:IsVisible() then return end
-        -- A Threat list (WoW Forever) has no fight clock.
-        if W.curDMType == "threat" then
+        -- A Threat list (WoW Forever) and the Test Bars have no fight clock.
+        if W.curDMType == "threat" or ns._dmPreview then
             if W._timerSec ~= -1 then W._timerSec = -1; W.timerText:SetText("") end
             return
         end
@@ -2031,6 +2041,11 @@ local function CreateDMWindow(winIdx)
             if winIdx == 1 then UpdateSATimerText() end
             -- A live Deaths view still stamps its in-combat death times
             ns._DMHiddenDeathsPass(W)
+            return
+        end
+        -- Test Bars (options button): the sample rows stand in for the session.
+        if ns._dmPreview and ns.DMPreviewSession then
+            RefreshUI(ns.DMPreviewSession(W.curDMType))
             return
         end
         -- WoW Forever's Threat type: Forever Essentials' list, no session fetch.
@@ -2314,7 +2329,7 @@ local function CreateDMWindow(winIdx)
                 SetDMFont(bar.label, leftFS); SetDMFont(bar.amount, rightFS)
                 local spellName
                 if spell.spellID then local okS, sn = pcall(function() return C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spell.spellID) end); spellName = (okS and sn) or nil end
-                bar.label:SetText(spellName or spell.creatureName or L("Unknown"))
+                bar.label:SetText(ns._SpellEntryLabel(spellName, spell.creatureName) or L("Unknown"))
                 if canPercent and totalDmg > 0 then
                     bar.amount:SetText(format("%s  %.1f%%", AbbrevNumber(entry.amount), (entry.amount / totalDmg) * 100))
                 else
@@ -2934,7 +2949,7 @@ local function CreateDMWindow(winIdx)
         SetDMFont(W.timerText, titleFS)
         W.timerText:SetText("(0:00)")
         W.timerText:SetShown(not wdb.hideTimer)
-        -- Header buttons: size, glyph colour, meter type icon, close icon, lock state
+        -- Header buttons: size, glyph color, meter type icon, close icon, lock state
         local sz = ns.DMHdrIconSize(c)
         local ir, ig, ib = GetIconColor()
         for _, btn in ipairs(W.hdrBtns) do btn:SetSize(sz, sz) end

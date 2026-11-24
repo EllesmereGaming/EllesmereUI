@@ -150,7 +150,8 @@ EllesmereUI._LEGENDS.staff = {
         "cassidymichael", "jixinliu666", "Cawfee", "Jetro974", "RoakStatic",
         "zanthor", "denis-makula", "brokencrown", "Tzahal", "Aelexe",
         "grant-shoemaker", "mariusch", "Nialoshaar", "lkshrk", "PeluxGit",
-        "tekert", "friberg1991", "steakbbq", "suhteevah",
+        "tekert", "friberg1991", "steakbbq", "suhteevah", "kk-on-gh",
+        "marco-bic", "nizar-zouaoui", "tester617",
     } },
     { group = "Multi-language Support Contributors", members = {
         "LoChinAn", "Crazyyoungs", "Barbiero", "Dlarge", "labrie75",
@@ -158,7 +159,7 @@ EllesmereUI._LEGENDS.staff = {
     } },
 }
 
--- Seasonal accents: a palette (first entry leads, colouring the Seasonal Legend
+-- Seasonal accents: a palette (first entry leads, coloring the Seasonal Legend
 -- spotlight) and the drift of the small particles in its column. dir -1 falls,
 -- dir 1 rises; size/dur are {min, max} ranges; spin is total degrees.
 EllesmereUI._LEGENDS_SEASONS = {
@@ -234,6 +235,600 @@ end
 --  deep-links via NavigateToElementSettings(module, page, section, preSelect, highlight).
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
+    {
+        version = "9.9.2",
+        thanks = true,
+        features = {
+            {
+                -- The Scrolls and Elixirs slot of WOW FOREVER on the Auras, Buffs & Consumables page (beside Arcane
+                -- Censer for a warrior or rogue, else a row of its own; WoW Forever only).
+                module  = "AuraBuff Reminders",
+                forever = true,
+                title   = "Scrolls and Elixirs",
+                desc    = "A reminder for each stat you tick, per class, when its scroll or elixir buff is missing and you carry one; click it to use the best one for your level",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "WOW FOREVER", highlight = "Scrolls and Elixirs" } or nil,
+            },
+            {
+                -- A submenu of Blizzard's Looking For Group window cog menu: no options row (WoW Forever only).
+                module  = "Forever Essentials",
+                forever = true,
+                title   = "Choose Languages",
+                desc    = "The Looking For Group window's cog menu lists the game's languages: tick one to also see groups listed in it, not only in your game's language",
+            },
+            {
+                -- The Show Solo Player Zones row of GENERAL on the Forever Essentials General page (WoW Forever only).
+                module  = "Forever Essentials",
+                forever = true,
+                title   = "Show Solo Player Zones",
+                desc    = "The Looking For Group window shows the zone of each player listed on their own; off by default",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIForeverEssentials", page = "General", section = "GENERAL", highlight = "Show Solo Player Zones" } or nil,
+            },
+            {
+                -- Role Icon is a row of the Announce Group Deaths cog, ALERTS on the QoL page (both clients).
+                module = "Quality of Life",
+                title  = "Group Death Role Icon",
+                desc   = "Announce Group Deaths can show the dead player's role icon instead of the skull, from its settings",
+                nav    = { module = "EllesmereUIQoL", page = "QoL", section = "ALERTS", highlight = "Announce Group Deaths" },
+            },
+            {
+                -- The Unspent Legacy Points Alert row of ALERTS on the QoL page (WoW Forever only).
+                module  = "Quality of Life",
+                forever = true,
+                title   = "Unspent Legacy Points Alert",
+                desc    = "On-screen text while you have Legacy points to spend; off by default, in the Alerts section",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIQoL", page = "QoL", section = "ALERTS", highlight = "Unspent Legacy Points Alert" } or nil,
+            },
+            {
+                -- Emotes is a kind of the action picker on the Quickdraw page (both clients).
+                module = "Quickdraw",
+                title  = "Emotes",
+                desc   = "Emotes can be added to your action menus: each fires its emote, with its command written on the icon",
+                nav    = { module = "EllesmereUIQuickdraw", page = "Quickdraw" },
+            },
+            {
+                -- Show Names is a row of the Healer Mana Display cog, EXTRAS on the Frames page (both clients).
+                module = "Raid & Party Frames",
+                title  = "Healer Mana Names in Parties",
+                desc   = "Healer Mana Display's Show Names can now show healers' names in a party too (In Party & Raid)",
+                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "EXTRAS", highlight = "Healer Mana Display" },
+            },
+            {
+                -- The Hide Empty Power Bar row of POWER BAR on the Main Frames page with the Target frame selected
+                -- (WoW Forever only).
+                module  = "Unit Frames",
+                forever = true,
+                title   = "Hide Empty Power Bar",
+                desc    = "On the target and focus frames, a unit with no power shows no power bar and its health bar fills the space",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "POWER BAR", highlight = "Hide Empty Power Bar",
+                           preSelect = function() if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("target") end; EllesmereUI._pendingUnitSelect = "target" end } or nil,
+            },
+            {
+                -- The Self Ping Only row of EXTRAS on the Main Frames page with the Player frame selected (both clients).
+                module = "Unit Frames",
+                title  = "Self Ping Only",
+                desc   = "A ping anywhere on the player frame pings you, as the portrait does, instead of calling out your health",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "EXTRAS", highlight = "Self Ping Only",
+                           preSelect = function() if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end; EllesmereUI._pendingUnitSelect = "player" end },
+            },
+        },
+        fixes = {
+            { module = "Bags", text = "The red tint on bag and bank items now marks the recipes you cannot learn (and only those), items above your level and consumables you cannot use, right from the first open." },
+            { module = "Blizzard Skins+", text = "The inspect window follows the Character Sheet's Blizz Default (Blizzard Style, Classic WoW UI): Blizzard's own window with the item level, upgrade track and enchant text beside its slots." },
+            { module = "Chat", forever = true, text = "Flashing chat tabs no longer cause a Lua error." },
+            { module = "Cooldown Manager", text = "Importing a profile no longer loses Cooldown Manager spells: imported spells keep their place until Blizzard's matching layout tracks them, a spec whose layout places no cooldowns keeps them on their default bars, and placed cooldowns such as Seals, Curses or Wither are no longer hidden." },
+            { module = "Cooldown Manager", text = "Changes made the first time you play a spec on a profile, such as a custom buff on the Buffs bar, are no longer lost at the next reload." },
+            { module = "Cooldown Manager", text = "A buff placed on a bar no longer leaves its slot empty for a moment when it ends." },
+            { module = "Cooldown Manager", text = "A buff added to a cooldown bar no longer disappears while a Replace with Buff of the same spell is active." },
+            { module = "Cooldown Manager", text = "A cooldown whose icon shows another spell, such as a Seal or Wither, is no longer added to a bar a second time." },
+            { module = "Cooldown Manager", text = "The racial icon keeps its own settings on a character of another race." },
+            { module = "Cooldown Manager", text = "Copy to Other Specs no longer turns a custom buff added to a cooldown bar into a cooldown spell without its settings." },
+            { module = "Cooldown Manager", text = "Apply to Bar on a custom buff bar no longer skips buffs that have a setting of their own." },
+            { module = "Cooldown Manager", text = "The Buffs bar preview in the options no longer lists buffs that sit on a cooldown bar." },
+            { module = "Cooldown Manager", forever = true, text = "Buffs on cooldown bars and Replace with Buff keep their place after you train a new rank of the spell." },
+            { module = "Cooldown Manager", forever = true, text = "Spells added by ID (custom spells and auras, timed custom buffs, the FocusKick interrupt) now work at any rank and show the highest rank you know, with Out of Range Coloring, cooldown state effects and Active State following it." },
+            { module = "Cooldown Manager", forever = true, text = "A change in a spell's icon settings now applies at every rank of the spell instead of hiding behind settings saved for another rank." },
+            { module = "General", text = "With a Combat Text Font picked, the digits of the combat text over your character are no longer spread apart." },
+            { module = "Mythic+ Tools", retail = true, text = "The Target and Focus Cast Bars now show the shield icon on casts that cannot be interrupted." },
+            { module = "Nameplates", text = "Friendly nameplates in Name Only no longer show a player's guild line under the next thing the plate is reused for." },
+            { module = "Nameplates", text = "Friendly nameplates in Name Only no longer give unflagged players of the other faction a friendly name color." },
+            { module = "Resource Bars", text = "Anchor to Cursor on the Power Bar and Class Resource now works when the bar is anchored in Unlock Mode, and bars anchored to a bar on the cursor stay in place instead of being dragged along." },
+            { module = "Unit Frames", forever = true, text = "Druids with the class resource above the health bar no longer see an empty strip on the player frame outside Cat Form." },
+        },
+    },
+    {
+        version = "9.9.1",
+        thanks = true,
+        heroes = {
+            {
+                -- The Name Color row of FRIENDLY PLAYERS on the Friendly tab (page identity "Friendly Plates"); the
+                -- highlight cogs, pet nameplates and Status Tags sit in the same section (both clients).
+                module = "Nameplates",
+                title  = "Friendly Nameplate Highlights",
+                desc   = "Color friendly and neutral names by who they are to you: friends, guild, group, recent players, NPC kinds and pets. Friendly pets can get nameplates with their owner's name, NPC titles can be colored, and AFK or Do Not Disturb players can wear a tag.",
+                nav    = { module = "EllesmereUINameplates", page = "Friendly Plates", section = "FRIENDLY PLAYERS", highlight = "Name Color" },
+            },
+            {
+                -- The Dialog Keys row of GENERAL on the Quality of Life page (both clients).
+                module = "Quality of Life",
+                title  = "Dialog Keys",
+                desc   = "Answer NPC windows from the keyboard: Space accepts, continues and completes quests or picks a gossip window's top choice, and the number keys pick a numbered choice or reward. Off by default, in Quality of Life's General section.",
+                nav    = { module = "EllesmereUIQoL", page = "QoL", section = "GENERAL", highlight = "Dialog Keys" },
+            },
+        },
+        features = {
+            {
+                -- Target Tracking is a hunter item of the Class Buffs dropdown in WOW FOREVER on the Auras, Buffs &
+                -- Consumables page (WoW Forever only).
+                module  = "AuraBuff Reminders",
+                forever = true,
+                title   = "Hunter Target Tracking",
+                desc    = "In combat, a hunter is reminded to switch to the tracking that matches their target's creature type; off by default, in the Class Buffs dropdown",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "WOW FOREVER", highlight = "Class Buffs" } or nil,
+            },
+            {
+                -- The Class Colored Names checkbox dropdown of EXTRAS on the Chat page (both clients).
+                module = "Chat",
+                title  = "Class Colored Sender Names",
+                desc   = "Class Colored Names is now a checklist: Name of Chatter colors who sent a line, Names in Messages colors group members named in it; untick Name of Chatter to show senders in the chat's own color",
+                nav    = { module = "EllesmereUIChat", page = "Chat", section = "EXTRAS", highlight = "Class Colored Names" },
+            },
+            {
+                -- The Dual Spec block type of the DataBars page's Add Block list (WoW Forever only; PR #3535).
+                module  = "Data Bars",
+                forever = true,
+                title   = "Dual Spec Block",
+                desc    = "A new block names your active spec by its leading talent tree, lists both specs and their points in its tooltip, and switches specs with Shift + Left or Right Click",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIDataBars", page = "DataBars" } or nil,
+            },
+            {
+                -- Name Only in Instances is a row of the Friendly Nameplate Settings cog on the Friendly Nameplate
+                -- Style row, FRIENDLY PLAYERS on the Friendly tab (both clients).
+                module = "Nameplates",
+                title  = "Name Only in Instances",
+                desc   = "With the Nameplate friendly style, friendly players can show as names only inside dungeons, raids and battlegrounds, where Blizzard draws their plates",
+                nav    = { module = "EllesmereUINameplates", page = "Friendly Plates", section = "FRIENDLY PLAYERS", highlight = "Friendly Nameplate Style" },
+            },
+            {
+                -- Edit Tracked Auras and Only Tracked Auras sit on the Buff Filter row of BUFFS AND DEBUFFS on the
+                -- Main Frames page with the Target frame selected (both clients).
+                module = "Unit Frames",
+                title  = "Tracked Buffs on Target and Focus",
+                desc   = "The target and focus Buff Filter gets Tracked Auras: buffs a friendly unit always or never shows, or only those with Only Tracked Auras",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "BUFFS AND DEBUFFS", highlight = "Buff Filter",
+                           preSelect = function() if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("target") end; EllesmereUI._pendingUnitSelect = "target" end },
+            },
+        },
+        fixes = {
+            { module = "AuraBuff Reminders", forever = true, text = "The Arcane Censer reminder now also finds the Horde's Elemental Attractor." },
+            { module = "Blizzard Skins+", text = "The inspect window no longer shows the last inspected player's M+ score or item level for a player who has none." },
+            { module = "Blizzard Skins+", text = "Vendor item levels now show on Blizzard's vendor window when the Merchant skin is off." },
+            { module = "Blizzard Skins+", text = "With Reskin Tooltip off, progress and status bars inside tooltips keep Blizzard's look." },
+            { module = "Blizzard Skins+", text = "The achievement search's full results list shows each achievement's icon again." },
+            { module = "Blizzard Skins+", text = "Vendor addons can now mark the items of Expand Vendor UI and Show As List, through a new hook for addon authors." },
+            { module = "Cooldown Manager", text = "Audio on Buff Loss now plays for combat potions, Bloodlust and other self-timed buffs." },
+            { module = "Cooldown Manager", text = "Class colored icon borders no longer turn black when a spell's Active State Border Color ends." },
+            { module = "Cooldown Manager", text = "A custom aura removed from a bar no longer keeps showing there until a reload." },
+            { module = "Cooldown Manager", forever = true, text = "Icons with a Stance Bar hide no longer disappear after a druid powershift." },
+            { module = "General", text = "Chat can now use Blizzard's own chat font: pick the new Blizzard Chat entry, right below Blizzard Default in every font list." },
+            { module = "General", forever = true, text = "Greyed-out options now say the look's style must be off, not the game." },
+            { module = "Minimap", text = "Minimap buttons of addons whose name ends in a number are now collected into the minimap button container too." },
+            { module = "Nameplates", text = "Under Name Only, the guild line under a friendly player's name now takes Guild Text Size." },
+            { module = "Quality of Life", forever = true, text = "The Shifter now moves and zooms the keyring window too." },
+            { module = "Quality of Life", text = "Fixed a blocked action error in combat from Raid Tools' Compact Band when its width or height matches another element; the new size now applies once combat ends." },
+            { module = "Raid & Party Frames", text = "Extra Height for pet frames, the Friendly Boss group and Extra Frames now goes down to -200, so they can be made much shorter." },
+            { module = "Unit Frames", text = "The Text Bar's class icon now follows your target and focus, shows for players only, and hides with the Text Bar." },
+            { module = "Unit Frames", text = "Power text now follows Global Settings > Numbers > Unit Style, so Western shows K and M on Chinese and Korean clients (Raid & Party Frames and Resource Bars too)." },
+            { module = "Unit Frames", text = "2D portraits now show a druid's shapeshift form right away, and Mirror Portrait mirrors every player's portrait, forms included." },
+            { module = "Unit Frames", text = "A greyed-out Add Text Slot now reads Every text position is full, or Every text is already shown, instead of a garbled sentence." },
+            { module = "Localization", text = "German translations updated." },
+        },
+    },
+    {
+        version = "9.9",
+        thanks = true,
+        features = {
+            {
+                -- Show Sleep Timer is a row of the Sleeping Bag cog in WOW FOREVER on the Auras, Buffs & Consumables
+                -- page (WoW Forever only).
+                module  = "AuraBuff Reminders",
+                forever = true,
+                title   = "Sleeping Bag Sleep Timer",
+                desc    = "While you lie in your sleeping bag, the reminder counts down to three Well-Rested stacks and shows your stack count; on by default, in the Sleeping Bag cog",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "WOW FOREVER", highlight = "Sleeping Bag" } or nil,
+            },
+            {
+                -- The Loadout Manager tab: one card per spec group plus the shared card (WoW Forever only).
+                module  = "AuraBuff Reminders",
+                forever = true,
+                title   = "Loadouts per Spec Group",
+                desc    = "Each spec group keeps its own loadouts, and the loadouts you set up before stay shared by both groups",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Loadout Manager" } or nil,
+            },
+            {
+                -- The Reagent Bag Icon row of CATEGORIES on the Bags page (both clients).
+                module = "Bags",
+                title  = "Reagent Bag Icon",
+                desc   = "Items in the reagent bag can wear a small icon of your choice, so they stand out among the same items from your other bags; off by default",
+                nav    = { module = "EllesmereUIBags", page = "Bags", section = "CATEGORIES", highlight = "Reagent Bag Icon" },
+            },
+        },
+        fixes = {
+            { module = "AuraBuff Reminders", forever = true, text = "Priests missing both Power Word: Fortitude and Divine Spirit now get a Raid Buffs reminder for each out of combat, each casting its own buff." },
+            { module = "AuraBuff Reminders", forever = true, text = "The Loadout Manager's spec group switch no longer stops with a Lua error, and a switch held while you move or channel now starts as soon as you stop." },
+            { module = "Bags", text = "The OneBag sort now moves crafting reagents from your bags into free reagent bag slots, as Blizzard's Clean Up and the MultiBag sort do." },
+            { module = "Bags", forever = true, text = "A profession bag, such as a mining or herb bag, in the fifth bag slot counts toward the bag window's slot count again; a quiver, ammo pouch or soul bag there still does not." },
+            { module = "Cooldown Manager", text = "Apply Name, Duration or Stacks Text to all Bars no longer leaves two texts on one spot on your other tracking bars; the text that was there is set to None, as the position dropdowns do." },
+            { module = "Cooldown Manager", text = "Desaturate Off CD and Desaturate Inactive now grey or ungrey your inactive buff icons at once when you change them or switch profiles, instead of waiting for your next aura or target change." },
+            { module = "Cooldown Manager", forever = true, text = "Two different spells that share a name in your game's language (such as Blood Fury and Bloodrage on Chinese clients) can now both be placed on your bars." },
+            { module = "Cooldown Manager", forever = true, text = "The Anti-Clip Glow has been removed from CDM bars and Tracking Bars." },
+            { module = "Forever Essentials", forever = true, text = "The flight timer's estimates now follow the current flight paths; Undercity to Kargath no longer reads about 7 seconds too long." },
+            { module = "General", text = "The color picker's Hex# box no longer shows a hex you cancelled with Escape the next time a picker opens on the same color, where clicking into it applied that color." },
+            { module = "General", text = "The color picker's Opacity box now shows 100 when you type a higher value, instead of keeping the number you typed." },
+            { module = "Group Finder", retail = true, text = "The Start a Group button is back over an empty Premade Groups list, also when your filters leave no group." },
+            { module = "Group Finder", retail = true, text = "Applicant rows follow your Row Highlight setting and status colors, as the search results do." },
+            { module = "Nameplates", text = "Textured custom nameplate borders (Pixels and the other edge styles) no longer show as a grey box or a thick band on newly shown plates." },
+            { module = "Nameplates", text = "Enemy nameplate buffs that are not dispellable now follow the buff row's Size and Spacing, as the dispellable ones already did, in both the Important and Show All filters." },
+            { module = "Nameplates", text = "Enrage effects on enemy nameplates no longer move behind the other buffs partway through a session (after leaving a dungeon, changing specs or changing the Dispel Glow) until a reload." },
+            { module = "Nameplates", text = "Target arrows beside an empty Left or Right aura row now sit as close to the bar as on the other side." },
+            { module = "Quickdraw", text = "Entries in an open menu now update their dimming when combat starts or ends and when a flight path takes off or lands, and mount entries are dimmed during a flight path." },
+            { module = "Resource Bars", text = "With Always Show on, the player cast bar no longer keeps a sliver of fill at its left edge after a cast or channel ends." },
+            { module = "Unit Frames", text = "On boss frames, the Duration X and Duration Y sliders of Simple Buff and Simple Debuff Display move the duration text on the live boss auras again, not just in the preview." },
+            { module = "Unit Frames", text = "The interrupt marker and the Interrupt Ready Mid-Cast Bar now sit on the right side of a Target, Focus or Boss cast bar with Reverse Fill on." },
+            { module = "Unit Frames", text = "The stage marks of an empowered cast now sit in the right places on a cast bar with Reverse Fill on." },
+            { module = "Localization", text = "Korean, Portuguese (Brazil) and Traditional Chinese translations updated." },
+        },
+    },
+    {
+        version = "9.8.9",
+        thanks = true,
+        heroes = {
+            {
+                -- The Enable Loadout Manager row of GENERAL on AuraBuff Reminders' Loadout Manager tab (both
+                -- clients; on WoW Forever it works through the two dual spec groups and adds Riding).
+                module = "AuraBuff Reminders",
+                title  = "Automatic Gear and Talent Swaps",
+                desc   = "The new Loadout Manager tab (off by default) swaps your gear and talents for each activity you pick: dungeons, raids, PvP and more.",
+                nav    = { module = "EllesmereUIAuraBuffReminders", page = "Loadout Manager", section = "GENERAL", highlight = "Enable Loadout Manager" },
+            },
+            {
+                -- The Faction/PvP Indicator row of EXTRAS on the Main Frames page with the Player frame selected;
+                -- the PvP Flagged Timer row is under it, the Faction Crest in its Icon Size cog (both clients).
+                module = "Unit Frames",
+                title  = "Faction/PvP Indicator and PvP Flagged Timer",
+                desc   = "The faction indicator is now the Faction/PvP Indicator, shown Never, When PvP Flagged, Always (Dim Unflagged) or Always, with a new Faction Crest icon style as its default. The player frame can also show how long until your PvP flag drops, beside the indicator.",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "EXTRAS", highlight = "Faction/PvP Indicator",
+                           preSelect = function() if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end; EllesmereUI._pendingUnitSelect = "player" end },
+            },
+        },
+        features = {
+            {
+                -- The Show Swing Timer on Attacks row of BAR INTERACTIONS on the Bar Animations page (WoW Forever only).
+                module  = "Action Bars",
+                forever = true,
+                title   = "Swing Timer on Attack Buttons",
+                desc    = "Buttons holding Heroic Strike, Cleave, Maul or Raptor Strike can show your main-hand swing as a cooldown swipe; off by default",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIActionBars", page = "Bar Animations", section = "BAR INTERACTIONS", highlight = "Show Swing Timer on Attacks" } or nil,
+            },
+            {
+                -- The Arcane Censer row of WOW FOREVER on the Auras, Buffs & Consumables page (WoW Forever only).
+                module  = "AuraBuff Reminders",
+                forever = true,
+                title   = "Arcane Censer Reminder",
+                desc    = "In dungeons, reminds you to use your Arcane Censer while Magical Awareness is missing; click the icon to use it, off by default",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "WOW FOREVER", highlight = "Arcane Censer" } or nil,
+            },
+            {
+                -- The Talent Reminders tab: Export | Delete on each spec's card, Export All over the cards and
+                -- Import Reminders beside Add Reminder (retail only: WoW Forever has no Talent Reminders).
+                module = "AuraBuff Reminders",
+                retail = true,
+                title  = "Share Talent Reminders",
+                desc   = "Export one spec's talent reminders or all of them as a string to share, and bring someone else's in with Import Reminders",
+                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIAuraBuffReminders", page = "Talent Reminders" } or nil,
+            },
+            {
+                -- The Talent Reminders tab: the Loadout Manager's Activities checklist for a reminder's places and
+                -- for where its Not Needed reminder shows (retail only).
+                module = "AuraBuff Reminders",
+                retail = true,
+                title  = "Talent Reminder Activities",
+                desc   = "Talent Reminders pick from the Loadout Manager's activities: Mythic dungeons, raids by difficulty, arenas, battlegrounds, Timewalking, Delves and the open world",
+                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIAuraBuffReminders", page = "Talent Reminders" } or nil,
+            },
+            {
+                -- The Categorize Reagent Bag Items row of CATEGORIES on the Bags page (both clients).
+                module = "Bags",
+                title  = "Categorize Reagent Bag Items",
+                desc   = "Reagent bag items can show under their item categories, like Trade Goods, beside the same items from your other bags; off by default",
+                nav    = { module = "EllesmereUIBags", page = "Bags", section = "CATEGORIES", highlight = "Categorize Reagent Bag Items" },
+            },
+            {
+                -- The Show Recent Items row of CATEGORIES on the Bags page; Show Picked-Up Amount is the last row of
+                -- its cog (both clients).
+                module = "Bags",
+                title  = "Recent Items: Show Picked-Up Amount",
+                desc   = "Recent Items can show one entry per item with how many you picked up, such as 13+1, instead of every stack; off by default, in the Show Recent Items cog",
+                nav    = { module = "EllesmereUIBags", page = "Bags", section = "CATEGORIES", highlight = "Show Recent Items" },
+            },
+            {
+                -- The CDM Bars page: Buff Stacks is a row of the per-icon menu of the spells it applies to (both clients).
+                module = "Cooldown Manager",
+                title  = "Buff Stacks on Cooldown Icons",
+                desc   = "A cooldown whose spell gives you a stacking buff shows that buff's stacks on its icon; turn it off per icon with Buff Stacks in the icon's menu",
+                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars" },
+            },
+            {
+                -- The Bar Glows page: Health and Require Resource are rows of a selected glow (both clients).
+                module = "Cooldown Manager",
+                title  = "Bar Glows: Health and Resource Conditions",
+                desc   = "A Bar Glow can run only while your health is below or above a percentage, and a Glow When Usable glow can wait until you have the resource the ability costs",
+                nav    = { module = "EllesmereUICooldownManager", page = "Bar Glows" },
+            },
+            {
+                -- The Bar Glows page: Default Glow Type is the first row of its settings (both clients).
+                module = "Cooldown Manager",
+                title  = "Bar Glows: Default Glow Type",
+                desc   = "Pick the glow type every new Bar Glow starts with; glows you already made keep their own",
+                nav    = { module = "EllesmereUICooldownManager", page = "Bar Glows" },
+            },
+            {
+                -- The CDM Bars page: Swing Timer is a row of the per-icon menu of the on-next-swing attacks
+                -- (WoW Forever only).
+                module  = "Cooldown Manager",
+                forever = true,
+                title   = "Swing Timer on Next-Swing Attacks",
+                desc    = "Heroic Strike, Cleave, Maul and Raptor Strike icons can show your main-hand swing as a cooldown swipe; off by default, in the icon's Swing Timer menu",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUICooldownManager", page = "CDM Bars" } or nil,
+            },
+            {
+                -- The Bar Glows page: Glow Late in Swing is a row of a selected glow (WoW Forever only).
+                module  = "Cooldown Manager",
+                forever = true,
+                title   = "Bar Glows: Glow Late in Swing",
+                desc    = "A Bar Glow can wait for the last seconds of your main-hand swing, and stays off while that button's attack is already queued; off by default",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUICooldownManager", page = "Bar Glows" } or nil,
+            },
+            {
+                -- Always on with no setting: the line shows on the flight master's Taxi map (WoW Forever only).
+                module  = "Forever Essentials",
+                forever = true,
+                title   = "Flight Time on the Map",
+                desc    = "Hovering a destination on the flight map shows how long the flight takes",
+            },
+            {
+                -- The Gathering Skill in Tooltips row of GENERAL on the Forever Essentials General page; Skinning
+                -- is the one row of its cog (WoW Forever only).
+                module  = "Forever Essentials",
+                forever = true,
+                title   = "Skinning Skill in Tooltips",
+                desc    = "A skinnable corpse's tooltip shows the Skinning skill it needs, colored by your chance of a skill-up; off by default, in the Gathering Skill in Tooltips cog",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIForeverEssentials", page = "General", section = "GENERAL", highlight = "Gathering Skill in Tooltips" } or nil,
+            },
+            {
+                -- The Opacity row of ACTIVE STANCE, FORM, ASPECT & AURA on the Forever Essentials General page
+                -- (WoW Forever only).
+                module  = "Forever Essentials",
+                forever = true,
+                title   = "Active Stance Icon Opacity",
+                desc    = "The Active Stance icon has an Opacity slider, so it can sit faded on screen",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIForeverEssentials", page = "General", section = "ACTIVE STANCE, FORM, ASPECT & AURA", highlight = "Opacity" } or nil,
+            },
+            {
+                -- The Profiles page of Profiles & Presets, where profiles are exported and imported (both clients).
+                module = "Profiles",
+                title  = "Screen Info in Profile Strings",
+                desc   = "Exported profiles remember the resolution and UI scale they were made at, and importing one on a different screen warns that frame positions may be off",
+                nav    = { module = "_EUIProfiles", page = "Profiles" },
+            },
+            {
+                -- The Show Power Gains row of SELF COMBAT TEXT on the QoL page (both clients).
+                module = "Quality of Life",
+                title  = "Power Gains in Self Combat Text",
+                desc   = "Self Combat Text can show your power gains, like +15 Mana or +1 Holy Power, in a color of your choice; off by default",
+                nav    = { module = "EllesmereUIQoL", page = "QoL", section = "SELF COMBAT TEXT", highlight = "Show Power Gains" },
+            },
+            {
+                -- The Show Happiness row of PET HAPPINESS on the Mini Frames page with Pet selected (WoW Forever only).
+                module  = "Unit Frames",
+                forever = true,
+                title   = "Feed Your Pet from the Happiness Icon",
+                desc    = "Left-click the pet happiness icon to pick a food from your bags and feed your pet; its tooltip also shows your pet's loyalty level",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIUnitFrames", page = "Mini Frames", section = "PET HAPPINESS", highlight = "Show Happiness",
+                            preSelect = function() if EllesmereUI._setMiniUnit then EllesmereUI._setMiniUnit("pet") end; EllesmereUI._pendingMiniSelect = "pet" end } or nil,
+            },
+        },
+        fixes = {
+            { module = "Action Bars", retail = true, text = "The House Favor bar now fills from your house's current level to the next, as Blizzard's own bar does, instead of always looking nearly full past level 1." },
+            { module = "AuraBuff Reminders", retail = true, text = "Reminders now hide as you walk into an inn or a city's rested area and come back as you leave it, instead of waiting for an unrelated change." },
+            { module = "AuraBuff Reminders", retail = true, text = "Where to Show now counts 10-player Heroic legacy raids as Heroic Raid, not Normal/LFR Raid." },
+            { module = "AuraBuff Reminders", retail = true, text = "Talent Reminders are now kept per spec and listed in a card for each spec; a reminder for a class talent was copied to every spec of its class." },
+            { module = "AuraBuff Reminders", retail = true, text = "Talent Reminders for arenas and battlegrounds now work in every client language." },
+            { module = "Bags", text = "Adding a category to The Armory, Adventure Prep or a group you renamed no longer renames the group to a list of its categories." },
+            { module = "Bags", text = "Right-clicking a bag item twice quickly to deposit it into a bank tab no longer sends the next item that lands in that bag slot to the bank." },
+            { module = "Bags", text = "With New Items Only on, Recent Items now shows only the new copy of an item that does not stack, like a third bag beside two you carried, also for copies taken from the mailbox or received in a trade." },
+            { module = "Bags", text = "Merge Duplicate Items now merges identical crafted items made by different players. Gear is never merged, also outside the gear categories." },
+            { module = "Bags", text = "Quest items in the bank now get the same gold border they have in the bags." },
+            { module = "Bags", forever = true, text = "Taking off an equipped bag no longer lists it under Recent Items." },
+            { module = "Blizzard Skins+", text = "A player's tooltip no longer stays stuck on screen when its item level loads as it fades out." },
+            { module = "Blizzard Skins+", text = "With Reskin Tooltip off, unit tooltips fade out normally again instead of vanishing at once when Anchor to Cursor was left on." },
+            { module = "Blizzard Skins+", text = "The text cursor shows again in Blizzard's popup text boxes, such as naming a chat window or typing DELETE." },
+            { module = "Blizzard Skins+", text = "Spell ID on Tooltip with a Use Modifier key now shows the spell ID on buff and debuff tooltips while you hold the key." },
+            { module = "Chat", text = "A floating chat window no longer jumps to the cursor while you resize it, its background follows a dragged tab, and a New Window keeps its background." },
+            { module = "Cooldown Manager", text = "The FocusKick bar's Interrupt Spell is now kept per class, so switching characters on a shared profile no longer resets it to None or stops the focus cast sound." },
+            { module = "Cooldown Manager", text = "Bar Glows on an ability now follow it when a stance, form, stealth, vehicle or override bar changes your action bar page." },
+            { module = "Cooldown Manager", retail = true, text = "Remove Bar from All Specs on a custom Tracking Bar no longer deletes another spec's own bar for that spell picked from Blizzard's Cooldown Manager list." },
+            { module = "Damage Meters", text = "Spell icons in the breakdown tooltip no longer show a zoomed-in corner of a class icon after an Enemy Damage Taken row was hovered." },
+            { module = "Damage Meters", text = "A stray Width or Height box no longer shows on the divider of the Select Segment menu after a window's Settings menu was opened." },
+            { module = "Damage Meters", text = "Rolling the mouse wheel over the Spell History bar window no longer hides your newest casts or leaves the window empty." },
+            { module = "Data Bars", text = "The XP / Rep block's No Rep Tracked, Max Level and XP Off texts and the \"+ N more\" lines of the Gold, Friends and Guild tooltips now show in your language." },
+            { module = "Forever Essentials", forever = true, text = "Gathering Skill in Tooltips now shows the skill on nodes whose name the game writes with another apostrophe or capitalization, such as the tin, silver and gold veins on French clients." },
+            { module = "Forever Essentials", forever = true, text = "Turning the Loot Feed off and on again no longer leaves its Gold per Hour Tracker row hidden behind an empty space." },
+            { module = "Forever Essentials", forever = true, text = "Classic Spellbook: a school tab clicked during a search now follows your Show All Spell Ranks and Hide Passives choices again, instead of listing every rank and passive." },
+            { module = "General", text = "Unlock Mode no longer brings a faded element back to full opacity after you anchor or resize it." },
+            { module = "Minimap", text = "Other addons' map pins on the top and bottom edges of a cropped minimap (the WoW Forever square with its zone text bar, and the Rectangular shape) now stay inside the map instead of hiding under the edge." },
+            { module = "Minimap", text = "The Friends tooltip shows character friends in their class color on clients in a language other than English, and uses your custom class colors." },
+            { module = "Minimap", text = "Minimap buttons whose names end in _MinimapButton no longer show a trailing underscore in the Ungroup Minimap Buttons list and the flyout's list view." },
+            { module = "Minimap", forever = true, text = "Inviting a guild member or friend from the Friends Online tooltip, or from the Data Bars friends and guild tooltips, works again." },
+            { module = "Mythic+ Tools", retail = true, text = "Cast Bars' Where to Show now counts 10-player Heroic legacy raids as Heroic Raid, not Normal/LFR Raid." },
+            { module = "Mythic+ Tools", retail = true, text = "The enemy forces count's Remaining and Count + Remaining formats are translated on non-English clients." },
+            { module = "Nameplates", text = "With Focus Cast Height above 100%, the next enemy to reuse your focus target's nameplate no longer keeps its taller cast bar." },
+            { module = "Nameplates", text = "Under the Blizzard Style, WoW Forever and Classic WoW UI looks, the Friendly page's sample nameplates now show the look's own plate art." },
+            { module = "Nameplates", forever = true, text = "Under the WoW Forever nameplate style, a group member's health bar now changes tint at once when their PvP flag turns on or off." },
+            { module = "Party Mode", text = "The Rated Arena and Rated Battleground Win celebrations now follow your team's result, so they no longer start after a loss or miss a win when your team is not your faction." },
+            { module = "Profiles", text = "Profile keybinds no longer switch to the wrong profile when two profile names differ only in spaces or symbols, or are written in a non-Latin script." },
+            { module = "Quality of Life", text = "The Shifter no longer pulls a window back into view while another addon keeps it hidden off screen or shrunk, so such windows stop catching clicks." },
+            { module = "Quality of Life", retail = true, text = "The /keys popup's No keystones found and Waiting for data... rows no longer keep a hidden teleport button from a key listed earlier." },
+            { module = "Raid & Party Frames", text = "Party frames no longer sit a pixel off their spot after a fresh login until the next loading screen." },
+            { module = "Resource Bars", text = "Blizzard's totem frame no longer vanishes when the Totem Bar is on for another class, and turning the Totem Bar off gives it back with its own look, no reload needed." },
+            { module = "Unit Frames", text = "The Rested Indicator now draws above the player frame's border, and its ZZZ text is no longer cut off at the frame's edge." },
+            { module = "Unit Frames", text = "The combat, leader and elite indicators now follow a profile switch at once, instead of keeping the previous profile's style, size and position until a reload." },
+            { module = "Unit Frames", text = "Faction indicator icons on unit frames and nameplates keep their own proportions instead of being stretched square." },
+            { module = "Unit Frames", forever = true, text = "A druid who has not learned Cat Form no longer has an empty combo point bar above the player frame; it appears once Cat Form is learned." },
+            { module = "Localization", text = "German, Spanish, Portuguese (Brazil), Korean and Simplified Chinese translations updated." },
+        },
+    },
+    {
+        version = "9.8.8",
+        mini = true,
+        features = {
+            {
+                -- The Rested Indicator row of EXTRAS on the Main Frames page with the Player frame
+                -- selected (both clients); Anchor is the first row of its cog.
+                module = "Unit Frames",
+                title  = "Rested Indicator on the Portrait",
+                desc   = "A new Anchor choice in the Rested Indicator's settings puts the ZZZ or the animated icon on your portrait instead of the health bar",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "EXTRAS", highlight = "Rested Indicator",
+                           preSelect = function() if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end; EllesmereUI._pendingUnitSelect = "player" end },
+            },
+        },
+        fixes = {
+            { module = "Blizzard Skins+", text = "The inspect window's Talents and Transmog buttons are now translated." },
+            { module = "Cooldown Manager", forever = true, text = "ForeverAuras is no longer listed as incompatible with the Cooldown Manager." },
+            { module = "Data Bars", text = "Micro Menu buttons are now clickable across the bar's whole height and on their Guild and Friends counts, not only on the icon itself." },
+            { module = "Nameplates", text = "An elite or rare mob that is also a quest mob now shows both its elite/rare mark and its quest icon, side by side; before, the quest icon replaced the mark." },
+            { module = "Nameplates", text = "The raid marker on friendly nameplates now follows the X and Y offsets of its position, as it already did on enemy nameplates." },
+            { module = "Quality of Life", text = "The Target Distance text, the Combat, Potion Ready, Unspent Talents and Group Death alerts, the Durability Warning and the Rested Indicator now follow your profile, with their settings and positions, instead of being shared by every profile." },
+            { module = "Localization", text = "Korean and Traditional Chinese translations updated." },
+        },
+    },
+    {
+        version = "9.8.7",
+        thanks = true,
+        features = {
+            {
+                -- The Enabled Categories row of CATEGORIES on the Bags page (a deleted default category comes back
+                -- there); the menus themselves open from the bag window's sidebar (both clients).
+                module = "Bags",
+                title  = "Category and Sidebar Menus",
+                desc   = "Right-click any category, default ones included, to rename it, change its icon or delete it; right-click a sidebar view to pick which views show",
+                nav    = { module = "EllesmereUIBags", page = "Bags", section = "CATEGORIES", highlight = "Enabled Categories" },
+            },
+            {
+                -- The Bag Top Bar Icons row of EXTRAS on the Bags page (WoW Forever only).
+                module  = "Bags",
+                forever = true,
+                title   = "Keyring Icon",
+                desc    = "A new Keyring Icon in Bag Top Bar Icons opens your keyring above the bags, for when the bag bar is hidden",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIBags", page = "Bags", section = "EXTRAS", highlight = "Bag Top Bar Icons" } or nil,
+            },
+            {
+                -- The Show Item Level dropdown of CORE OPTIONS in the Character Sheet card of Window Skins (WoW
+                -- Forever only).
+                module  = "Blizzard Skins+",
+                forever = true,
+                title   = "Item Levels on the Character and Inspect Sheets",
+                desc    = "Equipment slots show their item level beside the slot or inside the icon (new Show Item Level dropdown), plus your overall item level above the stats",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins", section = "CORE OPTIONS", highlight = "Show Item Level" } or nil,
+            },
+            {
+                -- The Keyring card of Window Skins (WoW Forever only, and only while Bags is on). A card's header
+                -- is found by its title and description joined by a space, so this section follows the card's
+                -- desc in the options file.
+                module  = "Blizzard Skins+",
+                forever = true,
+                title   = "Keyring Window Skin",
+                desc    = "Blizzard's keyring window takes your window skin while Bags is on, with a Keyring card of its own under Window Skins",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins", section = "Keyring The keyring window: its frame, title and key slots. Skinned while EllesmereUI Bags handles your bags." } or nil,
+            },
+            {
+                -- The Duration Size row of ICON DISPLAY on the CDM Bars page; Duration Above Glows is in its
+                -- Duration Text cog (both clients).
+                module = "Cooldown Manager",
+                title  = "Duration Above Glows",
+                desc   = "A new toggle in a bar's Duration Text settings draws the duration number above glows, so a glow no longer covers a number placed at the icon's edge",
+                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "ICON DISPLAY", highlight = "Duration Size" },
+            },
+            {
+                -- The condition picker of a conditional group, from the Overrides tab of Profiles &
+                -- Presets in its Conditional Overrides mode (WoW Forever only: retail lists no such condition).
+                module  = "General",
+                forever = true,
+                title   = "Secondary Spec Condition",
+                desc    = "Conditional Overrides can now switch your settings while your secondary spec is active",
+                nav     = EllesmereUI.IS_FOREVER and { module = "_EUIProfiles", page = "Overrides",
+                            preSelect = function() EllesmereUI._overridesTabMode = "cond" end } or nil,
+            },
+            {
+                -- The Cancel Mismatched Applications row of GENERAL on Group Finder's Premade Search page; the No
+                -- Longer Matches status is in the Row Highlight cog of RESULTS LIST (retail only).
+                module = "Group Finder",
+                retail = true,
+                title  = "Cancel Mismatched Applications",
+                desc   = "Marks a pending application whose group no longer fits your filters (No Longer Matches) and can cancel it on your next click in the list; off by default",
+                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIGroupFinder", page = "Premade Search", section = "GENERAL", highlight = "Cancel Mismatched Applications" } or nil,
+            },
+            {
+                -- The In-Group Button Size row of MINIMAP & QOL BUTTONS on the Minimap page; Show as List is in
+                -- its Addon Buttons cog (both clients).
+                module = "Minimap",
+                title  = "Addon Buttons as a List",
+                desc   = "The addon button flyout can show as a one-column list with each addon's name beside its icon; off by default, in the cog on In-Group Button Size",
+                nav    = { module = "EllesmereUIMinimap", page = "Minimap", section = "MINIMAP & QOL BUTTONS", highlight = "In-Group Button Size" },
+            },
+            {
+                -- The Idle Behavior dropdown of LAYOUT on the Resource Bars Swing Timer page (WoW Forever only).
+                module  = "Resource Bars",
+                forever = true,
+                title   = "Swing Timer: Idle Behavior",
+                desc    = "Hide When Idle is now an Idle Behavior dropdown; its new Hidden per Type hides each weapon's row while that weapon is not attacking",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIResourceBars", page = "Swing Timer", section = "LAYOUT", highlight = "Idle Behavior" } or nil,
+            },
+        },
+        fixes = {
+            { module = "Action Bars", text = "Press and Hold Casting works again on Action Bar 1 when the bar has a paging rule of its own or Form Paging off, as long as the bar shows its normal page." },
+            { module = "Action Bars", text = "A Mouseover bar with Show When Spellbook Is Open now stays shown the whole time the spellbook or macro panel is open, instead of hiding again after you hover it or drop a spell." },
+            { module = "Action Bars", text = "After a /reload in combat, Action Bar 1 and other paged bars start on your stance or form page instead of their first page." },
+            { module = "Action Bars", text = "Fixed keybind text losing its red out-of-range color when Keybind Text is turned back on or restyled, and on bars with a custom keybind color after hovering a button." },
+            { module = "Action Bars", text = "The XP bar's Quest XP Overlay and Completed Quests texts no longer count hidden quest log entries, so the bands match your quests." },
+            { module = "Bags", text = "Anchor to Nearest Corner is now on by default: the bag and bank windows grow and shrink toward the screen corner nearest them (turn it off in the Window Scale cog)." },
+            { module = "Bags", text = "Junk Marker: marking an item now moves it into Junk right away, bank items can be marked too, every junk item shows its coin while you mark, and clicking the coin again ends marking." },
+            { module = "Bags", text = "A category turned off under Enabled Categories no longer leaves an empty row or section behind." },
+            { module = "Bags", text = "Creating or deleting a category no longer mixes up the saved Sort Items order of the categories after it." },
+            { module = "Bags", text = "Dropping an item on a group's sidebar header now files it in the group's first enabled category." },
+            { module = "Bags", text = "Compact: a group with another group beside it can now be as narrow as two slots." },
+            { module = "Bags", forever = true, text = "Blizzard's keyring window no longer shows a dark layer over your keys while Bags is on." },
+            { module = "Blizzard Skins+", text = "Fixed the inspect sheet's Item Level and Upgrade Track options showing as disabled while the inspect sheet was on." },
+            { module = "Blizzard Skins+", forever = true, text = "Character sheet: Show Item Stats is now off until you turn it on, and Show Item Durability now works." },
+            { module = "Blizzard Skins+", forever = true, text = "Fixed the character sheet's background picture behind the character model, which a game update had covered." },
+            { module = "Blizzard Skins+", forever = true, text = "The inspect sheet no longer shows a Transmog button, which the game does not offer there." },
+            { module = "Blizzard Skins+", forever = true, text = "The custom friends list's tooltip shows a friend's race again, as Blizzard's does." },
+            { module = "Cooldown Manager", text = "A bar with more icons in a row than the options preview can show now scrolls sideways with arrows or the mouse wheel, so every icon can be clicked and dragged." },
+            { module = "Cooldown Manager", text = "An icon no longer turns red from another spell's range after your cooldown list is rearranged (seen on druids with Feral Charge in Cat Form)." },
+            { module = "Cooldown Manager", forever = true, text = "ForeverAuras is now listed as incompatible with the Cooldown Manager; you get the usual incompatible addon notice while both are on." },
+            { module = "Data Bars", forever = true, text = "The Micro Menu's character tooltip now lists all five attributes instead of one wrong main stat." },
+            { module = "Forever Essentials", forever = true, text = "Auto Uprank Spells on Bars now also replaces old ranks on the Gamepad interface style's action bars." },
+            { module = "Forever Essentials", forever = true, text = "Fishing Sounds now works with your game sound turned off: you hear the bobber's splash and nothing else, and your sound goes back off when you stop fishing." },
+            { module = "General", text = "The EllesmereUI button in the game menu no longer covers AddOns the first time you press Escape after logging in or reloading." },
+            { module = "Minimap", text = "Addon buttons grouped in the Addon Buttons flyout now stay in their cell: dragging one no longer pulls it out, and an addon that moves its button back to the map no longer leaves an empty cell." },
+            { module = "Nameplates", text = "Stacked enemy nameplates no longer react to a nameplate that was reused for another unit, which could make them bounce in crowded areas." },
+            { module = "Quality of Life", text = "Fixed the Bloodlust tracker showing the faction icon instead of your own Time Warp, Fury of the Aspects or Primal Rage on some clients." },
+            { module = "Quality of Life", forever = true, text = "Fixed an error from the Train All button in the Beast Training window; the button no longer shows there." },
+            { module = "Raid & Party Frames", forever = true, text = "Riptide is now one of the Core Healing Buffs, all three ranks, on by default." },
+            { module = "Raid & Party Frames", forever = true, text = "Missing Buffs (and AuraBuff Reminders' Raid Buffs) no longer remind you of Arcane Intellect on a member whose Elixir of Greater Intellect is stronger than the rank you can cast." },
+            { module = "Unit Frames", text = "Pinging the health or power bar of the EllesmereUI player frame now calls out your health or mana, as on Blizzard's player frame. The portrait still pings your name." },
+            { module = "Localization", text = "German, Spanish and Traditional Chinese translations updated, and the Export Profile and Import Profile popups now show their title and hint in your language." },
+        },
+    },
     {
         version = "9.8.6",
         thanks = true,
@@ -434,8 +1029,8 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIGroupFinder", page = "Premade Search", section = "DISPLAY", highlight = "Raid Role Icons" } or nil,
             },
             {
-                -- The Row Highlight row of RESULTS LIST on the Premade Search page; the style, the colors and
-                -- Delisted Opacity are in its cog (retail only).
+                -- The Row Highlight row of RESULTS LIST on the Premade Search page: its dropdown is the style;
+                -- the statuses, the colors and Delisted Opacity are in its cog (retail only).
                 module = "Group Finder",
                 retail = true,
                 title  = "Row Highlight",
@@ -634,7 +1229,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
             },
             {
                 -- The Row Highlight row of RESULTS LIST on the Premade Search page (this release named it
-                -- Status Effect); its cog holds the style and the colors (retail only).
+                -- Status Effect): its dropdown is the style, its cog holds the statuses and the colors (retail only).
                 module = "Group Finder",
                 retail = true,
                 title  = "Status Effect",
@@ -796,401 +1391,6 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Unit Frames", text = "The options preview of the Blizzard Style, Classic WoW UI and WoW Forever frames moves the left text by its X and Y offsets, as the frames do in game." },
             { module = "Unlock Mode", text = "With Hover Top Bar on, the top bar appears only when the cursor reaches the bar itself and stays hidden while the cursor is over an element, so it no longer gets in the way of elements at the top of the screen." },
             { module = "Localization", text = "German, Korean, Brazilian Portuguese, Spanish and Traditional Chinese translations updated, including the Unlock Mode controls help, the options search and the WoW Forever class and weapon buff reminders." },
-        },
-    },
-    {
-        version = "9.8.2",
-        mini = true,
-        features = {
-            {
-                -- The Class Buffs row beside Weapon Buffs in WOW FOREVER on the Auras, Buffs & Consumables
-                -- page; a mage sees Mage Armors there and a warrior or rogue nothing (WoW Forever only).
-                module  = "AuraBuff Reminders",
-                forever = true,
-                title   = "Class Buffs",
-                desc    = "Reminds you when your class's own buffs are missing, such as a Blessing, Inner Fire or Demon Armor, and casts them when clicked",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "WOW FOREVER", highlight = "Class Buffs" } or nil,
-            },
-            {
-                -- The Add Custom Spell row of WOW FOREVER, the custom spells listed after it (WoW Forever only).
-                module  = "AuraBuff Reminders",
-                forever = true,
-                title   = "Custom Spell Reminders",
-                desc    = "Click a custom spell or spell group reminder to cast its best known rank, and limit each custom spell to chosen classes",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "WOW FOREVER", highlight = "Add Custom Spell" } or nil,
-            },
-            {
-                -- The CDM Bars page; the condition is in an icon's right-click menu in the preview
-                -- (WoW Forever only).
-                module  = "Cooldown Manager",
-                forever = true,
-                title   = "Talent Conditions",
-                desc    = "Show a cooldown or utility icon only with or without chosen talents from your three trees (right-click the icon in the preview)",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUICooldownManager", page = "CDM Bars" } or nil,
-            },
-            {
-                -- The RESULTS LIST section of the Premade Search page (retail only: WoW Forever has no
-                -- premade group list).
-                module = "Group Finder",
-                retail = true,
-                title  = "Quests and Custom Lists",
-                desc   = "Quests and Custom use the Group Finder's own group list too, and zone groups show how many players they have",
-                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIGroupFinder", page = "Premade Search", section = "RESULTS LIST" } or nil,
-            },
-            {
-                -- Unlock Mode's own top bar: the click opens Unlock Mode (no options page shows it).
-                module  = "Unlock Mode",
-                title   = "Top Bar Help",
-                desc    = "Each top bar toggle explains itself on hover, and an info icon lists the keyboard and mouse controls",
-                onClick = function() EllesmereUI.OpenUnlockModeAt() end,
-            },
-        },
-        fixes = {
-            { module = "Cooldown Manager", text = "On the Bar Glows page, a Glow When Usable glow shows its ability's icon and name instead of a question mark." },
-            { module = "Cooldown Manager", forever = true, text = "A spell no longer shows twice in a bar's preview after you learn a new rank of it." },
-            { module = "General", text = "On the Glows page, a collapsed module card's summary updates as soon as the template changes, and \"all match the template\" shows in green like the rows." },
-            { module = "General", text = "The options search lists equal matches in a fixed order, finds pages by their tab name, and says so when nothing matches, with a link from a page's search to every module." },
-            { module = "Group Finder", retail = true, text = "Right-clicking a group or an applicant in the lists shows other addons' menu entries again." },
-            { module = "Group Finder", retail = true, text = "The dungeons picked in the Dungeons row stay picked after logging out and back in." },
-            { module = "Group Finder", retail = true, text = "The group list scrolls and lets you pick a group when Quests or Custom is the first category you open." },
-            { module = "Quality of Life", text = "Quick Loot closes the loot window when there is nothing to take." },
-            { module = "Quickdraw", text = "A nested menu with nothing your character can use no longer shows as an empty entry." },
-            { module = "Resource Bars", forever = true, text = "Power Text and Mana Bar Text no longer offer Smart Text, which chose by spec; bars that used it show the power value." },
-            { module = "Unit Frames", forever = true, text = "Power Text no longer offers Smart Text, which chose by spec; frames that used it show the power value." },
-            { module = "Localization", text = "Russian translations updated across nearly every option, popup and tooltip, Traditional Chinese translations updated, and Latin American Spanish shows the Spanish (Spain) text where it has no translation of its own, instead of English." },
-        },
-    },
-    {
-        version = "9.8.1",
-        mini = true,
-        features = {
-            {
-                -- The Weapon Buffs row of WOW FOREVER on the Auras, Buffs & Consumables page; its cog
-                -- holds each hand's picks (WoW Forever only).
-                module  = "AuraBuff Reminders",
-                forever = true,
-                title   = "Weapon Buffs",
-                desc    = "A new reminder for poisons, imbues, stones and oils on each weapon, shown a minute before they run out too; click it to apply one from your bags",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "WOW FOREVER", highlight = "Weapon Buffs" } or nil,
-            },
-            {
-                -- The Custom Friends List Tiles | Tile Height row of DISPLAY in the Friends List card of
-                -- Window Skins (WoW Forever only).
-                module  = "Blizzard Skins+",
-                forever = true,
-                title   = "Custom Friends List Tiles",
-                desc    = "The custom friends list can now be turned off on the Friends List card or turned on with Blizz Default, and online friends show Blizzard's online card color: in full under Blizz Default, faintly under the EllesmereUI and Modern looks",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins", section = "DISPLAY", highlight = "Custom Friends List Tiles" } or nil,
-            },
-            {
-                -- The Auto Uprank Spells on Bars row of GENERAL on Forever Essentials' General page
-                -- (WoW Forever only).
-                module  = "Forever Essentials",
-                forever = true,
-                title   = "Pet Spell Ranks",
-                desc    = "Auto Uprank Spells on Bars now also swaps your pet's new spell ranks on your action bars, and catches ranks learned while it was off or your pet was away",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIForeverEssentials", page = "General", section = "GENERAL", highlight = "Auto Uprank Spells on Bars" } or nil,
-            },
-            {
-                -- The Enemy Buff Filter cog of EXTRA AURA OPTIONS on the Nameplates General page
-                -- (retail only: WoW Forever keeps the filter as it was and has no cog).
-                module = "Nameplates",
-                retail = true,
-                title  = "Dispellable By Me",
-                desc   = "Only Dispellable can show just the enemy buffs you or your group can dispel, purge or soothe: turn it on in the Enemy Buff Filter cog",
-                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUINameplates", page = "General", section = "EXTRA AURA OPTIONS", highlight = "Enemy Buff Filter" } or nil,
-            },
-            {
-                -- The Spells list of an action menu's entries, in ACTION MENU SETUP on the Quickdraw
-                -- page (WoW Forever only).
-                module  = "Quickdraw",
-                forever = true,
-                title   = "Spell Ranks",
-                desc    = "The Spells list offers each learned rank of a spell, and an entry picked from a rank, or a lower rank dragged from the spellbook, always casts that rank",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIQuickdraw", page = "Quickdraw", section = "ACTION MENU SETUP" } or nil,
-            },
-        },
-        fixes = {
-            { module = "Data Bars", text = "The bar no longer jitters every second while a Travel Cooldowns block counts down." },
-            { module = "Data Bars", forever = true, text = "The Class Resources block now counts reagents kept in the reagent bag." },
-            { module = "Forever Essentials", forever = true, text = "Fishing's Double-Click to Cast no longer applies a lure while its own Apply Lure is off." },
-            { module = "General", text = "With Apply to All Game Text on, the Guild & Communities chat takes the global font again." },
-            { module = "Group Finder", retail = true, text = "The results list's Delisted, Invited and Failed statuses now show in your language." },
-            { module = "Nameplates", text = "With Show Threat On: Health Bar, neutral enemies you fight now take threat colors on the health bar, as hostile ones do." },
-            { module = "Nameplates", forever = true, text = "The target's range text, and Quality of Life's, now read whole yards (24+) instead of long decimals when a talent such as Grim Reach extends your spell range." },
-            { module = "Unit Frames", forever = true, text = "Hovering the hunter pet happiness icon no longer causes a Lua error." },
-            { module = "Unit Frames", forever = true, text = "The [name:last] and [target:last] custom text tags no longer repeat your first name for your own character while My Surname is off, on Raid & Party Frames and Nameplates too." },
-            { module = "Localization", text = "Brazilian Portuguese, French, Spanish and Traditional Chinese translations updated, including the Group Finder lists, the gamepad options and Forever Essentials." },
-        },
-    },
-    {
-        version = "9.8",
-        thanks = true,
-        heroes = {
-            {
-                -- The RESULTS LIST section of the Premade Search page; the lists themselves are in the
-                -- Dungeons & Raids window (retail only: Group Finder does not load on WoW Forever).
-                module = "Group Finder",
-                retail = true,
-                title  = "Group and Applicant Lists",
-                desc   = "Group Finder now draws its own group list, with leader ratings, region tags, playstyles and sign-up timers, and its own applicant list that can hide applicant info. New filters cover classes and roles, raid bosses, filter expressions and regions or languages, saved per character.",
-                nav    = { module = "EllesmereUIGroupFinder", page = "Premade Search", section = "RESULTS LIST" },
-            },
-            {
-                -- The Custom Friends List Tiles | Tile Height row of DISPLAY in the Friends List card of
-                -- Window Skins (WoW Forever only).
-                module  = "Blizzard Skins+",
-                forever = true,
-                title   = "Custom Friends List",
-                desc    = "EllesmereUI's own friends list now takes over the friends window while its Window Skins card is skinned: pick the tile height and sort friends into groups you name, color, reorder and collapse, Favorites included. Right click a friend to move it; Blizz Default keeps Blizzard's list.",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins", section = "DISPLAY", highlight = "Tile Height" } or nil,
-            },
-        },
-        features = {
-            {
-                -- The Pinned Items cog on the Show Pinned Items row of CATEGORIES on the Bags page (both clients).
-                module = "Bags",
-                title  = "Dim Pinned Items in OneBag/MultiBag",
-                desc   = "The Pinned Items settings can dim pinned items in their bag slots, since they also show in Pinned Items",
-                nav    = { module = "EllesmereUIBags", page = "Bags", section = "CATEGORIES", highlight = "Show Pinned Items" },
-            },
-            {
-                -- The OFFLINE BANK section of the Bags module's Bank page (new on WoW Forever; retail has
-                -- had it since an earlier release).
-                module  = "Bags",
-                forever = true,
-                title   = "Offline Bank",
-                desc    = "Look through your other characters' bags and banks from anywhere: pick a character with the button beside the bags or bank title. Item tooltips can also count an item across all your characters, and both are off by default",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIBags", page = "Bank", section = "OFFLINE BANK", highlight = "Offline Bank" } or nil,
-            },
-            {
-                -- The condition picker of a conditional group, from the Overrides tab of Profiles &
-                -- Presets in its Conditional Overrides mode (WoW Forever only: retail lists no such condition).
-                module  = "General",
-                forever = true,
-                title   = "Gamepad Mode Condition",
-                desc    = "Conditional Overrides can switch your settings while WoW's gamepad interface is on, such as hiding bars or moving frames for controller play",
-                nav     = EllesmereUI.IS_FOREVER and { module = "_EUIProfiles", page = "Overrides",
-                            preSelect = function() EllesmereUI._overridesTabMode = "cond" end } or nil,
-            },
-            {
-                -- The slot cogs of CORE POSITIONS on the Display page (both clients).
-                module = "Nameplates",
-                title  = "Per-Element Core Position Settings",
-                desc   = "Each Core Positions cog now has a section per element in its slot, with its own size, and Show In Instances for the indicators",
-                nav    = { module = "EllesmereUINameplates", page = "Display", section = "CORE POSITIONS" },
-            },
-            {
-                -- The element dropdowns of CORE POSITIONS on the Display page (both clients).
-                module = "Nameplates",
-                title  = "Quest Objective Text Element",
-                desc   = "Quest Objective Text is now a Core Positions element of its own, replacing Replace Quest Icon with Objective; your setup carries over",
-                nav    = { module = "EllesmereUINameplates", page = "Display", section = "CORE POSITIONS" },
-            },
-            {
-                -- The Equipment Sets list of an action menu's entries and the Equipment Sets preset for
-                -- a new menu, in ACTION MENU SETUP on the Quickdraw page (both clients).
-                module = "Quickdraw",
-                title  = "Equipment Sets",
-                desc   = "Action menus can hold your Equipment Manager sets, each equipping its set on a press, and a new menu can start from an Equipment Sets preset with all of them",
-                nav    = { module = "EllesmereUIQuickdraw", page = "Quickdraw", section = "ACTION MENU SETUP" },
-            },
-            {
-                -- The Missing Buffs row of INDICATORS on the raid Frames page; Arcane Intellect is in its
-                -- cog (WoW Forever only, mages).
-                module  = "Raid & Party Frames",
-                forever = true,
-                title   = "Arcane Intellect",
-                desc    = "Missing Buffs now shows mages which mana users lack Arcane Intellect",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIRaidFrames", page = "Frames", section = "INDICATORS", highlight = "Missing Buffs" } or nil,
-            },
-            {
-                -- The Craft Batches dropdown of DISPLAY on the Cast Bar page (both clients).
-                module = "Resource Bars",
-                title  = "Merge Craft Batches",
-                desc   = "While crafting several items, the player cast bar can run as one bar across the whole batch instead of refilling for every craft",
-                nav    = { module = "EllesmereUIResourceBars", page = "Cast Bar", section = "DISPLAY", highlight = "Craft Batches" },
-            },
-            {
-                -- The Rested Indicator row of EXTRAS on the Main Frames page with the Player frame
-                -- selected (both clients): Quality of Life's row mirrored, the same settings.
-                module = "Unit Frames",
-                title  = "Rested Indicator in Player Extras",
-                desc   = "The Rested Indicator and its settings now also sit in the Player frame's Extras, shared with its row in Quality of Life",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "EXTRAS", highlight = "Rested Indicator",
-                           preSelect = function() if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end; EllesmereUI._pendingUnitSelect = "player" end },
-            },
-        },
-        fixes = {
-            { module = "Action Bars", text = "Out of Range Coloring keeps working after you page bar 1 away and back, and bars with custom paging now color and glow the page they show." },
-            { module = "Action Bars", forever = true, text = "Bar 1 no longer switches to the caster page after a druid powershifts." },
-            { module = "AuraBuff Reminders", forever = true, text = "Reminders in the WoW Forever section, custom spell IDs included, no longer show in combat, and its Where to Show no longer offers In Combat." },
-            { module = "Blizzard Skins+", forever = true, text = "The Looking For Group window no longer shows an error when opened inside an instance." },
-            { module = "Cooldown Manager", text = "With Keep Keys on Bar Swap off, keybinds on icons update right away when a stance, form or page swap changes them, instead of up to a second later." },
-            { module = "Data Bars", text = "An XP / Rep block with its text set to Off no longer shows a \"Font not set\" error after a reload, and lays out again." },
-            { module = "Forever Essentials", forever = true, text = "The Loot Feed now shows fishing catches and crafted items." },
-            { module = "General", text = "Player names, chat bubbles and other text written by players now show Cyrillic, Chinese and Korean letters instead of boxes; a font without those letters shows that text in Blizzard's font." },
-            { module = "General", text = "Color swatches in the settings window keep their whole outline at every Window Scale." },
-            { module = "General", forever = true, text = "The Gamepad page's action bar and cast bar hides now follow the game's gamepad interface: a controller left connected while you play with keyboard and mouse no longer hides them." },
-            { module = "Nameplates", forever = true, text = "The Elite/Rare and Quest Indicators and Quest Objective Text now show in dungeons and raids by default." },
-            { module = "Quality of Life", text = "The Movement Cooldown Alert's sound or spoken name now plays only when a cooldown you used comes back, no longer after wand shots or other casts while the spell was ready." },
-            { module = "Quest Tracker", forever = true, text = "Title Difficulty Colors in the Colors section now turns quest difficulty colors on or off for both trackers through the game's own option, replacing the custom tracker's own toggle." },
-            { module = "Quest Tracker", forever = true, text = "The Custom Quest Tracker no longer drifts as you accept or turn in quests while it is linked to another element in Unlock Mode." },
-            { module = "Quest Tracker", forever = true, text = "Shift-clicking a quest in the Custom Quest Tracker now untracks it in the quest log too, out of combat." },
-            { module = "Quest Tracker", forever = true, text = "Quest voice-over Play buttons now show beside quests in the Custom Quest Tracker, as they do on Blizzard's tracker." },
-            { module = "Quickdraw", forever = true, text = "Spell entries now cast the highest rank of the spell you know, as /cast does, instead of the rank they were added with, and the Spells list shows each spell once." },
-            { module = "Raid & Party Frames", forever = true, text = "The Buff Manager's Core Healing Buffs now include Prayer of Mending and every rank of Renew." },
-            { module = "Raid & Party Frames", forever = true, text = "Missing Buffs on the Party tab now follows its own Salvation setting." },
-            { module = "Resource Bars", text = "Show When Health, Energy, Focus or Mana Missing now shows the bar at its normal opacity while that resource is below full, even when Fade Out of Combat dims it." },
-            { module = "Resource Bars & Unit Frames", text = "Looting a quest object now shows \"Opening\" on the cast bar instead of \"Opening - No Text\"." },
-            { module = "Unit Frames", text = "3D portraits no longer go blank for NPCs inside dungeons and raids, where the game allows no 3D model of them; their 2D portrait shows instead." },
-            { module = "Unit Frames", text = "Indicators set to Portrait, such as the Combat Indicator, now sit in the same spot in the options preview as on your frames: on the portrait under Blizzard Style, Classic WoW UI and the WoW Forever look, and at the health bar's top-left with Portrait Mode set to None." },
-            { module = "Unit Frames", forever = true, text = "The target frame's Elite/Rare Indicator now shows in dungeons and raids by default." },
-            { module = "Unit Frames", forever = true, text = "Rogue poisons and shaman weapon imbues no longer show twice on the Player Aura Bars Buffs bar, and an oil or sharpening stone on the same weapon now shows beside them." },
-            { module = "Localization", text = "Korean, Spanish, Simplified Chinese and Traditional Chinese translations updated, including the Custom Quest Tracker and the friends list." },
-        },
-    },
-    {
-        version = "9.7.8",
-        mini = true,
-        features = {
-            {
-                -- The Width | Max Height and Grow Direction | Scrollbar rows of CUSTOM TRACKER on the
-                -- Quest Tracker page, and the swatches on its Group Quests by Zone toggle (WoW Forever only).
-                module  = "Quest Tracker",
-                forever = true,
-                title   = "Custom Tracker Layout Options",
-                desc    = "New Width and Max Height sliders, a Grow Direction that can stack quests upward from the tracker's bottom edge, and accent or custom colors for its zone headers",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIQuestTracker", page = "Quest Tracker", section = "CUSTOM TRACKER", highlight = "Grow Direction" } or nil,
-            },
-        },
-        fixes = {
-            { module = "Quest Tracker", forever = true, text = "The Custom Quest Tracker is now on by default only while your Quest Tracker style is EllesmereUI. With Blizzard Style, Classic WoW UI or the WoW Forever look you are back on Blizzard's tracker unless you turn the custom one on." },
-            { module = "Quest Tracker", forever = true, text = "The Custom Quest Tracker now starts where Blizzard's tracker was, at its width and height; if you never moved it, it takes that spot once after this update." },
-            { module = "Quest Tracker", forever = true, text = "In Unlock Mode the Custom Quest Tracker now shows the whole area it can grow into, and leaving without saving no longer changes its max height." },
-        },
-    },
-    {
-        version = "9.7.7",
-        thanks = true,
-        heroes = {
-            {
-                -- The whole settings window: toggles, sliders, dropdowns and their lists, input
-                -- fields, its own buttons and the three-dot setting menus (both clients).
-                module = "General",
-                title  = "Settings Visual Update",
-                desc   = "The settings window has a new rounded look: toggles, sliders, dropdowns, input fields and buttons, crisp at every Window Scale. Extra options now sit behind three dots that light up when you change their setting, and Apply to only shows while you hover a setting.",
-            },
-            {
-                -- The CUSTOM TRACKER section of the Quest Tracker page (WoW Forever only).
-                module  = "Quest Tracker",
-                forever = true,
-                title   = "Custom Quest Tracker",
-                desc    = "EllesmereUI's own quest tracker now replaces Blizzard's, with zone groups, pinned quests, focus buttons, quest timers, quest item buttons, update flashes and a quest details window of its own; Blizzard's tracker is one switch away.",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIQuestTracker", page = "Quest Tracker", section = "CUSTOM TRACKER", highlight = "Custom Quest Tracker" } or nil,
-            },
-        },
-        features = {
-            {
-                -- The Auto Open Bags | Auto Close Bags row of EXTRAS on the Bags page (both clients;
-                -- retail also lists the Scrapper, Item Interaction and Azerite Essences windows).
-                module = "Bags",
-                title  = "Auto Open and Close Bags",
-                desc   = "Pick which windows open and close your bags, such as the merchant, mailbox and bank; bags now close with the window that opened them",
-                nav    = { module = "EllesmereUIBags", page = "Bags", section = "EXTRAS", highlight = "Auto Open Bags" },
-            },
-            {
-                -- The DataBars page, where blocks are added (both clients).
-                module = "Data Bars",
-                title  = "Time Played Block",
-                desc   = "A new block shows your time played at this level or in total, and its tooltip lists every character's total",
-                nav    = { module = "EllesmereUIDataBars", page = "DataBars" },
-            },
-            {
-                -- The CORE TEXT POSITIONS section of the Display page (both clients).
-                module = "Nameplates",
-                title  = "Top Left and Top Right Text",
-                desc   = "Core Text Positions gains Top Left and Top Right above the health bar's corners; icons on those corners move up to clear them",
-                nav    = { module = "EllesmereUINameplates", page = "Display", section = "CORE TEXT POSITIONS" },
-            },
-            {
-                -- The Low Durability Warning row of EXTRAS on the QoL page; Ignore Thrown Weapons sits
-                -- in its Durability Settings cog (WoW Forever only).
-                module  = "Quality of Life",
-                forever = true,
-                title   = "Ignore Thrown Weapons",
-                desc    = "The Low Durability Warning now skips thrown weapons, whose durability counts their throws; turn it off in the warning's settings to include them",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIQoL", page = "QoL", section = "EXTRAS", highlight = "Low Durability Warning" } or nil,
-            },
-            {
-                -- The Targeting Sound Effects row of EXTRAS on the Main Frames page with the Target
-                -- frame selected (both clients; on by default on WoW Forever).
-                module = "Unit Frames",
-                title  = "Targeting Sound Effects",
-                desc   = "A new option in the Target frame's Extras plays the game's sounds when you select or lose a target, as Blizzard's own target frame does",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "EXTRAS", highlight = "Targeting Sound Effects",
-                           preSelect = function() if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("target") end; EllesmereUI._pendingUnitSelect = "target" end },
-            },
-        },
-        fixes = {
-            { module = "Action Bars", forever = true, text = "With the Gamepad interface style, stance bar icons (auras, stances and forms) show at login and after a reload instead of staying blank until you switch." },
-            { module = "Bags", forever = true, text = "Item icons now show square and keep your Icon Zoom setting when your bags update." },
-            { module = "Blizzard Skins+", forever = true, text = "Item icons in skinned windows (merchants, mail, loot, quest rewards and more) now show square with their rarity border, and stay square when the window updates." },
-            { module = "Cooldown Manager", text = "Buffs added by Custom Spell ID to a cooldown or utility bar now show: grey while missing, with the buff's time left while it is up." },
-            { module = "Cooldown Manager", text = "Spells and racials no longer sometimes land on the wrong bar when you log in, before the game has loaded your Cooldown Manager layout." },
-            { module = "Cooldown Manager", forever = true, text = "Paladins can add Seals to a cooldown or utility bar from its Add menu, beside Racial; it shows your active seal with its time left, since Blizzard's own Seals entry never shows a frame." },
-            { module = "Data Bars", text = "Data bars keep their full width, edge snap and links after a reload or a UI scale change, Unlock Mode's Cancel no longer removes a bar's edge snap, and resizing a bar from its Unlock Mode cog no longer undoes an unsaved drag." },
-            { module = "Data Bars", text = "Gold amounts under 1 gold show their silver and copper instead of 0g on vertical bars and in the gold tooltip." },
-            { module = "Data Bars & Bags", forever = true, text = "Gold tooltips list each character by full name, and characters sharing a first name keep their own balances." },
-            { module = "General", text = "Combat Text Font no longer turns floating combat text into boxes on Chinese, Korean and Russian clients; fonts without their letters are no longer offered there." },
-            { module = "General", text = "The Incompatible Addon Detected popup now shows only while one of the other addon's chat or minimap options that clash with EllesmereUI is on, and lists those options." },
-            { module = "General", text = "Scrolling dropdown lists no longer draw the text of a partly scrolled row over their top or bottom border." },
-            { module = "General", text = "The Accent Colored Settings Elements option is gone: the menu dots and preview icons beside settings are always white." },
-            { module = "Nameplates", forever = true, text = "With Show Friendly NPC Nameplates on, friendly NPCs such as Ironforge Mountaineers no longer lose their plate and name." },
-            { module = "Quality of Life", text = "The Shifter now moves the window of an opened mail too, and keeps it where you leave it." },
-            { module = "Quest Tracker", text = "Hide When In Raid has a new Never choice, keeping the tracker up through raids so only the Visibility options hide it." },
-            { module = "Quest Tracker", forever = true, text = "Announce Progress now posts each objective you finish, with a link to the quest, instead of every step." },
-            { module = "Quest Tracker", forever = true, text = "With quest difficulty colors on, the focused quest's title now shows your Focus color in Blizzard's tracker." },
-            { module = "Unit Frames", text = "Cast bar Fill Opacity now takes effect; the cast fill drew fully opaque at any setting." },
-            { module = "Unit Frames", forever = true, text = "With the Gamepad interface style, the target menu button (Y or Triangle) opens your target's menu again while EllesmereUI's target frame is in use." },
-            { module = "Unit Frames", forever = true, text = "The target and lost-target sounds play again while EllesmereUI's target frame is in use; Targeting Sound Effects in the Target frame's Extras turns them off." },
-            { module = "Localization", text = "Traditional Chinese translations updated for the latest options and the Numbers page." },
-        },
-    },
-    {
-        version = "9.7.6",
-        mini = true,
-        features = {
-            {
-                -- The Paging Arrows row of BEHAVIOR & PAGING on the Bar Display page with Action Bar 1
-                -- selected; its While Paged choice is one of the row's dropdown entries (both clients).
-                module = "Action Bars",
-                title  = "Arrows While Paged",
-                desc   = "Action Bar 1's paging arrows now show while it is on another page, even with Paging Arrows off, so a page switched by accident is easy to spot and undo",
-                nav    = { module = "EllesmereUIActionBars", page = "Bar Display", section = "BEHAVIOR & PAGING", highlight = "Paging Arrows",
-                           preSelect = function() if EllesmereUI._setActionBarKey then EllesmereUI._setActionBarKey("MainBar") end; EllesmereUI._pendingActionBarSelect = "MainBar" end },
-            },
-            {
-                -- The Mage Armors row of the WOW FOREVER section, built for mages only (WoW Forever only).
-                module  = "AuraBuff Reminders",
-                forever = true,
-                title   = "Mage Armors",
-                desc    = "A new reminder for mages while no Frost, Ice or Mage Armor is up; a click casts the armor you last wore",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables",
-                            section = "WOW FOREVER", highlight = "Mage Armors" } or nil,
-            },
-        },
-        fixes = {
-            { module = "Action Bars", text = "A stance or form learned during play now stays on the stance bar after you use it, instead of disappearing until a reload." },
-            { module = "Action Bars", text = "Skip Visible Bars When Paging is now on by default, so the next and previous page keys no longer put Action Bar 1 on a page another of your bars already shows." },
-            { module = "Chat", forever = true, text = "The Chat Menu sidebar icon opens the chat menu again on the WoW Forever look, and no longer shows with the Gamepad interface style, where the game hides that menu." },
-            { module = "Forever Essentials", forever = true, text = "Classic Spellbook and Classic Talents now also open from the micro menu, the Data Bars micro menu block and Quickdraw (the spellbook outside combat), and the Shifter can move them." },
-            { module = "General", forever = true, text = "First Name and Last Name name formats now shorten only player names, so mobs and NPCs keep their whole names (a Rot Hide Gnoll no longer reads Rot)." },
-            { module = "Nameplates", forever = true, text = "Under the WoW Forever style, the health bar's fill no longer runs over the bottom of its border." },
-            { module = "Nameplates", forever = true, text = "Under the WoW Forever style, Target Effect offers Highlight only: EUI Glow, Border Color and Border Size no longer apply there." },
-            { module = "Quest Tracker", text = "Auto Accept and Auto Turn In now also work at NPCs that list their quests without a chat window, and Auto Turn In clicks Continue on item turn-ins; a turn-in that costs gold is left to you." },
-            { module = "Quickdraw", forever = true, text = "The professions list names First Aid correctly instead of calling it Archaeology." },
-            { module = "Unlock Mode", forever = true, text = "The Encounter Bar box no longer shows while no encounter bar is up." },
         },
     },
 }
@@ -1381,9 +1581,6 @@ initFrame:SetScript("OnEvent", function(self)
             for _, name in ipairs(svNames) do
                 _G[name] = {}
             end
-            -- Loadout Manager keeps a per-character store outside the profiles:
-            -- this clears it for the character doing the reset.
-            EllesmereUILoadoutManagerDB = nil
             -- Bags' offline bank keeps every character's saved bags and banks outside them too
             EllesmereUIBagsInventoryDB = nil
             local oldScale = EllesmereUIDB and EllesmereUIDB.ppUIScale
@@ -1990,26 +2187,27 @@ initFrame:SetScript("OnEvent", function(self)
 
         local FCT_FONT_DIR = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\"
         local fctFontValues = {
+            _menuOpts = EllesmereUI.FONT_MENU_OPTS,
             ["default"]                                = { text = "Blizzard Default", font = "Fonts\\FRIZQT__.TTF" },
-            [FCT_FONT_DIR .. "Expressway.TTF"]         = { text = "Expressway",            font = FCT_FONT_DIR .. "Expressway.TTF" },
-            [FCT_FONT_DIR .. "Avant Garde Naowh.ttf"]        = { text = "Avant Garde",   font = FCT_FONT_DIR .. "Avant Garde Naowh.ttf" },
-            [FCT_FONT_DIR .. "Arial Bold.TTF"]         = { text = "Arial Bold",            font = FCT_FONT_DIR .. "Arial Bold.TTF" },
+            [FCT_FONT_DIR .. "Expressway.TTF"]         = { text = EllesmereUI.FontDisplayName("Expressway"), font = FCT_FONT_DIR .. "Expressway.TTF" },
+            [FCT_FONT_DIR .. "Avant Garde Naowh.ttf"]        = { text = EllesmereUI.FontDisplayName("Avant Garde"), font = FCT_FONT_DIR .. "Avant Garde Naowh.ttf" },
+            [FCT_FONT_DIR .. "Arial Bold.TTF"]         = { text = EllesmereUI.FontDisplayName("Arial Bold"), font = FCT_FONT_DIR .. "Arial Bold.TTF" },
             [FCT_FONT_DIR .. "Poppins.ttf"]            = { text = "Poppins",               font = FCT_FONT_DIR .. "Poppins.ttf" },
             [FCT_FONT_DIR .. "FiraSans Medium.ttf"]    = { text = "Fira Sans Medium",      font = FCT_FONT_DIR .. "FiraSans Medium.ttf" },
-            [FCT_FONT_DIR .. "Expressway CAPS.ttf"]    = { text = "Expressway CAPS",       font = FCT_FONT_DIR .. "Expressway CAPS.ttf" },
-            [FCT_FONT_DIR .. "Arial Narrow.ttf"]       = { text = "Arial Narrow",          font = FCT_FONT_DIR .. "Arial Narrow.ttf" },
+            [FCT_FONT_DIR .. "Expressway CAPS.ttf"]    = { text = EllesmereUI.FontDisplayName("Expressway CAPS"), font = FCT_FONT_DIR .. "Expressway CAPS.ttf" },
+            [FCT_FONT_DIR .. "Arial Narrow.ttf"]       = { text = EllesmereUI.FontDisplayName("Arial Narrow"), font = FCT_FONT_DIR .. "Arial Narrow.ttf" },
             [FCT_FONT_DIR .. "Changa.ttf"]             = { text = "Changa",                font = FCT_FONT_DIR .. "Changa.ttf" },
             [FCT_FONT_DIR .. "Cinzel Decorative.ttf"]  = { text = "Cinzel Decorative",     font = FCT_FONT_DIR .. "Cinzel Decorative.ttf" },
             [FCT_FONT_DIR .. "Exo.otf"]                = { text = "Exo",                   font = FCT_FONT_DIR .. "Exo.otf" },
             [FCT_FONT_DIR .. "FiraSans Bold.ttf"]      = { text = "Fira Sans Bold",        font = FCT_FONT_DIR .. "FiraSans Bold.ttf" },
             [FCT_FONT_DIR .. "FiraSans Light.ttf"]     = { text = "Fira Sans Light",       font = FCT_FONT_DIR .. "FiraSans Light.ttf" },
-            [FCT_FONT_DIR .. "Future X Black.otf"]     = { text = "Future X Black",        font = FCT_FONT_DIR .. "Future X Black.otf" },
-            [FCT_FONT_DIR .. "Gotham Narrow Ultra.otf"] = { text = "Gotham Narrow Ultra",  font = FCT_FONT_DIR .. "Gotham Narrow Ultra.otf" },
-            [FCT_FONT_DIR .. "Gotham Narrow.otf"]      = { text = "Gotham Narrow",         font = FCT_FONT_DIR .. "Gotham Narrow.otf" },
+            [FCT_FONT_DIR .. "Future X Black.otf"]     = { text = EllesmereUI.FontDisplayName("Future X Black"), font = FCT_FONT_DIR .. "Future X Black.otf" },
+            [FCT_FONT_DIR .. "Gotham Narrow Ultra.otf"] = { text = EllesmereUI.FontDisplayName("Gotham Narrow Ultra"), font = FCT_FONT_DIR .. "Gotham Narrow Ultra.otf" },
+            [FCT_FONT_DIR .. "Gotham Narrow.otf"]      = { text = EllesmereUI.FontDisplayName("Gotham Narrow"), font = FCT_FONT_DIR .. "Gotham Narrow.otf" },
             [FCT_FONT_DIR .. "Russo One.ttf"]          = { text = "Russo One",             font = FCT_FONT_DIR .. "Russo One.ttf" },
             [FCT_FONT_DIR .. "Ubuntu.ttf"]             = { text = "Ubuntu",                font = FCT_FONT_DIR .. "Ubuntu.ttf" },
             [FCT_FONT_DIR .. "Homespun.ttf"]           = { text = "Homespun",              font = FCT_FONT_DIR .. "Homespun.ttf" },
-            [FCT_FONT_DIR .. "HWT Artz.ttf"]           = { text = "HWT Artz",              font = FCT_FONT_DIR .. "HWT Artz.ttf" },
+            [FCT_FONT_DIR .. "HWT Artz.ttf"]           = { text = EllesmereUI.FontDisplayName("HWT Artz"), font = FCT_FONT_DIR .. "HWT Artz.ttf" },
             ["Fonts\\FRIZQT__.TTF"]                    = { text = "Friz Quadrata",         font = "Fonts\\FRIZQT__.TTF" },
             ["Fonts\\ARIALN.TTF"]                      = { text = "Arial",                 font = "Fonts\\ARIALN.TTF" },
             ["Fonts\\MORPHEUS.TTF"]                    = { text = "Morpheus",              font = "Fonts\\MORPHEUS.TTF" },
@@ -2421,6 +2619,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 EllesmereUIDB.guildChatPrivacy = false
                 EllesmereUIDB.repairWarning = nil
+                if EllesmereUI.QoLExtrasSet then EllesmereUI.QoLExtrasSet("repairWarning", nil) end
                 -- Reset UI scale so next reload re-snapshots from Blizzard default
                 EllesmereUIDB.ppUIScale = nil
                 EllesmereUIDB.ppUIScaleAuto = nil

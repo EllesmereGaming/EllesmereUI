@@ -439,12 +439,30 @@ ns._RFPosTopLeft = function(pos, w, h)
     return ax - pfx * w, ay + (1 - pfy) * h
 end
 
--- Groups stacked in one column before the flow steps to the next column, for
--- the grid group growth ("Down and then Right"): G1/G2 fill the first column
--- top to bottom, G3/G4 the column to its right. Fixed at 2 so a 20-man raid
--- lands on the classic 2x2 block; a plain direction is the same flow with one
--- group per column (every other value below).
-ns._RF_GRID_ROWS = 2
+-- The two grid group growths: "DOWNRIGHT" ("Down and then Right") stacks groups
+-- down one column before the next column starts to its right; "RIGHTDOWN"
+-- ("Right and then Down") fills one row left to right before the next row
+-- starts below it. Every other value is a plain one-axis run.
+ns._RFIsGridFlow = function(g)
+    return g == "DOWNRIGHT" or g == "RIGHTDOWN"
+end
+
+-- Groups per column (DOWNRIGHT) or per row (RIGHTDOWN) before the grid wraps.
+-- Defaults to 2, so a 20-man raid lands on the classic 2x2 block.
+ns._RF_GRID_DEFAULT = 2
+
+-- Effective grid line length: the size tier override's own groupGridSize when it
+-- has one, else the base key of `s` (default db.profile), clamped to the sliders' 1-7.
+ns._RFGridSize = function(ov, s)
+    local n = ov and ov.groupGridSize
+    if n == nil then
+        s = s or db.profile
+        n = s and s.groupGridSize
+    end
+    n = floor(tonumber(n) or ns._RF_GRID_DEFAULT)
+    if n < 1 then n = 1 elseif n > 7 then n = 7 end
+    return n
+end
 
 -- Group slot origins (relative to the growth corner, before normalization) for a
 -- group growth direction, plus the origin those slots normalize against (min x,
@@ -456,12 +474,15 @@ ns._RF_GRID_ROWS = 2
 -- is actually sized for -- set the origin, so a group past the box keeps the
 -- same per-slot step instead of rescaling the box in front of it. `out`, when
 -- given, is refilled in place (its slot pairs reused) and returned instead of a
--- new table.
-ns._RFGroupFlow = function(groupGrowth, groupW, groupH, gs, count, out)
+-- new table. `gridN` (ns._RFGridSize) is the grid flows' line length; ignored
+-- by a plain direction.
+ns._RFGroupFlow = function(groupGrowth, groupW, groupH, gs, count, out, gridN)
     local n = count or MOVER_GROUPS
+    local per = gridN or ns._RF_GRID_DEFAULT
+    local grid = ns._RFIsGridFlow(groupGrowth)
     local stepX, stepY = 0, 0
-    if groupGrowth == "DOWNRIGHT" then
-        -- Column advance is horizontal; the rows inside a column run down.
+    if grid then
+        -- Both grids step right and down; they differ in which axis wraps.
         stepX, stepY = (groupW + gs), -(groupH + gs)
     elseif groupGrowth == "DOWN" then   stepY = -(groupH + gs)
     elseif groupGrowth == "UP" then     stepY =  (groupH + gs)
@@ -472,8 +493,11 @@ ns._RFGroupFlow = function(groupGrowth, groupW, groupH, gs, count, out)
     for i = 0, n - 1 do
         local px, py
         if groupGrowth == "DOWNRIGHT" then
-            px = floor(i / ns._RF_GRID_ROWS) * stepX
-            py = (i % ns._RF_GRID_ROWS) * stepY
+            px = floor(i / per) * stepX
+            py = (i % per) * stepY
+        elseif grid then -- RIGHTDOWN
+            px = (i % per) * stepX
+            py = floor(i / per) * stepY
         else
             px, py = i * stepX, i * stepY
         end
@@ -497,8 +521,8 @@ end
 -- that also derive a corner from the same pair (ns._RFCornerTerms/_RFGrowthCorner)
 -- must self-heal (ns._RFEffectiveGrowth) BEFORE calling either, so the size and
 -- the corner agree -- this function does not self-heal internally to avoid a
--- caller healing one but not the other.
-ns._RFFootprint = function(bw, bh, unitGrowth, groupGrowth, cs, gs)
+-- caller healing one but not the other. `gridN` as in ns._RFGroupFlow.
+ns._RFFootprint = function(bw, bh, unitGrowth, groupGrowth, cs, gs, gridN)
     bw, bh = PixelSnap(bw), PixelSnap(bh)
     local groupW, groupH
     if unitGrowth == "RIGHT" or unitGrowth == "LEFT" then
@@ -508,12 +532,15 @@ ns._RFFootprint = function(bw, bh, unitGrowth, groupGrowth, cs, gs)
         groupW = bw
         groupH = 5 * bh + 4 * cs
     end
-    if groupGrowth == "DOWNRIGHT" then
-        -- Grid flow: one column of ns._RF_GRID_ROWS groups, then the next
-        -- column to its right (see ns._RFGroupFlow). MOVER_GROUPS (4) fills
-        -- two columns at any row count that divides it.
-        local rows = ns._RF_GRID_ROWS
-        local cols = floor((MOVER_GROUPS + rows - 1) / rows)
+    if ns._RFIsGridFlow(groupGrowth) then
+        -- Grid flow (see ns._RFGroupFlow): MOVER_GROUPS (4) groups laid in
+        -- lines of gridN, so the box is gridN along the line (at most 4) by
+        -- however many lines the 4 groups need.
+        local per = min(gridN or ns._RF_GRID_DEFAULT, MOVER_GROUPS)
+        local lines = floor((MOVER_GROUPS + per - 1) / per)
+        local cols, rows
+        if groupGrowth == "DOWNRIGHT" then rows, cols = per, lines
+        else                               cols, rows = per, lines end
         return PixelSnap(cols * groupW + (cols - 1) * gs),
                PixelSnap(rows * groupH + (rows - 1) * gs)
     end
@@ -534,7 +561,7 @@ ns._RFBaseTopLeft = function()
     local cs = ns.RF_CellSpacing(s)
     local gs = ns.RF_GroupSpacing(s)
     local ug, gg = ns._RFEffectiveGrowth(s.unitGrowth or "DOWN", s.groupGrowth or "RIGHT", s.mergeGroups)
-    local w, h = ns._RFFootprint(s.frameWidth or 72, s.frameHeight or 46, ug, gg, cs, gs)
+    local w, h = ns._RFFootprint(s.frameWidth or 72, s.frameHeight or 46, ug, gg, cs, gs, ns._RFGridSize(nil, s))
     local l, t = ns._RFPosTopLeft(pos, w, h)
     return l, t, w, h
 end
@@ -580,14 +607,14 @@ end
 -- hand-edited SavedVariables). Group Growth wins here; the options UI's
 -- write-time KeepGrowthPerpendicular uses the same resolution EXCEPT its Unit
 -- Growth dropdown, which deliberately lets Unit Growth win instead. Also maps the
--- grid flow ("Down and then Right") onto the single column axis the flat header
--- can render; no-op if not merged.
+-- grid flows ("Down and then Right", "Right and then Down") onto the single column
+-- axis the flat header can render; no-op if not merged.
 ns._RFEffectiveGrowth = function(unitGrowth, groupGrowth, merged)
     if not merged then return unitGrowth, groupGrowth end
     -- The grid flow needs two axes; Blizzard's flat header only has one column
     -- axis, so merged mode degrades it to the plain RIGHT run it CAN render --
     -- same shape as the same-axis fallback below.
-    if groupGrowth == "DOWNRIGHT" then groupGrowth = "RIGHT" end
+    if ns._RFIsGridFlow(groupGrowth) then groupGrowth = "RIGHT" end
     if ns._RFGrowthIsVertical(unitGrowth) == ns._RFGrowthIsVertical(groupGrowth) then
         unitGrowth = ns._RFGrowthIsVertical(unitGrowth) and "RIGHT" or "DOWN"
     end
@@ -600,8 +627,8 @@ end
 -- (DOWN pins TOP, UP pins BOTTOM). Every ns._RFEffectiveGrowth caller heals a same-axis pair
 -- before reaching here whenever merged is true, so this only ever sees one for separated mode
 -- (merged=false is a no-op for _RFEffectiveGrowth), where every combination of the two
--- axes is legitimate -- including the grid flow, whose column advance is horizontal (so
--- it pins LEFT like RIGHT) and whose rows run down (so it pins TOP like DOWN). This
+-- axes is legitimate -- including the grid flows, which step right and down (so they
+-- pin LEFT like RIGHT and TOP like DOWN, whichever axis wraps). This
 -- tie-break (UP beats BOTTOM, LEFT beats RIGHT, default TOP+LEFT) is what existing
 -- per-tier offsets are calibrated against -- matching Blizzard's own same-axis corner instead
 -- would be dead code here for merged and a silent position-shift regression for separated.
@@ -621,7 +648,7 @@ end
 -- tier override's own value when it has one, else the base key. The grid flow has
 -- two group axes and never centers.
 ns._RFGroupCentered = function(ov, groupGrowth)
-    if groupGrowth == "DOWNRIGHT" then return false end
+    if ns._RFIsGridFlow(groupGrowth) then return false end
     local c = db.profile.groupGrowthCentered
     if ov and ov.groupGrowthCentered ~= nil then c = ov.groupGrowthCentered end
     return c == true
@@ -716,11 +743,11 @@ ns._RFRebaseSavedCenter = function(cx, cy)
     local cs = ns.RF_CellSpacing(s)
     local gs = ns.RF_GroupSpacing(s)
     local bug, bgg = ns._RFEffectiveGrowth(s.unitGrowth or "DOWN", s.groupGrowth or "RIGHT", s.mergeGroups)
-    local bw, bh = ns._RFFootprint(s.frameWidth or 72, s.frameHeight or 46, bug, bgg, cs, gs)
+    local bw, bh = ns._RFFootprint(s.frameWidth or 72, s.frameHeight or 46, bug, bgg, cs, gs, ns._RFGridSize(nil, s))
     local ug, gg = ns._RFEffectiveGrowth(
         ov.unitGrowth or s.unitGrowth or "DOWN", ov.groupGrowth or s.groupGrowth or "RIGHT", s.mergeGroups)
     local tw, th = ns._RFFootprint(ov.width or s.frameWidth or 72,
-        ov.height or s.frameHeight or 46, ug, gg, cs, gs)
+        ov.height or s.frameHeight or 46, ug, gg, cs, gs, ns._RFGridSize(ov, s))
     local kx, ky = ns._RFCornerTerms(tw, th, bw, bh, ug, gg, ns._RFGroupCentered(ov, gg))
     return cx - (ov.offsetX or 0) - kx - (tw - bw) / 2,
         cy - (ov.offsetY or 0) - ky - (bh - th) / 2
@@ -793,7 +820,8 @@ ns._NormalizeTierOffsetAnchors = function()
                         o.unitGrowth or s.unitGrowth or "DOWN",
                         o.groupGrowth or s.groupGrowth or "RIGHT", s.mergeGroups)
                     local tw, th = ns._RFFootprint(
-                        o.width or s.frameWidth or 72, o.height or s.frameHeight or 46, ug, gg, cs, gs)
+                        o.width or s.frameWidth or 72, o.height or s.frameHeight or 46, ug, gg, cs, gs,
+                        ns._RFGridSize(o, s))
                     local tl, tt = ns._RFPosTopLeft(pos, tw, th)
                     o.offsetX = math.floor((o.offsetX or 0) + (tl - bl) + 0.5)
                     o.offsetY = math.floor((o.offsetY or 0) + (tt - bt) + 0.5)
@@ -810,7 +838,8 @@ ns._NormalizeTierOffsetAnchors = function()
                         o.unitGrowth or s.unitGrowth or "DOWN",
                         o.groupGrowth or s.groupGrowth or "RIGHT", s.mergeGroups)
                     local tw, th = ns._RFFootprint(
-                        o.width or s.frameWidth or 72, o.height or s.frameHeight or 46, ug, gg, cs, gs)
+                        o.width or s.frameWidth or 72, o.height or s.frameHeight or 46, ug, gg, cs, gs,
+                        ns._RFGridSize(o, s))
                     local kx, ky = ns._RFCornerTerms(tw, th, bw, bh, ug, gg)
                     if kx ~= 0 then
                         o.offsetX = math.floor((o.offsetX or 0) - kx + 0.5)
@@ -871,7 +900,7 @@ ns._ApplyTierOffset = function()
     local ug, gg = ns._RFEffectiveGrowth(
         (ov and ov.unitGrowth) or s.unitGrowth or "DOWN",
         (ov and ov.groupGrowth) or s.groupGrowth or "RIGHT", s.mergeGroups)
-    local tw, th = ns._RFFootprint(fw, fh, ug, gg, cs, gs)
+    local tw, th = ns._RFFootprint(fw, fh, ug, gg, cs, gs, ns._RFGridSize(ov, s))
     local x, y = ns._RFTierTopLeft(tw, th, ug, gg,
         (ov and ov.offsetX) or 0, (ov and ov.offsetY) or 0, ns._RFGroupCentered(ov, gg))
     if not x then return end

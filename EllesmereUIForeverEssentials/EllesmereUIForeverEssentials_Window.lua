@@ -13,7 +13,7 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  ns.Look holds the painters for every region a stock look (Global Settings
 --  > Style) draws differently: window and header backgrounds, the header
 --  line, the header glyphs and their hover, the lock art, the bar fill's
---  seat and background, a per-row restyle hook, the title's accent colour
+--  seat and background, a per-row restyle hook, the title's accent color
 --  and the menus' look. The EUI look, the two stock looks and Blizzard
 --  Style's WoW Forever variant are set here; ns.UseLook copies a stock
 --  look's entries in (never replacing the table) before the first surface
@@ -58,7 +58,7 @@ ns.WindowCorner = Corner
 --                configurable header line
 --    IconSize(size)                 header button size for a configured size
 --    WindowBg(tex, r, g, b, a)
---    HeaderBg(tex, r, g, b, a, winR, winG, winB)   the window colour trails
+--    HeaderBg(tex, r, g, b, a, winR, winG, winB)   the window color trails
 --    HeaderRail(h)                  extra height the look's header band adds
 --                                   under a header h tall (the title and
 --                                   buttons stay centred on the h above it)
@@ -69,9 +69,9 @@ ns.WindowCorner = Corner
 --    LockIcon(btn, locked)          may resize the button for other art
 --    SeatFill(row, iconWidth, dm)   anchors the bar fill in its row past the
 --                                   icons; returns its left and right insets
---    RowBg(tex, r, g, b, a)         a bar's background colour
+--    RowBg(tex, r, g, b, a)         a bar's background color
 --    RowStyled(row, dm)             after a bar's fonts, texture and border
---    titleColor  the title's colour in place of the accent (nil: the accent)
+--    titleColor  the title's color in place of the accent (nil: the accent)
 --    menuLook    the header menus' look (EllesmereUI.ShowContextMenu)
 -------------------------------------------------------------------------------
 local Look = { inset = 0, iconPad = -2, stock = false, menuLook = "meter" }
@@ -144,13 +144,13 @@ end
 local BLIZZ_HEADER = "ui-damagemeters-header-bar"
 local BLIZZ_TRACK = "ui-damagemeters-bar-shadowbg"
 local BLIZZ_EDGE = "ui-damagemeters-bar-shadowedge"
-local shade  -- gradient colours, made when the look is installed
+local shade  -- gradient colors, made when the look is installed
 
 local Blizzard = { stock = true }
 
 -- A 20px top band from half the body's strength up to it, over a flat black
 -- body, both hung off the bg texture's rect (which paints nothing). The
--- configured colour is not used; its opacity is.
+-- configured color is not used; its opacity is.
 function Blizzard.WindowBg(tex, _, _, _, a)
     local parts = windowArt[tex]
     if not parts then
@@ -177,7 +177,7 @@ function Blizzard.WindowBg(tex, _, _, _, a)
     parts[2]:SetGradient("VERTICAL", shade.lo, shade.lo)
 end
 
--- The header colour is not used; its opacity is.
+-- The header color is not used; its opacity is.
 function Blizzard.HeaderBg(tex, r, g, b, a)
     if HasAtlas(BLIZZ_HEADER) then
         tex:SetAtlas(BLIZZ_HEADER)
@@ -187,7 +187,7 @@ function Blizzard.HeaderBg(tex, r, g, b, a)
     end
 end
 
--- The stock track (set up with the row's art) takes no colour.
+-- The stock track (set up with the row's art) takes no color.
 function Blizzard.RowBg(tex, r, g, b, a)
     if HasAtlas(BLIZZ_TRACK) then return end
     tex:SetColorTexture(r, g, b, a)
@@ -214,12 +214,12 @@ local function BlizzTrack(row, art)
     end
 end
 
--- The user's bar texture keeps its colour; the bevel the stock fill bakes in
+-- The user's bar texture keeps its color; the bevel the stock fill bakes in
 -- is drawn over the filled part (four gradient strips on the fill texture,
 -- so they follow the value), with the track under the fill. The strips are
 -- sized from the fill's height and re-anchor only when the fill texture
 -- object (a path change can make a new one) or that height changes. The fill
--- fades by its colour's alpha, so its art fades with it.
+-- fades by its color's alpha, so its art fades with it.
 function Blizzard.RowStyled(row, dm)
     local fill = row.fill
     local art = rowArt[row]
@@ -360,7 +360,7 @@ function Classic.WindowBg(tex, r, g, b, a)
     Tile(tile, r, g, b, a)
 end
 
--- A lighter band of the window's tile (the header colour is not used; its
+-- A lighter band of the window's tile (the header color is not used; its
 -- opacity is), lifted so a black window still gets a visible band.
 function Classic.HeaderBg(tex, _, _, _, a, winR, winG, winB)
     Tile(tex, math.min(1, winR * 1.6 + 0.05), math.min(1, winG * 1.6 + 0.05),
@@ -534,7 +534,7 @@ end
 
 -- The window wears its frame over a flat black body spanning it (from the
 -- line's inner edge; Heavy Bronze: tucked under the band) at Blizzard
--- Style's strength times the opacity (the configured colour is not used),
+-- Style's strength times the opacity (the configured color is not used),
 -- both made once per window; the bg texture itself paints nothing.
 local function FvWindowBg(tex, _, _, _, a)
     local body = windowArt[tex]
@@ -551,7 +551,7 @@ local function FvWindowBg(tex, _, _, _, a)
     body:SetColorTexture(0, 0, 0, 245 / 255 * a)
 end
 
--- The header band (the header colour is not used; its opacity is). An atlas
+-- The header band (the header color is not used; its opacity is). An atlas
 -- cannot be cropped, so the cut is drawn from the atlas's sheet file at its
 -- coords; set up once per texture, every later call sets the opacity only.
 local function FvHeaderBg(tex, _, _, _, a)

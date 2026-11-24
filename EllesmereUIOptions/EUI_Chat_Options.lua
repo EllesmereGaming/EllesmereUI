@@ -231,8 +231,8 @@ initFrame:SetScript("OnEvent", function(self)
                       Set("panelBorderTexture", v)
                       Set("panelBorderOffsetX", nil); Set("panelBorderOffsetY", nil)
                       Set("panelBorderShiftX", nil); Set("panelBorderShiftY", nil)
-                      -- A style with a select colour (Pixels grey) seeds the custom
-                      -- colour; the colour mode is kept, every other style keeps its colour.
+                      -- A style with a select color (Pixels grey) seeds the custom
+                      -- color; the color mode is kept, every other style keeps its color.
                       local selC = EllesmereUI.GetBorderSelectColor(v)
                       if selC then Set("panelBorderColor", selC) end
                       -- A style pick lands on the style's default step, so an exact
@@ -1198,8 +1198,8 @@ initFrame:SetScript("OnEvent", function(self)
                       Set("tabBorderTexture", v)
                       Set("tabBorderOffsetX", nil); Set("tabBorderOffsetY", nil)
                       Set("tabBorderShiftX", nil); Set("tabBorderShiftY", nil)
-                      -- A style with a select colour (Pixels grey) seeds the custom
-                      -- colour; the colour mode is kept, every other style keeps its colour.
+                      -- A style with a select color (Pixels grey) seeds the custom
+                      -- color; the color mode is kept, every other style keeps its color.
                       local selC = EllesmereUI.GetBorderSelectColor(v)
                       if selC then Set("tabBorderColor", selC) end
                       -- A style pick lands on the style's default step, so an exact
@@ -1599,6 +1599,12 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - h
 
         -- Row 4: Shortened Channel Names (+ Use Letters cog) | Class Colored Names
+        -- (a checkbox dropdown over the placeholder, which keeps the label and
+        -- tooltip; its getter reads both keys the checklist writes, so the Spec
+        -- Overrides gold walk marks the slot while either is overridden):
+        -- Name of Chatter (classColorChatter, on unless false: the game's own
+        -- sender coloring, off holds its chatClassColorOverride CVar) and Names
+        -- in Messages (classColorNames, the engine's message text coloring).
         local abbrevRow
         abbrevRow, h = W:DualRow(parent, y,
             { type="toggle", text="Shortened Channel Names",
@@ -1610,14 +1616,14 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
                   EllesmereUI:RefreshPage()
               end },
-            { type="toggle", text="Class Colored Names",
-              tooltip="Colors group and raid member names by their class when they appear in the text of Say, Yell, Party, and Raid messages.",
-              getValue=function() return Cfg("classColorNames") == true end,
-              setValue=function(v)
-                  Set("classColorNames", v)
-                  if ECHAT.ApplyClassColorNames then ECHAT.ApplyClassColorNames(v) end
-                  if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
-              end })
+            { type="dropdown", text="Class Colored Names",
+              tooltip="Which player names are colored by class.",
+              values={ __placeholder = "..." }, order={ "__placeholder" },
+              getValue=function()
+                  local _ = Cfg("classColorChatter"), Cfg("classColorNames")
+                  return "__placeholder"
+              end,
+              setValue=function() end })
         do
             -- Cog: world channels as letters (the old Ge / T / LD / WD / LFG)
             -- instead of their numbers. Dimmed and inert while the toggle is off.
@@ -1637,6 +1643,39 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
+        end
+        if not EllesmereUI._prebuilding then
+            local rgn = abbrevRow._rightRegion
+            if rgn._control then rgn._control:Hide() end
+            local ccnItems = {
+                { key = "classColorChatter", label = "Name of Chatter",
+                  tooltip = "Shows the sender's name in their class color. Unticked, it takes the chat's color." },
+                { key = "classColorNames", label = "Names in Messages",
+                  tooltip = "Colors group and raid member names by their class when they appear in the text of Say, Yell, Party, and Raid messages." },
+            }
+            local ccnDD, ccnRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                rgn, 210, rgn:GetFrameLevel() + 2, ccnItems,
+                function(key)
+                    if key == "classColorChatter" then return Cfg(key) ~= false end
+                    return Cfg(key) == true
+                end,
+                function(key, v)
+                    Set(key, v and true or false)
+                    if key == "classColorChatter" then
+                        if ECHAT.ApplyChatterClassColor then ECHAT.ApplyChatterClassColor() end
+                    else
+                        if ECHAT.ApplyClassColorNames then ECHAT.ApplyClassColorNames(v) end
+                        if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
+                    end
+                end,
+                nil, nil, nil, nil, nil,
+                -- notifyWrites: a tick inside a Spec or Conditional Override
+                -- session is captured as it happens, under this row's name
+                { noAllLabel = true, notifyWrites = true })
+            EllesmereUI.PanelPP.Point(ccnDD, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = ccnDD
+            rgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(ccnRefresh)
         end
         y = y - h
 

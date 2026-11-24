@@ -91,11 +91,13 @@ every other module that can't be overridden.
 
 ## Reference
 
-`EllesmereUI.PLUGIN_API_VERSION` is `5`. The API only ever grows; existing
+`EllesmereUI.PLUGIN_API_VERSION` is `6`. The API only ever grows; existing
 functions and fields will not change. Version 2 added
 `EllesmereUI.GetCDMIconsForSpell`, version 3 `EllesmereUI.RequestCDMRepopulate`,
 version 4 `EllesmereUI.GetCDMRepopulateStatus`, version 5
-`EllesmereUI.RegisterQuestTrackerRow` and `EllesmereUI.RefreshQuestTrackerRows`.
+`EllesmereUI.RegisterQuestTrackerRow` and `EllesmereUI.RefreshQuestTrackerRows`,
+version 6 `EllesmereUI.RegisterMerchantItemCallback` and
+`EllesmereUI.RefreshMerchantItems`.
 
 ### `EllesmereUI.RegisterPlugin(id, spec)` -> `boolean`
 
@@ -235,6 +237,15 @@ end
 ReloadUI()
 ```
 
+A repopulate replaces a spec's arrangement, also one your EUI profile string
+just imported: every Blizzard spell the string placed leaves its bar (custom
+bars and Hidden CDs included) and comes back where the active Blizzard layout
+puts it, and the import's protection of the spells it placed (they are kept
+until Blizzard tracks them) ends. So request it only for specs whose EUI
+arrangement should come from the Blizzard layout. For a spec your EUI string
+already arranges, leave it out: import and activate the Blizzard layout first,
+then import the EUI string.
+
 ### `EllesmereUI.GetCDMRepopulateStatus([specID])` -> `status, time, layoutID`
 
 How a repopulate you queued with `EllesmereUI.RequestCDMRepopulate` went, for
@@ -318,6 +329,84 @@ if EllesmereUI and EllesmereUI.RegisterQuestTrackerRow then
         b:SetShown(MyAddon:HasAudio(questID))
     end, 16)
 end
+```
+
+### `EllesmereUI.RegisterMerchantItemCallback(id, fn)` -> `boolean`
+
+For addons that mark vendor items (highlights, icons, overlays). When the user
+turns on **Expand Vendor UI** or **Show As List** for the Merchant window skin,
+EUI draws the vendor's items on tiles and rows of its own instead of Blizzard's
+`MerchantItem1` to `MerchantItem10`. A hook on `MerchantFrame_UpdateMerchantInfo`
+that paints those ten tiles then paints frames nobody sees, and Expand Vendor
+UI turns its pages without running any Blizzard function. Register here as
+well, and keep your usual hook for Blizzard's own page.
+
+- `id`: your addon's folder name. One registration per id.
+- `fn(itemButton, index, tile, icon, isBuyback)`: runs for every item EUI
+  shows, each time it fills them: when the window opens or updates, on every
+  page flip, and when the list refreshes.
+  - `itemButton`: the item's button. Tiles and rows are made from Blizzard's
+    `MerchantItemTemplate`, so they carry what Blizzard's tiles carry:
+    `itemButton:GetID()` is `index`, and `itemButton.link`, `.name` and
+    `.price` are set as Blizzard sets them.
+  - `index`: the merchant item index (for `GetMerchantItemID(index)`,
+    `C_MerchantFrame.GetItemInfo(index)` and so on), or the buyback slot when
+    `isBuyback` is true.
+  - `tile`: the item's tile (Expand Vendor UI) or row (Show As List).
+    `tile.Name` is the item's name text; its prices are
+    `_G[tile:GetName() .. "MoneyFrame"]` and
+    `_G[tile:GetName() .. "AltCurrencyFrame"]`, as on Blizzard's tiles.
+  - `icon`: the texture showing the item's icon. In Show As List the item
+    button spans the whole row and the icon is a texture of the row, so use
+    this rather than `itemButton.icon`.
+  - `isBuyback`: `true` on the Buyback tab of Show As List. Expand Vendor UI
+    shows the Buyback tab on Blizzard's own page.
+
+Returns `true` on success, `false` for a bad argument or a taken `id`. An
+error in `fn` goes to the error handler and does not stop the others. Keep
+`fn` cheap: it runs for every item on every fill, and a grid can show 60.
+
+Tiles and rows are reused for other items, so set everything from `index` on
+each call, turning your marks off as well as on. EUI writes the name, icon and
+price colors on each fill before your callback runs; if you change those, a
+change you no longer want lasts until the next fill. A tile or row with no
+item is hidden, and so is everything you made as its child. These are EUI's
+frames: add children of your own, but don't move, resize, hide or reparent
+them.
+
+EUI fills them on vendor updates and page flips. When your own state changes
+(an item becomes collected), call `EllesmereUI.RefreshMerchantItems()`: every
+callback runs again over the items shown, on the next frame.
+
+Both functions exist only while the Blizzard Skins+ module
+(`EllesmereUIBlizzardSkin`) is loaded, on retail and WoW Forever, so test for
+them first. Your addon can load before that module: register at
+`PLAYER_LOGIN`, or list `EllesmereUIBlizzardSkin` in your TOC's
+`## OptionalDeps`. Your callback runs only while Expand Vendor UI or Show As
+List is on; Blizzard's own tiles show otherwise.
+
+```lua
+local marks = {}
+local function Mark(itemButton, index, tile, icon, isBuyback)
+    local m = marks[tile]
+    if not m then
+        m = itemButton:CreateTexture(nil, "OVERLAY")
+        m:SetAtlas("common-icon-checkmark")
+        m:SetSize(16, 16)
+        marks[tile] = m
+    end
+    m:ClearAllPoints()
+    m:SetPoint("TOPRIGHT", icon, "TOPRIGHT", 2, 2)
+    m:SetShown(not isBuyback and MyAddon:IsCollected(GetMerchantItemID(index)))
+end
+
+local f = CreateFrame("Frame")
+f:RegisterEvent("PLAYER_LOGIN")
+f:SetScript("OnEvent", function()
+    if EllesmereUI and EllesmereUI.RegisterMerchantItemCallback then
+        EllesmereUI.RegisterMerchantItemCallback("MyAddon", Mark)
+    end
+end)
 ```
 
 ## Building pages

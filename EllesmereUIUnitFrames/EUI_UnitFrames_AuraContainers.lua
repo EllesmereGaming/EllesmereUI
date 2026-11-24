@@ -159,6 +159,41 @@ function PurgeGlow.On(unit, s)
     return magic or enrage
 end
 
+-- Buff Tracked Auras: the target/focus Buff Filter's spell lists, the buff
+-- side of Tracked Auras.
+--   s.buffInclude      tri-state { [spellID] = true|false }, always shown
+--   s.buffIncludeMine  MINE opt-in map (entry shows only your casts)
+--   s.buffExclude      tri-state { [spellID] = true|false }, never shown
+--   s.buffTrackedOnly  Only Tracked Auras: the include list is the display
+-- The engine honours spell-ID candidates on HELPFUL auras only on units the
+-- player can assist; on a hostile unit an include group would show every buff.
+-- So the lists apply only while the unit is friendly (BuffTrack.Active), and a
+-- hostile unit keeps the plain Buff Filter chain.
+-- friendly[unit] = last assistable answer, watch[unit] = the unit has lists.
+local BuffTrack = { friendly = {}, watch = {} }
+
+-- Whether a tri-state Tracked Auras list ({ [spellID] = true|false }) has an
+-- entry switched on. Both sides' lists ask it (HasActiveIncludes below).
+local function AnyActive(list)
+    if not list then return false end
+    for _, v in pairs(list) do
+        if v then return true end
+    end
+    return false
+end
+
+-- Configured for this unit (any list entry, or Only Tracked Auras), and the
+-- buff row is showing (same visibility test as PurgeGlow.On).
+function BuffTrack.On(unit, s)
+    if unit ~= "target" and unit ~= "focus" then return false end
+    if not s then return false end
+    if s.showBuffs == false and not (s.debuffAnchorBuffs == true and (s.debuffAnchor or "none") ~= "none") then
+        return false
+    end
+    return s.buffTrackedOnly == true or AnyActive(s.buffInclude)
+        or AnyActive(s.buffExclude)
+end
+
 -- Important's SECOND group payload for NON-player frames (see the
 -- priority class comment above): the nameplate-importance flag,
 -- partitioned by isPriorityAura = false so an aura carrying BOTH flags
@@ -231,12 +266,7 @@ local MODE_VALID = {
     important = true, importantOwn = true, importantOrOwn = true,
 }
 local function HasActiveIncludes(s)
-    local inc = s.debuffInclude
-    if not inc then return false end
-    for _, v in pairs(inc) do
-        if v then return true end
-    end
-    return false
+    return AnyActive(s.debuffInclude)
 end
 local function DebuffFilterMode(s)
     local m = s.debuffFilterMode
@@ -263,12 +293,20 @@ ns.UF_DebuffHasIncludes = HasActiveIncludes
 -- the config sweep -- includeSpellIDs = the actives, excludeSpellIDs = {}
 -- so the shared excludes (which hide the actives from every OTHER group,
 -- see ApplyGroupConfig) never blank these.
-local function AppendIncludeLinks(chain, s, unit)
-    local inc = s.debuffInclude
+-- One builder for both sides, the side's keys in a spec: the debuff lists
+-- (target/focus/boss, the boss any-caster opt-out) and the Buff Tracked Auras
+-- lists (target/focus only: MINE opt-in, no boss map). The group keys are
+-- "<prefix>|" and "<prefix>mine|" ("inc" / "binc").
+local INC_DEBUFF = { list = "debuffInclude", mine = "debuffIncludeMine",
+    anyCaster = "debuffIncludeAnyCaster", token = "HARMFUL", prefix = "inc" }
+local INC_BUFF = { list = "buffInclude", mine = "buffIncludeMine",
+    token = "HELPFUL", prefix = "binc" }
+local function AppendIncludeLinks(chain, s, unit, spec)
+    local inc = s[spec.list]
     if not inc then return end
-    local isBoss = unit:match("^boss") ~= nil
-    local anym = isBoss and s.debuffIncludeAnyCaster or nil
-    local minem = (not isBoss) and s.debuffIncludeMine or nil
+    local isBoss = spec.anyCaster ~= nil and unit:match("^boss") ~= nil
+    local anym = isBoss and s[spec.anyCaster] or nil
+    local minem = (not isBoss) and s[spec.mine] or nil
     local m, mm
     for id, v in pairs(inc) do
         if v then
@@ -286,13 +324,13 @@ local function AppendIncludeLinks(chain, s, unit)
         end
     end
     if m then
-        chain[#chain + 1] = { key = "inc|" .. CandFP({ includeSpellIDs = m }),
-            tokens = { "HARMFUL" },
+        chain[#chain + 1] = { key = spec.prefix .. "|" .. CandFP({ includeSpellIDs = m }),
+            tokens = { spec.token },
             cand = { includeSpellIDs = m, excludeSpellIDs = {} }, inc = true }
     end
     if mm then
-        chain[#chain + 1] = { key = "incmine|" .. CandFP({ includeSpellIDs = mm }),
-            tokens = { "HARMFUL", "PLAYER" },
+        chain[#chain + 1] = { key = spec.prefix .. "mine|" .. CandFP({ includeSpellIDs = mm }),
+            tokens = { spec.token, "PLAYER" },
             cand = { includeSpellIDs = mm, excludeSpellIDs = {} }, inc = true, mine = true }
     end
 end
@@ -330,7 +368,7 @@ local function NonPlayerDebuffChain(s, unit)
         chain[2] = { key = "priorityoth",   tokens = { "HARMFUL", "!PLAYER" }, cand = PRIORITY_CAND, important = true }
         chain[3] = { key = "prioritynpoth", tokens = { "HARMFUL", "!PLAYER" }, cand = PRIORITY_NONPLAYER_CAND, important = true }
     end
-    AppendIncludeLinks(chain, s, unit)
+    AppendIncludeLinks(chain, s, unit, INC_DEBUFF)
     return chain
 end
 
@@ -1155,6 +1193,16 @@ local function PlayerDebuffChain(s)
     return chain
 end
 
+-- Buff Tracked Auras on a friendly unit: the tracked buffs show on top of the
+-- Buff Filter. An empty (show-all) chain already shows them; a narrowed one
+-- gets the include links, at any duration.
+local function BuffTrackAdd(chain, isBuff, unit, s)
+    if isBuff and #chain > 0 and BuffTrack.Active(unit, s) then
+        AppendIncludeLinks(chain, s, unit, INC_BUFF)
+    end
+    return chain
+end
+
 -- An element's chain. Has Duration (s.debuffHasDuration on every unit,
 -- s.buffDurOnly on target/focus/boss -- its own key: the player's broad-mode
 -- s.buffHasDuration, run inside PlayerBuffChain, can already sit copied on
@@ -1174,11 +1222,20 @@ local function ChainFor(unit, base, s)
     elseif unit == "player" then
         chain = PlayerDebuffChain(s)
     else
+        -- Only Tracked Auras on a friendly unit: the include links are the
+        -- whole display, at any duration. An empty list sets chain.none, which
+        -- skips the show-all fallback in ApplyGroupConfig.
+        if isBuff and s.buffTrackedOnly == true and BuffTrack.Active(unit, s) then
+            chain = {}
+            AppendIncludeLinks(chain, s, unit, INC_BUFF)
+            if #chain == 0 then chain.none = true end
+            return chain
+        end
         chain = BuildChain(base, isBuff, s, unit)
     end
     local dur
     if isBuff then dur = s.buffDurOnly == true else dur = s.debuffHasDuration == true end
-    if not dur then return chain end
+    if not dur then return BuffTrackAdd(chain, isBuff, unit, s) end
     -- Non-player buffs with nothing shown or hidden run the plain show-all
     -- group (ApplyGroupConfig); narrowed, it becomes an explicit link.
     if isBuff and #chain == 0 then
@@ -1207,7 +1264,7 @@ local function ChainFor(unit, base, s)
                 important = c.important }
         end
     end
-    return chain
+    return BuffTrackAdd(chain, isBuff, unit, s)
 end
 
 local function ChainSignature(chain)
@@ -1260,7 +1317,7 @@ local PET_AURA_KEYS = {
     showAuraTooltips = 1,
     buffIconZoom = 2, debuffIconZoom = 2,
     auraBorderR = 2, auraBorderG = 2, auraBorderB = 2, auraBorderA = 2,
-    auraBorderSize = 2, auraBorderSizePx = 2, auraBorderTexture = 2,
+    auraBorderSize = 2, auraBorderSizePx = 2, auraBorderCornerRadius = 2, auraBorderTexture = 2,
     auraBorderTextureOffset = 2, auraBorderTextureOffsetY = 2,
     auraBorderTextureShiftX = 2, auraBorderTextureShiftY = 2,
     auraBorderBehind = 2, auraBorderBehindUnitFrame = 2, auraBorderDispelTextured = 2,
@@ -1521,13 +1578,13 @@ local function StyleTableFP(st, font)
     return FP(font, st.width, st.height, tc[1], tc[2], tc[3], tc[4],
         st.hideDurationText, st.durationPrecisionThreshold, st.cdTextSize, CK(st.cdTextColor), st.cdOffX, st.cdOffY,
         st.stackSize, CK(st.stackColor), st.stackPos, st.stackOffX, st.stackOffY,
-        b and b.texture, b and b.size, b and b.edgePx, b and b[1], b and b[2], b and b[3], b and b[4],
+        b and b.texture, b and b.size, b and b.cornerRadius, b and b.edgePx, b and b[1], b and b[2], b and b[3], b and b[4],
         b and b.offsetX, b and b.offsetY, b and b.shiftX, b and b.shiftY,
         b and b.behind, b and b.behindUnitFrame, b and b.unitFrameLevel,
         st.auraBorderAboveEffects,
         st.noTooltips, st.blizzBorder, st.dispelBorder,
         -- Textured Dispel Ring (the ring's art key) and Use Dispel Colors (the
-        -- palette fingerprint the colour map was built from).
+        -- palette fingerprint the color map was built from).
         st.dispelBorderTexture, st.dispelColorFP)
 end
 
@@ -1689,14 +1746,20 @@ local function BuildStyle(unit, base, s, unitFrame)
     local size, h, cropped = ElementSize(unit, base, s)
     local p = Pick(isBuff, "buff", "debuff")
 
-    -- Boss simple side displays read their own cooldown-text keys.
+    -- Boss simple side displays read their own cooldown-text keys; the duration
+    -- offsets fall back to the regular ones while unset (ns.GetBossSimpleCdTextOffset).
     local simpleOn = BossSimple(unit, base, s)
     local showCdKey, cdSizeKey = p .. "ShowCooldownText", p .. "CooldownTextSize"
     local cdSizeDefault = 10
+    local cdOffX, cdOffY
     if simpleOn then
-        showCdKey = "simple" .. p:gsub("^%l", string.upper) .. "ShowCooldownText"
-        cdSizeKey = "simple" .. p:gsub("^%l", string.upper) .. "CooldownTextSize"
+        local cap = (p:gsub("^%l", string.upper))
+        showCdKey = "simple" .. cap .. "ShowCooldownText"
+        cdSizeKey = "simple" .. cap .. "CooldownTextSize"
         cdSizeDefault = 14
+        cdOffX, cdOffY = ns.GetBossSimpleCdTextOffset(s, isBuff)
+    else
+        cdOffX, cdOffY = s[p .. "CooldownTextOffsetX"] or 0, s[p .. "CooldownTextOffsetY"] or 0
     end
 
     -- Blizzard Style: buffs borderless like the stock frames, debuffs on the
@@ -1709,6 +1772,7 @@ local function BuildStyle(unit, base, s, unitFrame)
         border = {
             s.auraBorderR or 0, s.auraBorderG or 0, s.auraBorderB or 0, s.auraBorderA or 1,
             size = s.auraBorderSize or 1,
+            cornerRadius = s.auraBorderCornerRadius,
             texture = s.auraBorderTexture or "solid",
             -- Exact size (nil = the legacy step path); a pure function of the three
             -- keys, so the built-style fingerprint above covers it.
@@ -1723,7 +1787,7 @@ local function BuildStyle(unit, base, s, unitFrame)
         }
         -- Dispel-type border recolor (per-unit debuffDispelBorder): the engine
         -- shows the ring only on typed (dispellable) debuffs and tints it per
-        -- dispel type, in its own colours or, with the player's Use Dispel
+        -- dispel type, in its own colors or, with the player's Use Dispel
         -- Colors, in the Dispel Colors palette handed over as
         -- customDispelColorMap (below). No aura data is read either way.
         dispel = (not isBuff and s.debuffDispelBorder) and true or nil
@@ -1763,8 +1827,8 @@ local function BuildStyle(unit, base, s, unitFrame)
         durationPrecisionThreshold = tonumber(s[p .. "CooldownTextPrecision"]),
         cdTextSize = s[cdSizeKey] or cdSizeDefault,
         cdTextColor = s[p .. "CooldownTextColor"],
-        cdOffX = s[p .. "CooldownTextOffsetX"] or 0,
-        cdOffY = s[p .. "CooldownTextOffsetY"] or 0,
+        cdOffX = cdOffX,
+        cdOffY = cdOffY,
         stackSize = s[p .. "StackTextSize"] or 14,
         stackColor = s[p .. "StackTextColor"],
         stackPos = s[p .. "StackTextPosition"],
@@ -1849,8 +1913,8 @@ function PurgeGlow.Spec(s)
         bgR = bgc and bgc.r, bgG = bgc and bgc.g, bgB = bgc and bgc.b,
     }
     spec.r, spec.g, spec.b = EllesmereUI.Glows.ResolveColor(mode, c and c.r, c and c.g, c and c.b)
-    -- Class mode: the palette colour this spec (and Register's print) holds,
-    -- for the colours-changed hook below the reload.
+    -- Class mode: the palette color this spec (and Register's print) holds,
+    -- for the colors-changed hook below the reload.
     if mode == "class" then PurgeGlow.ccR, PurgeGlow.ccG, PurgeGlow.ccB = spec.r, spec.g, spec.b end
     return spec
 end
@@ -2320,8 +2384,8 @@ end
 -- flip). The unit change events ride the always-on unitWatcher instead, so a
 -- target swap runs the gate before its one aura re-parse.
 function IncGate.Sync()
-    local st, pw = IncGate.state, PurgeGlow.watch
-    local wantT, wantF = st.target or pw.target, st.focus or pw.focus
+    local st, pw, bw = IncGate.state, PurgeGlow.watch, BuffTrack.watch
+    local wantT, wantF = st.target or pw.target or bw.target, st.focus or pw.focus or bw.focus
     local sig = (wantT and 1 or 0) + (wantF and 2 or 0)
     if IncGate.sig == sig then return end
     IncGate.sig = sig
@@ -2388,8 +2452,8 @@ end
 function IncGate.Flush()
     local t, f = IncGate.pendT, IncGate.pendF
     IncGate.pendT, IncGate.pendF = nil, nil
-    if t then IncGate.Apply("target"); PurgeGlow.Check("target") end
-    if f then IncGate.Apply("focus"); PurgeGlow.Check("focus") end
+    if t then IncGate.Apply("target"); PurgeGlow.Check("target"); BuffTrack.Check("target") end
+    if f then IncGate.Apply("focus"); PurgeGlow.Check("focus"); BuffTrack.Check("focus") end
 end
 
 function IncGate.OnEvent(_, _, unit)
@@ -2441,6 +2505,52 @@ function PurgeGlow.SetWatch(unit, on)
     PurgeGlow.watch[unit] = on
     IncGate.Sync()
 end
+
+------------------------------------------------------------------------------
+-- Buff Tracked Auras friendly gate (BuffTrack is declared beside PurgeGlow).
+-- Same check and re-check edges as the Purgeable Buff Glow gate above; the
+-- unit's UNIT_FACTION is held (IncGate.Sync) only while it has lists. A flip
+-- reloads the unit, so its chain and shared excludes follow. Known gap, shared
+-- with the engine's own gate: on a friend the engine still distrusts (dead,
+-- phased, out of range) the include groups can briefly show every buff until
+-- the next re-check.
+------------------------------------------------------------------------------
+function BuffTrack.Friendly(unit)
+    if UnitExists(unit) then BuffTrack.friendly[unit] = IncGate.Assistable(unit) end
+    return BuffTrack.friendly[unit] == true
+end
+
+function BuffTrack.Active(unit, s)
+    return BuffTrack.On(unit, s) and BuffTrack.Friendly(unit)
+end
+
+-- noParse: the caller re-parses right after (unitWatcher's RefreshUnit).
+function BuffTrack.Check(unit, noParse)
+    if not BuffTrack.watch[unit] then return end
+    local entry = registry[unit]
+    if not (entry and entry.buffs) or entry.building then return end
+    if not UnitExists(unit) then return end
+    if IncGate.Assistable(unit) == (BuffTrack.friendly[unit] == true) then return end
+    -- The chain signature can stay put across a flip (Only Tracked Auras with an
+    -- empty list on a friend vs a plain show-all chain on an enemy), so force
+    -- the config pass rather than rely on the signature moving.
+    entry.cfgDirty = true
+    if entry.frame and ns.UF_ReloadAuraContainers then ns.UF_ReloadAuraContainers(entry.frame, unit) end
+    if not noParse then entry.buffs:UpdateAllAuras() end
+end
+
+-- Held by the unit's reload: set while the unit has Buff Tracked Auras lists.
+function BuffTrack.SetWatch(unit, on)
+    if unit ~= "target" and unit ~= "focus" then return end
+    if on then on = true else on = nil end
+    if BuffTrack.watch[unit] == on then return end
+    BuffTrack.watch[unit] = on
+    IncGate.Sync()
+end
+
+-- Buff containers that have carried Buff Tracked Auras excludes keep an
+-- explicit (possibly empty) set from then on, so stale excludes get cleared.
+local btCandUsed = setmetatable({}, { __mode = "k" })
 
 local function ApplyGroupConfig(container, unit, base, s, chain, declared)
     local PP = EllesmereUI.PP
@@ -2541,6 +2651,36 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
         end
         cand = cand or {}
         cand.excludeSpellIDs = ex
+    elseif unit == "target" or unit == "focus" then
+        -- Buff Tracked Auras (friendly units only): excluded buffs hide
+        -- everywhere, and while an include link renders the included buffs
+        -- they leave every other group, so none renders twice. Units without
+        -- lists keep a nil candidate table.
+        local ex
+        if BuffTrack.Active(unit, s) then
+            local uex = s.buffExclude
+            if uex then
+                for id, v in pairs(uex) do
+                    if v then ex = ex or {}; ex[id] = true end
+                end
+            end
+            local uinc = s.buffInclude
+            if uinc then
+                local incLink = false
+                for i = 1, #chain do
+                    if chain[i].inc then incLink = true break end
+                end
+                if incLink then
+                    for id, v in pairs(uinc) do
+                        if v then ex = ex or {}; ex[id] = true end
+                    end
+                end
+            end
+        end
+        if ex or btCandUsed[container] then
+            btCandUsed[container] = true
+            cand = { excludeSpellIDs = ex or {} }
+        end
     end
 
     -- No groupSpacing: the engine trails every element with elementSpacing,
@@ -2583,12 +2723,13 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
                     impKeys[c.key] = true
                 end
             end
-        elseif isBuff and unit ~= "player" then
+        elseif isBuff and unit ~= "player" and not chain.none then
             -- Non-player buffs keep the legacy show-all fallback (no classes =
             -- everything). Player elements run the PAB content model (an empty
             -- chain = add mode with nothing selected = show nothing), and
             -- non-player debuff chains carry their catch-all explicitly (Show
             -- All) or mean nothing at all (Only Tracked Auras, empty list).
+            -- chain.none: Only Tracked Auras with an empty buff list (ChainFor).
             active.all = false
         end
     end
@@ -2745,6 +2886,15 @@ local function CfgFP(unit, base, s, frame)
     -- Max Important (Important or Own) caps the important-from-others links in
     -- ApplyGroupConfig. Marked only while set, so a default fingerprint stays.
     if not isBuff and s.maxImportantDebuffs then fp = fp .. "|mi" .. s.maxImportantDebuffs end
+    -- Buff Tracked Auras: ApplyGroupConfig reads the lists, the mode and the
+    -- friendly answer, and toggling an entry moves no chain key. Marked only
+    -- while the unit has lists, so a default fingerprint stays.
+    if isBuff and BuffTrack.On(unit, s) then
+        fp = fp .. "|bt" .. (BuffTrack.Friendly(unit) and "f" or "h")
+            .. (s.buffTrackedOnly == true and "o" or "")
+            .. TriListFP(s.buffExclude) .. "/" .. TriListFP(s.buffInclude)
+            .. "/" .. TriListFP(s.buffIncludeMine)
+    end
     -- Weapon enchant cells widen the player buff row (ApplyGroupConfig).
     -- Marked only while some show, so a default fingerprint stays.
     if WeaponCells.Shown(unit, base, s) then
@@ -2792,7 +2942,7 @@ local TypeIcons = { LIFT = 18, GROW = { up = "UP", down = "DOWN", left = "LEFT",
 -- dispel overlay uses) as a customDispelColorMap (dispel type -> Color) for the
 -- player's debuff rings, plus its fingerprint, which BuildStyle hands on as
 -- style.dispelColorFP (AuraKit re-registers the ring options when it moves).
--- Memoised on the five resolved colours, its only inputs: an unchanged palette
+-- Memoised on the five resolved colors, its only inputs: an unchanged palette
 -- hands back the same map.
 do
     local memoFP, memoMap
@@ -3471,6 +3621,12 @@ function ns.UF_ReloadAuraContainers(frame, unit)
         if base == "HELPFUL" and unit ~= "player" then
             PurgeGlow.Register(unit, s, entry.frame, font)
             PurgeGlow.SetWatch(unit, PurgeGlow.On(unit, s))
+            -- Buff Tracked Auras: hold the unit's friendly watch while it has
+            -- lists, and stamp the friendly answer this pass builds with, so
+            -- BuffTrack.Check compares against what is actually configured.
+            local btOn = BuffTrack.On(unit, s)
+            BuffTrack.SetWatch(unit, btOn)
+            if btOn then BuffTrack.Friendly(unit) end
         end
 
         -- Groups are ADDITIVE and the container is NEVER swapped: a changed chain
@@ -3658,6 +3814,8 @@ do
             IncGate.Apply("focus")
             PurgeGlow.Check("target")
             PurgeGlow.Check("focus")
+            BuffTrack.Check("target")
+            BuffTrack.Check("focus")
             local entry = registry.player
             if not entry or entry.building then return end
             entry.cfgDirty = true
@@ -3683,10 +3841,12 @@ unitWatcher:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_TARGET_CHANGED" then
         IncGate.Apply("target", true)
         PurgeGlow.Check("target", true)
+        BuffTrack.Check("target", true)
         RefreshUnit("target")
     elseif event == "PLAYER_FOCUS_CHANGED" then
         IncGate.Apply("focus", true)
         PurgeGlow.Check("focus", true)
+        BuffTrack.Check("focus", true)
         RefreshUnit("focus")
     else
         for i = 1, 5 do RefreshUnit("boss" .. i) end
@@ -3706,7 +3866,7 @@ end
 
 -- Colors page edits (swatches, darken, resets, profile switches) all end in
 -- ApplyColorsToOUF. Once a Class-mode purge glow was built, a changed class
--- colour re-runs the reload; the purge print carries the colour, so only
+-- color re-runs the reload; the purge print carries the color, so only
 -- that glow style restyles. Calls in one frame (a profile switch can make
 -- two) collapse into one check on the next frame: the flush frame stays
 -- hidden until a call and hides itself before working.
@@ -3823,7 +3983,7 @@ local function BuildUnitContainers(frame, unit)
         -- after this. A no-op unless the unit holds include groups.
         if (unit == "target" or unit == "focus") and not IncGate.hooked[frame] then
             IncGate.hooked[frame] = true
-            frame:HookScript("OnShow", function() IncGate.Apply(unit); PurgeGlow.Check(unit) end)
+            frame:HookScript("OnShow", function() IncGate.Apply(unit); PurgeGlow.Check(unit); BuffTrack.Check(unit) end)
         end
         return "again"
     end

@@ -370,6 +370,16 @@ local function PromoteToOffer()
     return record
 end
 
+
+function RaidPrompt:ForgetPromote()
+    local kept = addon.db.lootMasterKept
+    addon.db.lootMasterKept = nil
+    addon.Log:I("RaidPrompt", "remembered loot promotion cleared -", tostring(type(kept) == "table" and kept.name))
+    addon.Chat.Print(T["Loot Master promotion cleared."])
+
+    addon.Callbacks:Invalidate("options")
+end
+
 local function AskPromote(record)
     Ask("promote",
         addon.Locale.Format(T["Re-promote %s as the Loot Master of this raid, or clear your Loot Master promotion?"],
@@ -382,11 +392,7 @@ local function AskPromote(record)
         end,
         function()
             promoteOpen = false
-            addon.db.lootMasterKept = nil
-            addon.Log:I("RaidPrompt", "remembered loot promotion cleared -", tostring(record.fullName))
-            addon.Chat.Print(T["Loot Master promotion cleared."])
-
-            addon.Callbacks:Invalidate("options")
+            RaidPrompt:ForgetPromote()
         end, nil,
         T["Promote Loot Master"])
 end
@@ -429,7 +435,7 @@ end
 function RaidPrompt:AskToDeactivate()
     if not addon.PlayerIsMasterLooter() or not addon.Loot.handling then return end
     Ask("deactivate", T["Disable SLC?"], nil,
-        T["Are you sure you want to disable SLC for this run?"],
+        T["Are you sure you want to disable SLC for this session?"],
         false,
         function() RaidPrompt:Deactivate() end,
         nil, true)

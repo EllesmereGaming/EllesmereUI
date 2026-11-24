@@ -31,7 +31,7 @@ local _skinned = setmetatable({}, { __mode = "k" })
 -- stand down and only the behaviour (visibility, click sinks, click-anywhere
 -- headers, QoL) runs. Both stock styles draw the tracker the same way
 -- (Blizzard's header bars included); CLASSIC only keeps its gold header
--- colour for any remaining GetHeaderRGB reader.
+-- color for any remaining GetHeaderRGB reader.
 local STOCK, CLASSIC = false, false
 
 -- Blizzard's native quest POI icons instead of our classified icons: the
@@ -743,7 +743,7 @@ do
     sf:RegisterEvent("SUPER_TRACKING_CHANGED")
     sf:RegisterEvent("PLAYER_ENTERING_WORLD")
     sf:SetScript("OnEvent", function(_, event)
-        -- The cached ID only colours our focus highlight, which the stock
+        -- The cached ID only colors our focus highlight, which the stock
         -- styles never paint.
         if not STOCK and C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID then
             local id = C_SuperTrack.GetSuperTrackedQuestID()

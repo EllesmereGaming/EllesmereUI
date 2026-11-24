@@ -418,7 +418,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         --Border Style (+ cog) | Border Size (+ inline swatch)
         -- Only built when "Custom Border Style" (above) is on, so the whole
-        -- row plus its offset cog and colour swatch stay hidden by default and
+        -- row plus its offset cog and color swatch stay hidden by default and
         -- reclaim their space when off.
         if Cfg("customBorderStyle") then
         -- The border reaches the forces bar only with Apply to Forces Bar on, so
@@ -456,7 +456,7 @@ initFrame:SetScript("OnEvent", function(self)
                     Set("borderTextureShiftY", nil)
                     local selC = EllesmereUI.GetBorderSelectColor(v)
                     if selC then
-                        -- The style's select colour (Pixels grey).
+                        -- The style's select color (Pixels grey).
                         Set("borderR", selC.r); Set("borderG", selC.g); Set("borderB", selC.b); Set("borderA", 1)
                     elseif v ~= "solid" then
                         Set("borderR", 1); Set("borderG", 1); Set("borderB", 1); Set("borderA", 1)
@@ -610,10 +610,10 @@ initFrame:SetScript("OnEvent", function(self)
             return swatch
         end
 
-        -- Attach the accent + custom colour pair as two INLINE swatches on a
+        -- Attach the accent + custom color pair as two INLINE swatches on a
         -- DualRow region, chaining off rgn._lastInline. Click the accent swatch
         -- to follow the theme accent; click the custom swatch to switch to a
-        -- custom colour (opens the picker).
+        -- custom color (opens the picker).
         -- The inactive swatch dims to 0.3; both are blocked + dimmed with the
         -- requirement tooltip while isDisabled() is true (mirrors _AttachInlineSwatch).
         -- followTip/followColor optionally replace the accent swatch's label and
@@ -640,7 +640,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(accentSwatch, "RIGHT", rgn._lastInline or rgn._control or rgn, "LEFT", -8, 0)
             rgn._lastInline = accentSwatch
 
-            -- Custom-colour swatch (to the left of accent): the stored custom colour.
+            -- Custom-color swatch (to the left of accent): the stored custom color.
             local customSwatch, updateCustom = EllesmereUI.BuildColorSwatch(
                 rgn, rgn:GetFrameLevel() + 5,
                 function()
@@ -664,7 +664,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(customSwatch, "RIGHT", rgn._lastInline or rgn._control or rgn, "LEFT", -8, 0)
             rgn._lastInline = customSwatch
 
-            -- Per-swatch hover tooltip (colour name when enabled) + disabled block.
+            -- Per-swatch hover tooltip (color name when enabled) + disabled block.
             local function AddBlock(sw, enterTip)
                 sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, enterTip) end)
                 sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -752,7 +752,7 @@ initFrame:SetScript("OnEvent", function(self)
               set=function(v) Set("keyLevelTimerSpacing", v); Refresh() end },
         }, disabled = function() return Cfg("enabled") == false or Cfg("showTitle") == false end, disabledTooltip = ModuleOr("Show Title") })
         if not EllesmereUI._prebuilding then
-        -- Inline accent + custom colour swatches on the Title Size slider.
+        -- Inline accent + custom color swatches on the Title Size slider.
         _AttachInlineAccentSwatches(row._rightRegion, "titleUseAccent", "titleColor", 1, 1, 1,
             function() return Cfg("enabled") == false or Cfg("showTitle") == false end, "Show Title")
         end
@@ -907,7 +907,7 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - h
 
         -- Builds a threshold toggle config plus an attach() that hangs the inline
-        -- RESIZE cog (white text / size / x / y) and the colour swatch onto a given
+        -- RESIZE cog (white text / size / x / y) and the color swatch onto a given
         -- DualRow region, so two thresholds can share one dual row.
         local function _ThresholdWidget(label, barColorKey, showKey, sizeKey, offsetXKey, offsetYKey, whiteKey, defR, defG, defB, afterBarSet)
             local function IsTimerTextShown()
@@ -942,7 +942,7 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) Set(offsetYKey, v); Refresh() end },
                 }, disabled = function() return Cfg("enabled") == false or not IsTimerTextShown() end,
                    disabledTooltip = ModuleOr(cfg.text) })
-                -- Inline colour swatch (the +N threshold / segment colour), left of the cog
+                -- Inline color swatch (the +N threshold / segment color), left of the cog
                 _AttachInlineSwatch(rgn, barColorKey, defR, defG, defB, afterBarSet,
                     function() return Cfg("enabled") == false end, "the module")
             end
@@ -1068,7 +1068,7 @@ initFrame:SetScript("OnEvent", function(self)
               order=texOrder,
               getValue=function() return Cfg("enemyBarTexture") or "none" end,
               setValue=function(v) Set("enemyBarTexture", v); Refresh() end })
-        -- The background texture cog, then the fill colour (accent or custom) as inline swatches.
+        -- The background texture cog, then the fill color (accent or custom) as inline swatches.
         EllesmereUI.BuildInlineCog(row._rightRegion, { title = "Bar Texture", gap = 6, rows = {
             { type="dropdown", label="Background Texture",
               values=texValues, order=texOrder,
@@ -1644,7 +1644,7 @@ initFrame:SetScript("OnEvent", function(self)
                 title = "Important Cast Color",
                 rows = {
                     { type="toggle", label="Important Cast Color",
-                      tooltip="Tint the bar with the Important colour when the enemy casts a spell the game flags as important.",
+                      tooltip="Tint the bar with the Important color when the enemy casts a spell the game flags as important.",
                       get=function() local c = TSB(); return c and c.importantEnabled == true end,
                       set=function(v)
                           local c = TSB(); if not c then return end
@@ -1907,7 +1907,7 @@ initFrame:SetScript("OnEvent", function(self)
               } },
             { type="dropdown", text="Kick Ready Mid-Cast Hint",
               disabled=SharedOff, disabledTooltip=SHARED_REQ,
-              tooltip="Shows where your interrupt will be ready during a cast. \"Tick\" marks the exact spot on the cast bar; \"Tick + Bar\" also colours the window during which your interrupt will be available.",
+              tooltip="Shows where your interrupt will be ready during a cast. \"Tick\" marks the exact spot on the cast bar; \"Tick + Bar\" also colors the window during which your interrupt will be available.",
               values=kickHintValues, order=kickHintOrder,
               getValue=function()
                   local t = TFB()
@@ -1943,7 +1943,7 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() local t = TFB(); return not t or t.showSpark ~= false end,
                       set=function(v) local t = TFB(); if t then t.showSpark = v and true or false; TFBRefresh() end end },
                     { type="toggle", label="Important Cast Color",
-                      tooltip="Tint the cast bar with the Important colour when the unit casts a spell the game flags as important. Your interrupt being on cooldown still takes priority.",
+                      tooltip="Tint the cast bar with the Important color when the unit casts a spell the game flags as important. Your interrupt being on cooldown still takes priority.",
                       get=function() local t = TFB(); return t and t.importantEnabled == true end,
                       set=function(v)
                           local t = TFB(); if not t then return end

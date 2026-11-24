@@ -374,7 +374,7 @@ function NameplateFrame:UpdateHealthColor()
     -- compare against the last applied values and skip the setter. Cache nil'd in ClearUnit.
     local hr, hg, hb = GetReactionColor(unit, self._castSeen)
     -- Enemy player whose class token was redacted (instanced PvP): the token still keys
-    -- C_ClassColor, Blizzard's palette as step 6 paints a readable token. The colour may be
+    -- C_ClassColor, Blizzard's palette as step 6 paints a readable token. The color may be
     -- secret, so it skips the skip-if-unchanged compare, goes straight to the setter and is
     -- re-applied every pass. hr/hg/hb stay the plain fallback for the tints below.
     local mirrored, mr, mg, mb = false
@@ -392,7 +392,7 @@ function NameplateFrame:UpdateHealthColor()
         folded, fr, fg, fb, fa = ns.ComputeOffTankFold(unit, hr, hg, hb, otc.r, otc.g, otc.b)
     end
     if mirrored then
-        -- Cache invalidated, never written with a secret: the next plain colour must reapply.
+        -- Cache invalidated, never written with a secret: the next plain color must reapply.
         self._lastHCr, self._lastHCg, self._lastHCb = nil, nil, nil
         self.health:SetStatusBarColor(mr, mg, mb)
     elseif folded then
@@ -452,7 +452,7 @@ function NameplateFrame:UpdateHealthColor()
     -- name's memo, so it repaints the moment threat hands the name back). Each lane keeps
     -- its own skip-if-unchanged cache, and handing the name from one to another clears the
     -- previous owner's cache so the new owner always repaints once. A custom-mode name
-    -- threat hands back takes its static slot colour here; changing a slot's mode runs
+    -- threat hands back takes its static slot color here; changing a slot's mode runs
     -- ApplyAppearance, whose static write and cache resets hand the name back to the lanes.
     local nameThreat = tcName and tcOn
     local wasNameThreat = self._threatNameOn
@@ -533,7 +533,7 @@ function NameplateFrame:UpdateHealthColor()
         local texPath = ns._focusOverlayTexPath
         local overlayAlpha = db2.focusOverlayAlpha or defaults.focusOverlayAlpha
         local ocr, ocg, ocb
-        -- No Tint means "wear the bar's colour", so on a mirrored plate it has to take the
+        -- No Tint means "wear the bar's color", so on a mirrored plate it has to take the
         -- mirrored values, not the plain fallback -- tinting from hr/hg/hb there would show
         -- the exact mismatch No Tint exists to avoid. Secrets cannot be value-keyed, so
         -- forced re-applies every pass and the cache is left unset (the `or` below

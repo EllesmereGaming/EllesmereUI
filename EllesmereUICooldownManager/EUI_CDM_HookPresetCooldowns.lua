@@ -348,9 +348,9 @@ end
 --
 --  The setting is implemented as a hooksecurefunc on the cooldown's
 --  SetSwipeColor (see DecorateFrame), which reaches BLIZZARD-owned CDM icons
---  only: Blizzard repaints their swipe colour as the cooldown state changes, so
+--  only: Blizzard repaints their swipe color as the cooldown state changes, so
 --  the hook gets a chance to alpha-0 it. Preset frames (racials and user-added
---  custom spells) are painted by US -- swipe colour is written once at decorate
+--  custom spells) are painted by US -- swipe color is written once at decorate
 --  time and only GEOMETRY is driven afterwards -- so the hook never fires for
 --  them and the GCD swipe stayed full alpha while the rest of the bar
 --  suppressed it. EVERY place that drives a preset frame's SPELL cooldown must
@@ -400,7 +400,7 @@ local function ApplyPresetGCDSwipe(f, sid, cdInfo, barKey)
     -- appearance refresh repaints the swipe from bar data and would otherwise
     -- un-hide it until the next state change. The restore arm fires on the
     -- falling edge alone, so a frame we never suppressed keeps its own paint
-    -- and nothing else is fought for ownership of the colour.
+    -- and nothing else is fought for ownership of the color.
     local fd = FD(f)
     if hide then
         f._gcdSwipeHidden = true
@@ -519,7 +519,10 @@ local function ProcessPresetCooldowns()
                         local fcF = _ecmeFC[f]
                         local bkF = fcF and fcF.barKey
                         local sdF = bkF and ns.GetBarSpellData and ns.GetBarSpellData(bkF)
-                        local forceCount = sdF and sdF.customSpellForceCount and sdF.customSpellForceCount[sid]
+                        -- The setting is saved under the typed ID; sid is the rank the
+                        -- frame reads (WoW Forever: _rankSID, another rank it knows).
+                        local keyF = (f._rankSID and fcF and fcF.spellID) or sid
+                        local forceCount = sdF and sdF.customSpellForceCount and sdF.customSpellForceCount[keyF]
                         if forceCount then
                             -- Render only on ARMED passes: the count moves only
                             -- on edges that arm (gate comment above). An armed

@@ -124,7 +124,8 @@ local _hasUserRules = false                             -- any profile (user) ru
 -- when the UNIT_AURA payload shows one coming or going (ns.CdmFormAuraEdge).
 local _needUsable, _needForms, _needFormAuras, _formSeen = false, false, false, nil
 -- Any cd-state rule with a Stance Bar hide (EllesmereUICdmStanceBar.lua): a
--- stance bar page change (UPDATE_BONUS_ACTIONBAR, UPDATE_STEALTH for Prowl).
+-- stance bar page change (UPDATE_BONUS_ACTIONBAR, UPDATE_STEALTH for Prowl),
+-- and the player's UNIT_AURA for a WoW Forever druid's powershift.
 local _needStance = false
 local _formAuraRules = {}
 local _formAuraQueued = false
@@ -288,7 +289,7 @@ RestoreOverlayBorders = function(iconFrame, o)
     o._brdSavedLvl, o._sbSavedLvl, o._brdRaised = nil, nil, false
 end
 
--- Active swipe colour: class, custom, or default gold. Drives our own swipe.
+-- Active swipe color: class, custom, or default gold. Drives our own swipe.
 ResolveSwipeColor = function(ss)
     local cr, cg, cb
     if ss and ss.activeSwipeClassColor then
@@ -429,7 +430,7 @@ ApplyToFrame = function(iconFrame, rule, win)
         end
         -- Feed the active glow + border the underlying icon's shape / border so
         -- Shape Glow masks to the shape (it reads the shape from its glow frame's
-        -- parent FC) and Active Border can recolour the real (now-raised) border.
+        -- parent FC) and Active Border can recolor the real (now-raised) border.
         local ufd  = ns._hookFrameData and ns._hookFrameData[iconFrame]
         local uifc = ns._ecmeFC and ns._ecmeFC[iconFrame]
         o.borderFrame = (ufd and ufd.borderFrame) or nil
@@ -1004,11 +1005,11 @@ OnEvent = function(self, event, unit, updateInfo, spellID)
             for i = 1, #_auraRules do OpenFromAura(_auraRules[i]) end
             for i = 1, #_customRules do EvalCustom(_customRules[i]) end
         end
-        if _needForms then
+        if _needForms or (_needStance and ns.CdmStanceBarFormAura) then
             local form = ns.CdmCurrentFormID()
             if form ~= _formSeen then
                 _formSeen = form
-                ns.CdmRetryUnreadForms()
+                if _needForms then ns.CdmRetryUnreadForms() end
                 QueueCdStateEval()
             elseif _needFormAuras and ns.CdmFormAuraEdge(updateInfo, "preset") then
                 QueueFormAuraEval()
@@ -1066,7 +1067,8 @@ UpdateListeners = function()
             _events = CreateFrame("Frame")
             _events:SetScript("OnEvent", OnEvent)
         end
-        if _needAura or _needForms then _events:RegisterUnitEvent("UNIT_AURA", "player")
+        if _needAura or _needForms or (_needStance and ns.CdmStanceBarFormAura) then
+            _events:RegisterUnitEvent("UNIT_AURA", "player")
         else _events:UnregisterEvent("UNIT_AURA") end
         if _needCast then _events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
         else _events:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED") end
@@ -1324,7 +1326,7 @@ local function FrameBaseAlpha(fc)
 end
 
 -- cas is the rule's styling entry (passed in so a trinket, whose frame key is a
--- slot, still gets the per-item glow colour). Marks the frame "touched" so the
+-- slot, still gets the per-item glow color). Marks the frame "touched" so the
 -- restore pass below can find it even after the trinket has been swapped out.
 -- hide and glow are the two halves of the effect (ns.CdStateOf), each applied
 -- on its own: the hide runs on hideCD (the form alone, or unusable counting as
@@ -1509,10 +1511,16 @@ local function EvalCdStateRule(rule, icons, FCt)
     if soundKey == "none" then soundKey = nil end
     local stance = ns.CdmStanceBarOf(cas)
     if hide or glow or soundKey or stance then
-        local onCD = PresetOnCD(rule.spellID)
+        -- WoW Forever: a typed spell's icon reads another rank of it
+        -- (ns._cdmRankOf, kept by the injection); the cooldown, the usable
+        -- test and the form test are that rank's, the rule stays the typed ID's.
+        local cdKey = rule.spellID
+        local rankOf = ns._cdmRankOf
+        if rankOf then cdKey = rankOf[cdKey] or cdKey end
+        local onCD = PresetOnCD(cdKey)
         -- Separate read for the Hidden (CD Ready) effects: a charge spell is
         -- ready only at max charges (items fall through to "not onCD").
-        local ready = PresetCdReady(rule.spellID, onCD)
+        local ready = PresetCdReady(cdKey, onCD)
         -- Hidden Until Usable paints as Hidden (On CD) with "not usable"
         -- counting as unavailable, Hidden Outside Form/Stance with only the
         -- form deciding (ns.CD_STATE_HIDE); the glow and the sound below keep
@@ -1522,9 +1530,9 @@ local function EvalCdStateRule(rule, icons, FCt)
         if m and (m.usable or m.form) then
             hide = m.shift and "hiddenOnCDShift" or "hiddenOnCD"
             if m.form then
-                hideCD = PresetSpellTest(rule.spellID, ns.CdmSpellOutsideForm)
+                hideCD = PresetSpellTest(cdKey, ns.CdmSpellOutsideForm)
             elseif not onCD then
-                hideCD = PresetSpellTest(rule.spellID, ns.CdmSpellNotUsable)
+                hideCD = PresetSpellTest(cdKey, ns.CdmSpellNotUsable)
             end
         end
         -- Stance Bar: hidden on (or off) a stance bar page whatever the
@@ -1613,6 +1621,11 @@ end
 local function MapCast(rule)
     local spells, pending = ResolveCastSpells(rule.triggerSpellID or rule.spellID)
     _pendingCastRules[rule] = pending and next(pending) and pending or nil
+    -- WoW Forever: a cast reports the rank cast, which for a typed spell is
+    -- the rank its icon reads (ns._cdmRankOf).
+    local rankOf = ns._cdmRankOf
+    local rk = rankOf and not rule.triggerSpellID and rankOf[rule.spellID]
+    if rk then spells[#spells + 1] = rk end
     for i = 1, #spells do
         local sp = spells[i]
         local list = _castMap[sp]
@@ -1647,6 +1660,16 @@ RetryPendingCasts = function(itemID, success)
         end
     end
     if changed and not next(_pendingCastRules) then UpdateListeners() end
+end
+
+-- The rank a typed spell's icon reads changed (the injection, WoW Forever):
+-- its cast rules map the new rank and the state rules read it at once.
+function ns.FakeActive_RankChanged(sid)
+    for i = 1, #_rules do
+        local rule = _rules[i]
+        if rule.spellID == sid and rule.trigger == "cast" then MapCast(rule) end
+    end
+    QueueCdStateEval()
 end
 
 local function AddRule(rule)
@@ -1688,7 +1711,7 @@ function ns.FakeActive_OnIconRestyled(iconFrame)
     local bd = barKey and ns.barDataByKey and ns.barDataByKey[barKey]
     IconTexture(iconFrame, o, o._rule)
     if ns.ApplyShapeToOverlay then ns.ApplyShapeToOverlay(iconFrame, o.icon, o.cd, bd) end
-    -- Re-apply Duration Text styling too (the font/size/colour may have changed).
+    -- Re-apply Duration Text styling too (the font/size/color may have changed).
     if ns.StyleOverlayCooldownText then
         ns.StyleOverlayCooldownText(o.cd, bd, o._ss, iconFrame:GetScale())
     end
@@ -1703,10 +1726,10 @@ function ns.FakeActive_OnIconRestyled(iconFrame)
     o._brdRaised = false
     RaiseOverlayBorders(iconFrame, o, bd)
     -- Re-feed the active glow / border the underlying shape + border refs, then
-    -- re-apply so a glow-colour / active-border edit takes effect live (the glow
-    -- only restarts if its style/colour actually changed). ApplyShapeToCDMIcon
-    -- just reset the shape border to its configured colour, so drop the stale
-    -- saved colour first to re-capture it for restore-on-falloff.
+    -- re-apply so a glow-color / active-border edit takes effect live (the glow
+    -- only restarts if its style/color actually changed). ApplyShapeToCDMIcon
+    -- just reset the shape border to its configured color, so drop the stale
+    -- saved color first to re-capture it for restore-on-falloff.
     local ufd  = ns._hookFrameData and ns._hookFrameData[iconFrame]
     local uifc = ns._ecmeFC and ns._ecmeFC[iconFrame]
     o.borderFrame = (ufd and ufd.borderFrame) or nil

@@ -105,7 +105,7 @@ end
 
 
 local QUEUE_REFUSED = addon.Locale.Texts{
-    active = T["could not queue %s - a run is in progress, and only the Loot Master can add to it."],
+    active = T["could not queue %s - a session is in progress, and only the Loot Master can add to it."],
     council = T["could not queue %s - only the Loot Master and council members can queue items."],
     mode = T["could not queue %s - the group leader has not let council members manage the loot queue."],
     lootmaster = T["could not queue %s - only the Loot Master can queue items."],

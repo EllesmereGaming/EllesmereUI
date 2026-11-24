@@ -38,11 +38,11 @@ local _pendingCastIDs, QueueCustomBuffUpdate = I._pendingCastIDs, I.QueueCustomB
 -- fire Blizzard's TriggerAuraAppliedAlert (they appear on a cast/edge for a
 -- fixed window), so the regular-buff apply-edge hook can't reach them; play the
 -- SAME stored key (ss.buffActiveSoundKey) here, off the cast edge that
--- (re)starts the icon's timer. No loss sound: the real aura is secret/other-cast,
--- so only the gain edge is knowable. The id comes straight from the bar's
--- assignedSpells (clean, never secret), so the lookup is a direct spellSettings
--- hit, no GetCanonicalSpellIDForFrame dance. Gated 0-cost on ns._cdmAnyBuffSound
--- (same flag RescanBuffSoundFlag sets from these spellSettings) and throttled.
+-- (re)starts the icon's timer; the loss sound below plays when that timer runs
+-- out. The id comes straight from the bar's assignedSpells (clean, never
+-- secret), so both resolve the settings by id and bar, no
+-- GetCanonicalSpellIDForFrame dance. Gated 0-cost on ns._cdmAnyBuffSound (the
+-- flag RescanBuffSoundFlag sets from either sound key) and throttled.
 local _presetGainSoundAt = {}
 local _presetLossSoundAt = {}
 local PRESET_GAIN_SOUND_GAP = 0.3
@@ -65,10 +65,10 @@ end
 -- Loss counterpart to PlayPresetBuffGainSound for self-timed preset/custom buffs
 -- (no real aura-removed alert): fired when the displayed timer runs out. Separate
 -- throttle table so gain/loss never suppress each other.
-local function PlayPresetBuffLossSound(sd, sid, now)
+local function PlayPresetBuffLossSound(sd, barKey, sid, now)
     if not ns._cdmAnyBuffSound then return end
     if ns._cdmSoundSuppressed and ns._cdmSoundSuppressed() then return end
-    local ss = sd and sd.spellSettings and sd.spellSettings[sid]
+    local ss = ResolveSpellSettings(nil, sid, sd, barKey)
     local key = ss and ss.buffLostSoundKey
     if not key or key == "none" then return end
     local last = _presetLossSoundAt[sid]
@@ -93,15 +93,35 @@ end
 --  keep the single shared group, byte-for-byte.
 -------------------------------------------------------------------------------
 
+-- The bar-wide Cooldown Swipe ("Apply to Bar"): hidden?, r, g, b. A shared engine
+-- group can honor this tier but never a per-spell value. Only a buff bar's own
+-- tier: a buff hosted on a cooldown or utility bar never takes the host's Apply to
+-- Bar values (ResolveSpellSettings drops the tier for it too).
+function _AC.BarSwipe(bd)
+    if not (bd and (bd.barType == "buffs" or bd.barType == "custom_buff")) then return false, 0, 0, 0 end
+    local tier = ns.GetBarTierSettings(ns.GetBarSpellData(bd.key), bd.key)
+    local mode = tier and tier.cdSwipeColor
+    if mode == "none" then return true, 0, 0, 0 end
+    if mode == "class" then
+        local cc = _playerClass and RAID_CLASS_COLORS[_playerClass]
+        if cc then return false, cc.r, cc.g, cc.b end
+    elseif mode == "custom" then
+        return false, tier.cdSwipeColorR or 1, tier.cdSwipeColorG or 0.776, tier.cdSwipeColorB or 0.376
+    end
+    return false, 0, 0, 0
+end
+
 -- Appearance fingerprint: the settings a restyle can carry. Geometry the engine
 -- flow owns (size, shape, spacing, growth, ids) rebuilds instead, in _AC.Build.
 function _AC.StyleSig(bd)
     if not bd then return "" end
+    local swipeOff, swipeR, swipeG, swipeB = _AC.BarSwipe(bd)
     return table.concat({
+        swipeOff and 1 or 0, swipeR, swipeG, swipeB,
         bd.iconShape or "none", bd.iconZoom or 0.08,
         bd.borderSize or 1, bd.borderR or 0, bd.borderG or 0, bd.borderB or 0,
         bd.borderA or 1, bd.borderTexture or "solid", bd.borderThickness or "thin",
-        bd.borderSizePx or "",
+        bd.borderSizePx or "", bd.borderCornerRadius or 0,
         bd.borderClassColor and 1 or 0, bd.borderBehind and 1 or 0,
         bd.borderTextureOffset or 0, bd.borderTextureOffsetY or 0,
         bd.borderTextureShiftX or 0, bd.borderTextureShiftY or 0,
@@ -181,6 +201,7 @@ function _AC.BuildStyle(bd, fixedIcon)
     if blizz then zoom = 0; shape = "none" end
     local customShape = (shape ~= "none" and shape ~= "cropped")
     local onlyNumbers = (bd and bd.onlyShowNumbers) and true or false
+    local swipeOff, swipeR, swipeG, swipeB = _AC.BarSwipe(bd)
     local brdSize = (bd and bd.borderSize) or 1
     local brdR, brdG, brdB = (bd and bd.borderR) or 0, (bd and bd.borderG) or 0, (bd and bd.borderB) or 0
     if bd and bd.borderClassColor then
@@ -198,8 +219,9 @@ function _AC.BuildStyle(bd, fixedIcon)
     local texCoord
     local SH = ns.CDM_SHAPES
     if shape == "cropped" then
-        local trim = ns.CdmCropTrim(bd)
-        texCoord = { zoom, 1 - zoom, zoom + trim, 1 - zoom - trim }
+        -- The top and bottom are cut, the art keeps its proportions (ApplyShapeToCDMIcon).
+        local half = (1 - 2 * zoom) * ns.CdmCropFactor(bd) / 2
+        texCoord = { zoom, 1 - zoom, 0.5 - half, 0.5 + half }
     elseif customShape and SH and SH.masks[shape] then
         local visRatio = (128 - 2 * (SH.insets[shape] or 17)) / 128
         local grow = ((1 / visRatio) - 1) * 0.5
@@ -214,6 +236,7 @@ function _AC.BuildStyle(bd, fixedIcon)
         border = {
             brdR, brdG, brdB, brdA, size = brdSize,
             texture = brdTex,
+            cornerRadius = bd and bd.borderCornerRadius,
             behind = (bd and bd.borderBehind) or nil,
             offsetX = bd and bd.borderTextureOffset, offsetY = bd and bd.borderTextureOffsetY,
             shiftX = bd and bd.borderTextureShiftX, shiftY = bd and bd.borderTextureShiftY,
@@ -230,7 +253,7 @@ function _AC.BuildStyle(bd, fixedIcon)
         iconCrop = true, iconZoom = zoom,
         texCoord = texCoord,
         cooldownReverse = true,
-        hideSwipe = onlyNumbers or nil,
+        hideSwipe = (onlyNumbers or swipeOff) or nil,
         hideDurationText = (not ns.CdmDurationTextOn(bd)) or nil,
         durationFormatter = _AC.DurationFormatter(),
         -- Own text pipeline: the house icon-text rules (font, outline, slug) come
@@ -252,6 +275,7 @@ function _AC.BuildStyle(bd, fixedIcon)
             bgR = (bd and bd.bgR) or 0.08, bgG = (bd and bd.bgG) or 0.08,
             bgB = (bd and bd.bgB) or 0.08, bgA = (bd and bd.bgA) or 0.6,
             swipeAlpha = (bd and bd.swipeAlpha) or 0.7,
+            swipeR = swipeR, swipeG = swipeG, swipeB = swipeB,
             durSize = (bd and bd.cooldownFontSize) or 12,
             durPos = (bd and bd.cooldownTextPosition) or "center",
             durX = (bd and bd.cooldownTextX) or 0, durY = (bd and bd.cooldownTextY) or 0,
@@ -394,7 +418,7 @@ function _AC.ApplyExtra(button, d, style)
             d.cdmBg:Show()
         end
     end
-    if d.cooldown then d.cooldown:SetSwipeColor(0, 0, 0, c.swipeAlpha) end
+    if d.cooldown then d.cooldown:SetSwipeColor(c.swipeR, c.swipeG, c.swipeB, c.swipeAlpha) end
 
     -- Custom shape: mask on icon/background/swipe plus the shape's own ring,
     -- mirroring ApplyShapeToCDMIcon so both renderers land on the same geometry.
@@ -402,7 +426,8 @@ function _AC.ApplyExtra(button, d, style)
     local mask, ring = d.cdmMask, d.cdmRing
     local maskPath = (c.customShape and SH and not c.onlyNumbers) and SH.masks[c.shape] or nil
     local shapeKey = maskPath
-        and (c.shape .. "|" .. c.zoom .. "|" .. c.brdSize .. "|" .. c.size) or ""
+        and (c.shape .. "|" .. c.zoom .. "|" .. c.brdSize .. "|" .. c.size)
+        or (d.auraRound and d.auraRound.on and "rounded" or "")
     if d.cdmShapeKey ~= shapeKey and mask then
         if maskPath then
             mask:SetTexture(maskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
@@ -449,13 +474,19 @@ function _AC.ApplyExtra(button, d, style)
                 d.icon:SetAllPoints(d.borderHost)
             end
             if d.cooldown then
-                pcall(d.cooldown.SetSwipeTexture, d.cooldown, "Interface\\AddOns\\EllesmereUI\\media\\white-square.png")
+                if not (d.auraRound and d.auraRound.on) then
+                    pcall(d.cooldown.SetSwipeTexture, d.cooldown, "Interface\\AddOns\\EllesmereUI\\media\\white-square.png")
+                end
                 if d.cooldown.SetUseCircularEdge then
                     pcall(d.cooldown.SetUseCircularEdge, d.cooldown, false)
                 end
             end
         end
         d.cdmShapeKey = shapeKey
+    end
+    if d.auraRound and d.auraRound.on then
+        EllesmereUI.MaskRoundedIconLayer(d.auraRound, d.cdmBg)
+        EllesmereUI.MaskRoundedIconLayer(d.auraRound, fixed)
     end
     -- Ring color follows the border color on every pass, so a color-only change
     -- lands without re-running the geometry above. Border Size 0 drops the ring,
@@ -532,6 +563,9 @@ function _AC.ApplyExtra(button, d, style)
 end
 
 -- Add every id form the live aura can carry (typed + override + base) to map.
+-- WoW Forever: and every other rank of the spell the session can name
+-- (ns.CDMRankFamily, nil on every other client), so an aura of another rank
+-- shows too.
 function _AC.AddSpellForms(map, sid)
     map[sid] = true
     local ovr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
@@ -539,7 +573,25 @@ function _AC.AddSpellForms(map, sid)
     if ovr and ovr > 0 then map[ovr] = true end
     local base = C_Spell and C_Spell.GetBaseSpell and C_Spell.GetBaseSpell(sid)
     if base and base > 0 then map[base] = true end
+    local fam = ns.CDMRankFamily and ns.CDMRankFamily(sid)
+    if fam then
+        for id in pairs(fam.forms) do map[id] = true end
+    end
     return map
+end
+
+-- WoW Forever: whether a pending cast (_pendingCastIDs) is a rank of a
+-- cast-timed custom buff's typed spell. Always false on every other client,
+-- where only the exact ID starts the timer. Asked only after the exact ID
+-- missed, while a cast is pending.
+local function CastOfRank(sid)
+    local fam = ns.CDMRankFamily and next(_pendingCastIDs) and ns.CDMRankFamily(sid)
+    if not fam then return false end
+    local forms = fam.forms
+    for castID in pairs(_pendingCastIDs) do
+        if forms[castID] then return true end
+    end
+    return false
 end
 
 function _AC.FixedIconStyleKey(barKey, sid)
@@ -743,7 +795,7 @@ local function UpdateCustomBuffBars()
                             local timerKey = barKey .. ":" .. sid
                             local timer = _customAuraTimers[timerKey]
 
-                            if _pendingCastIDs[sid] and duration > 0 then
+                            if (_pendingCastIDs[sid] or (ns.CDMRankFamily and CastOfRank(sid))) and duration > 0 then
                                 _customAuraTimers[timerKey] = {
                                     start = now,
                                     duration = duration,
@@ -754,7 +806,7 @@ local function UpdateCustomBuffBars()
 
                             -- Loss edge: displayed timer ran out -> fire once, drop it.
                             if timer and (now - timer.start) >= timer.duration then
-                                PlayPresetBuffLossSound(sd, sid, now)
+                                PlayPresetBuffLossSound(sd, barKey, sid, now)
                                 _customAuraTimers[timerKey] = nil
                                 timer = nil
                             end
@@ -855,7 +907,7 @@ local function UpdateCustomBuffBars()
                 for _, sid in ipairs(spellList) do
                     if type(sid) == "number" and sid > 0 and (durs[sid] or 0) > 0 then
                         local tkey = barData.key .. ":" .. sid
-                        if _pendingCastIDs[sid] then
+                        if _pendingCastIDs[sid] or (ns.CDMRankFamily and CastOfRank(sid)) then
                             _customAuraTimers[tkey] = {
                                 start = now, duration = durs[sid],
                             }
@@ -865,7 +917,7 @@ local function UpdateCustomBuffBars()
                             -- Loss edge: displayed window ran out -> fire once, drop timer.
                             local t = _customAuraTimers[tkey]
                             if t and (now - t.start) >= t.duration then
-                                PlayPresetBuffLossSound(sd, sid, now)
+                                PlayPresetBuffLossSound(sd, barData.key, sid, now)
                                 _customAuraTimers[tkey] = nil
                                 needBuffReanchor = true
                             end
@@ -890,10 +942,16 @@ function ns.UpdateCustomBuffAuraTracking()
     local p = ECME and ECME.db and ECME.db.profile
     local bars = p and p.cdmBars and p.cdmBars.bars
     local seen = {}
+    local adoptedPotion = false
     if bars then
         for _, bd in ipairs(bars) do
             if bd.enabled and (bd.barType == "custom_buff" or bd.barType == "buffs") then
                 local sd = ns.GetBarSpellData and ns.GetBarSpellData(bd.key)
+                if ns.AdoptPotionCustomEntries(sd) then
+                    adoptedPotion = true
+                    local barFrame = cdmBarFrames[bd.key]
+                    if barFrame then barFrame._blizzCache = nil; barFrame._prevVisibleCount = nil end
+                end
                 local list = sd and sd.assignedSpells
                 local tags = sd and sd.customSpellIDs
                 if list and tags then
@@ -926,6 +984,17 @@ function ns.UpdateCustomBuffAuraTracking()
                                 end
                             end
                         end
+                        -- WoW Forever: the other ranks each spell's include set
+                        -- names (_AC.AddSpellForms) are structural too, and widen
+                        -- as a rank is learned. Nothing on any other client, so
+                        -- the signature there stays as it was.
+                        local rankSig
+                        if ns.CDMRankFamily then
+                            for i = 1, #sids do
+                                local fam = ns.CDMRankFamily(sids[i])
+                                if fam then rankSig = (rankSig or "|rk") .. ":" .. fam.sig end
+                            end
+                        end
                         -- Structural only: the id list plus the geometry the
                         -- engine flow owns. Everything else is appearance and
                         -- rides ns.RefreshAuraCustomStyle without a rebuild.
@@ -940,6 +1009,7 @@ function ns.UpdateCustomBuffAuraTracking()
                             -- its exact signature.
                             .. ((bd.iconShape == "cropped") and ("|crop" .. ns.CdmCropPercent(bd)) or "")
                             .. (ciSig or "")
+                            .. (rankSig or "")
                         local rec = _AC.bars[bd.key]
                         if not rec then rec = {}; _AC.bars[bd.key] = rec end
                         rec.bdRef = bd
@@ -992,6 +1062,10 @@ function ns.UpdateCustomBuffAuraTracking()
             end
             rec.ciStyles = nil
         end
+    end
+    if adoptedPotion then
+        if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+        if ns.QueueReanchor then ns.QueueReanchor() end
     end
 end
 

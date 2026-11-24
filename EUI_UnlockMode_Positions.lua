@@ -62,7 +62,7 @@ local function MakeGhostSet(opts)
     -- _TryOverrideAnchor runtime math (extent is inert in unlock).
     local function GhostSnapBase(childKey, link)
         local childBar = UM.GetBarFrame(childKey)
-        local tgt = UM.GetBarFrame(link.target)
+        local tgt = UM.GetAnchorTargetFrame(link.target)
         if not childBar or not tgt or not tgt:GetLeft() then return nil end
         local uiS = UIParent:GetEffectiveScale()
         local tS = tgt:GetEffectiveScale()
@@ -500,7 +500,7 @@ do
             EllesmereUI._AnchorPark.Park(childKey)
             return true
         end
-        local tgt = UM.GetBarFrame(ov.target)
+        local tgt = UM.GetAnchorTargetFrame(ov.target)
         if not tgt or not tgt:GetLeft() then
             -- Target unavailable (absent frame / no bounds yet): hold position.
             return true
@@ -830,7 +830,7 @@ EllesmereUI._unlockCaptureGrowPin = function(childKey, ai, side)
     if not ai or not ai.target then return false end
     if ai.mode == "POINT" then return false end
     local childBar = UM.GetBarFrame(childKey)
-    local targetBar = UM.GetBarFrame(ai.target)
+    local targetBar = UM.GetAnchorTargetFrame(ai.target)
     if not childBar or not targetBar then return false end
     if not (childBar:GetLeft() and targetBar:GetLeft()) then return false end
     local growDir = GetBarGrowDirActual(childKey)
@@ -921,7 +921,7 @@ EllesmereUI._CaptureAnchorOffsets = function(childKey, targetKey, side)
     if info and info.mode == "POINT" and info.target == targetKey then
         return ns.PointAnchors.Capture(childKey, info)
     end
-    local child, tgt = UM.GetBarFrame(childKey), UM.GetBarFrame(targetKey)
+    local child, tgt = UM.GetBarFrame(childKey), UM.GetAnchorTargetFrame(targetKey)
     if not (child and child:GetLeft() and tgt and tgt:GetLeft()) then return nil end
     local uiS = UIParent:GetEffectiveScale()
     local cS, tS = child:GetEffectiveScale() / uiS, tgt:GetEffectiveScale() / uiS
@@ -1064,12 +1064,16 @@ UM.ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fro
     -- would re-point its strip and skew every screen-edge link.
     if EllesmereUI.IsScreenEdgeKey(childKey) then return end
     local childBar = UM.GetBarFrame(childKey)
-    local targetBar = UM.GetBarFrame(targetKey)
+    local targetBar = UM.GetAnchorTargetFrame(targetKey)
     if not childBar then return end
     -- Addon owns this element's position (e.g. a grouped Tracking Bar member
     -- chained to its group anchor): never reposition it, or its relative SetPoint to the anchor gets clobbered, in or out of combat.
     local cElem = registeredElements[childKey]
-    if cElem and cElem.isAnchored and cElem.isAnchored(childKey) then return end
+    -- A bar riding the cursor: its link places its resting stand-in instead.
+    local standIn = cElem and cElem.anchorStandIn and cElem.anchorStandIn()
+    if standIn then
+        childBar = standIn
+    elseif cElem and cElem.isAnchored and cElem.isAnchored(childKey) then return end
     -- The module alone places this frame from its saved spot (ownsPosition: main
     -- chat): a link would be a third owner beside it and Blizzard's Edit Mode.
     if cElem and cElem.ownsPosition then return end
@@ -2109,12 +2113,14 @@ EllesmereUI.ReapplyAllUnlockAnchorsForced = function()
             local childBar = UM.GetBarFrame(childKey)
             local targetBar = UM.GetBarFrame(info.target)
             local rcElem = registeredElements[childKey]
+            local standIn = rcElem and rcElem.anchorStandIn and rcElem.anchorStandIn()
+            if standIn then childBar = standIn end
             if childBar and inCombat and childBar:IsProtected() then
                 EllesmereUI._AnchorPark.Park(childKey)
             end
             if childBar and (targetBar or info.fallback ~= nil)
                and not (inCombat and childBar:IsProtected())
-               and not (rcElem and rcElem.isAnchored and rcElem.isAnchored(childKey))
+               and (standIn or not (rcElem and rcElem.isAnchored and rcElem.isAnchored(childKey)))
                and not (rcElem and rcElem.ownsPosition)
                and not PositionHeld(childKey) then
                 -- AB growth bars: skip entirely -- applyPos from barPositions is
@@ -2144,7 +2150,7 @@ function EllesmereUI.GetAnchorTargetCenterUI(childKey)
     local adb = GetAnchorDB()
     local info = adb and adb[childKey]
     if not info or not info.target then return nil end
-    local targetBar = UM.GetBarFrame(info.target)
+    local targetBar = UM.GetAnchorTargetFrame(info.target)
     if not targetBar or not targetBar:GetLeft() then return nil end
     local uiS = UIParent:GetEffectiveScale()
     local tS = targetBar:GetEffectiveScale()
@@ -2163,7 +2169,7 @@ function EllesmereUI.GetAnchorTargetEdgesUI(childKey)
     local adb = GetAnchorDB()
     local info = adb and adb[childKey]
     if not info or not info.target then return nil end
-    local targetBar = UM.GetBarFrame(info.target)
+    local targetBar = UM.GetAnchorTargetFrame(info.target)
     if not targetBar or not targetBar:GetLeft() then return nil end
     local uiS = UIParent:GetEffectiveScale()
     local tS = targetBar:GetEffectiveScale()
@@ -2492,6 +2498,14 @@ UM.GetBarFrame = function(barKey)
     if barKey == "MicroBar"   then return _G["MicroMenuContainer"] or _G["MicroMenu"] end
     if barKey == "BagBar"     then return _G["BagsBar"] end
     return nil
+end
+
+-- Frame an anchor link measures its target by: a target riding the cursor
+-- lends its resting stand-in (anchorStandIn), so its children stay put.
+UM.GetAnchorTargetFrame = function(barKey)
+    local elem = registeredElements[barKey]
+    local standIn = elem and elem.anchorStandIn and elem.anchorStandIn()
+    return standIn or UM.GetBarFrame(barKey)
 end
 
 UM.GetBarLabel = function(barKey)

@@ -623,7 +623,7 @@ end
 --  the next name on the table (group members and pets; your whole threat when
 --  you are alone on it). Not holding it: against the holder, read directly when
 --  they are in your group (the last holder's token is tried first, so a steady
---  fight costs one query), else from your percent of their threat. The colour
+--  fight costs one query), else from your percent of their threat. The color
 --  says who leads in raw threat. Returns false when a value reads secret, so
 --  the caller paints the percent instead. The scan covers the group's own
 --  tokens only, and the target plate's repaints run once per frame.

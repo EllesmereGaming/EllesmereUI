@@ -374,7 +374,7 @@ local function DecorateFrame(frame, barData)
                 -- buff frame (cast-timer driven): the swipe is the aura DURATION,
                 -- so skip all cd-style logic (Suppress-GCD, active-state) and
                 -- apply only per-spell "Cooldown Swipe Color" (Default = bar's
-                -- swipe colour/black, Class/Custom per settings).
+                -- swipe color/black, Class/Custom per settings).
                 if fd._isBuffViewerFrame or frame._isCustomBuffFrame then
                     fd._isProcessingOverride = true
                     local fcB = _ecmeFC[frame]
@@ -407,6 +407,8 @@ local function DecorateFrame(frame, barData)
                 local sid2 = fc2 and fc2.spellID
                 local bk2 = fc2 and fc2.barKey
                 local bd2 = bk2 and barDataByKey and barDataByKey[bk2]
+                -- CURRENT bar's swipe alpha (see the buff branch above).
+                local swipeAlpha2 = (bd2 and bd2.swipeAlpha) or barData.swipeAlpha or 0.7
                 -- Resolved BEFORE the Suppress GCD block: the per-spell
                 -- suppressGCD flag joins the bar toggle there (pure hoist --
                 -- this resolve always ran once per hook pass, just later).
@@ -524,8 +526,8 @@ local function DecorateFrame(frame, barData)
                     -- (override present, not on its own real CD) this icon has no real
                     -- CD, so the black swipe has no geometry -- until another ability
                     -- pushes a GCD via SetCooldown, whose geometry the PERSISTENT
-                    -- black colour sweeps as a visible bar (SetCooldown changes
-                    -- geometry, not colour, so nothing re-hides it). Paint fully
+                    -- black color sweeps as a visible bar (SetCooldown changes
+                    -- geometry, not color, so nothing re-hides it). Paint fully
                     -- transparent for exactly that case, and also for a plain
                     -- hide-active spell whose swipe color never zeroes out
                     -- (e.g. Prismatic Barrier), which pins fd._hideActiveOverriding
@@ -533,7 +535,7 @@ local function DecorateFrame(frame, barData)
                     -- on Suppress GCD; a spell genuinely on its own real CD keeps
                     -- the black swipe, and a charge proc mid-recharge is carved
                     -- out (its swipe IS the recharge).
-                    local hideActiveAlpha = barData.swipeAlpha or 0.7
+                    local hideActiveAlpha = swipeAlpha2
                     if ((bd2 and bd2.suppressGCD) or (ss2 and ss2.suppressGCD)) and sid2
                        and C_SpellBook and C_SpellBook.FindSpellOverrideByID
                        and C_Spell and C_Spell.GetSpellCooldown then
@@ -573,8 +575,8 @@ local function DecorateFrame(frame, barData)
                             if cc then cr, cg, cb = cc.r, cc.g, cc.b end
                         end
                     end
-                    -- Blizzard Style: the viewer's own active swipe colour
-                    -- unless a per-spell active colour is set.
+                    -- Blizzard Style: the viewer's own active swipe color
+                    -- unless a per-spell active color is set.
                     if fd._blizzArt and not cr and not (ss2 and ss2.activeSwipeR) then
                         cr, cg, cb = 1, 0.95, 0.57
                     end
@@ -588,7 +590,7 @@ local function DecorateFrame(frame, barData)
                 else
                     -- Not active: black swipe.
                     if not _gcdSuppressed then
-                        cd:SetSwipeColor(0, 0, 0, ns.GCDTailAlpha(_gcdChargeTail, barData.swipeAlpha or 0.7))
+                        cd:SetSwipeColor(0, 0, 0, ns.GCDTailAlpha(_gcdChargeTail, swipeAlpha2))
                     end
                     -- Desaturate When Not Active (per-spell). Symmetric, but
                     -- re-saturates only icons WE desaturated (fd._desatNA), so
@@ -823,11 +825,11 @@ local function DecorateFrame(frame, barData)
                 cd:SetCooldownFromDurationObject(durObj)
                 if staleLink then
                     -- Blizzard's expired branch never calls SetSwipeColor, so the
-                    -- widget still carries whatever colour was painted last. For an
-                    -- aura-tracking icon that is the ACTIVE colour from the aura
+                    -- widget still carries whatever color was painted last. For an
+                    -- aura-tracking icon that is the ACTIVE color from the aura
                     -- window, and it then renders over the cooldown we just armed --
                     -- field-seen as "the swipe was still yellow". Repaint the resting
-                    -- cooldown colour, the same black the SetSwipeColor hook's
+                    -- cooldown color, the same black the SetSwipeColor hook's
                     -- not-active branch uses (the per-spell Cooldown Swipe Color only
                     -- applies to buff-viewer frames, which never reach here).
                     -- This also releases a Suppress-GCD alpha-0 that can be stuck for
@@ -835,7 +837,7 @@ local function DecorateFrame(frame, barData)
                     -- a GCD. Mirrors ReArmChargeRecharge, which repaints for exactly
                     -- this reason on the charge path.
                     -- Gated to the stale case on purpose: the placement-sigil case
-                    -- reaches here with a colour Blizzard has kept current, so it is
+                    -- reaches here with a color Blizzard has kept current, so it is
                     -- left alone. Bar data is resolved LIVE rather than from the
                     -- decorate-time closure, since pooled frames decorate once.
                     local bkS = fc2.barKey
@@ -1036,10 +1038,10 @@ local function DecorateFrame(frame, barData)
                 --
                 -- Black is only unconditionally right on the entry-A path, which by
                 -- definition runs inside the Hide-Active window. Entry B can reach
-                -- an icon whose active state paints a COLOURED swipe, and this write
+                -- an icon whose active state paints a COLORED swipe, and this write
                 -- sits under _isProcessingOverride so the SetSwipeColor hook cannot
-                -- put that colour back -- hence the active check. When the icon is
-                -- active, leaving the colour alone is correct: the next refresh
+                -- put that color back -- hence the active check. When the icon is
+                -- active, leaving the color alone is correct: the next refresh
                 -- repaints it, and the geometry we just armed is what mattered.
                 local bkA = fc2.barKey
                 local bdA = bkA and barDataByKey and barDataByKey[bkA]

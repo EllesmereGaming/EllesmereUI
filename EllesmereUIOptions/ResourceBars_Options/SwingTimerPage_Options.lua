@@ -179,7 +179,39 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
         })
     end
 
-    -- Row: Visibility (shared checklist) | Hide When Idle (+ idle fill cog)
+    -- Row: Visibility (shared checklist) | Idle Behavior
+    -- Idle Behavior is one dropdown over the keys of the Hide When Idle toggle
+    -- and the Show Fill Color When Idle cog row it took the place of, plus
+    -- idleHidePerType: Nothing (both off), Hidden (hideWhenIdle), Hidden per
+    -- Type (hideWhenIdle with idleHidePerType), Filled (idleShowFill). A
+    -- profile saved with both old settings on reads Hidden and keeps drawing
+    -- its idle rows filled until a pick, which sets all three keys.
+    local IDLE_VALUES = { nothing = "Nothing", hidden = "Hidden", pertype = "Hidden per Type", filled = "Filled" }
+    local IDLE_ORDER = { "nothing", "hidden", "pertype", "filled" }
+    local function IdleMode()
+        local p = DB()
+        local g = p and p.swingTimer
+        if not g then return "nothing" end
+        if g.hideWhenIdle then return g.idleHidePerType == true and "pertype" or "hidden" end
+        if g.idleShowFill == true then return "filled" end
+        return "nothing"
+    end
+    local function SetIdleMode(v)
+        local p = DB(); if not p then return end
+        local g = p.swingTimer
+        g.hideWhenIdle = (v == "hidden" or v == "pertype")
+        g.idleHidePerType = (v == "pertype") or nil
+        g.idleShowFill = (v == "filled") or nil
+        RefreshST()
+    end
+    -- Global Search: the names these settings had.
+    if EllesmereUI._RegisterSearchEntry then
+        local L = EllesmereUI.L
+        local loc = L("Idle Behavior")
+        EllesmereUI._RegisterSearchEntry("Idle Behavior", loc ~= "Idle Behavior" and loc or nil,
+            "Hide When Idle Show Fill Color When Idle " .. L("Hide When Idle") .. " " .. L("Show Fill Color When Idle"),
+            EllesmereUI._buildingModule, EllesmereUI._buildingPage, "LAYOUT")
+    end
     local stShowRow
     stShowRow, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
         { getStore = function() local p = DB(); return p and p.swingTimer end,
@@ -188,11 +220,12 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
           disabledFn = stOff, disabledTooltip = ST_TIP,
           onChanged = function() RefreshST() end,
           onOptionChanged = function() RefreshST() end },
-        { type = "toggle", text = "Hide When Idle",
-          tooltip = "Hide the bar while no swing is running.",
+        { type = "dropdown", text = "Idle Behavior",
+          tooltip = "What the timer does while no swing runs. Hidden hides the whole timer. Hidden per Type also hides each weapon's row while that weapon is not attacking, so a ranged row stays away in melee. Filled shows idle rows full of their fill color.",
           disabled = stOff, disabledTooltip = ST_TIP,
-          getValue = function() local p = DB(); return p and p.swingTimer.hideWhenIdle end,
-          setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.hideWhenIdle = v; RefreshST() end }
+          values = IDLE_VALUES, order = IDLE_ORDER,
+          getValue = IdleMode,
+          setValue = SetIdleMode }
     );  y = y - h
     -- Inline cog on Visibility: Forms and Talents. A druid picks the forms the
     -- timer shows in (the per-form map the other bars' cogs write); any class can
@@ -242,22 +275,6 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
                 show = OpenTalents,
             })
         end
-    end
-
-    do
-        EllesmereUI.BuildInlineCog(stShowRow._rightRegion, {
-            title = "Idle Rows",
-            rows = {
-                { type = "toggle", label = "Show Fill Color When Idle",
-                  tooltip = "Show an idle row full of its fill color instead of the background color.",
-                  get = function() local p = DB(); return (p and p.swingTimer.idleShowFill) == true end,
-                  set = function(v)
-                      local p = DB(); if not p then return end
-                      if v then p.swingTimer.idleShowFill = true else p.swingTimer.idleShowFill = nil end
-                      RefreshST()
-                  end },
-            },
-        })
     end
 
     _, h = W:Spacer(parent, y, 16);  y = y - h
@@ -513,9 +530,9 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
     );  y = y - h
     do
         -- Not tied to Show Spark: a combined off hand's spark shows either way.
-        -- Colours: store keys <key>SparkR/G/B/A, unset by default; each swatch
-        -- shows the colour the bar paints (ST_SparkColor). A pick of the unset
-        -- colour (white, or a combined off hand's fill) stores nothing, so the
+        -- Colors: store keys <key>SparkR/G/B/A, unset by default; each swatch
+        -- shows the color the bar paints (ST_SparkColor). A pick of the unset
+        -- color (white, or a combined off hand's fill) stores nothing, so the
         -- picker's Cancel leaves an unset spark following its default.
         local function Near(x, y) return math.abs(x - y) < 0.002 end
         local function SparkSwatch(name, key)
@@ -634,9 +651,9 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
           setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.showLabel = v; RefreshST() end }
     );  y = y - h
 
-    -- A cog's colour row: store keys prefix .. R/G/B/A, `def` the fallback
+    -- A cog's color row: store keys prefix .. R/G/B/A, `def` the fallback
     -- {r, g, b, a}; `off` (optional) greys it out with `offTip`.
-    -- `shared` (optional): a prefix whose colour shows while this one is unset.
+    -- `shared` (optional): a prefix whose color shows while this one is unset.
     local function ColorRow(label, prefix, def, tip, off, offTip, shared)
         return { type = "colorpicker", label = label, tooltip = tip, hasAlpha = true,
             disabled = off, disabledTooltip = offTip,

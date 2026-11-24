@@ -133,10 +133,14 @@ local function IsUngrouped(btn)
     return name and mp.ungroupedButtons[name]
 end
 
+-- An addon button's label: its frame name less the button libraries' prefixes and the
+-- MinimapButton suffix (the "_" form first). Also the options page's Ungroup Minimap
+-- Buttons list (ns.MinimapButtonLabel). A second return is gsub's count: take it alone.
 local function GetMinimapButtonLabel(btn)
     local name = btn:GetName() or ""
-    return name:gsub("^LibDBIcon10_", ""):gsub("^Lib_GPI_Minimap_", ""):gsub("MinimapButton$", ""):gsub("_MinimapButton$", "")
+    return name:gsub("^LibDBIcon10_", ""):gsub("^Lib_GPI_Minimap_", ""):gsub("_MinimapButton$", ""):gsub("MinimapButton$", "")
 end
+ns.MinimapButtonLabel = GetMinimapButtonLabel
 
 local function CollectFlyoutButtons()
     local collected = {}
@@ -158,14 +162,13 @@ local function ShowFlyoutName(btn)
     local fs = d.flyoutName
     if not fs then
         fs = btn:CreateFontString(nil, "OVERLAY")
-        EllesmereUI.PrimeFontShadow(fs, true)
         fs:SetTextColor(0.9, 0.9, 0.9)
         fs:SetWordWrap(false)
         fs:SetPoint("LEFT", btn, "RIGHT", FLYOUT_NAME_GAP, 0)
         d.flyoutName = fs
     end
-    fs:SetFont((EllesmereUI.GetFontPath("minimap")) or "Fonts\\FRIZQT__.TTF", 11, "")
-    fs:SetText(GetMinimapButtonLabel(btn))
+    EllesmereUI.ApplyModuleFont(fs, nil, 11, "minimap")
+    fs:SetText((GetMinimapButtonLabel(btn)))
     fs:Show()
     if not d.flyoutHitRect then
         d.flyoutHitRect = { btn:GetHitRectInsets() }

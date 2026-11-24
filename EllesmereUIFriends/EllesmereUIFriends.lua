@@ -3225,7 +3225,7 @@ end
 -- the real profile once and latched for the session (a profile switch prompts
 -- for a reload instead). Both stock styles mean the same to the tiles -- there
 -- is no vanilla version of this list -- so they keep Blizzard's own list and
--- cards and add only the EllesmereUI decoration (class icon, class-coloured
+-- cards and add only the EllesmereUI decoration (class icon, class-colored
 -- name, region mark). The legacy-skin switch above reads it too.
 function ns.FR_Style()
     local v = ns._frStyle

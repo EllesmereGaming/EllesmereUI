@@ -826,7 +826,6 @@ EllesmereUI._unlockAttachMover = AttachMoverToBar
 local function NudgeMover(dx, dy, targetMover, skipCollapse)
     local m = targetMover or UM.selectedMover
     if not m or InCombatLockdown() then return end
-    if ns.IsMoverPosLocked(m._barKey) then return end
 
     -- Read bar's current position, add dx/dy, reposition.
     local bar = UM.GetBarFrame(m._barKey)

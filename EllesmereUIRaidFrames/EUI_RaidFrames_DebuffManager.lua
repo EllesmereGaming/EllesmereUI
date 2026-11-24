@@ -536,6 +536,7 @@ local TILE_STYLE_KEYS = {
     iconZoom = "debuffIconZoom",
     borderSize = "debuffBorderSize", borderColor = "debuffBorderColor",
     borderTexture = "debuffBorderTexture", borderSizePx = "debuffBorderSizePx",
+    borderCornerRadius = "debuffBorderCornerRadius",
     borderTextureOffset = "debuffBorderTextureOffset", borderTextureOffsetY = "debuffBorderTextureOffsetY",
     borderTextureShiftX = "debuffBorderTextureShiftX", borderTextureShiftY = "debuffBorderTextureShiftY",
     borderDispelTextured = "debuffBorderDispelTextured",
@@ -2269,7 +2270,7 @@ local function FxCreateVisuals(button, dd, kind, hostBtn, health, owner)
         g:EnableMouse(false)
         g:Hide()
         dd.dmFxGlow = g
-        -- Every region a later colour/parameter/background change can need, created here in the window.
+        -- Every region a later color/parameter/background change can need, created here in the window.
         EllesmereUI.Glows.PrewarmEngineHost(g, 24, 24, TILE_GLOW_NEED)
         -- The slot button runs the glow's animations itself (only while it shows an aura), where the client
         -- can. The slot registers no icon: it gets a hidden one here, which restarts the glow on a later change.

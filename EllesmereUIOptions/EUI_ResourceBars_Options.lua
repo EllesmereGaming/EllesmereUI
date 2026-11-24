@@ -27,7 +27,7 @@ end
 -- Classic WoW UI: each bar's Border Size slot sizes the vanilla frame round
 -- the bar (stockBorderScale, a percentage of the frame's full size; nil =
 -- the shared default) in place of the gated EUI border size. The border
--- row's colour swatch, offset cog and style sync stand down under it; this
+-- row's color swatch, offset cog and style sync stand down under it; this
 -- sync copies the size. The cast bar row does the same on its own style key.
 function ns.ERB_ClassicBorderRow()
     return EllesmereUI.BlizzStyle.Active("resourcebars") == "classic"
@@ -443,7 +443,7 @@ initFrame:SetScript("OnEvent", function(self)
         local ft = sb:GetStatusBarTexture()
         UnsnapTex(ft)
 
-        -- Fill colour: custom > class colour (health) or power type colour (power).
+        -- Fill color: custom > class color (health) or power type color (power).
         local ptype = (not isHealth) and _G._ERB_GetPrimaryPowerType and _G._ERB_GetPrimaryPowerType()
         local typeCol
         if isHealth then
@@ -472,7 +472,7 @@ initFrame:SetScript("OnEvent", function(self)
         local bandOn, bands, bandMode, bandRev
         if _G._ERB_ResolveBandConfig then bandOn, bands, bandMode, bandRev = _G._ERB_ResolveBandConfig(c, tsEntry) end
         local thEntry = (tsEntry and tsEntry.thresholdEnabled ~= false) and tsEntry or nil
-        -- Health colours at or below the threshold; power above it, or below with Partial Only.
+        -- Health colors at or below the threshold; power above it, or below with Partial Only.
         local below = isHealth
         if not isHealth and thEntry then
             below = thEntry.thresholdPartialOnly
@@ -480,10 +480,10 @@ initFrame:SetScript("OnEvent", function(self)
         end
         local tPct = thEntry and (thEntry.thresholdPct or c.thresholdPct or 30)
 
-        -- The random fill only: a threshold or band colours it when the value reaches it, as live.
+        -- The random fill only: a threshold or band colors it when the value reaches it, as live.
         local pct = isHealth and (100 - math.floor(_previewBarFillPct / 3)) or _previewBarFillPct
 
-        local aR, aG, aB, aA  -- threshold or band colour in force, nil = base colour
+        local aR, aG, aB, aA  -- threshold or band color in force, nil = base color
         if bandOn and _G._ERB_FindCountBand then
             local band = _G._ERB_FindCountBand(bands, (bandMode == "value") and (mx * pct / 100) or pct, bandRev)
             if band then aR, aG, aB, aA = band.r or 1, band.g or 1, band.b or 1, band.a or 1 end
@@ -586,13 +586,13 @@ initFrame:SetScript("OnEvent", function(self)
             else txt = pctStr .. "%" end
         else
             local percentText = tostring(pct) .. ((c.showPercent == false) and "" or "%")
-            local curStr = ns.AbbreviateNumbers(math.floor(mx * pct / 100))
+            local curStr = ns.AbbreviateValue(math.floor(mx * pct / 100), "power")
             if fmt == "smart" then
                 local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(ptype)
                 txt = isPercent and percentText or curStr
             elseif fmt == "both" then txt = curStr .. " | " .. percentText
             elseif fmt == "curpp" then txt = curStr
-            elseif fmt == "curmaxpp" then txt = curStr .. " / " .. ns.AbbreviateNumbers(mx)
+            elseif fmt == "curmaxpp" then txt = curStr .. " / " .. ns.AbbreviateValue(mx, "power")
             elseif fmt == "perpp" then txt = percentText
             else txt = curStr end
         end
@@ -696,7 +696,7 @@ initFrame:SetScript("OnEvent", function(self)
                         pc._barBg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
                     end
                     UnsnapTex(pc._barBg)
-                    -- Textured Background on the preview's one background, in the colour above.
+                    -- Textured Background on the preview's one background, in the color above.
                     if p.general.barTextureBg or pc._barBg._erbBgTex then
                         local br, bgg, bb, ba = sp.bgR, sp.bgG, sp.bgB, sp.bgA
                         if sp.darkTheme then
@@ -861,7 +861,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local _pvReverse = _pvTsEntry2 and _pvTsEntry2.thresholdReverse
                 if _pvReverse == nil then _pvReverse = sp.thresholdReverse end
                 if _pvReverse then _pvPartialOnly = false end
-                -- The random fill only: a threshold or band colours it when the value reaches it, as live.
+                -- The random fill only: a threshold or band colors it when the value reaches it, as live.
                 local filledCount = _previewPipCount
                 -- _previewPipCount is randomized against a generic 5-pip preview; rescale for other counts (e.g. 18 Sweeping Strikes)
                 if numPips ~= 5 then
@@ -882,7 +882,7 @@ initFrame:SetScript("OnEvent", function(self)
                     useThresh = band ~= nil
                     if band then tr, tg, tb = band.r or 1, band.g or 1, band.b or 1 end
                 end
-                -- Recolor Text Instead: the count text takes the colour, the pips stay at base.
+                -- Recolor Text Instead: the count text takes the color, the pips stay at base.
                 pc._pvTextCol = nil
                 if _pvTsEntry2 and _pvTsEntry2.thresholdTextInstead and sp.showText then
                     if useThresh then pc._pvTextCol = { tr, tg, tb } end
@@ -926,7 +926,7 @@ initFrame:SetScript("OnEvent", function(self)
                         pip._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
                     end
                     UnsnapTex(pip._bg)
-                    -- Textured Background, as live, in the colour above.
+                    -- Textured Background, as live, in the color above.
                     if p.general.barTextureBg or pip._bg._erbBgTex then
                         local br, bgg, bb, ba = sp.bgR, sp.bgG, sp.bgB, sp.bgA
                         if sp.darkTheme then
@@ -1215,7 +1215,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if tc then
                     pc._countText:SetTextColor(tc[1], tc[2], tc[3], 1)
                 else
-                    pc._countText:SetTextColor(sp.textR or 1, sp.textG or 1, sp.textB or 1, 0.9)  -- live base text colour
+                    pc._countText:SetTextColor(sp.textR or 1, sp.textG or 1, sp.textB or 1, 0.9)  -- live base text color
                 end
                 pc._countText:Show()
             elseif pc._countText then
@@ -2174,7 +2174,7 @@ initFrame:SetScript("OnEvent", function(self)
         bandPopup:Show()
     end
 
-    -- Colour list editor: a per-threshold-entry list of { spellID, r,g,b,a } stored in
+    -- Color list editor: a per-threshold-entry list of { spellID, r,g,b,a } stored in
     -- entry[o.field] (per-spec via the entry's specIDs). List order = priority: the first
     -- matching spell wins, and rows drag to reorder like BuildCogPopup's 'reorder' row.
     -- Buff Colors and Spender Colors each build one. o = { field, title, addLabel }
@@ -4008,7 +4008,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     -- Rows the Blizzard kit replaces but the classic cast bar leaves to the
-    -- user (its background colour and opacity): gated only while Blizzard
+    -- user (its background color and opacity): gated only while Blizzard
     -- Style renders, live under Classic WoW UI. Returns cfg for inline use.
     function ns.ERB_CastBlizzOnlyGate(cfg)
         if EllesmereUI.BlizzStyle.Active("castbar") == "blizzard" then
@@ -4225,7 +4225,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         local fillOp = (cb.fillOpacity or 100) / 100
         if blizzKit then
-            -- The stock fill art is pre-coloured; the live bar skips its colour pass too.
+            -- The stock fill art is pre-colored; the live bar skips its color pass too.
             fillTex:SetVertexColor(1, 1, 1, 1)
         elseif cb.gradientEnabled then
             local dir = cb.gradientDir or "HORIZONTAL"

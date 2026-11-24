@@ -114,14 +114,18 @@ local CHAT_DEFAULTS = {
             activeUnderline = true,
             activeUnderlineColorMode = "accent",
             activeUnderlineColor = { r=0.05, g=0.82, b=0.61, a=1 },
+            -- Sidebar icons: Friends, Copy Chat, M+ Portals (retail; Forever has
+            -- none) or Durability (WoW Forever: per-client default), Chat Menu.
+            -- Profiles made before keep Settings on and Chat Menu and Durability
+            -- off (chat_sidebar_icon_defaults_existing_v1, EllesmereUI_Migration.lua).
             showFriends = true,
             showGuild = false,
-            showDurability = false,
+            showDurability = (EllesmereUI.IS_FOREVER == true),
             showCopy = true,
             showPortals = true,
             showVoice = false,
-            showSettings = true,
-            showChatMenu = false,
+            showSettings = false,
+            showChatMenu = true,
             showScroll = true,
             hideTooltipOnHover = true,
             sidebarRight = false,
@@ -148,6 +152,7 @@ local CHAT_DEFAULTS = {
             abbreviateChannels = true,  -- same key as live: saved settings carry over
             abbreviateChannelLetters = false,  -- world channels as letters (Ge, T, LD, WD, LFG) instead of their numbers
             classColorNames = true,
+            classColorChatter = true,  -- the sender's name keeps the game's class colors (read ~= false)
             hideSidebarBg = false,
             sidebarIconScale = 1.0,
             sidebarIconSpacing = 10,
@@ -346,7 +351,7 @@ local function GetTabAreaHeight()
 end
 
 -- Set<Name> for the locals this file shares with the EUI_Chat_*.lua files
--- (the background colour here, the sidebar fade state further down). Every
+-- (the background color here, the sidebar fade state further down). Every
 -- file that reads one keeps a copy, so a write goes through these; they are
 -- assigned at the end of this file, next to ns._internals.
 local SetBgR, SetBgG, SetBgB, SetBgA
@@ -448,7 +453,7 @@ function ECHAT.ApplyBackground()
             end
         end
     end
-    -- WoW Forever: the colour and texture fill the kit's framed boxes instead.
+    -- WoW Forever: the color and texture fill the kit's framed boxes instead.
     if ns.ChatForever() then ECHAT.FV_PaintFills(texPath, BG_R, BG_G, BG_B, BG_A) end
     local cf1 = _G.ChatFrame1
     if cf1 and CFD(cf1).sidebar then
@@ -456,7 +461,7 @@ function ECHAT.ApplyBackground()
         if sbBg and sbBg.SetColorTexture then
             sbBg:SetColorTexture(BG_R, BG_G, BG_B, stock and 0 or BG_A)
         end
-        -- Blizzard Style column backdrop: the window colour, re-read.
+        -- Blizzard Style column backdrop: the window color, re-read.
         if ECHAT.SB_SyncBackdrop then ECHAT.SB_SyncBackdrop(true) end
     end
     -- Keep the behind-tabs extension in sync with the new color/opacity.
@@ -772,8 +777,32 @@ end
 -- module never writes the per-type storage (SetChatColorNameByClass) in
 -- either direction.
 function ECHAT.ApplyClassColorNames(on)
+    ECHAT._ccnApplied = on == true
     if ECHAT.EngineSetClassColorNames then
         ECHAT.EngineSetClassColorNames(on == true)
+    end
+end
+
+-- Class-colored SENDER names (Name of Chatter, classColorChatter, on unless
+-- false). On, the game's own class coloring stands, untouched. Off holds the
+-- game's chatClassColorOverride at "1" (never class colored, whatever the
+-- per-chat-type settings say), and on again hands back the value it found,
+-- kept account-wide like the CVar (EllesmereUIDB.chatClassColorWas; the
+-- recorder in EllesmereUI_Uninstall.lua puts it back with the module off or
+-- at Uninstall). The game reads the CVar per line, so only new lines change.
+local CHATTER_CVAR = "chatClassColorOverride"
+function ECHAT.ApplyChatterClassColor()
+    local db = EllesmereUIDB
+    if not db then return end
+    local cfg = ECHAT.DB()
+    local cur = C_CVar.GetCVar(CHATTER_CVAR)
+    if cfg and cfg.classColorChatter == false then
+        if db.chatClassColorWas == nil then db.chatClassColorWas = cur or false end
+        if cur and cur ~= "1" then EllesmereUI.HoldCVar(CHATTER_CVAR, "1", "EllesmereUIChat") end
+    elseif db.chatClassColorWas ~= nil then
+        local was = db.chatClassColorWas
+        db.chatClassColorWas = nil
+        if was and cur ~= was then EllesmereUI.ReleaseCVar(CHATTER_CVAR, was, "EllesmereUIChat") end
     end
 end
 
@@ -971,6 +1000,20 @@ function ECHAT._PositionChatPanelNow(cf)
         -- the user dropped it. Costs nothing when healthy -- this branch is
         -- the existing nil-rect early-out.
         if cf ~= _G.ChatFrame1 and not cf.isDocked and cf:IsShown()
+            and cf:GetNumPoints() == 0 and not d._cfWasDocked and d._cfL
+            and _G.MOVING_CHATFRAME ~= cf then
+            -- Resize grip drag (never sets MOVING_CHATFRAME) strips points every frame:
+            -- pin the last top-left so the window grows instead of jumping.
+            local l0, t0 = d._cfL, d._cfT
+            pcall(cf.SetPoint, cf, "TOPLEFT", UIParent, "BOTTOMLEFT", l0, t0)
+            -- The grip strips that pin again next frame; size stays readable,
+            -- so place the panel from the pinned corner plus the live size.
+            local w, h = cf:GetWidth(), cf:GetHeight()
+            local issec = _G.issecretvalue
+            if w and h and not (issec and (issec(w) or issec(h))) then
+                l, t, r, cb = l0, t0, l0 + w, t0 - h
+            end
+        elseif cf ~= _G.ChatFrame1 and not cf.isDocked and cf:IsShown()
             and cf:GetNumPoints() == 0 then
             local cx, cy = GetCursorPosition()
             local es = cf:GetEffectiveScale()
@@ -986,7 +1029,7 @@ function ECHAT._PositionChatPanelNow(cf)
                 end)
             end
         end
-        return
+        if not (l and t and r and cb) then return end
     end
     -- Secret-gated like every other per-tick rect read (grip doctrine): a
     -- mid-drag or restricted-content rect must never reach the arithmetic
@@ -1417,7 +1460,7 @@ do
                 if ECHAT.SB_FlashSync then ECHAT.SB_FlashSync() end
             end
             -- Blizzard Style sidebar backdrop: the selected window's stored
-            -- colour (tab-menu colour and opacity edits land while armed).
+            -- color (tab-menu color and opacity edits land while armed).
             if ECHAT.SB_SyncBackdrop then ECHAT.SB_SyncBackdrop() end
         end
         -- Blizzard's tab menu writes the frame font directly and does not emit
@@ -1460,7 +1503,11 @@ do
         -- land while the mouse has been in the menu far past the linger, and
         -- the shown/selection watches above must see their results.
         local menuOpen = Menu and Menu.GetManager and Menu.GetManager():IsAnyMenuOpen()
-        if hoverCount == 0 and not editMode and not unlockHold and not menuOpen and GetTime() >= lingerUntil then
+        -- New Window opens a name popup and creates the window on Accept, long
+        -- after the menu closed: stay armed while it is up.
+        local namePopup = StaticPopup_Visible and StaticPopup_Visible("NAME_CHAT")
+        if hoverCount == 0 and not editMode and not unlockHold and not menuOpen and not namePopup
+            and GetTime() >= lingerUntil then
             ECHAT.PositionChatPanelsNow()
             follower:Hide()
         end
@@ -1471,6 +1518,11 @@ do
     -- leak across dock rebuilds.
     function ECHAT.FollowArm()
         hoverCount = hoverCount + 1
+        follower:Show()
+    end
+    -- One-shot wake with the standard linger; an open menu then holds it.
+    function ECHAT.FollowKick()
+        lingerUntil = max(lingerUntil, GetTime() + 4)
         follower:Show()
     end
     function ECHAT.FollowRelease()

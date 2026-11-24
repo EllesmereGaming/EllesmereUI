@@ -620,13 +620,21 @@ do
     -- search is clear again or no window shows (the next open reads the
     -- settled result).
     local searchWatch
+    -- The search the layout hold last saw: a new one releases both windows
+    local holdSearch = ""
     local function OnSearchUpdate(self)
         local bank = _G.EUI_BankFrame
         if EUI_Bags._appliedSearch == "" or not (EUI_Bags:IsVisible() or (bank and bank:IsVisible())) then
             self:UnregisterEvent("INVENTORY_SEARCH_UPDATE")
         end
-        if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
+        if EUI_Bags._appliedSearch ~= holdSearch then
+            holdSearch = EUI_Bags._appliedSearch
+            ns.Hold.Release("bags")
+            ns.Hold.Release("bank")
+        end
+        if EUI_Bags:IsVisible() then ns.Hold.events.bags = true; EUI_Bags:RefreshInventory() end
         if BP().detachReagentBag and EUI_BagsReagent:IsVisible() then EUI_BagsReagent:RefreshInventory() end
+        if bank and bank:IsVisible() then ns.Hold.events.bank = true end
         ns.RefreshOpenBank()
     end
 

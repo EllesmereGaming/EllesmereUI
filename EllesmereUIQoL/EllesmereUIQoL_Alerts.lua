@@ -9,7 +9,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --    Combat Alert     (EllesmereUIQoL.lua)   short
 --    Potion Ready     (below)                short
 --    Unspent Talents  (below)                persistent
+--    Unspent Legacy   (below, WoW Forever)   persistent
 --  Nothing is built or registered for an alert until it is enabled.
+--  Every alert's settings and the anchor's spot are per profile, through the
+--  extras store (EllesmereUI.QoLExtrasGet / QoLExtrasSet): a profile that never
+--  set a key reads the account-wide value saved before the alerts followed profiles.
 -------------------------------------------------------------------------------
 
 local ns = select(2, ...)
@@ -18,7 +22,7 @@ local DEFAULT_SIZE = 22
 local DEFAULT_POS = { point = "CENTER", relPoint = "CENTER", x = 0, y = 169 }
 local GAP = 4
 
-local function DB(key) return EllesmereUIDB and EllesmereUIDB[key] end
+local function DB(key) return EUI.QoLExtrasGet(key) end
 
 -------------------------------------------------------------------------------
 --  Core: anchor + stacked lines
@@ -32,6 +36,10 @@ local DEFS = {
     { id = "combat", sizeKey = "combatAlertTextSize", enabledKey = "combatAlertEnabled", hold = 1.2 },
     { id = "potion", sizeKey = "potionAlertTextSize", enabledKey = "potionAlertEnabled", hold = 3 },
 }
+-- WoW Forever alone: an imported key on another client must not count as an alert.
+if EUI.IS_FOREVER then
+    table.insert(DEFS, 2, { id = "legacy", sizeKey = "legacyAlertTextSize", enabledKey = "legacyAlertEnabled", persistent = true })
+end
 local lines = {}
 local anchor
 
@@ -39,6 +47,7 @@ local anchor
 Alerts.DEFAULTS = {
     potionAlert = { text = "Potion Ready",          color = { r = 0.1, g = 1,    b = 0.1 } },
     talentAlert = { text = "Unspent talent points", color = { r = 1,   g = 0.82, b = 0   } },
+    legacyAlert = { text = "Unspent Legacy points", color = { r = 0.4, g = 0.8,  b = 1   } },
 }
 
 local function SizeOf(def) return DB(def.sizeKey) or DEFAULT_SIZE end
@@ -226,8 +235,7 @@ local function RegisterUnlock()
             end,
             savePos = function(_, point, relPoint, x, y)
                 if not point then return end
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB.alertsPos = { point = point, relPoint = relPoint, x = x, y = y }
+                EUI.QoLExtrasSet("alertsPos", { point = point, relPoint = relPoint, x = x, y = y })
                 if anchor and not EUI._unlockActive then PlaceAnchor(); Layout() end
             end,
             loadPos = function()
@@ -235,10 +243,9 @@ local function RegisterUnlock()
                 return { point = p.point, relPoint = p.relPoint, x = p.x, y = p.y }
             end,
             clearPos = function()
-                if EllesmereUIDB then
-                    EllesmereUIDB.alertsPos = nil
-                    EllesmereUIDB.combatAlertPos = nil
-                end
+                -- false, not nil: an unset key would read the old account-wide spot.
+                EUI.QoLExtrasSet("alertsPos", false)
+                EUI.QoLExtrasSet("combatAlertPos", false)
                 if anchor then PlaceAnchor(); Layout() end
             end,
             applyPos = function()
@@ -522,6 +529,9 @@ do
             watcher:UnregisterAllEvents()
             installed = false
             Alerts.Hide("talent")
+        elseif on then
+            -- Already on (a profile switch): a line that is up takes this profile's text and color.
+            MarkDirty()
         end
         Alerts.Refresh()
     end
@@ -538,6 +548,131 @@ do
     EUI._talentAlertPreview = function()
         -- A live alert gets its text/color refreshed; otherwise a short sample.
         ShowAlert(not Line().persistentShown)
+    end
+
+    local boot = CreateFrame("Frame")
+    boot:RegisterEvent("PLAYER_LOGIN")
+    boot:SetScript("OnEvent", function(self)
+        self:UnregisterAllEvents()
+        Apply()
+    end)
+end
+
+-------------------------------------------------------------------------------
+--  Unspent Legacy Points (persistent, WoW Forever only)
+--  Same reading as Blizzard's Legacy window (Blizzard_LegacySystemUtil.lua):
+--  the points available on the Legacy trees' currency, once the system is
+--  unlocked (Legacy reward track renown above 0, the micro button's test).
+--  The line stays up while points are available, until the Legacy window
+--  opens; it comes back when more points come in, and waits for combat to end.
+-------------------------------------------------------------------------------
+if EUI.IS_FOREVER then
+    local EVENTS = { "PLAYER_ENTERING_WORLD", "TRAIT_TREE_CURRENCY_INFO_UPDATED",
+        "TRAIT_CONFIG_UPDATED", "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", "ACHIEVEMENT_EARNED" }
+
+    local watcher
+    local installed = false
+    local lastQty = 0
+    local dismissed = false
+    local dirty = false
+
+    -- Points available to spend, or 0 while the system is locked or unread.
+    local function Available()
+        local LC = Constants.LegacyConsts
+        if C_MajorFactions.GetCurrentRenownLevel(LC.LEGACY_REWARD_TRACK_FACTION_ID) <= 0 then return 0 end
+        local treeID = LC.LEGACY_TREE_PROFESSIONS_ID
+        local configID = C_Traits.GetConfigIDByTreeID(treeID)
+        if not configID then return 0 end
+        local infos = C_Traits.GetTreeCurrencyInfo(configID, treeID, false)
+        local info = infos and infos[1]
+        return info and info.quantity or 0
+    end
+
+    local function OnDismiss() dismissed = true end
+    local function Line()
+        local line = Alerts.Line("legacy")
+        line.onDismiss = OnDismiss
+        return line
+    end
+
+    local function ShowAlert(qty, preview)
+        local D = Alerts.DEFAULTS.legacyAlert
+        local r, g, b = Alerts.Color("legacyAlert", D.color.r, D.color.g, D.color.b)
+        local text = DB("legacyAlertText") or EllesmereUI.L("Unspent Legacy points")
+        if qty and qty > 0 then text = text .. " (" .. qty .. ")" end
+        Line().Show(text, r, g, b, preview)
+    end
+
+    local function Evaluate()
+        dirty = false
+        if not installed then return end
+        if InCombatLockdown() then ns.CombatQueue.Defer("LegacyAlert", Evaluate); return end
+        local qty = Available()
+        if qty > 0 then
+            if qty > lastQty then dismissed = false end      -- new points: show again
+            if not dismissed then ShowAlert(qty) end
+        else
+            dismissed = false
+            Alerts.Hide("legacy")
+        end
+        lastQty = qty
+    end
+
+    local function MarkDirty()
+        if dirty then return end
+        dirty = true
+        C_Timer.After(0, Evaluate)   -- next frame: one pass per burst of events
+    end
+
+    local listening = false
+    local function Apply()
+        local on = DB("legacyAlertEnabled")
+        if on and not installed then
+            for _, e in ipairs(EVENTS) do watcher:RegisterEvent(e) end
+            installed = true
+            lastQty, dismissed = 0, false
+            if not listening then
+                listening = true
+                EUI:RegisterUnlockModeListener("EUI_LegacyAlert", function(active)
+                    if not active and installed then MarkDirty() end
+                end)
+                -- Opening the Legacy window counts as seeing the alert. It is
+                -- load-on-demand: hook it once it exists.
+                EventUtil.ContinueOnAddOnLoaded("Blizzard_LegacySystem", function()
+                    LegacySystemFrame:HookScript("OnShow", function()
+                        if installed then Line().Dismiss() end
+                    end)
+                end)
+            end
+            MarkDirty()
+        elseif not on and installed then
+            watcher:UnregisterAllEvents()
+            installed = false
+            Alerts.Hide("legacy")
+        elseif on then
+            -- Already on (a profile switch): a line that is up takes this profile's text and color.
+            MarkDirty()
+        end
+        Alerts.Refresh()
+    end
+
+    -- Only the Legacy trees' currency and the Legacy reward track count.
+    local LC = Constants.LegacyConsts
+    local TREES = { [LC.LEGACY_TREE_PROFESSIONS_ID] = true, [LC.LEGACY_TREE_ADVENTURE_ID] = true,
+        [LC.LEGACY_TREE_PROGRESSION_ID] = true }
+    watcher = CreateFrame("Frame")
+    watcher:SetScript("OnEvent", function(_, event, arg1)
+        if event == "TRAIT_TREE_CURRENCY_INFO_UPDATED" and not TREES[arg1] then return end
+        if event == "MAJOR_FACTION_RENOWN_LEVEL_CHANGED" and arg1 ~= LC.LEGACY_REWARD_TRACK_FACTION_ID then return end
+        MarkDirty()
+    end)
+
+    EUI._applyLegacyAlert = Apply
+    EUI._legacyAlertFrame = Alerts.Refresh
+    EUI._legacyAlertPreview = function()
+        -- A live alert gets its text/color refreshed; otherwise a short sample.
+        local line = Line()
+        ShowAlert(line.persistentShown and Available() or nil, not line.persistentShown)
     end
 
     local boot = CreateFrame("Frame")

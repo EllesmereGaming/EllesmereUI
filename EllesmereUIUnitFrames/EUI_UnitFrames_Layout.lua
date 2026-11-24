@@ -68,7 +68,7 @@ function ns.UF_MiniAuraTables(unitKey)
 end
 
 -- The settings whose border keys paint the boss frames' unified border (and
--- its normal colour between hover / target recolours): the boss table's own
+-- its normal color between hover / target recolors): the boss table's own
 -- once its Border Style leaves "Inherit (Main Frames)" (borderCustom), else the
 -- mini frame donor's. Boss1-5 share the one boss table.
 function ns.UF_BossBorderSettings()
@@ -124,6 +124,25 @@ function ns.GetBossSimpleBuffOffset(s)
     if x == nil then x = s.buffOffsetX or 0 end
     local y = s.simpleBuffOffsetY
     if y == nil then y = s.buffOffsetY or 0 end
+    return x, y
+end
+
+-- Boss Simple Buff / Debuff Display duration text X/Y: simple<Buff|Debuff>CooldownTextOffsetX/Y
+-- if set, else the regular buff / debuff duration offsets, the view the column offsets above
+-- use, so a duration offset saved for the regular display reads on in the simple one. The
+-- live auras (BuildStyle), the simple cogs' sliders and the boss previews all read this.
+function ns.GetBossSimpleCdTextOffset(s, isBuff)
+    if not s then return 0, 0 end
+    local x, y
+    if isBuff then
+        x, y = s.simpleBuffCooldownTextOffsetX, s.simpleBuffCooldownTextOffsetY
+        if x == nil then x = s.buffCooldownTextOffsetX or 0 end
+        if y == nil then y = s.buffCooldownTextOffsetY or 0 end
+    else
+        x, y = s.simpleDebuffCooldownTextOffsetX, s.simpleDebuffCooldownTextOffsetY
+        if x == nil then x = s.debuffCooldownTextOffsetX or 0 end
+        if y == nil then y = s.debuffCooldownTextOffsetY or 0 end
+    end
     return x, y
 end
 
@@ -238,12 +257,12 @@ local function ApplyClassColor(fs, unit, useClassColor, customR, customG, custom
     fs:SetTextColor(customR or 1, customG or 1, customB or 1)
 end
 
--- Recolours every text slot on a frame from its settings: the four text
--- positions, then the bottom text bar with its power colour re-applied last so
--- power-coloured slots win (class -> power, same order as ApplyBTBTextPositions).
+-- Recolors every text slot on a frame from its settings: the four text
+-- positions, then the bottom text bar with its power color re-applied last so
+-- power-colored slots win (class -> power, same order as ApplyBTBTextPositions).
 -- Shared by the target/focus-changed updater and the text painter's UNIT_FACTION
--- branch (the painter only renders strings; colour lives here). `s` optional:
--- resolved strictly from the unit token, so an unmapped token recolours nothing.
+-- branch (the painter only renders strings; color lives here). `s` optional:
+-- resolved strictly from the unit token, so an unmapped token recolors nothing.
 -- On ns for the 200-locals cap.
 function ns.UF_RecolorTexts(frame, unit, s)
     if not frame or not unit then return end
@@ -281,6 +300,12 @@ EllesmereUI._UFRecolorAllTexts = function()
     for unit in pairs(unitSettingsKey) do
         if frames[unit] then ns.UF_RecolorTexts(frames[unit], unit) end
     end
+end
+
+function ns.UF_HideBottomTextBar(bar)
+    if not bar:IsShown() then return end
+    if bar._applyBTBTextTags then bar._applyBTBTextTags() end
+    bar:Hide()
 end
 
 -- Bottom text bar frame: below the health+power area, above the castbar.
@@ -337,11 +362,12 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
 
     btb._textOverlay = textOvr
 
-    local function ApplyBTBTextTags(lc, rc, cc)
-        ns.SetTextZone(frame, leftFS, lc, "btbLeft", settings)
-        ns.SetTextZone(frame, rightFS, rc, "btbRight", settings)
-        ns.SetTextZone(frame, centerFS, cc, "btbCenter", settings)
-        ns.UF_PaintText(frame, frame._euiUnit or unit)
+    local function ApplyBTBTextTags(s)
+        if s and ns.UF_Blizz() then return end
+        ns.SetTextZone(frame, leftFS, s and s.btbLeftContent, "btbLeft", s)
+        ns.SetTextZone(frame, rightFS, s and s.btbRightContent, "btbRight", s)
+        ns.SetTextZone(frame, centerFS, s and s.btbCenterContent, "btbCenter", s)
+        if s then ns.UF_PaintText(frame, frame._euiUnit or unit) end
     end
 
     -- Power-color override for power-content text. Mirrors the power bar text
@@ -410,11 +436,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         ApplyBTBPowerColors(s)
     end
 
-    ApplyBTBTextTags(
-        settings.btbLeftContent or "none",
-        settings.btbRightContent or "none",
-        settings.btbCenterContent or "none"
-    )
+    ApplyBTBTextTags(settings)
     ApplyBTBTextPositions(settings)
 
     btb._applyBTBTextTags = ApplyBTBTextTags
@@ -422,7 +444,8 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
     btb._applyBTBPowerColors = ApplyBTBPowerColors
 
     -- Class icon overlay on a high-level frame so it renders above the border.
-    local classIconHolder = CreateFrame("Frame", nil, frame)
+    -- A child of the bar, so it hides with it (Text Bar off, stock looks).
+    local classIconHolder = CreateFrame("Frame", nil, btb)
     classIconHolder:SetAllPoints(textOvr)
     classIconHolder:SetFrameLevel(frame:GetFrameLevel() + 12)
     local classIconTex = classIconHolder:CreateTexture(nil, "ARTWORK")
@@ -433,6 +456,11 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
     local function ApplyBTBClassIcon(s)
         local style = s.btbClassIcon or "none"
         if style == "none" then classIconTex:Hide(); return end
+        -- Players and AI party members only: UnitClass reports most NPCs as
+        -- warriors (the class color rule of ApplyClassColor).
+        if not (UnitIsPlayer(unit) or (UnitInPartyIsAI and UnitInPartyIsAI(unit))) then
+            classIconTex:Hide(); return
+        end
         local _, classToken = UnitClass(unit)
         if issecretvalue(classToken) or not classToken then classIconTex:Hide(); return end
         if not ApplyClassIconTexture(classIconTex, classToken, style) then classIconTex:Hide(); return end
@@ -538,6 +566,11 @@ local function ReparentBarsToClip(frame, powerPosition, settings)
             ns.UpdatePowerBorder(frame.Power, settings)
         end
     end
+    -- Hide Empty Power Bar (WoW Forever; EUI_UnitFrames_ForeverEmptyPower.lua)
+    -- works over the final parents and levels. Off and never on: this test.
+    if ns.UF_EmptyPower and ((settings and settings.hideEmptyPower) or frame._epParts) then
+        ns.UF_EmptyPower(frame, settings)
+    end
 end
 
 
@@ -564,10 +597,9 @@ local function UpdateBordersForScale(frame, unit)
     local ppIsAtt = (ppPos == "below" or ppPos == "above")
     local ppIsDet = (ppPos == "detached_top" or ppPos == "detached_bottom")
     local ph = settings.powerHeight or 6
-    -- Mini frames (pet/tot/focustarget) have no power bar: no power height.
-    -- The exception is a WoW Forever pet off Blizzard Style, which has its own.
+    -- Mini frames have no power height unless they carry an EUI power bar.
     local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget")
-    local miniNoPower = isMini and not (unit == "pet" and ns.UF_PetHasPower and not ns.UF_Blizz())
+    local miniNoPower = isMini and not (ns.UF_MiniHasPower(unit) and not ns.UF_Blizz())
     local powerH = (ppIsAtt and not miniNoPower) and ph or 0
 
     local btbPos = settings.btbPosition or "bottom"
@@ -804,13 +836,13 @@ local function GetFrameDimensions(unit, settingsOnly)
         local w = (showPortrait and isAttached) and (adjPH + settings.frameWidth) or settings.frameWidth
         return snap(w), snap(barH + btbExtra)
     elseif unit == "pet" or unit == "targettarget" or unit == "focustarget" then
-        -- A WoW Forever pet stacks its attached power bar with the health bar,
+        -- A mini power bar, when attached, stacks with the health bar,
         -- and a shown portrait squares that stack off beside the bar
         -- (StyleSimpleFrame), so it is part of the width here as on the other
         -- frames: the unlock setter subtracts the same square, and a size this
         -- reports must come back as itself through it (an override layer
         -- banks it and hands it to the setter on every apply).
-        local miniPowerH = (unit == "pet" and ns.UF_PetHasPower) and powerExtra or 0
+        local miniPowerH = ns.UF_MiniHasPower(unit) and powerExtra or 0
         local barH = settings.healthHeight + miniPowerH
         local w = showPortrait and (barH + settings.frameWidth) or settings.frameWidth
         return snap(w), snap(barH)

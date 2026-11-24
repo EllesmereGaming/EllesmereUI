@@ -613,7 +613,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
         })
     end
     -- Fill Color inline swatches: gradient end / custom / class. Blizzard Style
-    -- keeps the stock fill art, so the colour swatches are inert there; the
+    -- keeps the stock fill art, so the color swatches are inert there; the
     -- Classic WoW UI fill is the user's, so they stay live under it.
     EllesmereUI.BuildInlineSwatches(castColorRow._leftRegion, {
               { tooltip = "Gradient End Color", hasAlpha = true,
@@ -710,7 +710,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
         local function UpdateBgSwatch()
             local p = DB()
             -- Gated with the Background slider beside it: Blizzard Style
-            -- paints the stock background art; the classic bar keeps this colour.
+            -- paints the stock background art; the classic bar keeps this color.
             if EllesmereUI.BlizzStyle.Active("castbar") == "blizzard" then
                 bgSwatch:SetAlpha(0.15); bgSwatch:Disable()
                 bgSwatch._disabledTooltip = EllesmereUI.BlizzStyle.Label("castbar")
@@ -813,7 +813,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
             },
         })
     end
-    -- Spell Text colour (RGBA; white = the untinted text), left of the
+    -- Spell Text color (RGBA; white = the untinted text), left of the
     -- Spell Text Settings cog above. Dimmed and blocked while the cast bar
     -- is off or Spell Text is None.
     if not EllesmereUI._prebuilding then
@@ -901,7 +901,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
             },
         })
     end
-    -- Duration Text colour (RGBA; white = the untinted text), left of the
+    -- Duration Text color (RGBA; white = the untinted text), left of the
     -- Timer Settings cog above. Dimmed and blocked while the cast bar is off
     -- or Duration Text is None.
     if not EllesmereUI._prebuilding then

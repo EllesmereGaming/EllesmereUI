@@ -123,7 +123,10 @@ do
                 state.highlightAttached = nil
             end
             if state.mask then state.mask:Hide() end
-            icon:SetTexCoord(zoom, 1 - zoom, zoom + crop / 100, 1 - zoom - crop / 100)
+            -- Cropped: the frame is (1 - 2 x crop) as tall as wide; only the top and bottom are
+            -- cut, so the art keeps its proportions.
+            local half = (1 - 2 * zoom) * (1 - 2 * crop / 100) / 2
+            icon:SetTexCoord(zoom, 1 - zoom, 0.5 - half, 0.5 + half)
         end
         if icon.SetSnapToPixelGrid then
             icon:SetSnapToPixelGrid(false)
@@ -370,8 +373,18 @@ local function HideCombatIcons()
 end
 
 local function ShowCombatIcon(m)
+    local hunter = m.dismissKey == "forever:huntertracking"
     local f
-    if EABR.IsReceiverRaidBuff(m) then
+    if hunter then
+        f = GetOrCreateReceiverIcon("HunterTracking")
+        f._hunterTracking = m
+        f:EnableMouse(not m.hunterTrackingStatus)
+        -- EnableMouse turns clicks back on: an icon built in combat lets
+        -- every click through until HideCombatIcons routes it.
+        if not f._routed then f:SetMouseClickEnabled(false) end
+        f._icon:SetAlpha(0)
+        f._eabrBorderFrame:SetAlpha(0)
+    elseif EABR.IsReceiverRaidBuff(m) then
         receiversShown = receiversShown + 1
         f = GetOrCreateReceiverIcon(receiversShown)
     else
@@ -382,7 +395,7 @@ local function ShowCombatIcon(m)
     local spellID = m.spellID or (m.data and m.data.castSpell)
     f._icon:SetTexture(m.texture or (spellID and Tex(spellID)) or 134400)
     local p = db and db.profile.display
-    if p and p.showText and not m.isEating then
+    if p and p.showText and not m.isEating and not hunter then
         local tc = p.textColor or DEFAULT_TEXT_COLOR
         local fontPath = ResolveFontPath(p.nameFont)
         local textSize = p.textSize or 11
@@ -414,6 +427,63 @@ local function ShowCombatIcon(m)
     combatActiveIcons[#combatActiveIcons+1] = f
 end
 
+-- Native reverse fill slides seven built-in icons behind a fixed viewport.
+-- Lua only styles public cells; it never reads the fill's restricted geometry.
+local function PaintHunterTargetIcon(f, entry)
+    local s = f._hunterIcons
+    if not s then
+        local clip = CreateFrame("Frame", nil, f)
+        clip:SetClipsChildren(true)
+        clip:EnableMouse(false)
+        local ruler = CreateFrame("StatusBar", nil, clip)
+        ruler:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+        ruler:SetMinMaxValues(0, 16)
+        ruler:SetReverseFill(true)
+        ruler:SetAlpha(0)
+        ruler:EnableMouse(false)
+        s = { clip = clip, ruler = ruler, fill = ruler:GetStatusBarTexture(), icons = {} }
+        f._hunterIcons = s
+        for spellID, creatureTypeID in pairs(EABR._fvHunterTrackingTypes) do
+            local cell = CreateFrame("Frame", nil, clip)
+            cell:EnableMouse(false)
+            cell._icon = cell:CreateTexture(nil, "ARTWORK")
+            cell._icon:SetAllPoints()
+            cell._icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            cell._icon:SetTexture(Tex(spellID))
+            s.icons[creatureTypeID] = cell
+        end
+    end
+    local p = db.profile.display
+    local size, texture = p.borderSize or 1, p.borderTexture or "solid"
+    local scale = f:GetEffectiveScale()
+    local _, ox, oy, sx, sy = EllesmereUI.BorderPlacement(size, texture,
+        p.borderTextureOffset, p.borderTextureOffsetY, p.borderTextureShiftX, p.borderTextureShiftY,
+        "aurabuffreminders", size, EllesmereUI.BorderPx(p.borderSizePx, size, texture), nil, scale)
+    local pad = math.ceil(max(0, ox + math.abs(sx), oy + math.abs(sy))) + 1
+    local width, height = f:GetSize()
+    local step = width + 2 * pad
+    s.clip:ClearAllPoints()
+    s.clip:SetPoint("TOPLEFT", f, "TOPLEFT", -pad, pad)
+    s.clip:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", pad, -pad)
+    s.ruler:ClearAllPoints()
+    s.ruler:SetSize(16 * step, height + 2 * pad)
+    s.ruler:SetPoint("TOPRIGHT", s.clip, "TOPRIGHT")
+    s.clip:Show()
+    s.ruler:SetValue(entry.hunterTargetTypeID)
+    for creatureTypeID, cell in ipairs(s.icons) do
+        -- Restyle while anchored to the public owner, then restore native positioning.
+        cell:ClearAllPoints()
+        cell:SetPoint("TOPLEFT", f, "TOPLEFT")
+        cell:SetSize(width, height)
+        if s.scale ~= scale and cell._eabrBorderFrame then cell._eabrBorderFrame._eabrSize = nil end
+        EABR.ApplyIconBorder(cell, false)
+        cell:SetAlpha(bit.band(entry.hunterMatchMask, 2 ^ (creatureTypeID - 1)) == 0 and 1 or 0)
+        cell:ClearAllPoints()
+        cell:SetPoint("TOPLEFT", s.fill, "TOPLEFT", (creatureTypeID - 1) * step + pad, -pad)
+    end
+    s.scale = scale
+end
+
 -- Left-aligned from the anchor's left edge; Grow Left right-aligns from its
 -- right edge instead. Slot 0 is reserved while the provider secure button is
 -- shown, and stays reserved after a mid-combat hide until the OOC park -- its
@@ -442,6 +512,7 @@ local function LayoutCombatIcons()
         EABR.SizeIconBagCount(f, sz)
         f:ClearAllPoints()
         f:SetPoint(pt, combatAnchor, pt, xOff + (i-1)*(sz+spacing), 0)
+        if f._hunterTracking then PaintHunterTargetIcon(f, f._hunterTracking) end
     end
 end
 
@@ -1093,7 +1164,7 @@ function EABR.SizeIconBagCount(f, sz)
     fs:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", dx, dy)
 end
 
-function EABR.ApplyIconBagCount(f, count, outOfStock, substitute, spellRank)
+function EABR.ApplyIconBagCount(f, count, outOfStock, substitute, badge)
     if not f then return end
     EABR.CreateIconBagCountOverlay(f)
     f._outOfStock = outOfStock and true or nil
@@ -1107,10 +1178,10 @@ function EABR.ApplyIconBagCount(f, count, outOfStock, substitute, spellRank)
         fs:SetTextColor(1, 0.2, 0.2, 1)
         EABR.SizeIconBagCount(f, f:GetWidth() or ICON_SIZE)
         fs:Show()
-    elseif spellRank or (showCount and count and count > 0) then
+    elseif badge or (showCount and count and count > 0) then
         f._bagCountShown = true
-        fs:SetText(spellRank or count)
-        if substitute and not spellRank then
+        fs:SetText(badge or count)
+        if substitute and not badge then
             fs:SetTextColor(1, 0.82, 0, 1)
         else
             fs:SetTextColor(1, 1, 1, 1)
@@ -1211,8 +1282,65 @@ function EABR.ApplyEatingVisual(f, m)
     f:SetScript("OnUpdate", EABR.EatingTick)
 end
 
+function EABR.UpdateIconItemCooldown(btn, itemID)
+    local swipe = btn._itemCooldown
+    if itemID and not InCombat() then
+        local start, duration, enabled = C_Item.GetItemCooldown(itemID)
+        -- Ignore the global cooldown. The buff expiration countdown is separate.
+        if not (I.isSecret(start) or I.isSecret(duration) or I.isSecret(enabled))
+            and (enabled == true or enabled == 1) and start and duration
+            and start > 0 and duration > 1.5 and start + duration > GetTime() then
+            if not swipe then
+                swipe = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
+                swipe:SetAllPoints(btn._icon)
+                swipe:SetHideCountdownNumbers(true)
+                swipe:SetDrawEdge(false)
+                swipe:SetDrawBling(false)
+                btn._itemCooldown = swipe
+            end
+            if swipe._itemStart ~= start or swipe._itemDuration ~= duration then
+                swipe._itemStart, swipe._itemDuration = start, duration
+                swipe:SetCooldown(start, duration)
+                swipe:Show()
+            end
+            return
+        end
+    end
+    if swipe and swipe._itemStart then
+        swipe._itemStart, swipe._itemDuration = nil, nil
+        swipe:Clear()
+        swipe:Hide()
+    end
+end
+
+function EABR.FvUpdateStatItemCooldowns()
+    if InCombat() then return end
+    for _, btn in ipairs(activeIcons) do
+        if btn._cooldownItemID then EABR.UpdateIconItemCooldown(btn, btn._cooldownItemID) end
+    end
+end
+
 function EABR.ApplyIconExpiry(f, m)
     local expireAt = m and m.expireAt
+    local swipe = f._expirySwipe
+    if expireAt and m.expireSwipe then
+        if not swipe then
+            swipe = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+            swipe:SetAllPoints(f._icon)
+            swipe:SetHideCountdownNumbers(true)
+            swipe:SetDrawEdge(false)
+            swipe:SetDrawBling(false)
+            f._expirySwipe = swipe
+        end
+        if swipe._expiryEnd ~= expireAt or swipe._expiryTotal ~= m.expireTotal then
+            swipe:SetCooldown(expireAt - m.expireTotal, m.expireTotal)
+            swipe._expiryEnd, swipe._expiryTotal = expireAt, m.expireTotal
+        end
+        swipe:Show()
+    elseif swipe then
+        swipe:Hide()
+        swipe._expiryEnd, swipe._expiryTotal = nil, nil
+    end
     local binding = f._expiryBinding
     if not expireAt then
         if binding then binding:SetEnabled(false) end
@@ -1239,7 +1367,7 @@ end
 
 local ShowForeverGroupMenu
 local iconPickerStyle
-local ShowForeverFoodMenu
+local ShowForeverItemMenu
 
 local function GetOrCreateIcon(index)
     if iconPool[index] then return iconPool[index] end
@@ -1254,7 +1382,7 @@ local function GetOrCreateIcon(index)
     -- Middle-click dismiss: hide this reminder until the next loading screen.
     -- Right-click on a multi-pet-cycle reminder previews the next pet without
     -- casting. On a clickable spell group it opens the spell picker, on the
-    -- Well Fed reminder the food picker.
+    -- item reminders with choices it opens the item picker.
     btn:HookScript("PostClick", function(self, button, down)
         if button == "MiddleButton" and self._dismissKey then
             _dismissedUntilLoad[self._dismissKey] = true
@@ -1269,8 +1397,8 @@ local function GetOrCreateIcon(index)
             if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
         elseif button == "RightButton" and self._foreverGroup and not InCombat() then
             ShowForeverGroupMenu(self)
-        elseif button == "RightButton" and self._foreverFood and not InCombat() then
-            ShowForeverFoodMenu(self)
+        elseif button == "RightButton" and (self._foreverFood or self._foreverStatItems) and not InCombat() then
+            ShowForeverItemMenu(self)
         end
     end)
 
@@ -1557,24 +1685,65 @@ function EABR.ForeverFoodMacro(itemID)
     return macro
 end
 
-ShowForeverFoodMenu = function(btn)
+ShowForeverItemMenu = function(btn)
     local profile = db.profile
     local fo = profile.forever
-    local foods = btn._foreverFood
-    local function IsCurrent()
-        return not InCombat() and db.profile == profile and profile.forever == fo
-            and fo and fo.pickerEnabled == true and fo.wellFed
-            and foods and EABR.IsForeverFoodCurrent(foods) and btn._foreverFood == foods and btn:IsVisible()
-    end
-    if not IsCurrent() then return end
+    local statItems = btn._foreverStatItems
+    local automaticItem = btn._foreverStatAutomaticItem
+    local statFamily = btn._foreverStatFamily
+    local class = statItems and GetPlayerClass()
+    local items = statItems or btn._foreverFood
+    if not items then return end
     local ids = {}
-    for id in pairs(foods) do ids[#ids + 1] = id end
-    if #ids == 0 then return end
+    -- The collector reuses the stat item table, so keep the counts shown by this menu.
+    local statSnapshot = statItems and {}
+    for id, count in pairs(items) do
+        ids[#ids + 1] = id
+        if statSnapshot then statSnapshot[id] = count end
+    end
+    local function IsCurrent()
+        if InCombat() or db.profile ~= profile or profile.forever ~= fo
+            or not (fo and fo.pickerEnabled == true and btn:IsVisible()) then return false end
+        if statItems then
+            if not class or GetPlayerClass() ~= class or btn._foreverStatItems ~= statItems
+                or btn._foreverStatFamily ~= statFamily or btn._foreverStatAutomaticItem ~= automaticItem
+                or (fo.statConsumableSeparateReminders == true) ~= (statFamily ~= nil) then return false end
+            local n = 0
+            for id, count in pairs(statItems) do
+                if statSnapshot[id] ~= count then return false end
+                n = n + 1
+            end
+            return n == #ids
+        end
+        return fo.wellFed and EABR.IsForeverFoodCurrent(items) and btn._foreverFood == items
+    end
+    if #ids == 0 or not IsCurrent() then return end
     table.sort(ids)
-    local function SelectFood(id)
-        if not IsCurrent() or not foods[id] then return end
+    local function SelectItem(id)
+        if not IsCurrent() or not items[id] then return end
         local count = C_Item.GetItemCount(id)
         if not count or count <= 0 then return end
+        if statItems then
+            local pin = id ~= automaticItem and id or nil
+            if statFamily then
+                local byClass = fo.statConsumablePickerByFamily
+                local picks = byClass and byClass[class]
+                if (picks and picks[statFamily]) == pin then return end
+                if not byClass then byClass = {}; fo.statConsumablePickerByFamily = byClass end
+                if not picks then picks = {}; byClass[class] = picks end
+                picks[statFamily] = pin
+                if not next(picks) then byClass[class] = nil end
+                if not next(byClass) then fo.statConsumablePickerByFamily = nil end
+            else
+                local picks = fo.statConsumablePickerByClass
+                if (picks and picks[class]) == pin then return end
+                if not picks then picks = {}; fo.statConsumablePickerByClass = picks end
+                picks[class] = pin
+                if not next(picks) then fo.statConsumablePickerByClass = nil end
+            end
+            if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+            return
+        end
         fo.wellFedItem = id
         SetIconMacro(btn, EABR.ForeverFoodMacro(id), C_Item.GetItemIconByID(id))
         btn._tooltipItem = id
@@ -1582,7 +1751,7 @@ ShowForeverFoodMenu = function(btn)
     end
     ShowPickerGrid(btn, ids, IsCurrent, function(root)
         for _, id in ipairs(ids) do
-            local button = root:CreateButton("", SelectFood, id)
+            local button = root:CreateButton("", SelectItem, id)
             button:AddInitializer(function(frame, description)
                 local itemID = description:GetData()
                 DrawPickerIcon(frame, C_Item.GetItemIconByID(itemID), btn._tooltipItem == itemID)
@@ -1592,7 +1761,7 @@ ShowForeverFoodMenu = function(btn)
                 count:SetWidth(30)
                 count:SetJustifyH("RIGHT")
                 count:SetPoint("CENTER", frame, "CENTER", 0, -10)
-                count:SetText(foods[itemID])
+                count:SetText((statSnapshot or items)[itemID])
                 return 38, 38
             end)
             button:SetTooltip(function(tooltip, description)
@@ -1625,9 +1794,10 @@ do
         e.mode = nil; e.spellID = nil; e.itemID = nil; e.macro = nil
         e.texture = nil; e.label = nil; e.unit = nil; e.desaturated = false
         e.tooltipItem = nil
+        e.cooldownItemID = nil
         e.cat = nil; e.data = nil; e.dismissKey = nil; e.petCycleTotal = nil
         e.isEating = nil; e.eatingExpirationTime = nil
-        e.expireAt = nil; e.expireTotal = nil
+        e.expireAt = nil; e.expireTotal = nil; e.expireSwipe = nil
         e.qualityAtlas = nil
         e.bagCount = nil
         e.substitute = nil
@@ -1637,6 +1807,14 @@ do
         e.foreverGroup = nil
         e.spellRank = nil
         e.foreverFood = nil
+        e.hunterTrackingStatus = nil
+        e.hunterTargetTypeID = nil
+        e.hunterMatchMask = nil
+        e.foreverStatItems = nil
+        e.foreverStatAutomaticItem = nil
+        e.foreverStatFamily = nil
+        e.fvExtra = nil
+        e.stackText = nil
         return e
     end
 

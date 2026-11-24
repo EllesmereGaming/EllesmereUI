@@ -476,6 +476,28 @@ local function ZctSetAlpha(fd, fs, a)
     end
 end
 
+-- Reagent spells (Vanish/Flash Powder): Blizzard puts the reagent count on this
+-- counter, so the bar's Show Item Count (Never / Out of Combat) hides it here.
+-- Only for a spell without charges: Blizzard shows a charge spell's charges on
+-- the counter instead, which stay (and the zero-charge watch, which handles only
+-- charge spells, never asks this). The cheap consumable test runs first.
+local _zctInCombat = false
+do
+    local CI = ns._internals
+    CI.inCombatSetters[#CI.inCombatSetters + 1] = function(v) _zctInCombat = v end
+end
+local function ReagentCountHidden(sid, bd)
+    if not bd or (bd.showItemCount ~= false and not (bd.itemCountOOC and _zctInCombat)) then
+        return false
+    end
+    if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+        sid = C_SpellBook.FindSpellOverrideByID(sid) or sid
+    end
+    if not (C_Spell.IsConsumableSpell and C_Spell.IsConsumableSpell(sid)) then return false end
+    local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
+    return not (ci and (ci.maxCharges or 0) > 1)
+end
+
 local function EvalZeroChargeTextFrame(frame, fd)
     local fs = frame.ChargeCount and frame.ChargeCount.Current
     local fcz = _ecmeFC[frame]
@@ -555,6 +577,11 @@ function ns.WatchZeroChargeTextIfEnabled(frame)
         end
     end
     local bd = bkz and barDataByKey and barDataByKey[bkz]
+    if sidz and ReagentCountHidden(sidz, bd) then
+        local fsh = frame.ChargeCount and frame.ChargeCount.Current
+        if fsh then ZctSetAlpha(fd, fsh, 0) end
+        return
+    end
     if bd and bd.hideZeroChargeText and sidz then
         -- Enroll CHARGE SPELLS ONLY: non-charge icons would be pure identity
         -- work per event. Talent swaps re-run this via the appearance pass; the
@@ -565,7 +592,13 @@ function ns.WatchZeroChargeTextIfEnabled(frame)
         end
         local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(liveSid)
         if not (ci and (ci.maxCharges or 0) > 1) then
-            if ns._zeroChargeTextWatch[frame] then EvalZeroChargeTextFrame(frame, fd) end
+            if ns._zeroChargeTextWatch[frame] then
+                EvalZeroChargeTextFrame(frame, fd)
+            else
+                -- Not watched: undo a reagent / Hide Charge Text zero (memoized).
+                local fsn = frame.ChargeCount and frame.ChargeCount.Current
+                if fsn then ZctSetAlpha(fd, fsn, 1) end
+            end
             return
         end
         if not ns._zeroChargeTextEventFrame then
@@ -682,9 +715,11 @@ end
 -- for any reason but missing power, so a reactive spell (Overpower, Victory
 -- Rush, Execute) shows once its proc or condition is up, tinted by Blizzard
 -- while rage / energy / mana is short, and power ticks never flip the answer.
--- IsSpellUsable returns plain booleans on every client.
-function ns.CdmSpellNotUsable(liveSid)
+-- IsSpellUsable returns plain booleans on every client. requirePower (a Bar
+-- Glow's Require Resource) counts missing power as unavailable too.
+function ns.CdmSpellNotUsable(liveSid, requirePower)
     local usable, noPower = C_Spell.IsSpellUsable(liveSid)
+    if requirePower then return not usable end
     return not (usable or noPower)
 end
 
@@ -1324,7 +1359,7 @@ end
 do
     local watch = setmetatable({}, { __mode = "k" })  -- icon frame -> the spell ID it was watched with
     local eventFrame, flushFrame
-    local usableOn, formOn, auraOn, stanceOn = false, false, false, false
+    local usableOn, formOn, auraOn, stanceOn, unitAuraOn = false, false, false, false, false
     local flushedForm  -- the form ID the last pass evaluated
 
     local function SyncEvents(usable, form, aura, stance)
@@ -1369,12 +1404,17 @@ do
             if form then
                 eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
                 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-                eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
             else
                 eventFrame:UnregisterEvent("UPDATE_SHAPESHIFT_FORM")
                 eventFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                eventFrame:UnregisterEvent("UNIT_AURA")
             end
+        end
+        -- The stance bar too, for a WoW Forever druid (ns.CdmStanceBarFormAura).
+        local unitAura = form or (stanceOn and ns.CdmStanceBarFormAura == true)
+        if unitAura ~= unitAuraOn then
+            unitAuraOn = unitAura
+            if unitAura then eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+            else eventFrame:UnregisterEvent("UNIT_AURA") end
         end
     end
 
@@ -1702,7 +1742,7 @@ local function ApplyOnlyNumbers(frame, fd, barData)
             -- SetVertexColor share ONE alpha slot on this client, and the
             -- resource-dim pass writes a 3-arg SetVertexColor on injected
             -- custom-spell icons, resetting alpha to 1 and popping the art back.
-            -- Shown-state is an independent channel no colour writer can touch,
+            -- Shown-state is an independent channel no color writer can touch,
             -- and nothing in the addon Shows an icon texture.
             tex:Hide()
         end

@@ -3,7 +3,7 @@ if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- no keystones on WoW
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_Keys.lua
 --  /keys slash command: displays party keystone levels in a styled popup.
---  Uses LibKeystone (BigWigs/DBM) for keystone data exchange.
+--  Uses LibKeystone for keystone data exchange.
 -------------------------------------------------------------------------------
 local LibKeystone = LibStub and LibStub("LibKeystone", true)
 
@@ -537,6 +537,7 @@ ShowKeystonePopup = function()
         r._nameFS:SetText("No keystones found"); r._nameFS:SetWidth(contentW)
         r._nameFS:SetTextColor(0.5, 0.5, 0.5, 0.7)
         r._ratingFS:SetText(""); r._dungeonFS:SetText(""); r._levelFS:SetText("")
+        if r._tpBtn then r._tpBtn:Hide() end
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", body, "TOPLEFT", 0, curY)
         r:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, curY)
@@ -573,6 +574,7 @@ ShowKeystonePopup = function()
         r._nameFS:SetText("Waiting for data..."); r._nameFS:SetWidth(contentW)
         r._nameFS:SetTextColor(0.5, 0.5, 0.5, 0.5)
         r._ratingFS:SetText(""); r._dungeonFS:SetText(""); r._levelFS:SetText("")
+        if r._tpBtn then r._tpBtn:Hide() end
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", body, "TOPLEFT", 0, curY)
         r:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, curY)
@@ -620,8 +622,8 @@ _G._EUI_RefreshKeystonePopup = RefreshPopupIfOpen
 
 -------------------------------------------------------------------------------
 --  LibKeystone callback
---  Receives keystone data from any player running BigWigs/DBM (or any addon
---  that embeds LibKeystone). No manual comm handling needed.
+--  Receives keystone data from any player running an addon that embeds
+--  LibKeystone. No manual comm handling needed.
 -------------------------------------------------------------------------------
 -- Registered only when the popup feature is enabled: the toggle is
 -- reload-gated (see options), so the load-time flag is authoritative and a

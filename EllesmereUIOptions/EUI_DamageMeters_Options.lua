@@ -8,9 +8,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUIDamageMeters"]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 local EDM = ns.EDM
--- Blizzard Style paints its own window colours and bar tracks, so those
+-- Blizzard Style paints its own window colors and bar tracks, so those
 -- controls go inert under it; the Classic WoW UI box is tinted by the
--- configured colours and its rows keep the plain track, so they stay live.
+-- configured colors and its rows keep the plain track, so they stay live.
 local function DMBlizzArt() return EllesmereUI.BlizzStyle.Active("damagemeters") == "blizzard" end
 local function DMBlizzGate(cfg, keepRow)
     if DMBlizzArt() then return EllesmereUI.BlizzStyle.Gate("damagemeters", cfg, keepRow) end
@@ -395,6 +395,24 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
+        -- Test Bars: sample rows in every window until pressed again or combat
+        -- starts; they stay after the options close. Not saved. The page refresh
+        -- swaps the button text (_dmPreviewShown = the text last shown).
+        _, h = W:DualRow(parent, y,
+            { type="labeledButton", text="Test Bars",
+              buttonText = function()
+                  -- (the search prebuild's hidden copy is not the page shown)
+                  if not EllesmereUI._prebuilding then ns._dmPreviewShown = ns._dmPreview == true end
+                  return ns._dmPreview and "Hide Test Bars" or "Show Test Bars"
+              end,
+              tooltip = "Fills every meter window with sample bars until you press it again or enter combat.",
+              onClick = function()
+                  if ns.SetDMPreview then ns.SetDMPreview(not ns._dmPreview) end
+                  EllesmereUI:RefreshPage()
+              end },
+            EllesmereUI.BlankRowCfg())
+        y = y - h
+
         -- ── HEADER ──────────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "HEADER", y); y = y - h
 
@@ -547,7 +565,7 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn._lastInline = accentSwatch
 
                 -- Classic WoW UI paints every header icon with vanilla art that
-                -- carries its own colours, and WoW Forever tints the glyphs its
+                -- carries its own colors, and WoW Forever tints the glyphs its
                 -- own tan on their plates: both swatches inert. (Blizzard Style
                 -- keeps the EUI glyphs, so the tint stays live there.)
                 local stockIcons = EllesmereUI.BlizzStyle.Active("damagemeters") == "classic"
@@ -800,7 +818,7 @@ initFrame:SetScript("OnEvent", function(self)
                   Set("borderTextureShiftY", nil)
                   local selC = EllesmereUI.GetBorderSelectColor(v)
                   if selC then
-                      -- The style's select colour (Pixels grey).
+                      -- The style's select color (Pixels grey).
                       Set("borderR", selC.r); Set("borderG", selC.g); Set("borderB", selC.b); Set("borderA", 1)
                   elseif v ~= "solid" then
                       Set("borderR", 1); Set("borderG", 1); Set("borderB", 1); Set("borderA", 1)
@@ -951,7 +969,7 @@ initFrame:SetScript("OnEvent", function(self)
                 Set("iconBorderTextureShiftX", nil); Set("iconBorderTextureShiftY", nil)
                 local selC = EllesmereUI.GetBorderSelectColor(v)
                 if selC then
-                    -- The style's select colour (Pixels grey).
+                    -- The style's select color (Pixels grey).
                     Set("iconBorderR", selC.r); Set("iconBorderG", selC.g); Set("iconBorderB", selC.b); Set("iconBorderA", 1)
                 elseif v ~= "solid" then
                     Set("iconBorderR", 1); Set("iconBorderG", 1); Set("iconBorderB", 1); Set("iconBorderA", 1)
@@ -1401,7 +1419,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.RegisterWidgetRefresh(refreshRight)
                 refreshRight()
 
-                -- Value gradient: a swatch showing its colour scale, toggled by a click.
+                -- Value gradient: a swatch showing its color scale, toggled by a click.
                 rgn._lastInline = classSwatch
                 EllesmereUI.BuildInlineSwatches(rgn, {
                     { tooltip = "Colors each value on a green to red scale.",
@@ -1886,7 +1904,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return SHDB().hideTopBar end,
               setValue = function(v) SHDB().hideTopBar = v; RefreshSH() end }
         );  y = y - h
-        -- Background colour swatch on the opacity slider; none in the search
+        -- Background color swatch on the opacity slider; none in the search
         -- pre-build (it indexes nothing, and the row is a stand-in there)
         if not EllesmereUI._prebuilding then
             local rgn = bgRow._leftRegion
@@ -1901,8 +1919,8 @@ initFrame:SetScript("OnEvent", function(self)
                 end,
                 false, 20)
             PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
-            -- Blizzard Style paints the stock window art (colour unused); the
-            -- classic box is tinted by this colour.
+            -- Blizzard Style paints the stock window art (color unused); the
+            -- classic box is tinted by this color.
             if DMBlizzArt() then EllesmereUI.BlizzStyle.BlockInline("damagemeters", swatch) end
             local block = CreateFrame("Frame", nil, swatch)
             block:SetAllPoints(); block:SetFrameLevel(swatch:GetFrameLevel() + 10)
@@ -2099,6 +2117,14 @@ initFrame:SetScript("OnEvent", function(self)
         return math.abs(y)
     end
 
+    -- Combat start ends the Test Bars while the panel is closed: a cached page
+    -- still says "Hide Test Bars", so refresh it on the next show.
+    local function SyncTestBarsButton(pageName)
+        if pageName == "Damage Meters" and (ns._dmPreview == true) ~= (ns._dmPreviewShown == true) then
+            EllesmereUI:RefreshPage()
+        end
+    end
+
     EllesmereUI:RegisterModule("EllesmereUIDamageMeters", {
         title       = "Damage Meters",
         description = "Custom damage meter using Blizzard's built-in combat data.",
@@ -2125,7 +2151,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
             return BuildPage(pageName, p, yOffset)
         end,
-        onPageCacheRestore = function()
+        onPageCacheRestore = function(pageName)
+            SyncTestBarsButton(pageName)
             ns._optionsOpen = true
             if ns.ShowSATimerPreview and Cfg("standaloneTimer") then ns.ShowSATimerPreview() end
             if ns.ApplySpellHistory then ns.ApplySpellHistory() end
@@ -2152,6 +2179,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- Show preview when panel opens on DM page, hide when panel closes
     EllesmereUI:RegisterOnShow(function()
         if EllesmereUI:GetActiveModule() == "EllesmereUIDamageMeters" then
+            SyncTestBarsButton(EllesmereUI:GetActivePage())
             if ns.ShowSATimerPreview and Cfg("standaloneTimer") then ns.ShowSATimerPreview() end
             ns._optionsOpen = true
             for _, w in ipairs(ns._windows or {}) do

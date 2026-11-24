@@ -143,7 +143,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
             else
                 ns.NP_BasicBorderColor(plate, plate._threatBdR, plate._threatBdG, plate._threatBdB, 1)
                 -- The health border wears the parked tint now: UpdateBorderWrap reads this,
-                -- and every other border colour paint (base, target, hover) clears it.
+                -- and every other border color paint (base, target, hover) clears it.
                 plate._hbThreatTint = true
             end
         else
@@ -155,8 +155,8 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
                 ns.NP_BasicBorderColor(plate, cr, cg, cb, 1)
             end
         end
-        -- ...and border colour edits and the target tint's restore (a tint only), on the
-        -- threat path too: untargeting a threat-tinted plate drops the target colour here.
+        -- ...and border color edits and the target tint's restore (a tint only), on the
+        -- threat path too: untargeting a threat-tinted plate drops the target color here.
         if (p and (p.castIconCustomBorder or p.castIconSeparator)) or (plate.cast and plate.cast._iconSeam) then
             ns.ApplyCastIconBorder(plate)
         end
@@ -250,7 +250,8 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     PP.Size(plate.classFrame, _reIconSz, _reIconSz)
     PP.Point(plate.classFrame, "LEFT", plate.health, "LEFT", 2, 0)
     -- INDICATOR TIER (see raidFrame). MEDIUM strata + low level (health+3=13) so the
-    -- classification/elite/rare/quest indicator sits below auras/text but above the flattened bar.
+    -- Elite/Rare Indicator sits below auras/text but above the flattened bar. The Quest
+    -- Indicator's frame (plate.questFrame) is built on first use by UpdateClassification.
     plate.classFrame:SetFrameStrata("MEDIUM")
     plate.classFrame:SetFrameLevel(plate.health:GetFrameLevel() + 3)
     plate.classFrame:Hide()
@@ -297,9 +298,9 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     end
     -- "Wrap Border Around Castbar" (opt-in). While cast bar shown + feature on, health + cast
     -- get ONE continuous border from two pieces: the REAL health border (top+sides, untouched
-    -- colour) and a region frame for the lower half (sides+bottom, full footprint width, health
+    -- color) and a region frame for the lower half (sides+bottom, full footprint width, health
     -- bottom -> cast bottom). Touching edges hidden so they read as one outline; region copies
-    -- the health border's colour. Each piece MUST live in its own bar's subtree: a PP border is
+    -- the health border's color. Each piece MUST live in its own bar's subtree: a PP border is
     -- an OVERLAY texture that reliably beats its OWN bar's ARTWORK fill in the flattened render
     -- layer -- one frame spanning BOTH bars does NOT work (health half would render over the
     -- cast fill, the unreliable cross-flatten case). The region rides "Casts In Front of
@@ -331,16 +332,16 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
                 local r, g, b, a = 0, 0, 0, 1
                 if col then r, g, b, a = col[1], col[2], col[3], col[4] or 1 end
                 -- Threat Colors "Border" tint on the health border: _bdColor keeps only the
-                -- last CLEAN colour (PP leaves a secret off-tank fold out of it), so the
+                -- last CLEAN color (PP leaves a secret off-tank fold out of it), so the
                 -- region and the re-snapped health border take the parked tint from the
                 -- plate. It may be secret: it only ever reaches PP.SetBorderColor, never
-                -- the CreateBorder below (which stores its colour) or a compare.
+                -- the CreateBorder below (which stores its color) or a compare.
                 local thr = plate._hbThreatTint and plate._threatBdOn
                 -- Region frame (child of plate.cast) spans the FULL footprint width from the
                 -- health bar's BOTTOM to the cast bar's BOTTOM, bridging any Cast Bar Y-offset
                 -- gap and enclosing an in-width cast icon; health border keeps top+sides. The
                 -- seam (health bottom + region top) is hidden to read as one outline, and the
-                -- health border's live colour is copied onto the region (target highlight carries over).
+                -- health border's live color is copied onto the region (target highlight carries over).
                 local region = plate.castWrapRegion
                 if not region then
                     region = CreateFrame("Frame", nil, plate.cast)
@@ -383,7 +384,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
                 -- higher and draws over it); only the icon-separator line is hidden so an
                 -- in-width icon stays seamless.
                 if plate.castLeftBorder then plate.castLeftBorder:Hide() end
-                -- Optional: tint the full-size icon's border with the live target border colour
+                -- Optional: tint the full-size icon's border with the live target border color
                 -- to match the wrapped bar; else-branch keeps it black so toggling off resets it.
                 if plate.castIconFrame and PP.GetBorders(plate.castIconFrame) then
                     if p and p.castIconTargetBorder
@@ -401,7 +402,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         elseif plate._wrapActive then
             plate._wrapActive = false
             -- Clear the seam flag and re-snap the health border so its bottom edge/side insets
-            -- come back (re-applies the live colour). Drop the region, hand the cast border back.
+            -- come back (re-applies the live color). Drop the region, hand the cast border back.
             local hb = PP.GetBorders(plate.health)
             if hb then
                 hb._hideBottom = nil
@@ -411,7 +412,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
                     if tbsz then sz = tbsz end
                 end
                 PP.SetBorderSize(plate.health, sz)
-                -- The re-snap re-applied the last clean colour: put a threat tint back.
+                -- The re-snap re-applied the last clean color: put a threat tint back.
                 if plate._hbThreatTint and plate._threatBdOn then
                     ns.NP_BasicBorderColor(plate, plate._threatBdR, plate._threatBdG, plate._threatBdB, 1)
                 end
@@ -676,7 +677,7 @@ end
 local ComputeCastBarTint = ns.ComputeCastBarTint
 -- Re-evaluate the cast-bar wrap on every enemy plate; each plate self-decides to wrap or
 -- unwrap, so this both applies and tears down. Called unconditionally from the option toggle
--- (catches toggle-off) and, gated on the setting, from the border refreshers, so size/colour
+-- (catches toggle-off) and, gated on the setting, from the border refreshers, so size/color
 -- edits during a wrapped mid-cast plate keep the unified border in sync.
 function ns.ApplyBorderWrapToAll()
     for _, plate in pairs(ns.plates) do
@@ -688,7 +689,7 @@ function ns.RefreshBorder()
     ns._npAppearanceGen = (ns._npAppearanceGen or 0) + 1
     for _, plate in pairs(ns.plates) do
         if plate.ApplyBorder then plate:ApplyBorder() end
-        -- ApplyBorder draws the base colour (custom rebuild) or the last clean one (re-snap)
+        -- ApplyBorder draws the base color (custom rebuild) or the last clean one (re-snap)
         -- over a Threat Colors tint, and the _threatBdK memo would skip the repaint.
         if plate._threatBdOn and plate.unit then plate:RepaintThreatBorder(plate.unit) end
     end
@@ -706,7 +707,7 @@ function ns.RefreshBorder()
     if ns.GetWrapBorderCastbar() then ns.ApplyBorderWrapToAll() end
     -- Custom Border on Aura Icons: the aura styles carry the custom border, so a border
     -- edit restyles them (fingerprint-gated). One field read while off.
-    if p and p.auraIconCustomBorder and ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
+    if p and (p.auraIconCustomBorder or p.cornerRadiusAuras) and ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
     -- Debuff Coloring's Color Border is drawn from the border's own numbers
     -- (fingerprint-gated, one profile read while off).
     if ns.DebuffColors_RequestRefresh then ns.DebuffColors_RequestRefresh() end
@@ -721,7 +722,7 @@ function ns.RefreshBorderColor()
     -- Friendly plates mirror the enemy border settings 1:1.
     if ns.friendlyPlates then
         -- Target Border Effects: a friendly target keeps its target tint (a tint only;
-        -- its untarget restore paints the new base colour). One field read while off.
+        -- its untarget restore paints the new base color). One field read while off.
         local keepTint = p and p.friendlyTargetBorderFx and ns.GetTargetGlowBorderColor()
         for _, plate in pairs(ns.friendlyPlates) do
             if plate.ApplyBorderColor and not (keepTint and plate._isTarget and plate._fxBorderTinted) then
@@ -749,16 +750,17 @@ function ns.RefreshCastBorderColor()
     if ns.GetWrapBorderCastbar() then ns.ApplyBorderWrapToAll() end
 end
 
+-- Height of the rectangle an enemy plate is stacked by: the name, the health bar and the cast
+-- bar, times Stacked Nameplate Spacing.
+function ns.NP_StackHeight()
+    return (4 + GetEnemyNameTextSize() + GetHealthBarHeight() + GetCastBarHeight()) * GetStackSpacingScale() / 100
+end
+
 function ns.RefreshStackingBounds()
-    local scale = GetStackSpacingScale() / 100
-    local barH = GetHealthBarHeight()
-    local castH2 = GetCastBarHeight()
-    local nameGap = 4 + GetEnemyNameTextSize()
-    local totalH = nameGap + barH + castH2
-    local w = GetHealthBarWidth()
+    local w, h = GetHealthBarWidth(), ns.NP_StackHeight()
     for _, plate in pairs(ns.plates) do
         if plate._stackBounds then
-            plate._stackBounds:SetSize(w, totalH * scale)
+            plate._stackBounds:SetSize(w, h)
         end
     end
 end
@@ -911,7 +913,7 @@ function ns.RefreshAllSettings()
             if fx or fp._targetBorderSized or fp._fxBorderTinted then fp:ApplyTarget() end
         end
     end
-    -- Friendly bar and name colours: a profile or override flip of the class colour
+    -- Friendly bar and name colors: a profile or override flip of the class color
     -- toggles reaches the live full plates.
     if ns.RefreshFriendlyColors then ns.RefreshFriendlyColors() end
     if ns.NP_SyncFriendlyHealthTextSide then ns.NP_SyncFriendlyHealthTextSide() end
@@ -919,6 +921,9 @@ function ns.RefreshAllSettings()
     -- mode or its guild brackets reaches the live friendly names (one compare
     -- while they are unchanged).
     if ns.NP_SyncFriendlyNameFormat then ns.NP_SyncFriendlyNameFormat() end
+    -- The away/busy tag and the target/hover events follow the profile's own
+    -- switches (a no-op while they are unchanged).
+    if ns.RefreshFriendlyTagWatch then ns.RefreshFriendlyTagWatch() end
 end
 
 I.frameCache, I.GetActiveKickSpell = frameCache, GetActiveKickSpell

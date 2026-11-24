@@ -424,6 +424,7 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
         bar._chargeHashTicks = ticks
     end
 
+    local newTicks = #ticks < maxCharges - 1
     while #ticks < maxCharges - 1 do
         local tick = bar._chargeHashOverlay:CreateTexture(nil, "OVERLAY", nil, 7)
         tick:SetSnapToPixelGrid(false)
@@ -495,6 +496,7 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
         tick:Show()
     end
     for i = maxCharges, #ticks do ticks[i]:Hide() end
+    if newTicks and bar._roundRadius then EllesmereUI.RoundCorners(bar, bar._roundRadius, bar._roundOptions) end
     bar._chargeHashLineCacheValid = true
     bar._chargeHashLineMaxCharges = maxCharges
     bar._chargeHashLineWidth = width
@@ -646,6 +648,116 @@ I.restoreNormalFillSetters[#I.restoreNormalFillSetters + 1] = function(v) _resto
 -------------------------------------------------------------------------------
 --  Apply Visual Settings
 -------------------------------------------------------------------------------
+function ns.SetTBBIconTexture(icon, file)
+    icon._tex:SetTexture(file)
+    if icon._roundSide then icon._joinTex:SetTexture(file) end
+end
+
+-- Both halves sample the same full icon. Only the outward half uses the
+-- aura mask. The clips meet in the middle so opacity is applied once.
+local function FitEndIcon(icon)
+    local bar = icon:GetParent()
+    local side = icon._roundSide
+    local size = icon:GetWidth()
+    local edge = 0
+    if icon._roundSolid then
+        local cont = EllesmereUI.PP.GetBorders(bar._barBorder)
+        if cont then edge = (cont._snapEdge or 0) * cont:GetEffectiveScale() / icon:GetEffectiveScale() end
+    end
+    edge = math.min(edge, max(0, (size - 1) / 2))
+    local radius = math.min(bar._roundRadius, max(1, math.floor((size - 1) / 2)))
+    local shape = math.min(16, max(1, math.floor(32 * max(1, radius - edge) / max(1, size - 2 * edge) + 0.5)))
+    local mask = icon._endMask
+    if not mask then
+        mask = icon:CreateMaskTexture()
+        mask:SetBlockingLoadsRequested(true)
+        icon._endMask = mask
+        icon._outerClip = CreateFrame("Frame", nil, icon)
+        icon._joinClip = CreateFrame("Frame", nil, icon)
+        icon._outerClip:SetClipsChildren(true)
+        icon._joinClip:SetClipsChildren(true)
+        icon._joinTex = icon._joinClip:CreateTexture(nil, "ARTWORK")
+        icon._joinTex:SetAllPoints(icon)
+    end
+    if icon._maskSide == side and icon._maskShape == shape and icon._maskInset == edge then return end
+    if icon._maskSide then
+        icon._tex:RemoveMaskTexture(mask)
+    else
+        icon._tex:SetParent(icon._outerClip)
+        icon._tex:SetAllPoints(icon)
+        icon._joinTex:SetTexCoord(icon._tex:GetTexCoord())
+        icon._joinTex:SetTexture(icon._tex:GetTexture())
+        icon._outerClip:Show()
+        icon._joinClip:Show()
+    end
+    EllesmereUI.SetAuraIconMask(mask, shape)
+    mask:ClearAllPoints()
+    mask:SetPoint("TOPLEFT", icon, "TOPLEFT", side == "right" and 0 or edge, side == "bottom" and 0 or -edge)
+    mask:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", side == "left" and 0 or -edge, side == "top" and 0 or edge)
+    local first, second = icon._outerClip, icon._joinClip
+    if side == "right" or side == "bottom" then first, second = second, first end
+    local horizontal = side == "left" or side == "right"
+    first:ClearAllPoints()
+    first:SetPoint("TOPLEFT", mask, "TOPLEFT")
+    first:SetPoint("BOTTOMRIGHT", mask, horizontal and "BOTTOM" or "RIGHT")
+    second:ClearAllPoints()
+    second:SetPoint("TOPLEFT", mask, horizontal and "TOP" or "LEFT")
+    second:SetPoint("BOTTOMRIGHT", mask, "BOTTOMRIGHT")
+    icon._tex:AddMaskTexture(mask)
+    icon._maskSide, icon._maskShape, icon._maskInset = side, shape, edge
+end
+
+-- Anchor to the icon's inner edge so the divider stays put as the fill drains.
+local function LayoutIconDivider(tex)
+    local cfg, icon = tex._cfg, tex._icon
+    local vertical, right = cfg.verticalOrientation, cfg.iconDisplay == "right"
+    local key, step = cfg.borderTexture or "solid", cfg.borderSize or 0
+    local px = EllesmereUI.BorderPx(cfg.borderSizePx, step, key)
+    local pp, es = EllesmereUI.PP, icon:GetEffectiveScale()
+    local companion = EllesmereUI.GetBorderCompanion(key, vertical and "sepH" or "sepV")
+    tex:SetVertexColor(cfg.borderR or 0, cfg.borderG or 0, cfg.borderB or 0, 1)
+    if companion and not vertical then
+        EllesmereUI.PlaceBorderDividerV(tex, icon, right, true, key, step, px, es)
+        return
+    end
+
+    local thickness, overlap = 0, 0
+    if companion then
+        thickness = EllesmereUI.BorderCompanionThickness(key, step, px, es)
+        overlap = pp.SnapForES(thickness * 3 / 16, es)
+        tex:SetTexture(companion)
+        tex:SetTexCoord(0, 1, right and 1 or 0, right and 0 or 1)
+    elseif key == "solid" or key == "" then
+        thickness = max(1, math.floor((px or step) + 0.5)) * pp.perfect / es
+        tex:SetColorTexture(1, 1, 1, 1)
+        tex:SetTexCoord(0, 1, 0, 1)
+    else
+        local path = EllesmereUI.ResolveBorderTexture(key)
+        if not path then tex:Hide(); return end
+        local edge = vertical and (right and "top" or "bottom") or (right and "left" or "right")
+        thickness = EllesmereUI.BorderPlacement(step, key, nil, nil, nil, nil, "resourcebars", step, px, nil, es)
+        overlap = pp.SnapForES(thickness / 2, es)
+        tex:SetTexture(path)
+        tex:SetTexCoord(unpack(EllesmereUI.SECRET_BORDER_UV[edge]))
+    end
+
+    tex:ClearAllPoints()
+    if vertical then
+        local from, to = right and "BOTTOM" or "TOP", right and "TOP" or "BOTTOM"
+        local y = right and -overlap or overlap
+        tex:SetPoint(from .. "LEFT", icon, to .. "LEFT", 0, y)
+        tex:SetPoint(from .. "RIGHT", icon, to .. "RIGHT", 0, y)
+        tex:SetHeight(thickness)
+    else
+        local from, to = right and "RIGHT" or "LEFT", right and "LEFT" or "RIGHT"
+        local x = right and overlap or -overlap
+        tex:SetPoint("TOP" .. from, icon, "TOP" .. to, x, 0)
+        tex:SetPoint("BOTTOM" .. from, icon, "BOTTOM" .. to, x, 0)
+        tex:SetWidth(thickness)
+    end
+    tex:Show()
+end
+
 local function ApplyTrackedBuffBarSettings(bar, cfg)
     if not bar or not cfg then return end
     local sb = bar._bar
@@ -1010,6 +1122,21 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
             textureKey, cfg.borderTextureOffset, cfg.borderTextureOffsetY,
             cfg.borderTextureShiftX, cfg.borderTextureShiftY,
             "resourcebars", bSz, nil, edgePx)
+        local divider = bar._iconDivider
+        if cfg.showIconDivider and hasIcon and bSz > 0 then
+            if not divider then
+                divider = bar._textOverlay:CreateTexture(nil, "BACKGROUND")
+                divider._icon = bar._icon
+                bar._iconDivider = divider
+            end
+            if not divider._cfg then EllesmereUI.RegisterPxReapply(divider, LayoutIconDivider) end
+            divider._cfg = cfg
+            LayoutIconDivider(divider)
+        elseif divider and divider._cfg then
+            EllesmereUI.RegisterPxReapply(divider, nil)
+            divider._cfg = nil
+            divider:Hide()
+        end
     end
 
     -- Threshold overlay + tick marks
@@ -1023,8 +1150,37 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
     end
     ApplyTBBTickMarks(sb, cfg, bar._threshTicks, isVert, bar._tickOverlay)
     ApplyTBBChargeHashLines(bar, cfg, GetTBBMaxCharges(cfg))
+    local radius = cfg.borderCornerRadius
+    if radius and radius > 0 and not blizzBar and EllesmereUI.RoundedStyleOK(cfg.borderTexture) then
+        local opts = bar._roundOptions
+        if not opts then
+            opts = { roots = { sb }, border = bar._barBorder }
+            bar._roundOptions = opts
+        end
+        opts.style = cfg.borderTexture
+        bar._roundRadius = radius
+        EllesmereUI.RoundCorners(bar, radius, opts)
+    elseif bar._roundRadius then
+        bar._roundRadius = nil
+        EllesmereUI.RoundCorners(bar, 0)
+    end
+    local icon = bar._icon
+    if icon and hasIcon and bar._roundRadius then
+        if not icon._roundSide then EllesmereUI.RegisterPxReapply(icon, FitEndIcon) end
+        icon._roundSide = isVert and (iconMode == "left" and "top" or "bottom") or iconMode
+        icon._roundSolid = (cfg.borderSize or 0) > 0 and (not cfg.borderTexture or cfg.borderTexture == "solid")
+        FitEndIcon(icon)
+    elseif icon and icon._roundSide then
+        EllesmereUI.RegisterPxReapply(icon, nil)
+        icon._tex:RemoveMaskTexture(icon._endMask)
+        icon._tex:SetParent(icon)
+        icon._tex:SetAllPoints(icon)
+        icon._outerClip:Hide()
+        icon._joinClip:Hide()
+        icon._roundSide, icon._maskSide = nil, nil
+    end
     bar._ticksDirty = true
-    -- The settings may change what the name, icon, fill colour and stacks show:
+    -- The settings may change what the name, icon, fill color and stacks show:
     -- the next live tick re-reads them (TBBContentDue in EUI_CDM_BuffBarTick.lua).
     bar._cChild = nil
 end

@@ -547,7 +547,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
     end
 
     -- Blizzard Style: the stock level number in the frame's level circle,
-    -- with its size, offsets and difficulty colouring on a cog. The row is
+    -- with its size, offsets and difficulty coloring on a cog. The row is
     -- the preview level text's click target (stashed on the page: the
     -- targets table at the end reads it).
     if EllesmereUI.BlizzStyle.Get("unitframes") then
@@ -573,7 +573,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                     { type="slider", label="Y Offset", min=-150, max=150, step=1,
                       get=function() return SVal("blizzLevelY", 0) end,
                       set=function(v) SSet("blizzLevelY", v); UpdatePreview() end },
-                    -- The player's own level never takes a difficulty colour.
+                    -- The player's own level never takes a difficulty color.
                     { type="toggle", label="Difficulty Color",
                       tooltip="Colors an attackable unit's level by difficulty, as the default UI does.",
                       disabled=function() return optState.selectedUnit == "player" end,
@@ -2112,7 +2112,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
               SSet("powerBorderShiftX", nil)
               SSet("powerBorderShiftY", nil)
               if v ~= "solid" then
-                  -- The style's select colour (Pixels grey), else white.
+                  -- The style's select color (Pixels grey), else white.
                   SSet("powerBorderColor", EllesmereUI.GetBorderSelectColor(v) or { r = 1, g = 1, b = 1 })
                   SSet("powerBorderAlpha", 1)
               else
@@ -2243,6 +2243,25 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
         pbSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         rightRgn._lastInline = pbSwatch
         EllesmereUI.RegisterWidgetRefresh(function() updatePBSwatch() end)
+    end
+
+    -- Hide Empty Power Bar (target and focus, WoW Forever only; the page
+    -- rebuilds on unit change): EUI_UnitFrames_ForeverEmptyPower.lua. It
+    -- needs an attached power bar beside a horizontal health fill; a stock look
+    -- greys it, naming the look (BlizzStyle.Gate).
+    if EllesmereUI.IS_FOREVER == true and (optState.selectedUnit == "target" or optState.selectedUnit == "focus") then
+        _, h = W:DualRow(parent, y,
+            EllesmereUI.BlizzStyle.Gate("unitframes", { type="toggle", text="Hide Empty Power Bar",
+              tooltip="Hides the power bar while the unit has no power and fills its space with the health bar.",
+              disabled=function()
+                  local pos = SVal("powerPosition", "below")
+                  return (pos ~= "below" and pos ~= "above") or SVal("powerHeight", 6) <= 0
+                      or SVal("healthVerticalFill", false) == true
+              end,
+              disabledTooltip="This option requires an attached Power Bar and a horizontal Health Bar fill.",
+              getValue=function() return SVal("hideEmptyPower", false) == true end,
+              setValue=function(v) SSet("hideEmptyPower", v and true or false) end }),
+            EllesmereUI.BlankRowCfg());  y = y - h
     end
 
     -- Spell Cost Prediction (player only, WoW Forever only; the page rebuilds
@@ -2380,7 +2399,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                     },
                 })
             end
-            -- Form Power Text (its colour swatches inline) + Form Text Position:
+            -- Form Power Text (its color swatches inline) + Form Text Position:
             -- the form bar's text, apart from the power bar's (Mana) text. Built
             -- only with Mana + Form Power (Power Type rebuilds the page).
             if not NoFormBar() then
@@ -2417,7 +2436,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                         },
                     })
                     if not EllesmereUI._prebuilding then
-                    -- Text colour: custom, or the form power's colour. Neither set
+                    -- Text color: custom, or the form power's color. Neither set
                     -- follows the power bar's Text Color.
                     local function FormPowerColored()
                         local pc = SVal("foreverFormTextPowerColor", nil)
@@ -2625,7 +2644,10 @@ function ns.UFO_BuildClassResourceSection(parent, y, ctx)
     -- style builds a saved "blizzard" as modern, and a rogue under the
     -- EllesmereUI look reads its own style (ns.UF_ForeverCPStyle, nil
     -- elsewhere). Display and gating only; writes and syncs keep the saved value.
+    -- Forever druid without Cat Form: nothing builds, so the row reads None.
+    local CatLocked = EllesmereUI.ForeverDruidLacksCat
     local function SCPStyle()
+        if CatLocked() then return "none" end
         local v = SValSupported("classPowerStyle", "none")
         if ns.UF_ForeverCPStyle then v = ns.UF_ForeverCPStyle(v) end
         return v
@@ -2634,6 +2656,8 @@ function ns.UFO_BuildClassResourceSection(parent, y, ctx)
     -- Row 1: Enable Class Resource + Class Colors (with inline swatch)
     sharedClassResRow, h = W:DualRow(parent, y,
         { type="dropdown", text="Enable Class Resource", values=classPowerStyleValues, order=classPowerStyleOrder,
+          disabled=CatLocked,
+          disabledTooltip="Learn Cat Form to use combo points.", rawTooltip=true,
           -- Forever ships no class resource bar that can be re-parented: the
           -- per-class globals the Blizzard style adopts are all Mainline-only.
           -- Under the WoW Forever style the entry is the combo point arc

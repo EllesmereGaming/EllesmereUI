@@ -34,7 +34,7 @@ local XP_BAR_COLORS = {
 }
 
 -- Fill Style's gradients (s.fillGradient = "HORIZONTAL" | "VERTICAL"; nil = a
--- flat colour): the direction and both colours (s.fillGradStart /
+-- flat color): the direction and both colors (s.fillGradStart /
 -- s.fillGradEnd, the defaults above until set). Direction nil = no gradient.
 function ns.XPBarGradient(s)
     local dir = s and s.fillGradient
@@ -44,9 +44,9 @@ function ns.XPBarGradient(s)
     return dir, a.r or 1, a.g or 1, a.b or 1, a.a or 1, b.r or 1, b.g or 1, b.b or 1, b.a or 1
 end
 
--- Paints the fill texture from the start colour to the end colour
+-- Paints the fill texture from the start color to the end color
 -- (Horizontal: left to right; Vertical: bottom to top), only when the
--- direction, a colour or the texture changed. A flat colour (the fill's
+-- direction, a color or the texture changed. A flat color (the fill's
 -- SetStatusBarColor) overwrites it and drops the memo, as does a layout pass.
 local _xpGradA, _xpGradB = CreateColor(1, 1, 1, 1), CreateColor(1, 1, 1, 1)
 local function XPPaintGradient(bar, dir, sr, sg, sb, sa, er, eg, eb, ea)
@@ -350,7 +350,7 @@ end
 -- Damage Meters windows, so size matching and snapping are unchanged. The
 -- fill, rested bar and trough start FOREVER_BORDER.fill in from that edge
 -- (under the line's inner shadow, their square corners inside the chamfers)
--- and keep the bar's own texture and colours. Built once on its own child
+-- and keep the bar's own texture and colors. Built once on its own child
 -- above the fill (holder+1) and the ticks (holder+2).
 local function ApplyXPForeverBorder(frame, bar, bg, rb)
     local host = frame._fvRingHost
@@ -445,7 +445,7 @@ local function ApplyXPArt(frame, s)
 end
 
 -- The bar's background: the XP Bar tab's Background slider (s.barBgOpacity,
--- 0-100) and its colour (s.barBgColor). Unset keeps each style's own: the
+-- 0-100) and its color (s.barBgColor). Unset keeps each style's own: the
 -- dark EllesmereUI body at 85%, the Professions trough untinted at 100%.
 -- Returns r, g, b and the opacity (0-100).
 function ns.XPBarBackground(s)
@@ -464,7 +464,7 @@ function ns.XPBarBackground(s)
 end
 
 -- The Professions trough is art, so it is tinted and faded; every other
--- style's background is a flat colour.
+-- style's background is a flat color.
 local function PaintXPBackground(frame, s)
     local bg = frame._bg
     local r, g, b, op = ns.XPBarBackground(s)
@@ -491,7 +491,7 @@ end
 -- (s.questOverlayColor, gold; ARTWORK 2) under completed ones
 -- (s.questOverlayDoneColor, green; ARTWORK 3). Built on first enable; off,
 -- built ones hide.
--- A colour, its unset fields at the default (green / gold at 60%); the
+-- A color, its unset fields at the default (green / gold at 60%); the
 -- options swatches read it too.
 local QUEST_DONE = { r = 0, g = 127/255, b = 0, a = 0.6 }
 local QUEST_INC = { r = 1, g = 0.82, b = 0, a = 0.6 }
@@ -1152,8 +1152,12 @@ end
 -- The XP of every quest in the log that is ready to hand in (the quest
 -- texts), then the Quest XP Overlay's completed and incomplete XP, filtered
 -- by Completed Quests Only (s.questOverlayCompleted) and Current Zone Only
--- (s.questOverlayZone).
+-- (s.questOverlayZone). Hidden log entries (tracking entries the quest log
+-- never lists) count for nothing; a bonus objective in progress counts.
 local GetQuestLogRewardXP = GetQuestLogRewardXP  -- missing on a client: reads 0
+-- Whether a quest's log entry is hidden, read once per quest ID: GetInfo makes
+-- a table per call, and a quest's hidden flag does not change.
+local xpQuestHidden = {}
 local function XPQuestXP(s)
     if not GetQuestLogRewardXP then return 0, 0, 0 end
     local QL = C_QuestLog
@@ -1161,17 +1165,25 @@ local function XPQuestXP(s)
     local all, onlyZone = ov and not s.questOverlayCompleted, ov and s.questOverlayZone
     local total, done, inc = 0, 0, 0
     for i = 1, QL.GetNumQuestLogEntries() do
-        -- Only quests the quest log lists: hidden and task/bounty entries skipped.
-        local info = QL.GetInfo(i)
-        local q = info and not info.isHeader and not info.isHidden
-            and not info.isTask and not info.isBounty and info.questID
+        local q = QL.GetQuestIDForLogIndex(i)
         if q and q > 0 then
-            local complete = QL.IsComplete(q)
-            if complete or all then
-                local xp = GetQuestLogRewardXP(q) or 0
-                if complete then total = total + xp end
-                if ov and (not onlyZone or QL.IsOnMap(q)) then
-                    if complete then done = done + xp else inc = inc + xp end
+            local hidden = xpQuestHidden[q]
+            if hidden == nil then
+                -- an entry whose info is not readable yet counts, and is read again next scan
+                local info = QL.GetInfo(i)
+                if info then
+                    hidden = info.isHidden and true or false
+                    xpQuestHidden[q] = hidden
+                end
+            end
+            if not hidden then
+                local complete = QL.IsComplete(q)
+                if complete or all then
+                    local xp = GetQuestLogRewardXP(q) or 0
+                    if complete then total = total + xp end
+                    if ov and (not onlyZone or QL.IsOnMap(q)) then
+                        if complete then done = done + xp else inc = inc + xp end
+                    end
                 end
             end
         end
@@ -1378,7 +1390,7 @@ end
 -- Center's first text.
 function ns.XPBarTextSlots(frame, s)
     frame._xpPaintDirty = true
-    -- A layout pass (Bar Texture, style) can reset the fill's colours: the
+    -- A layout pass (Bar Texture, style) can reset the fill's colors: the
     -- update that follows repaints the gradient.
     local gm = frame._bar and frame._bar._xpGrad
     if gm then gm.on = nil end
@@ -1582,7 +1594,7 @@ end)
 xpTextEv:RegisterEvent("PLAYER_ENTERING_WORLD")
 
 -- The fill at these values: the bar's value and Smart Ticks, a gradient (Fill
--- Style) or the flat colour, which overwrites a gradient painted before it,
+-- Style) or the flat color, which overwrites a gradient painted before it,
 -- the rested overlay and the Quest XP Overlay. UpdateXPBar paints the live bar
 -- with the player's XP; the options preview paints its own frame with sample
 -- values. On ns.

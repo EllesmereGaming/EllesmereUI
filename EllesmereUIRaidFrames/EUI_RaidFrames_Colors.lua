@@ -28,7 +28,7 @@ local UnitGetTotalHealAbsorbs = UnitGetTotalHealAbsorbs
 local InCombatLockdown      = InCombatLockdown
 local issecretvalue         = issecretvalue
 
-local AbbreviateNumbers, ApplyFont, defaults = I.AbbreviateNumbers, I.ApplyFont, I.defaults
+local ApplyFont, defaults = I.ApplyFont, I.defaults
 local DISPEL_COLORS, GetFFD, PixelSnap = I.DISPEL_COLORS, I.GetFFD, I.PixelSnap
 local unitToButton = I.unitToButton
 
@@ -135,7 +135,7 @@ do
 
     -- The plain three-stop gradient of the frames that keep stops of their own (the pet
     -- frames, the party target frames): no thresholds. cache: a table the caller keeps,
-    -- so each kind of frame has its own curve and differently coloured kinds never
+    -- so each kind of frame has its own curve and differently colored kinds never
     -- rebuild each other's; built again only when a stop changed. A missing stop takes
     -- its default.
     function ns.RF_StopsCurve(cache, c0, c50, c100)
@@ -251,7 +251,7 @@ do
 end
 
 -- Textured Background (Health Bar Fill cog; off by default): the bar texture on the
--- bar backgrounds, tinted by the colour each is painted. A tinted background's own
+-- bar backgrounds, tinted by the color each is painted. A tinted background's own
 -- SetColorTexture tints the texture, so every existing paint keeps it: paint these
 -- backgrounds only through SetColorTexture. The health background follows the fill
 -- edge, so there the texture is a fixed full-size layer on the health bar, shown
@@ -279,7 +279,7 @@ do
         return (s.healthBarOpacity or 100) >= 100
     end
     -- A background that never moves: swapped to the texture at path, tinted by its
-    -- paints (vertical: turned with a vertical bar); nil puts the flat colour back at
+    -- paints (vertical: turned with a vertical bar); nil puts the flat color back at
     -- the next paint.
     function ns.RF_TexBgTint(bg, path, vertical)
         if path then
@@ -324,7 +324,7 @@ do
             bg._rfTexBgLayer:Hide()
         end
     end
-    -- Buttons with a health layer, re-checked by every colour push before
+    -- Buttons with a health layer, re-checked by every color push before
     -- ERF:UpdateAllFrames repaints (a Dark Mode Fill edit can cross 100 with no
     -- reload). Nil until the option is first on.
     local watched
@@ -401,7 +401,7 @@ function ns._ApplyHealthBg(d, health, s, unit, connected, deadOrGhost)
             or (s.statusColorDead or { r = 0x24/255, g = 0x17/255, b = 0x17/255 })
         local st = (not connected) and 3 or 2
         -- Under Inverted Fill a corpse paints a full missing-health bar (UpdateButton):
-        -- its own state, so that fill is hidden and the status colour shows undimmed.
+        -- its own state, so that fill is hidden and the status color shows undimmed.
         local hideFill = deadOrGhost and health and health._euiInv
         if hideFill then st = st + 2 end
         if d._bgSt ~= st or d._bgR ~= c.r or d._bgG ~= c.g or d._bgB ~= c.b then
@@ -808,9 +808,9 @@ function ns.RefreshAllNames()
     for unit, btn in pairs(ns._partyUnitToButton) do refresh(unit, btn) end
 end
 
--- A preview text's colour for its colour mode: accent, class (classToken: the sample member's
+-- A preview text's color for its color mode: accent, class (classToken: the sample member's
 -- class; none, as for a pet, reads white), power (pToken: the sample member's power type) or
--- custom (custom: the colour). r, g, b: the colour without one.
+-- custom (custom: the color). r, g, b: the color without one.
 function ns.RF_PreviewTextColor(mode, custom, classToken, r, g, b, pToken)
     if mode == "accent" then
         local ar, ag, ab = EllesmereUI.ResolveActiveAccent()
@@ -911,7 +911,7 @@ do
         local max, abr = sfind(key, ":max", 1, true) ~= nil, sfind(key, ":abr", 1, true) ~= nil
         local status = kind == "hp" and not max
         local pctKey, perKey, sample = kind .. "Pct", kind .. "Per", SCHEMA[key].sample
-        local valueType = kind == "hp" and (max and "maxHealth" or "health") or nil
+        local valueType = kind == "hp" and (max and "maxHealth" or "health") or "power"
         return function(unit, s, pv)
             local st = status and Status(unit, pv)
             if st then return st end
@@ -923,10 +923,7 @@ do
             else
                 return sample
             end
-            if abr then
-                if valueType then return AbbreviateValue(v, valueType) end
-                return AbbreviateNumbers(v)
-            end
+            if abr then return AbbreviateValue(v, valueType) end
             return sformat("%d", v)
         end
     end
@@ -1081,14 +1078,10 @@ function ns.RF_HealthTextInto(fs, mode, pct, unit, perPct)
         fs:SetFormattedText("%.0f", pct)
     elseif mode == "number" then
         if unit then v = UnitHealth(unit, true) else v = pct * perPct end
-        if v and AbbreviateNumbers then
-            fs:SetText(AbbreviateValue(v, "health"))
-        elseif v then
-            fs:SetFormattedText("%s", v)
-        end
+        if v then fs:SetText(AbbreviateValue(v, "health")) end
     elseif mode == "numberPercent" or mode == "percentNumber" then
         if unit then v = UnitHealth(unit, true) else v = pct * perPct end
-        local numStr = (v and AbbreviateNumbers) and AbbreviateValue(v, "health") or tostring(v or 0)
+        local numStr = v and AbbreviateValue(v, "health") or "0"
         if mode == "numberPercent" then
             fs:SetFormattedText("%s | %.0f%%", numStr, pct)
         else
@@ -1097,13 +1090,7 @@ function ns.RF_HealthTextInto(fs, mode, pct, unit, perPct)
     elseif mode == "missing" then
         if unit then v = UnitHealthMissing(unit, true) else v = (100 - pct) * perPct end
         fs:SetText(C_StringUtil.TruncateWhenZero(v))
-        if fs:GetText() then
-            if v and AbbreviateNumbers then
-                fs:SetText(AbbreviateValue(v, "health"))
-            elseif v then
-                fs:SetFormattedText("%s", v)
-            end
-        end
+        if v and fs:GetText() then fs:SetText(AbbreviateValue(v, "health")) end
     else
         fs:SetText("")
         return false
@@ -1120,7 +1107,7 @@ function ns.FormatHealAbsorbInto(fs, amt, mode)
     if not fs then return end
     if not mode or mode == "none" then fs:SetText(""); return end
     fs:SetText(C_StringUtil.TruncateWhenZero(amt or 0))
-    if mode == "short" and AbbreviateNumbers and fs:GetText() then
+    if mode == "short" and fs:GetText() then
         fs:SetText(AbbreviateValue(amt or 0, "absorb"))
     end
 end
@@ -1187,7 +1174,7 @@ ns._RFPowerTypeEdge = function(d, unit, force)
             d._pwBgTintF = f
         end
     end
-    -- Power Text's colour is identity-class state too (its Power mode is this type's colour).
+    -- Power Text's color is identity-class state too (its Power mode is this type's color).
     if d._pwtOn then ns.RF_TextPowerColor(d, unit, s, pr, pg, pb) end
 end
 
@@ -1200,7 +1187,7 @@ end
 -- (UnitPowerPercent, which can be secret in combat: it only ever reaches a format setter).
 -- unit + pType: the live unit, blank while dead or offline like Health Text (both checks return
 -- clean booleans for group units); its amount is read only in the modes that show it and goes
--- straight through AbbreviateNumbers into the setter, never compared. A preview (unit nil)
+-- straight through AbbreviateValue into the setter, never compared. A preview (unit nil)
 -- shows made-up amounts, perPct per percent. Returns false when it blanks the text (dead,
 -- offline, None or an unknown mode), otherwise true.
 function ns.RF_PowerTextInto(fs, mode, pct, unit, pType, perPct)
@@ -1214,7 +1201,7 @@ function ns.RF_PowerTextInto(fs, mode, pct, unit, pType, perPct)
         fs:SetFormattedText("%.0f", pct)
     elseif mode == "number" or mode == "numberPercent" or mode == "percentNumber" then
         local num
-        if unit then num = AbbreviateNumbers(UnitPower(unit, pType)) else num = AbbreviateNumbers(pct * perPct) end
+        if unit then num = AbbreviateValue(UnitPower(unit, pType), "power") else num = AbbreviateValue(pct * perPct, "power") end
         if mode == "number" then
             fs:SetText(num)
         elseif mode == "numberPercent" then

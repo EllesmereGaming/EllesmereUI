@@ -17,23 +17,26 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --      stats (its left edge is the divider between the two panes);
 --    - the item slots as on retail: icons cropped by the Icon Zoom setting,
 --      a grey square behind each and a 2px border in the item's quality
---      colour (dark grey when empty), recoloured through Blizzard's own
+--      color (dark grey when empty), recolored through Blizzard's own
 --      per-slot update;
 --    - text beside each slot where retail shows its item level and upgrade
---      track: the item level and the item's main and secondary stat, or its
---      armor when it has no stats, a weapon's damage per second under that,
---      and the enchant name under those, painted through the
---      same per-slot update; retail's top-left eyeball hides it all for the
---      session;
+--      track: the item level (Show Item Level: beside the slot unless set,
+--      or inside its icon, or never) and, with Show Item Stats on (off
+--      unless turned on), the item's main and secondary stat, or its armor
+--      when it has no stats, and a weapon's damage per second under that;
+--      the enchant name under those, painted through the same per-slot
+--      update; retail's top-left eyeball hides it all for the session;
 --    - the character name and the "Level N Class" line in the house font,
---      as on retail (Blizzard keeps writing the text, so the class colour
+--      as on retail (Blizzard keeps writing the text, so the class color
 --      and the pvp title still come from the client);
 --    - the stats list stays Blizzard's list on Blizzard's scrollbar, whose
 --      track and thumb take the house thin style in place (arrows kept);
---      its category headers and values take the retail sidebar's colour
---      system (per-category colours, the user's overrides from the options
+--      its category headers and values take the retail sidebar's color
+--      system (per-category colors, the user's overrides from the options
 --      page, the thin header bars) through the scroll box's own frame
---      callbacks, never by touching its data.
+--      callbacks, never by touching its data;
+--    - the overall item level (the equipped average) on a line of its own
+--      above the player's stats, as on retail.
 --
 --  All of this is the EllesmereUI look (the Character Sheet card's
 --  EllesmereUI and Modern). Under the card's Blizz Default only the slot text
@@ -48,8 +51,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  Cost: a one-time pass at login on frames that already exist (under Blizz
 --  Default, a one-time text build at the slots' first show instead), then a
---  recolour per element initialisation (what Blizzard does anyway on each
---  stats refresh) and one colour compare plus one item-link compare per slot
+--  recolor per element initialisation (what Blizzard does anyway on each
+--  stats refresh) and one color compare plus one item-link compare per slot
 --  update (Blizzard's own, only while the slots are shown). The one event of
 --  our own, GET_ITEM_INFO_RECEIVED, is registered only while a shown slot
 --  waits on item data the client has not cached yet. Nothing at all while the
@@ -104,7 +107,7 @@ local function Discard(region)
 end
 
 --------------------------------------------------------------------------------
---  Colours: the retail sidebar's category palette, keyed the way the options
+--  Colors: the retail sidebar's category palette, keyed the way the options
 --  page stores overrides (EllesmereUIDB.statCategoryColors[key]). Forever's
 --  categories map onto it; General gets its own cyan, the pet pane's Combat
 --  takes Attack's.
@@ -127,7 +130,7 @@ if STAT_CATEGORY_COMBAT then CATEGORY_KEY[STAT_CATEGORY_COMBAT] = "Attack" end
 local function CategoryColor(categoryName)
     local key = categoryName and CATEGORY_KEY[categoryName]
     local db = EllesmereUIDB
-    -- A custom colour applies only while its "use" flag is on, as on retail.
+    -- A custom color applies only while its "use" flag is on, as on retail.
     local custom = key and db and db.statCategoryUseColor and db.statCategoryUseColor[key]
         and db.statCategoryColors and db.statCategoryColors[key]
     local c = custom or (key and DEFAULT_COLORS[key])
@@ -231,7 +234,7 @@ local function HookStatsList(box)
     end
 end
 
--- Options-page refresh: colour overrides and their use flags land here, on
+-- Options-page refresh: color overrides and their use flags land here, on
 -- the frames alive in both lists. The retail sheet's refresher of the same
 -- name is replaced (it walks retail-only state), so the swatches reach this.
 local STAT_BOXES = { "CharacterStatsPaneScrollBox", "CharacterStatsPanePetScrollBox" }
@@ -267,7 +270,7 @@ local function FadeChildren(frame, Fade)
     end
 end
 
--- The equipped item's quality colour; nothing when the slot is empty.
+-- The equipped item's quality color; nothing when the slot is empty.
 local function QualityColor(slot)
     local quality = GetInventoryItemQuality("player", slot:GetID())
     if quality and not (issecretvalue and issecretvalue(quality)) then
@@ -281,7 +284,7 @@ local function QualityColor(slot)
     end
 end
 
--- The slot border colour: the equipped item's quality, dark grey when empty
+-- The slot border color: the equipped item's quality, dark grey when empty
 -- (the retail sheet's values).
 local function SlotBorderColor(slot)
     local r, g, b = QualityColor(slot)
@@ -300,20 +303,22 @@ end
 --  Slot text where the retail sheet shows the item level and upgrade track:
 --  the item level and the item's main and secondary stat, or its armor when
 --  it has no stats, and the enchant name under it. It reads the retail item
---  level, upgrade track and enchant keys, sizes and colours, so those rows drive it
---  through the refreshers redefined below.
+--  level and enchant keys and the retail sizes and colors, so those rows
+--  drive it through the refreshers redefined below; the stats have a key of
+--  this client's own (charSheetShowItemStats, off unless true).
 --------------------------------------------------------------------------------
 local EX_LOOK = 5  -- the EllesmereUI look's text edge, off the slot edge
 local EX = EX_LOOK -- the text's near edge, off the slot edge
 local WY = 10      -- the outer weapon slots' first line, above the slot's centre
 local ILVL_GAP = 3 -- between the item level and the stats after it, as on retail
--- Item level position (charSheetItemLevelPos, Icon Bottom unless set):
--- beside the stats, else inside the slot icon at this point and y offset.
+-- Item level position (charSheetItemLevelPos, beside the slot unless set):
+-- heading the first line, else inside the slot icon at this point and y
+-- offset.
 local ILVL_ICON = {
     icontop = { "TOP", -2 }, iconcenter = { "CENTER", 0 }, iconbottom = { "BOTTOM", 2 },
 }
 local function IlvlPos()
-    return EllesmereUIDB and EllesmereUIDB.charSheetItemLevelPos or "iconbottom"
+    return EllesmereUIDB and EllesmereUIDB.charSheetItemLevelPos or "beside"
 end
 -- Under Blizz Default Blizzard's bronze slot frames stay: the 55px art round
 -- each 37px slot reaches 9px past its edges. The text sits 4px past that,
@@ -461,6 +466,16 @@ local function DpsText(link)
     return text
 end
 
+-- The inspect sheet shows the same lines for the inspected player's items,
+-- and places its item levels by a position of its own: inside the slot icon
+-- at a point and y offset, or (nothing returned) beside the slot.
+ns.ForeverStatText = StatText
+ns.ForeverDpsText = DpsText
+function ns.ForeverIlvlIcon(pos)
+    local icon = ILVL_ICON[pos]
+    if icon then return icon[1], icon[2] end
+end
+
 local function DB(key)
     local db = EllesmereUIDB
     return db and db[key]
@@ -561,6 +576,7 @@ local function FirstLine(d, anchor, point, rel, x, y)
 end
 
 local LINE = 13
+local rowLines, rowGaps = {}, {}  -- the middle weapon slot's shared row, built again on each run
 local function StackWeaponText(d, anchor)
     local stats, dps, ench, ilvl = d.stats, d.dps, d.ench, d.ilvl
     stats:ClearAllPoints(); dps:ClearAllPoints(); ench:ClearAllPoints()
@@ -572,7 +588,8 @@ local function StackWeaponText(d, anchor)
         -- dps share one row, centred as a pair.
         -- The item level heads the row.
         local top = -3
-        local row, gaps = {}, {}
+        local row, gaps = rowLines, rowGaps
+        wipe(row); wipe(gaps)
         if d.hasIlvl then row[#row + 1] = ilvl end
         if d.hasStats then row[#row + 1] = stats; gaps[#row] = ILVL_GAP end
         if d.hasDps then row[#row + 1] = dps; gaps[#row] = 6 end
@@ -707,7 +724,7 @@ local function PaintSlotText(slot)
         return
     end
 
-    -- The item's colour as retail colours its item level: the custom colour,
+    -- The item's color as retail colors its item level: the custom color,
     -- else the item's quality (unless turned off), else white.
     local r, g, b = 1, 1, 1
     local custom = DB("charSheetItemLevelUseColor") and DB("charSheetItemLevelColor")
@@ -718,13 +735,13 @@ local function PaintSlotText(slot)
         if qr then r, g, b = qr, qg, qb end
     end
 
-    -- The upgrade track's key and colour override: the item's stats (or its
-    -- armor), else in the item's colour.
-    -- A weapon's damage per second rides the same key and colour.
-    local showStats = DB("showUpgradeTrack") ~= false
+    -- Show Item Stats (off unless turned on): the item's stats (or its
+    -- armor), in the upgrade track's color override, else the item's
+    -- color. A weapon's damage per second rides the same key and color.
+    local showStats = DB("charSheetShowItemStats") == true
     local statText = showStats and StatText(link) or ""
     stats:SetText(statText)
-    -- Item level (retail's key, on unless false) in the item's colour, as
+    -- Item level (retail's key, on unless false) in the item's color, as
     -- on retail.
     local level = DB("showItemLevel") ~= false and C_Item.GetDetailedItemLevelInfo(link)
     local shown = level and level > 0 or false
@@ -755,7 +772,7 @@ local function PaintSlotText(slot)
 
     -- Vanilla enchants carry no icon, so the name always shows; Enchants set
     -- to Colored Text gives it retail's name look (outlined, tinted from the
-    -- item's colour). Capped at 45% of the gap between the columns, as on
+    -- item's color). Capped at 45% of the gap between the columns, as on
     -- retail, less Blizz Default's extra inset on each side (so the two
     -- columns' enchants keep a gap in the middle).
     local name = DB("showEnchants") ~= false and EnchantName(slotID) or ""
@@ -883,9 +900,9 @@ local function BuildSlotText()
     end
 end
 
--- Options refreshers: the retail slot text setters (the track key shown
--- here as Show Item Stats, Enchants and its cog, the Fonts page's Enchant
--- Text Size) land here; the retail versions walk retail-only state.
+-- Options refreshers: the retail slot text setters (Show Item Level, Show
+-- Item Stats, Enchants and its cog, the Fonts page's Enchant Text Size)
+-- land here; the retail versions walk retail-only state.
 -- The version bump feeds every setting into the paint memo, so a hidden
 -- sheet repaints on its next show.
 local function RefreshSlotText()
@@ -920,13 +937,16 @@ local function HookSlotUpdates()
     hooksecurefunc("PaperDollItemSlotButton_Update", OnSlotUpdate)
 end
 
-local function SkinSlot(slotName, Fade)
-    local slot = _G[slotName]
-    if not slot or GetFFD(slot).done then return end
+-- One slot's dress, the same on this sheet and on the inspect sheet
+-- (ns.ForeverSkinSlot): the bronze frame and the button art off, the quality
+-- ring collapsed, the icon cropped, a grey square behind it and a 2px border
+-- that the sheet colors by its item. Once per slot.
+local function DressSlot(slot, slotName, Fade)
+    if GetFFD(slot).done then return end
     GetFFD(slot).done = true
     -- The bronze slot frame lives on a child frame; the button art is the
     -- named NormalTexture (hidden, not faded: the client rewrites its vertex
-    -- colour, and with it the alpha, on every item update).
+    -- color, and with it the alpha, on every item update).
     if slot.BorderFrame then
         Fade(slot.BorderFrame)
     else
@@ -939,9 +959,9 @@ local function SkinSlot(slotName, Fade)
             if r.GetAtlas and r:GetAtlas() == "UI-Character-Info-GearSlotSmall" then r:SetAlpha(0) end
         end
     end
-    local normal = _G[slotName .. "NormalTexture"]
+    local normal = _G[slotName .. "NormalTexture"] or (slot.GetNormalTexture and slot:GetNormalTexture())
     if normal then normal:Hide() end
-    -- Blizzard's quality ring gets re-shown and recoloured on every item
+    -- Blizzard's quality ring gets re-shown and recolored on every item
     -- update, so it is collapsed onto one blank texel instead of hidden.
     if slot.IconBorder then slot.IconBorder:SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8) end
     -- The item icon is the button's own; the ammo slot also declares a
@@ -961,7 +981,27 @@ local function SkinSlot(slotName, Fade)
         local borders = PanelPP.GetBorders and PanelPP.GetBorders(slot)
         if borders then borders:SetFrameLevel(slot:GetFrameLevel()) end
         GetFFD(slot).border = true
-        ColorSlotBorder(slot)
+    end
+end
+
+local function SkinSlot(slotName, Fade)
+    local slot = _G[slotName]
+    if not slot or GetFFD(slot).done then return end
+    DressSlot(slot, slotName, Fade)
+    if GetFFD(slot).border then ColorSlotBorder(slot) end
+end
+
+-- The inspect sheet's slots: the same dress, the border colored by that
+-- sheet from the inspected item. Its styling pass runs on every show and
+-- every arrival of inspect data, so the icon crop is set again on each call.
+function ns.ForeverSkinSlot(slot, slotName)
+    local Fade = ns.WSkin and ns.WSkin.FadeRegions
+    if not (slot and Fade) then return end
+    DressSlot(slot, slotName, Fade)
+    local icon = slot.icon or _G[slotName .. "IconTexture"]
+    if icon then
+        local z = Zoom()
+        icon:SetTexCoord(z, 1 - z, z, 1 - z)
     end
 end
 
@@ -1009,6 +1049,20 @@ local function PinTop(region, topBar, fallback)
     end
 end
 
+-- The model scene's own art: the four race background pieces and the black
+-- shade over them. The paper doll sets the shade's alpha (per race) and the
+-- pieces' textures every time it shows, so a fade alone does not last and the
+-- shade would cover our backdrop. Nothing of Blizzard's shows them again, so
+-- they are hidden, as on the retail and inspect sheets.
+local SCENE_ART = { "BackgroundOverlay", "BackgroundTopLeft", "BackgroundTopRight", "BackgroundBotLeft", "BackgroundBotRight" }
+local function HideSceneArt(scene)
+    if not scene then return end
+    for i = 1, #SCENE_ART do
+        local art = scene[SCENE_ART[i]]
+        if art then art:Hide() end
+    end
+end
+
 local function ModelBackdrop(frame, topBar)
     local scene = _G.CharacterModelScene
     local doll = _G.PaperDollFrame
@@ -1046,6 +1100,67 @@ local function SidebarPanel(frame, topBar)
     GetFFD(frame).sidebar = panel
 end
 
+--------------------------------------------------------------------------------
+--  The overall item level at the top of the stats sidebar, as on retail: the
+--  equipped average on a line of its own above the player's stats list. A
+--  child of that list, so it shows only with it (never over the equipment
+--  manager, the titles or the pet stats), and the list's rows start under it
+--  while it shows. Its two events are registered only while the sheet is
+--  shown; nothing is built when the client has no average item level.
+--------------------------------------------------------------------------------
+local AVG_H = 24               -- the line's room above the rows
+local LIST_X, LIST_Y = 10, -8  -- Blizzard's own inset of the rows in the list frame
+local avg                      -- { host, text, events, shown }
+
+local function UpdateAverage()
+    local a = avg
+    local _, equipped = _G.GetAverageItemLevel()
+    local shown = type(equipped) == "number"
+        and not (issecretvalue and issecretvalue(equipped)) and equipped > 0
+    if shown then a.text:SetFormattedText("%.2f", equipped) end
+    if a.shown ~= shown then
+        a.shown = shown
+        a.host:SetShown(shown)
+        -- The rows make room for the line, and take it back with no level to show.
+        local box = a.host:GetParent()
+        box.ScrollBox:SetPoint("TOPLEFT", box, "TOPLEFT", LIST_X, shown and (LIST_Y - AVG_H) or LIST_Y)
+    end
+end
+
+local function WatchAverage()
+    local a = avg
+    if _G.CharacterFrame:IsShown() then
+        a.events:RegisterEvent("PLAYER_AVG_ITEM_LEVEL_UPDATE")
+        a.events:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+        UpdateAverage()
+    else
+        a.events:UnregisterAllEvents()
+    end
+end
+
+local function BuildAverage(frame)
+    local box = _G.CharacterStatsPaneScrollBox
+    if avg or not (box and box.ScrollBox and _G.GetAverageItemLevel) then return end
+    local host = CreateFrame("Frame", nil, box)
+    host:SetPoint("TOPLEFT", box, "TOPLEFT", LIST_X, LIST_Y + 2)
+    host:SetPoint("TOPRIGHT", box, "TOPRIGHT", -30, LIST_Y + 2)
+    host:SetHeight(AVG_H)
+    host:Hide()
+    local text = host:CreateFontString(nil, "OVERLAY")
+    EllesmereUI.ApplyModuleFont(text, nil, 18, "blizzardSkin")
+    text:SetPoint("CENTER", host, "CENTER", 0, 0)
+    text:SetTextColor(0.6, 0.2, 1, 1)  -- the retail sheet's and the inspect sheet's
+    host:EnableMouse(true)
+    host:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, "Equipped Item Level") end)
+    host:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+    local events = CreateFrame("Frame")
+    events:SetScript("OnEvent", UpdateAverage)
+    avg = { host = host, text = text, events = events, shown = false }
+    frame:HookScript("OnShow", WatchAverage)
+    frame:HookScript("OnHide", WatchAverage)
+    WatchAverage()
+end
+
 local function SkinFrame()
     local frame = _G.CharacterFrame
     local WSkin = ns.WSkin
@@ -1075,7 +1190,7 @@ local function SkinFrame()
 
     -- Name in the top bar and the level lines (the player's and the pet
     -- view's): the house font on Blizzard's own font strings, so the text
-    -- (pvp title, class colour) stays theirs.
+    -- (pvp title, class color) stays theirs.
     local title = _G.CharacterFrameTitleText or (frame.TitleContainer and frame.TitleContainer.TitleText)
     if title and WSkin.Font then WSkin.Font(title, 1, 1, 1) end
     local level = _G.CharacterLevelText
@@ -1100,6 +1215,7 @@ local function SkinFrame()
     Fade(_G.PaperDollFrame)
     Fade(_G.PaperDollFrame.TopBackgroundStripHost)
     Fade(_G.CharacterModelScene)
+    HideSceneArt(_G.CharacterModelScene)
     local shell = WSkin.GetFFD and WSkin.GetFFD(frame)
     local topBar = shell and shell.topBar
     ModelBackdrop(frame, topBar)
@@ -1146,9 +1262,10 @@ local function SkinFrame()
     end
     HookSlotUpdates()
 
-    -- Stats list colours.
+    -- Stats list colors.
     HookStatsList(_G.CharacterStatsPaneScrollBox)
     HookStatsList(_G.CharacterStatsPanePetScrollBox)
+    BuildAverage(frame)
 
     -- The stats scrollbars: the house thin thumb in Blizzard's own track
     -- position, the up/down arrows left as they are. Texture work only, the
@@ -1199,7 +1316,7 @@ local function UpdateDurability()
         host:SetAllPoints(scene)
         host:SetFrameLevel(scene:GetFrameLevel() + 10)
         durLabel = host:CreateFontString(nil, "OVERLAY")
-        durLabel:SetFont(FontPath(), 12, "")
+        EllesmereUI.ApplyModuleFont(durLabel, nil, 12, "blizzardSkin")
         -- Under the model's zoom/rotate controls.
         local ctrl = scene.ControlFrame
         if ctrl then

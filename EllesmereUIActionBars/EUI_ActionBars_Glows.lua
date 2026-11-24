@@ -258,6 +258,8 @@ _procState.GetButtonSpellID = function(btn)
     end
     return nil
 end
+-- The Swing Timer swipe (EUI_ActionBars_ForeverSwingSweep.lua) reads it too.
+I.GetButtonSpellID = _procState.GetButtonSpellID
 
 -- Proc glow via SPELL_ACTIVATION_OVERLAY_GLOW_SHOW/HIDE events.
 -- Loops all buttons to find matches by spellID.
@@ -469,7 +471,7 @@ do
 
     -- The custom Assisted Highlight glows run on the shared glow engines with
     -- settings of their own (assistGlow*), never the Custom Proc Glow's.
-    -- Their colour: the palette's class colour or the picked one; the one
+    -- Their color: the palette's class color or the picked one; the one
     -- reader for the live buttons and the Animations page preview.
     ns._AssistCustomGlowColor = function()
         local p = EAB.db and EAB.db.profile

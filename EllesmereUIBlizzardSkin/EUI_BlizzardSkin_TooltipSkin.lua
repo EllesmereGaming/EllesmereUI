@@ -141,7 +141,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
     EllesmereUI._getPopupMenuButtonTextColor = _getElementColor
 
     -- Rounded corners (tooltipRoundedCorners, on unless false) for a solid
-    -- border: a rounded outline in the configured colour and width on our own
+    -- border: a rounded outline in the configured color and width on our own
     -- pixel layer, our bg masked to the same shape (state in FFD, nothing on
     -- the tooltip). A textured style keeps its square art. Returns true while
     -- the rounded outline stands in for the configured border.
@@ -454,9 +454,11 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             end
         end
         -- Append only while the tooltip still shows this GUID and the line is not already present.
+        -- No primary info means a world-unit tooltip is fading out; re-Showing it would cancel the fade.
         local cached = _ilvlCache[guid]
         local ttd = GetFFD(_GameTooltip)
         if cached and _GameTooltip:IsShown() and _tipShownGUID == guid
+            and _GameTooltip:GetPrimaryTooltipInfo()
             and not ttd.ilvlShown
             and not _tipHasLine(_GameTooltip, EllesmereUI.L("Item Level")) then
             local nBefore = _GameTooltip:NumLines() or 0
@@ -1155,6 +1157,13 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         _ttDataInited = true
         -- Clear the recorded identity on hide so a late inspect result can never append to a closed/switched tooltip. HookScript (never SetScript) keeps the secure OnHide handler intact.
         _GameTooltip:HookScript("OnHide", function() _tipShownGUID = nil end)
+        -- A fading tooltip no longer shows its unit either. Blizzard's own unit
+        -- frames fade it with its info kept (UnitFrame_OnLeave), where the
+        -- primary-info test in _onInspectReady cannot tell; and the dwell drops
+        -- a request for a unit the cursor has left.
+        if _GameTooltip.FadeOut then
+            hooksecurefunc(_GameTooltip, "FadeOut", function() _tipShownGUID = nil end)
+        end
         -- Item level inspect pacing starts at login, so the request history from other
         -- addons is already being tracked before the first hover.
         if not EllesmereUIDB or EllesmereUIDB.tooltipItemLevel ~= false then _insp.Activate() end
@@ -1250,7 +1259,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
     -- The hook only collects and schedules; skinning runs from our own timer after
     -- the secure execution finishes. While a menu is open the compositor replaces
     -- the frame's metatable and disallows CreateTexture/CreateFontString/CreateLine,
-    -- so only the EXISTING background region may be recoloured -- already how _menuSkinFrame operates.
+    -- so only the EXISTING background region may be recolored -- already how _menuSkinFrame operates.
     local _stylePending, _styleArmed = {}, false
     local function _styleFlush()
         _styleArmed = false
@@ -1395,14 +1404,9 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         local eb = popup.editBox or (popup.GetName and _G[popup:GetName() .. "EditBox"])
         if eb and not GetFFD(eb).skinned then
             GetFFD(eb).skinned = true
-            local regions = { eb:GetRegions() }
-            for j = 1, #regions do
-                local r = regions[j]
-                if r and r:IsObjectType("Texture") then
-                    r:SetTexture(nil)
-                    if r.SetAtlas then r:SetAtlas("") end
-                end
-            end
+            -- Never strip this box's Texture regions: the template declares none, so they
+            -- are the engine's own (its blinking caret among them), and SetTexture(nil)
+            -- erases them for the session.
             -- Midnight edit boxes carry their art on a NineSlice child.
             if eb.NineSlice and eb.NineSlice.SetAlpha then
                 eb.NineSlice:SetAlpha(0)

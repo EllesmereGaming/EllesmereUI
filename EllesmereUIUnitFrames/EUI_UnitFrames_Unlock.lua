@@ -149,10 +149,9 @@ local function RegisterUFUnlockElements()
                         local powerIsAtt = (powerPos == "below" or powerPos == "above")
                         if miniUnit then
                             -- A mini portrait squares off the bar stack, which
-                            -- only a WoW Forever pet's attached power bar grows
-                            -- (StyleSimpleFrame); Size does not touch it.
-                            local petPowerH = (unit == "pet" and ns.UF_PetHasPower and powerIsAtt) and (s.powerHeight or 6) or 0
-                            adjPH = s.healthHeight + petPowerH
+                            -- an attached power bar grows (StyleSimpleFrame).
+                            local miniPowerH = (ns.UF_MiniHasPower(unit) and powerIsAtt) and (s.powerHeight or 6) or 0
+                            adjPH = s.healthHeight + miniPowerH
                         else
                             local pSizeAdj = s.portraitSize or 0
                             local ptH = s.healthHeight + (powerIsAtt and (s.powerHeight or 6) or 0)

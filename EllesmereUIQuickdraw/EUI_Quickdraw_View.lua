@@ -357,6 +357,17 @@ local function CreateSlotWidget(view, index)
         w.nestDots[d] = t
     end
 
+    -- A name written on the icon (emotes: every one wears the same bubble),
+    -- held on both sides so a long name ends in an ellipsis. Sized and shown
+    -- per paint (PaintCell).
+    w.iconName = w:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    w.iconName:SetPoint("BOTTOMLEFT", w, "BOTTOMLEFT", 2, 3)
+    w.iconName:SetPoint("BOTTOMRIGHT", w, "BOTTOMRIGHT", -2, 3)
+    w.iconName:SetJustifyH("CENTER")
+    w.iconName:SetWordWrap(false)
+    w.iconName:Hide()
+    AdoptFontString(w.iconName, true)
+
     w.label = w:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     AdoptFontString(w.label)
     w.label:SetPoint("TOP", w, "BOTTOM", 0, -2)

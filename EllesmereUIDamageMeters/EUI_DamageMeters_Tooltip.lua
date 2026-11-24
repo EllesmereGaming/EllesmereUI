@@ -187,7 +187,7 @@ local function HideTTTargets()
 end
 
 -- An Enemy Damage Taken attacker row (AggregateEnemyPlayers): spec icon or
--- class art, class coloured fill, name and amount. A secret name or amount
+-- class art, class colored fill, name and amount. A secret name or amount
 -- passes whole to the bar and text setters.
 local function PaintAttackerRow(b, p, maxAmt, texPath, texKey, numFmt)
     local specIcon = p.specIcon
@@ -202,10 +202,13 @@ local function PaintAttackerRow(b, p, maxAmt, texPath, texKey, numFmt)
     else
         b.spellIcon:Hide()
     end
+    -- The pool's rows are shared: record the anchor left, for the spell breakdown's memo
     if b.spellIcon:IsShown() then
         b.fill:ClearAllPoints(); b.fill:SetPoint("TOPLEFT", b.spellIcon, "TOPRIGHT", 0, 0); b.fill:SetPoint("BOTTOMRIGHT", b.row, "BOTTOMRIGHT", 0, 0)
+        b._lastHasIcon = true
     else
         b.fill:ClearAllPoints(); b.fill:SetAllPoints(b.row)
+        b._lastHasIcon = false
     end
     ApplyBarTexture(b.fill, texPath, texKey); b.fill:SetMinMaxValues(0, maxAmt); b.fill:SetValue(p.total)
     local cc = p.class and RAID_CLASS_COLORS[p.class] and EUI.GetClassColor(p.class)
@@ -353,7 +356,7 @@ local function ShowGatePanel(gp, shown)
     gp.gateA:SetShown(shown); gp.gateB:SetShown(shown); gp.clipA:SetShown(shown)
 end
 
--- The tooltip's own background colour, opaque, so a panel covers the note.
+-- The tooltip's own background color, opaque, so a panel covers the note.
 local function TooltipBgRGB()
     if BlizzardSkinBordersAvailable() and EUI.GetTooltipBg then
         local r, g, b = EUI.GetTooltipBg()
@@ -515,8 +518,9 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
                 -- the id > 0 filter needs the value, so a secret id goes in whole.
                 if spID and (IsSecret(spID) or spID > 0) then spIcon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spID) end
                 if not spIcon then spIcon = 135274 end
-                b.spellIcon:SetTexture(spIcon); b.spellIcon:Show()
+                b.spellIcon:SetTexture(spIcon); b.spellIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92); b.spellIcon:Show()
                 b.fill:ClearAllPoints(); b.fill:SetPoint("TOPLEFT", b.spellIcon, "TOPRIGHT", 0, 0); b.fill:SetPoint("BOTTOMRIGHT", b.row, "BOTTOMRIGHT", 0, 0)
+                b._lastHasIcon = true -- the spell breakdown's anchor memo (shared pool)
                 -- HP fill: plain numbers keep the Lua-computed fraction; secret
                 -- ones go to the StatusBar whole, which divides engine-side.
                 local curHP = ev.currentHP or 0
@@ -666,13 +670,13 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
                     local ok, spIcon = pcall(getTex, spID)
                     if ok and type(spIcon) ~= "nil" then
                         hasIcon = true
-                        b.spellIcon:SetTexture(spIcon); b.spellIcon:Show()
+                        b.spellIcon:SetTexture(spIcon); b.spellIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92); b.spellIcon:Show()
                     end
                 else
                     local spIcon = getTex(spID)
                     if spIcon then
                         hasIcon = true
-                        b.spellIcon:SetTexture(spIcon); b.spellIcon:Show()
+                        b.spellIcon:SetTexture(spIcon); b.spellIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92); b.spellIcon:Show()
                     end
                 end
             end
@@ -696,7 +700,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
                 -- SetText displays it, where the old nil-out fell to "Unknown".
                 spellName = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spell.spellID)
             end
-            b.label:SetText(spellName or spell.creatureName or L("Unknown"))
+            b.label:SetText(I.SpellEntryLabel(spellName, spell.creatureName) or L("Unknown"))
             if canPercent and totalDmg > 0 then
                 b.amount:SetText(format("%s  %.1f%%", AbbrevNumber(entry.amount), (entry.amount / totalDmg) * 100))
             else

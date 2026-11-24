@@ -183,7 +183,7 @@ ns.UF_KITS.classic = {
         power  = { x = 23, y = 56, w = 119, h = 12 },
         merge = { t = 48 / 128, b = 62 / 128, src = 46 / 128, srcB = 48 / 128, x = 147 / 256 },
         -- The name plaque behind the name, tinted by the unit's selection
-        -- colour, under the art (the art's name window shows it).
+        -- color, under the art (the art's name window shows it).
         rep = { art = { key = "c-namebg", file = "Interface\\TargetingFrame\\UI-TargetingFrame-LevelBackground", w = 119, h = 19 },
                 point = "TOPRIGHT", x = -90, y = -26, below = true },
         name  = { point = "CENTER", x = -34, y = 15, w = 100, justify = "CENTER" },
@@ -384,9 +384,9 @@ function ns.UF_CustomBorderOn(s)
     if tex == nil or tex == "" or tex == "solid" then return false end
     return (s.borderSize or 1) > 0
 end
--- Blizzard Style's coloured type strip over the target-family name ("Blizz
+-- Blizzard Style's colored type strip over the target-family name ("Blizz
 -- Colored Target Header", on unless the unit's settings turn it off, which
--- leaves the header uncoloured like the player frame's). Classic keeps its
+-- leaves the header uncolored like the player frame's). Classic keeps its
 -- name plaque either way.
 function ns.UF_BlizzHeaderOn(s)
     return not (ns.UF_Style() == "blizzard" and s and s.blizzColoredHeader == false)
@@ -854,8 +854,8 @@ function ns.UF_SetMask(tex, mask)
     tex:AddMaskTexture(mask)
 end
 -- Health + power bars: the user's own Bar Texture stays on the fills (the
--- stock fill art is pre-coloured and would darken every chosen colour), so
--- colours, gradients, opacity and textures render exactly as on the EUI
+-- stock fill art is pre-colored and would darken every chosen color), so
+-- colors, gradients, opacity and textures render exactly as on the EUI
 -- look; the stock rounded masks shape the fills AND the EUI bar backgrounds,
 -- so Bar Background keeps working inside the stock track. Masks are
 -- (re)seated after every texture swap (a swap replaces the fill object), so
@@ -1360,6 +1360,8 @@ function ns.UF_ApplyBlizzPortrait(frame, G)
         repaint = true
     end
     if repaint and pt.ForceUpdate then pt:ForceUpdate() end
+    -- Rested Indicator on the portrait: follows the stock portrait's show and level.
+    if frame._restFollowPortrait then frame._restFollowPortrait() end
 end
 
 -- Text zones: the left zone (the name by default) moves onto the stock name
@@ -1387,7 +1389,7 @@ end
 -- Level number in the frame's level circle, as the stock frames draw it:
 -- the stock number font at the stock spot (the right end of the player
 -- art's name bar, the left end of the target art's type strip), gold, green
--- while the player is level-scaled, the creature difficulty colour on an
+-- while the player is level-scaled, the creature difficulty color on an
 -- attackable target, and the stock skull for a level the client will not
 -- tell. One FontString per full frame on its own host above the bars,
 -- refreshed by a shared event frame created with the first frame (nothing
@@ -1446,8 +1448,8 @@ function ns.UF_BlizzLevelPass(frame)
     -- Same face, outline and shadow as the unit name (and its size, unless
     -- the level has its own): the name's font object first (it carries the
     -- shadow), then its face. A name on a font family gives its roman member's
-    -- face, the chosen font, whatever script the name holds. The colour keeps
-    -- the stock rules (set as an instance text colour, never vertex-only).
+    -- face, the chosen font, whatever script the name holds. The color keeps
+    -- the stock rules (set as an instance text color, never vertex-only).
     local lt = frame.LeftText
     if lt then
         local fo = lt:GetFontObject()
@@ -1703,7 +1705,7 @@ function ns.UF_BlizzCastIcon(cb)
     end
 end
 -- Cast bar: stock background, fill art, frame and text box; the EUI tint
--- layer stays off (the fill art is its own colour). Border and icon frame go.
+-- layer stays off (the fill art is its own color). Border and icon frame go.
 function ns.UF_ApplyBlizzCastbar(cb)
     if not cb then return end
     -- The stock chrome owns the frame: a Custom Border Style host stays hidden.
@@ -1712,7 +1714,7 @@ function ns.UF_ApplyBlizzCastbar(cb)
     local CK = ns.UF_BLIZZ.cast
     if CK then
         -- Classic kit: the vanilla cast bar frame round the user's own fill
-        -- and colours; no stock background, fill art or text box (the spell
+        -- and colors; no stock background, fill art or text box (the spell
         -- name stays on the bar in its EUI zone). The frame is the shared
         -- nine-slice anchored to the HOLDER's corners (bar plus icon: the
         -- icon is part of the bar under this kit and sits inside the frame's
@@ -1837,10 +1839,11 @@ end
 -- focus-target mana), as the stock small frames carry it. Built at spawn
 -- ONLY under Blizzard Style, from the unit's own settings with the stock bar
 -- geometry stamped over them, so it is not a user-positioned bar: the layout
--- pass owns its spot, size and art. Zero cost otherwise: the frame keeps no
--- Power widget (a WoW Forever pet builds its own user-positioned bar in
--- StyleSimpleFrame instead), so the engine registers no power channel and the
--- painter returns on the first field test, exactly as today.
+-- pass owns its spot, size and art. Under the EllesmereUI look it returns nil:
+-- target of target, focus target and a WoW Forever pet build their own
+-- user-positioned bar in StyleSimpleFrame instead (parked while Bar Position is
+-- None), and a retail pet keeps no Power widget, so the engine registers no
+-- power channel for it and the painter returns on the first field test.
 function ns.UF_BlizzMiniPower(frame, unit, settings)
     if not ns.UF_Blizz() or not frame.Health then return nil end
     local view = setmetatable({ powerPosition = "below", powerHeight = 7, powerWidth = 0 },
@@ -1977,7 +1980,7 @@ function ns.UF_ApplyBlizzardLayout(frame, unit)
 
     -- No EUI chrome: unified border and text bar step aside for the art.
     if frame.unifiedBorder then frame.unifiedBorder:Hide() end
-    if frame.BottomTextBar then frame.BottomTextBar:Hide() end
+    if frame.BottomTextBar then ns.UF_HideBottomTextBar(frame.BottomTextBar) end
 
     ns.UF_BlizzTextPass(frame)
     ns.UF_BlizzLevelPass(frame)

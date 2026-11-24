@@ -109,9 +109,10 @@ local function RefreshPreview()
     end
 
     -- Group slot origins along the growth flow (plain direction = one run,
-    -- grid flow = ns._RF_GRID_ROWS per column), same helper the live layout
-    -- places real groups through.
-    local gSlots, minGX, maxGY = ns._RFGroupFlow(groupGrowth, groupW, groupH, gs, 4)
+    -- grid flow = wraps every ns._RFGridSize groups), same helper the live
+    -- layout places real groups through.
+    local gridN = ns._RFGridSize(nil, s)
+    local gSlots, minGX, maxGY = ns._RFGroupFlow(groupGrowth, groupW, groupH, gs, 4, nil, gridN)
 
     -- Unit step within a group
     local uStepX, uStepY = 0, 0
@@ -151,7 +152,7 @@ local function RefreshPreview()
     -- Container size, through the SAME ns._RFFootprint the live container is
     -- sized with. The old one-row formula drew a 4x1 box around the grid flow's
     -- 2x2 block.
-    local totalW, totalH = ns._RFFootprint(bw, bh, unitGrowth, groupGrowth, cs, gs)
+    local totalW, totalH = ns._RFFootprint(bw, bh, unitGrowth, groupGrowth, cs, gs, gridN)
 
     -- Pets (Show Pets on the Raid tab) go before the first or after the last group. The overlay
     -- grows to hold them; at the real position the groups stay put and the pets hang off them.

@@ -1336,15 +1336,18 @@ local function BuildBarWindow()
 
         content:EnableMouseWheel(true)
         content:SetScript("OnMouseWheel", function(_, delta)
-            local maxS = max(0, #_history - (frame._visSlots or 1))
-            _barScroll = max(0, min(_barScroll - delta, maxS))
+            -- Rows stop at Max Bars, so the scroll range does too.
+            local maxS = max(0, min(#_history, DB().maxBars or 5) - (frame._visSlots or 1))
+            local new = max(0, min(_barScroll - delta, maxS))
+            if new == _barScroll then return end -- a notch that moves nothing redraws nothing
+            _barScroll = new
             RefreshBarWindow()
         end)
 
     end
 
     -- Apply styling (bg from spell history settings, header from DM settings;
-    -- the classic header shade follows this window's own colour)
+    -- the classic header shade follows this window's own color)
     ns.DMPaintWindowBg(_barWin._bg, sh.bgR or 0, sh.bgG or 0, sh.bgB or 0, sh.bgAlpha or 0.25, true)
 
     local hc = dmCfg.hdrBgColor
@@ -1429,6 +1432,9 @@ RefreshBarWindow = function()
     local stR, stG, stB = CLR_STOPPED[1], CLR_STOPPED[2], CLR_STOPPED[3]
 
     local total = min(#_history, sh.maxBars or 5)
+    -- The draw loop owns the scroll range: an offset left from an older window
+    -- height (Spacing changed with the options open) comes back into it here.
+    if _barScroll > max(0, total - visSlots) then _barScroll = max(0, total - visSlots) end
     local loopEnd = max(visSlots, _lastBarVisible)
     local barIconZoom = sh.iconZoom or 0.08
 

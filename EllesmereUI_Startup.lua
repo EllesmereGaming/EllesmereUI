@@ -350,7 +350,9 @@ do
     local function TryRealFont(path)
         local f = _G.CombatTextFont
         if not f then return nil end
-        return (pcall(f.SetFont, f, path, 120, ""))
+        -- 64 is the height Blizzard declares for this font (SystemFont_World);
+        -- Blizzard_CombatText sets the drawn height itself.
+        return (pcall(f.SetFont, f, path, 64, ""))
     end
 
     local function ApplyCombatTextFont()

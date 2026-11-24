@@ -101,7 +101,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Stock styles (Blizzard Style / Classic WoW UI) keep Blizzard's own
-        -- tracker art, text and quest icons: the background, font and colour
+        -- tracker art, text and quest icons: the background, font and color
         -- rows only apply to the EllesmereUI look.
         local BS = EllesmereUI.BlizzStyle
         local STOCK = BS and BS.Get("questtracker") and not CUSTOM
@@ -138,7 +138,7 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v) Set("customGroupByZone", v); RefreshAll(); EllesmereUI:RefreshPage() end })
             y = y - h
 
-            -- Zone header colour, on the Group Quests by Zone slot: Custom
+            -- Zone header color, on the Group Quests by Zone slot: Custom
             -- Colored | Accent Colored. With no pick the headers follow the
             -- Header Color, so the lit swatch is the one they show now.
             if not EllesmereUI._prebuilding then
@@ -667,10 +667,11 @@ initFrame:SetScript("OnEvent", function(self)
 
         local ApplyWatches, ApplyProgress = EQT.ApplyQuestWatches, EQT.ApplyQuestProgress
         -- Quest Log Order is the base sort mode (a saved "default", the retired
-        -- Blizzard order mode, reads as it).
+        -- Blizzard order mode, reads as it, as does Distance off the custom tracker).
         local function SortModeCfg()
             local m = Cfg("questSortMode")
             if m == nil or m == "default" then return "log" end
+            if m == "distance" and not CUSTOM then return "log" end
             return m
         end
         -- Section gate: Sort Quests, Filter Quests and Auto Track Zone Quests are
@@ -734,8 +735,9 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="dropdown", text="Sort Quests",
                   tooltip="Reorders your tracked quests; Quest Log Order lists them as your quest log does.",
                   values = { log = "Quest Log Order", zone = "Zone", level = "Level",
-                             name = "Name", progress = "Progress", type = "Quest Type" },
-                  order  = { "log", "zone", "level", "name", "progress", "type" },
+                             name = "Name", progress = "Progress", type = "Quest Type",
+                             distance = CUSTOM and "Distance" or nil },
+                  order  = { "log", "zone", "level", "name", "progress", "type", CUSTOM and "distance" or nil },
                   getValue=SortModeCfg,
                   setValue=function(v) Set("questSortMode", v); ApplyWatches() end })
             EllesmereUI.BuildInlineCog(row._rightRegion, {
@@ -748,11 +750,16 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) Set("questSortCompleted", v); ApplyWatches() end },
                     { type="dropdown", label="Then By",
                       values = { none = "None", zone = "Zone", level = "Level", name = "Name",
-                                 progress = "Progress", type = "Quest Type" },
-                      order  = { "none", "zone", "level", "name", "progress", "type" },
+                                 progress = "Progress", type = "Quest Type",
+                                 distance = CUSTOM and "Distance" or nil },
+                      order  = { "none", "zone", "level", "name", "progress", "type", CUSTOM and "distance" or nil },
                       disabled=function() return SortModeCfg() == "log" end,
                       disabledTooltip="Requires Sort Quests set to something other than Quest Log Order.", rawTooltip=true,
-                      get=function() return Cfg("questSortThenBy") or "none" end,
+                      get=function()
+                          local m = Cfg("questSortThenBy") or "none"
+                          if m == "distance" and not CUSTOM then return "none" end
+                          return m
+                      end,
                       set=function(v) Set("questSortThenBy", v); ApplyWatches() end },
                 },
             })

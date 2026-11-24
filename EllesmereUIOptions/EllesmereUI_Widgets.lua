@@ -182,7 +182,7 @@ local function BuildToggleControl(parent, frameLevel, getValue, setValue, opts)
     toggle:SetFrameLevel(frameLevel)
 
     -- The track (a pill) and the knob (a circle) are white art on a pixel
-    -- layer, coloured through their vertex colour: round edges crisp at every
+    -- layer, colored through their vertex color: round edges crisp at every
     -- Window Scale, the knob placed in whole pixels (PX.ToggleFit sizes them).
     local L = PX.Layer(toggle, PX.ToggleFit)
     local layer = L._frame
@@ -465,7 +465,7 @@ local function IsDividerKey(key)
     return type(key) == "string" and key:match("^%-%-%-") ~= nil
 end
 
--- Build a dropdown popup menu + item buttons; returns { menu, menuItems, refresh }. ddBtn = button the menu hangs off; menuW = menu pixel width; order = key array; values = { key = displayName } (displayName: string or { text=..., note=... }); ddLbl = label FontString updated on selection; style = "wide"/"regular" (WD_ vs RD_ colours).
+-- Build a dropdown popup menu + item buttons; returns { menu, menuItems, refresh }. ddBtn = button the menu hangs off; menuW = menu pixel width; order = key array; values = { key = displayName } (displayName: string or { text=..., note=... }); ddLbl = label FontString updated on selection; style = "wide"/"regular" (WD_ vs RD_ colors).
 local DD_MAX_HEIGHT = 200
 
 local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue, ddLbl, style, disabledValuesFn)
@@ -489,7 +489,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         if _noLoc or type(s) ~= 'string' then return s end
         return EllesmereUI.L(s)
     end
-    -- Menu bg/border: same colours for both styles (DD_BTN with menu-specific alpha)
+    -- Menu bg/border: same colors for both styles (DD_BTN with menu-specific alpha)
     local _menuOpts = values._menuOpts
     local _moIcon = _menuOpts and _menuOpts.icon
     local _moIconAtlas = _menuOpts and _menuOpts.iconAtlas
@@ -502,7 +502,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     local _moMaxTextPct = _menuOpts and _menuOpts.maxTextWidthPct
     local _moOnItemHover = _menuOpts and _menuOpts.onItemHover
     local _moOnItemLeave = _menuOpts and _menuOpts.onItemLeave
-    -- Caption font override ({ path, size, flags }) and native atlas icon colours, so a
+    -- Caption font override ({ path, size, flags }) and native atlas icon colors, so a
     -- menu can match the UI it opens from (e.g. the CDM options' own flyouts).
     local _moLabelFont = _menuOpts and _menuOpts.labelFont
     local _moIconNative = _menuOpts and _menuOpts.iconNativeColor
@@ -800,7 +800,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                     if tile then bgTex:SetHorizTile(true); bgTex:SetVertTile(true) end
                     bgTex:SetAlpha(0.45)
                     if bgLook and bgLook.tint then
-                        -- Alpha rides the colour write (one alpha channel per texture).
+                        -- Alpha rides the color write (one alpha channel per texture).
                         local t = bgLook.tint
                         bgTex:SetVertexColor(t[1], t[2], t[3], 0.45)
                     elseif _moBgVertexColor then
@@ -825,7 +825,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                 iLbl:SetTextColor(EG.r, EG.g, EG.b, 0.8)
                 item._isAction = true  -- Refresh keeps the accent across menu opens
             elseif _menuOpts and _menuOpts.labelColor then
-                -- Optional .labelColor(key) -> r, g, b[, a]: the label's idle colour;
+                -- Optional .labelColor(key) -> r, g, b[, a]: the label's idle color;
                 -- hover shows the same hue at full alpha, Refresh restores it.
                 local lr, lg, lb, la = _menuOpts.labelColor(key)
                 if lr then
@@ -867,8 +867,8 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                             iconBtn:SetPushedAtlas(pressedAtlas)
                         end
                         iconBtn:SetHighlightAtlas(_haveAtlas)
-                        -- Atlas icons carry an intrinsic colour; SetVertexColor only scales it, so desaturate first, then tint to #929292
-                        -- (skipped when the menu keeps native colours).
+                        -- Atlas icons carry an intrinsic color; SetVertexColor only scales it, so desaturate first, then tint to #929292
+                        -- (skipped when the menu keeps native colors).
                         local _nr, _ng, _nb = 0.573, 0.573, 0.573
                         local nrmTex = iconBtn:GetNormalTexture()
                         if nrmTex and not _moIconNative then
@@ -939,7 +939,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                     iLbl:SetPoint("RIGHT", ico, "LEFT", -4, 0)
                 end
             end
-            local iNote  -- annotation: smaller font, 75% alpha, same colour
+            local iNote  -- annotation: smaller font, 75% alpha, same color
             if noteText then
                 iNote = MakeFont(item, 11, nil, TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, TEXT_DIM_A)
                 iNote:SetAlpha(0.75)
@@ -1528,7 +1528,7 @@ local function WireDropdownScripts(ddBtn, ddLbl, bg, brd, menu, refresh, s, keep
     EllesmereUI.TrackOverlay(menu)
 end
 
--- Pre-built colour arrays for the two dropdown styles
+-- Pre-built color arrays for the two dropdown styles
 local WD_DD_COLOURS = {
     DD_BG_R, DD_BG_G, DD_BG_B, DD_BG_A,  DD_BG_R, DD_BG_G, DD_BG_B, DD_BG_HA,
     1, 1, 1, DD_BRD_A,  1, 1, 1, DD_BRD_HA,
@@ -1640,7 +1640,7 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
     local thumbBlocker = thumbBlockerFrame:CreateTexture(nil, "BACKGROUND")
     thumbBlocker:SetAllPoints()
     thumbBlocker:SetVertexColor(DARK_BG.r, DARK_BG.g, DARK_BG.b, 1)
-    -- The thumb and its blocker are circles (white art, vertex colour).
+    -- The thumb and its blocker are circles (white art, vertex color).
     local thumbTex = thumb:CreateTexture(nil, "ARTWORK")
     thumbTex:SetAllPoints()
     thumbTex:SetVertexColor(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
@@ -1957,7 +1957,7 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
         if button == "LeftButton" and isDragging then EndDrag() end
     end)
 
-    -- Re-read the getter, update the visual, and re-apply the accent colour (theme may have changed on another tab).
+    -- Re-read the getter, update the visual, and re-apply the accent color (theme may have changed on another tab).
     local function RefreshSlider()
         local v = getValue()
         if v then
@@ -2223,7 +2223,7 @@ end
 -- A dropdown button whose menu is built on its first click (BuildDropdownControl,
 -- W:WideDropdown): light hover scripts until then, and a click that builds the
 -- menu (build() -> menu, refresh) and wires it; WireDropdownScripts then replaces
--- the hover scripts and keeps this OnClick and OnHide. s = the button's colour
+-- the hover scripts and keeps this OnClick and OnHide. s = the button's color
 -- array (RD_DD_COLOURS / WD_DD_COLOURS). Returns drop(): forgets the built menu
 -- (hidden), so the next click builds it again; true when there was one.
 local function WireLazyDropdown(ddBtn, ddLbl, bg, brd, s, build)
@@ -2273,8 +2273,8 @@ local function BuildDropdownControl(parent, ddW, fLevel, values, order, getValue
     local ddBg = SolidTex(ddBtn, "BACKGROUND", DD_BG_R, DD_BG_G, DD_BG_B, DD_BG_A)
     ddBg:SetAllPoints()
     local ddBrd = MakeRoundedBorder(ddBtn, 1, 1, 1, DD_BRD_A, ddBg)
-    -- The value's resting alpha is the text colour's, the channel the hover
-    -- colours (RD_DD_COLOURS) write, so a hover and leave land back on it.
+    -- The value's resting alpha is the text color's, the channel the hover
+    -- colors (RD_DD_COLOURS) write, so a hover and leave land back on it.
     local ddLbl = MakeFont(ddBtn, 13, nil, 1, 1, 1, DD_TXT_A)
     ddLbl:SetJustifyH("LEFT")
     ddLbl:SetWordWrap(false)

@@ -1514,11 +1514,15 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                                 and EllesmereUI.ResolveBorderTexture(border.texture) then
                                                 border[1], border[2], border[3], border[4] = c.r, c.g, c.b, 1
                                             else
-                                                border = { c.r, c.g, c.b, 1, size=ind.pandemicBorderWidth or 2 }
+                                                border = { c.r, c.g, c.b, 1, size=ind.pandemicBorderWidth or 2,
+                                                    cornerRadius=border and border.cornerRadius }
                                             end
                                         end
                                         ns.RFC_ApplyAuraBorder(fr._bdr, fr._bdr, border,
                                             (fr._cooldown or fr):GetFrameLevel())
+                                        EllesmereUI.PreviewAuraCorners(fr, fr._tex, fr._cooldown, fr._bdr,
+                                            indType == "icon" and border and border.cornerRadius,
+                                            border and border.texture, border and border.size)
                                     end
                                 end
                             end
@@ -1678,7 +1682,7 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         row:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         rowH = 22 + 24
         -- The kit decides these auras' size and place on party frames: name
-        -- the override and its value, in the accent colour.
+        -- the override and its value, in the accent color.
         if kitMode and opts.kitAuras then
             local p = ns.db.profile
             local hint = parent:CreateFontString(nil, "OVERLAY")
@@ -1934,12 +1938,12 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
 end
 
 -- Which frames a condition group can apply on: raid (raid, battleground),
--- party (dungeon, arena, solo, party). Keybind, Dark Mode and spec group hold
--- wherever the player is, so a group with any reaches both; neither when it has
--- no condition.
+-- party (dungeon, arena, solo, party). Keybind, Dark Mode and, on WoW Forever,
+-- Gamepad Mode and Secondary Spec hold wherever the player is, so a group with
+-- any of them reaches both; neither when it has no condition.
 function ns.BM_CondSides(g)
     local c = g and g.conds or {}
-    if c.keybind or c.darkmode or c.primaryspec or c.secondaryspec then return true, true end
+    if c.keybind or c.darkmode or c.gamepad or c.secondaryspec then return true, true end
     return (c.raid or c.battleground) and true or false,
         (c.dungeon or c.arena or c.solo or c.party) and true or false
 end
@@ -1971,7 +1975,7 @@ local DM_BASE_KEYS = { "debuffSize", "debuffPosition", "debuffOffsetX", "debuffO
     "debuffBorderTexture", "debuffBorderSizePx", "debuffBorderColor",
     "debuffBorderTextureOffset", "debuffBorderTextureOffsetY",
     "debuffBorderTextureShiftX", "debuffBorderTextureShiftY",
-    "debuffBorderDispelTextured",
+    "debuffBorderDispelTextured", "debuffBorderCornerRadius",
     "debuffShowDurText", "debuffDurTextSize", "debuffShowStacks", "debuffStacksTextSize",
     "debuffStacksOffsetX", "debuffStacksOffsetY" }
 

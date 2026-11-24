@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: A beautiful visual refresh of Blizzard Bags with intuitive organization.
 ## Author: Ellesmere
-## Version: 9.8.6
+## Version: 9.9.3
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIBagsDB, EllesmereUIBagsInventoryDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -17,6 +17,7 @@ EllesmereUIBags_Categories.lua
 EllesmereUIBags.lua
 EUI_Bags_Style.lua
 EUI_Bags_Data.lua
+EUI_Bags_Hold.lua
 EUI_Bags_Header.lua
 EUI_Bags_Footer.lua
 EUI_Bags_Shared.lua

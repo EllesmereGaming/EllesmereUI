@@ -411,7 +411,7 @@ local DB_DEFAULTS = {
             barSpacing   = 2,
             barGrowUp    = false,     -- false = rows stack downward
             texture      = "none",    -- the rows' bar texture (the Textures page's row writes this key)
-            barBgMode    = "class",   -- "class" = a darkened class colour behind each row | "custom" = barBgColor
+            barBgMode    = "class",   -- "class" = a darkened class color behind each row | "custom" = barBgColor
             barBgColor   = { r = 0, g = 0, b = 0, a = 0.45 },
             barBorderSize = 0,
             barShowIcon  = true,      -- the interrupt's icon at the row's end
@@ -727,12 +727,14 @@ local function FormatEnemyForcesText(enemyObj, formatId, compact)
     elseif formatId == "COUNT_PERCENT" then
         return format("%d/%d - %.2f%%%s", RoundToInt(rawCurrent), RoundToInt(rawTotal), percent, suffix)
     elseif formatId == "COUNT_REMAINING" then
-        return format("%d/%d (%d left)%s", RoundToInt(rawCurrent), RoundToInt(rawTotal), RoundToInt(remaining), suffix)
+        -- The count left goes through the same "%d left" text as the compact Remaining.
+        return format("%d/%d (%s)%s", RoundToInt(rawCurrent), RoundToInt(rawTotal),
+            EllesmereUI.Lf("%d left", RoundToInt(remaining)), suffix)
     elseif formatId == "REMAINING" then
         if compact then
-            return format("%d left", RoundToInt(remaining))
+            return EllesmereUI.Lf("%d left", RoundToInt(remaining))
         end
-        return format("%d remaining%s", RoundToInt(remaining), suffix)
+        return EllesmereUI.Lf("%d remaining", RoundToInt(remaining)) .. suffix
     end
 
     return format("%.2f%%%s", percent, suffix)
@@ -2172,7 +2174,7 @@ local function RenderStandalone()
         end
     end
 
-    -- Timer colours
+    -- Timer colors
     local elapsed = run.elapsed or 0
     local maxTime = run.maxTime or 0
     local timeLeft = max(0, maxTime - elapsed)

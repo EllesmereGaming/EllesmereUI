@@ -10,7 +10,8 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  Double-Click     a pole in hand: a quick second right-click on the world
 --                   casts (its own Apply Lure in its cog).
 --  Fishing Sounds   sound and effects on and up, music and ambience down,
---                   for the session.
+--                   for the session (the game's sound off before: the
+--                   effects alone).
 --
 --  Every action is a real key press or click on a secure button, bound out
 --  of combat only. A session starts with a cast and ends on moving, combat
@@ -49,16 +50,25 @@ local REEL_CVARS = {
     SoftTargetInteractArc = function() return 2 end,
     SoftTargetInteractRangeIsHard = function() return 0 end,
 }
--- The splash of the bobber over the music. Sound off before: sound and
--- effects go on, music and ambience stay silent.
-local soundWasOff = false
+-- The splash of the bobber over the music.
 local SOUND_CVARS = {
-    Sound_EnableAllSound = function() return 1 end,
     Sound_EnableSFX = function() return 1 end,
-    Sound_MusicVolume = function(before) return soundWasOff and 0 or before * 0.3 end,
-    Sound_AmbienceVolume = function(before) return soundWasOff and 0 or before * 0.3 end,
+    Sound_MusicVolume = function(before) return before * 0.3 end,
+    Sound_AmbienceVolume = function(before) return before * 0.3 end,
     Sound_SFXVolume = function(before) return math.max(before, 0.8) end,
     Sound_EnableSoundWhenGameIsInBG = function() return 1 end,
+}
+-- The game's sound off as the session starts: it goes on for the effects
+-- alone, with music, ambience and speech silent.
+local function Silent() return 0 end
+local SOUND_OFF_CVARS = {
+    Sound_EnableAllSound = function() return 1 end,
+    Sound_EnableSFX = SOUND_CVARS.Sound_EnableSFX,
+    Sound_MusicVolume = Silent,
+    Sound_AmbienceVolume = Silent,
+    Sound_DialogVolume = Silent,
+    Sound_SFXVolume = SOUND_CVARS.Sound_SFXVolume,
+    Sound_EnableSoundWhenGameIsInBG = SOUND_CVARS.Sound_EnableSoundWhenGameIsInBG,
 }
 
 local function KeyOn() return F.Get("key") ~= nil end
@@ -150,6 +160,11 @@ local function Hold(set, cvars)
         end
     end
     cfg.held[set] = was
+end
+
+local function Held(set)
+    local held = F.Read().held
+    return held ~= nil and held[set] ~= nil
 end
 
 local function Release(set)
@@ -280,9 +295,10 @@ end
 -------------------------------------------------------------------------------
 local function StartSession()
     if ReelOn() then Hold("reel", REEL_CVARS) end
-    if F.Get("sound") then
-        soundWasOff = C_CVar.GetCVar("Sound_EnableAllSound") == "0"
-        Hold("sound", SOUND_CVARS)
+    if F.Get("sound") and not Held("sound") then
+        -- Asked only as the hold is taken: once held, the game's sound reads on.
+        local off = C_CVar.GetCVar("Sound_EnableAllSound") == "0"
+        Hold("sound", off and SOUND_OFF_CVARS or SOUND_CVARS)
     end
     if inSession then return end
     inSession = true

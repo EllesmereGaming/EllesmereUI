@@ -539,12 +539,13 @@ local passes = setmetatable({}, { __mode = "k" })
 local function Classified(list, bags, src)
     if not catHooked then WatchCategories() end
     local rev, dis = Offline.ListRev(src or list), DisabledKey()
+    local separateReagentBag = bags and BP().bagCategorizeReagents ~= true
     -- a one-tab view reuses its wrapper for every tab, so it's keyed on the tab itself
     local key = list
     if src and src ~= list then key = list[1] end
     local pass = key and passes[key]
     if pass and pass.rev == rev and pass.cat == catGen and pass.dis == dis
-        and pass.bags == bags and not pass.waiting then
+        and pass.bags == bags and pass.separateReagentBag == separateReagentBag and not pass.waiting then
         return pass.items, pass.used, pass.total
     end
     local items, used, total, wait = {}, 0, 0, false
@@ -554,13 +555,14 @@ local function Classified(list, bags, src)
     local catchAll, reagent
     for i, cat in ipairs(cats or {}) do
         if cat.isCatchAll then catchAll = i end
-        if cat.isReagentBag then reagent = i end
+        if bags and cat.isReagentBag then reagent = i end
     end
     local disabled = BP().bagDisabledCategories or _emptyP
     for pos, t in ipairs(type(list) == "table" and list or {}) do
         if type(t) == "table" then
             total = total + (t.size or 0)
-            local inReagent = bags and pos == 6 and reagent
+            local inReagent = pos == 6 and reagent or nil
+            local reagentShortcut = not separateReagentBag and inReagent or nil
             for slot, str in pairs(type(t.items) == "table" and t.items or {}) do
                 used = used + 1
                 local id = Offline.ItemID(str)
@@ -573,8 +575,8 @@ local function Classified(list, bags, src)
                     end
                 end
                 local idx = 0
-                if inReagent then
-                    idx = reagent
+                if separateReagentBag and inReagent then
+                    idx = inReagent
                 elseif cats then
                     idx = mgr:ClassifyItem(str, id, nil, nil, q or 1) or catchAll or #cats
                 end
@@ -584,26 +586,29 @@ local function Classified(list, bags, src)
                 local _, _, _, _, instIcon, classID = GetItemInfoInstant(id or str)
                 items[#items + 1] = {
                     str = str, id = id, name = name, lower = name:lower(), q = q or 1,
-                    icon = icon or instIcon, cat = idx, n = (t.counts and t.counts[slot]) or 1,
+                    icon = icon or instIcon, cat = idx, reagent = reagentShortcut,
+                    n = (t.counts and t.counts[slot]) or 1,
                     gear = classID == ITEM_CLASS_WEAPON or classID == ITEM_CLASS_ARMOR,
                 }
             end
         end
     end
     if key then
-        passes[key] = { rev = rev, cat = catGen, dis = dis, bags = bags, waiting = wait,
+        passes[key] = { rev = rev, cat = catGen, dis = dis, bags = bags,
+            separateReagentBag = separateReagentBag, waiting = wait,
             items = items, used = used, total = total }
     end
     return items, used, total
 end
 
 -- the classified items, cut down to the search and the filter's categories
-local function Collect(list, bags, query, filter, src)
+local function Collect(list, bags, query, filter, reagent, src)
     local all, used, total = Classified(list, bags, src)
-    if query == "" and not filter then return all, used, total end
+    if query == "" and not (filter or reagent) then return all, used, total end
     local items = {}
     for _, it in ipairs(all) do
-        if (query == "" or it.lower:find(query, 1, true)) and (not filter or filter[it.cat]) then
+        if (query == "" or it.lower:find(query, 1, true)) and (not filter or filter[it.cat])
+            and (not reagent or it.reagent == reagent) then
             items[#items + 1] = it
         end
     end
@@ -616,6 +621,9 @@ function ns.OfflineCounts()
     local counts, total = {}, 0
     for _, it in ipairs((Classified(c and c.bags, true))) do
         counts[it.cat] = (counts[it.cat] or 0) + 1
+        if it.reagent and it.reagent ~= it.cat then
+            counts[it.reagent] = (counts[it.reagent] or 0) + 1
+        end
         total = total + 1
     end
     return counts, total
@@ -631,16 +639,21 @@ local function Filter(v)
         for _, mi in ipairs(mgr:GetGroupMembers(group) or {}) do f[mi] = true end
         return f
     end
-    if sel and sel > 0 then return { [sel] = true } end
+    if sel and sel > 0 then
+        local cat = BP().bagCategorizeReagents == true and mgr and mgr:GetCategories()[sel]
+        if cat and cat.isReagentBag then return nil, sel end
+        return { [sel] = true }
+    end
 end
 
 -- groups in the bags' own category order
-local function Group(items)
+local function Group(items, categoryIndex)
     local cats = _G.EUI_CategoryManager and _G.EUI_CategoryManager:GetCategories() or {}
     local by = {}
     for _, it in ipairs(items) do
-        local g = by[it.cat]
-        if not g then g = { idx = it.cat, name = cats[it.cat] and cats[it.cat].name or EllesmereUI.L("Items"), items = {} }; by[it.cat] = g end
+        local idx = categoryIndex or it.cat
+        local g = by[idx]
+        if not g then g = { idx = idx, name = cats[idx] and cats[idx].name or EllesmereUI.L("Items"), items = {} }; by[idx] = g end
         g.items[#g.items + 1] = it
     end
     local groups = {}
@@ -730,7 +743,7 @@ local function Signature(v, list, src, query)
         tostring(p.bagItemIconZoom), tostring(p.bagCountFontSize), tostring(p.itemlevelFontSize),
         tostring(p.showItemlevelInBags), tostring(p.bagQualityBorder), tostring(p.bagCatTitleSize),
         tostring(p.bankSidebarCollapsed), tostring(p.bankHideTabsInSidebar), tostring(p.bankCategorySidebar),
-        tostring(ns.BankDefaultsToOne()), dis, r, g, b)
+        tostring(ns.BankDefaultsToOne()), tostring(v.mode == "bags" and p.bagCategorizeReagents == true), dis, r, g, b)
 end
 
 -- the slot count in the window header (the live refresh keeps resetting it)
@@ -747,7 +760,7 @@ end
 Paint = function(v, force)
     if not (v.panel and v.panel:IsShown()) then return end
     local query = Query()
-    local filter = Filter(v)
+    local filter, reagent = Filter(v)
     local list, saved, src = Containers(v)
     -- saved time and gold on the bar, every time (cheap; they change on every loot)
     local age = Age(saved)
@@ -767,10 +780,10 @@ Paint = function(v, force)
     v.child:SetWidth(math.max(width, 1))
     local titleSize = BP().bagCatTitleSize or 11
 
-    local items, used, total = Collect(list, v.mode == "bags", query, filter, src)
+    local items, used, total = Collect(list, v.mode == "bags", query, filter, reagent, src)
     local y, shown, nh = -6, 0, 0
     if list then
-        local groups = Group(items)
+        local groups = Group(items, reagent)
         -- onebank / onewarbank: everything in one block, no headers
         if v.mode == "bank" and select(3, TabKind(v)) then
             local all = {}
@@ -915,6 +928,8 @@ bagsView.goldRef = function() return EUI_Bags.Money end
 
 -- an alt or bank is up in the bags: no live items under it, so select modes stay off
 function ns.OfflineUp() return bagsView.mode ~= nil end
+-- an alt's bank is up over the live bank: the live slots under it are not the ones shown
+function ns.BankOfflineUp() return bankView.mode ~= nil end
 
 -- runs after every bags refresh: covers the item area while bank is picked or
 -- an alt is showing, hidden otherwise. sidebarW is the sidebar's width.
@@ -1135,12 +1150,12 @@ else
     SyncBank = function() end
 end
 
--- option toggled: off leaves the bank view for all items and goes back to
--- this character; either way the bank sidebar switches layout
+-- option toggled: off leaves the bank view for the view the bags open on and
+-- goes back to this character; either way the bank sidebar switches layout
 function Offline.SyncButton()
     if not Offline.Enabled() then
         bagsView.key, bankView.key = nil, nil
-        if ns.GetSelection() == BANK_VIEW then I.SetSelectedCategoryIndex(0) end
+        if ns.GetSelection() == BANK_VIEW then I.SetSelectedCategoryIndex(ns.OpenBagViewIndex()) end
     end
     if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
     if EUI_Bank and EUI_Bank:IsShown() then EUI_Bank:RefreshBank() else SyncBank() end

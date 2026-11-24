@@ -493,7 +493,10 @@ local function MakeBlock(i, parent, store)
     b.bg = b:CreateTexture(nil, "BACKGROUND")
     b.bg:SetAllPoints()
     b.bg:SetColorTexture(1, 1, 1, (ns.SkinOn and not ns.SkinOn()) and 0.04 or 0.03)
-    -- status underline
+    -- row highlight: a tint over the whole row, or an underline
+    b.stat = b:CreateTexture(nil, "BACKGROUND", nil, 1)
+    b.stat:SetAllPoints()
+    b.stat:Hide()
     b.under = b:CreateTexture(nil, "ARTWORK", nil, 7)
     b.under:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 0, 0)
     b.under:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 0, 0)
@@ -844,17 +847,24 @@ local function FillBlock(b, id, numAllowed, current, numInvited)
         b.status:SetPoint("RIGHT", b, "TOPRIGHT", -6, -rowH / 2)
     end
     b.status:SetShown(st ~= nil)
+    -- the user's status colors, from the results list's row highlight
+    local line = st and ns.STATUS_LINES and ns.STATUS_LINES[st[5]]
+    local lr, lg, lb
+    if line and ns.StatusColor then lr, lg, lb = ns.StatusColor(line)
+    elseif st then lr, lg, lb = st[2], st[3], st[4] end
     if st then
         b.status:SetText(st[1])
-        b.status:SetTextColor(st[2], st[3], st[4])
+        b.status:SetTextColor(lr, lg, lb)
     end
-    -- same underline and fade as a results row
-    if st and ns.OwnListGet(st[5]) ~= false then
-        b.under:SetColorTexture(st[2], st[3], st[4], 0.9)
-        b.under:Show()
-    else
-        b.under:Hide()
-    end
+    -- same row highlight and fade as a results row
+    local on = st and ns.OwnListGet(st[5]) ~= false or false
+    local style = ns.OwnListGet("statusStyle")
+    if style == "none" then on = false end  -- the status text keeps its color
+    local rowFx = on and style == "row" or false
+    if rowFx then b.stat:SetColorTexture(lr * 0.15 + 0.045, lg * 0.15 + 0.045, lb * 0.15 + 0.045, 1)
+    elseif on then b.under:SetColorTexture(lr, lg, lb, 0.9) end
+    b.under:SetShown(on and not rowFx)
+    b.stat:SetShown(rowFx)
     b:SetAlpha(grey and 0.5 or 1)
     return rowH * n + noteH
 end

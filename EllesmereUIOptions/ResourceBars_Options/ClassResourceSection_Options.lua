@@ -12,7 +12,7 @@ if not ns then return end  -- module disabled: no options page
 local CreateFrame = EllesmereUI._Pool.CreateFrame
 
 -- Blizzard Class Resource Art stands in for the class resource bar: the CLASS
--- RESOURCE BAR controls that only style our own bar (texture, colours, pips,
+-- RESOURCE BAR controls that only style our own bar (texture, colors, pips,
 -- text, borders) grey out and are blocked with a disabled tooltip while it
 -- does; the ones that still drive the art or its slot stay live (see the
 -- keep-list in ns.ERB_BuildClassResourceSection). One block per half-row region
@@ -89,7 +89,9 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 
     local _, h
     local function cfg() return ctx.cfg() end
-    local function classOff() local c = cfg(); return not (c and c.enabled) end
+    -- Forever druid without Cat Form: no combo points yet, so the section reads off.
+    local CatLocked = EllesmereUI.ForeverDruidLacksCat
+    local function classOff() local c = cfg(); return CatLocked() or not (c and c.enabled) end
 
     local hdr
     hdr, h = W:SectionHeader(parent, "CLASS RESOURCE BAR", y);  y = y - h
@@ -203,7 +205,9 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
     local classEnableRow
     classEnableRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Show Class Resource",
-          getValue = function() local c = cfg(); return c and c.enabled end,
+          disabled = CatLocked,
+          disabledTooltip = "Learn Cat Form to use combo points.", rawTooltip = true,
+          getValue = function() local c = cfg(); return not CatLocked() and c and c.enabled end,
           -- Rows below Row 1 are hidden while off, so the flip must force the full rebuild
           setValue = EllesmereUI.DependentSetValue(
               function() local c = cfg(); return c and c.enabled end,
@@ -518,7 +522,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                       end },
                     -- Separators: None = off (edgeSep false); an art entry turns them on
                     -- with that art. The rows below pick its lines; Bar Spacing and the
-                    -- gap colour stay the user's own (never written here).
+                    -- gap color stay the user's own (never written here).
                     { type = "dropdown", label = "Separators", values = sepValues, order = sepOrder,
                       tooltip = "Draws separator lines along the bar edge and between the pips.",
                       get = function()
@@ -865,7 +869,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                   if not inCustom then
                       -- false, never nil: a removed key harvests into
                       -- spec overrides as a key-removal marker the apply
-                      -- guard can never re-apply (the soul-bar colour
+                      -- guard can never re-apply (the soul-bar color
                       -- revert); the runtime only tests truthiness, so
                       -- false is behaviourally identical.
                       c.resourceColored = false

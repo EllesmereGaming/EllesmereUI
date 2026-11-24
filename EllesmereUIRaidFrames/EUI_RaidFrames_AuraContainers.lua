@@ -204,6 +204,7 @@ local function ApplyDmFx(button, d, style)
         end
         local bc = e.borderColor or { r = 0, g = 0, b = 0 }
         PP.UpdateBorder(host, bSize, bc.r or 0, bc.g or 0, bc.b or 0, 1)
+        EllesmereUI.RoundAuraOverlay(host, d.auraRound)
         host:Show()
     elseif d.dmFxBdr then
         d.dmFxBdr:Hide()
@@ -280,6 +281,11 @@ local function ApplyRFDebuffText(button, d, style)
             tex:SetAllPoints(button)
             d.dmSqTex = tex
         end
+        local round = d.auraRound
+        if round and round.on and not round.cover then
+            tex:AddMaskTexture(round.mask)
+            round.cover = tex
+        end
         local c = style.squareColor
         tex:SetColorTexture(c.r or 1, c.g or 0.35, c.b or 0.35, c.a or 1)
         tex:Show()
@@ -332,6 +338,7 @@ function ns.RFC_AuraBorder(s, prefix, into)
     local t = into or {}
     t[1], t[2], t[3], t[4] = r, g, b, color and color.a or 1
     t.size, t.texture = size, tex
+    t.cornerRadius = s[prefix .. "CornerRadius"]
     t.edgePx = EllesmereUI.BorderPx(s[prefix .. "SizePx"], size, tex or "solid")
     t.offsetX, t.offsetY = s[prefix .. "TextureOffset"], s[prefix .. "TextureOffsetY"]
     t.shiftX, t.shiftY = s[prefix .. "TextureShiftX"], s[prefix .. "TextureShiftY"]
@@ -339,9 +346,9 @@ function ns.RFC_AuraBorder(s, prefix, into)
 end
 
 function ns.RFC_AuraBorderFP(s, prefix)
-    if not s[prefix .. "Texture"] and not s[prefix .. "SizePx"]
+    if not s[prefix .. "Texture"] and not s[prefix .. "SizePx"] and not s[prefix .. "CornerRadius"]
         and not (s[prefix .. "Color"] and s[prefix .. "Color"].a) then return false end
-    return FP(s[prefix .. "Texture"], s[prefix .. "SizePx"],
+    return FP(s[prefix .. "Texture"], s[prefix .. "SizePx"], s[prefix .. "CornerRadius"],
         s[prefix .. "TextureOffset"], s[prefix .. "TextureOffsetY"],
         s[prefix .. "TextureShiftX"], s[prefix .. "TextureShiftY"],
         s[prefix .. "DispelTextured"],
@@ -368,13 +375,15 @@ end
 
 local pvBorder = {}  -- reused by every preview border (applied at once)
 function ns.RFC_PreviewAuraBorder(icon, host, s, prefix)
-    ns.RFC_ApplyAuraBorder(host, host, ns.RFC_AuraBorder(s, prefix, pvBorder),
-        (icon._cooldown or icon):GetFrameLevel())
+    local b = ns.RFC_AuraBorder(s, prefix, pvBorder)
+    ns.RFC_ApplyAuraBorder(host, host, b, (icon._cooldown or icon):GetFrameLevel())
+    EllesmereUI.PreviewAuraCorners(icon, icon._tex, icon._cooldown, host,
+        b and b.cornerRadius, b and b.texture, b and b.size)
 end
 
--- A Class-mode glow draws the palette's class colour, so that colour is an
+-- A Class-mode glow draws the palette's class color, so that color is an
 -- input of every glow print (a Colors page edit must restyle); "" for every
--- other mode. The colour last printed feeds the colours-changed hook below
+-- other mode. The color last printed feeds the colors-changed hook below
 -- RFC_ReloadAll. On ns: the Debuff Manager's prints use it too.
 function ns.RF_GlowClassFP(mode, classFlag)
     local G = EllesmereUI.Glows
@@ -1482,7 +1491,8 @@ local function ApplyBmPandemicBorder(button, dd, style)
     local border = style.bmPandemicEnabled and style.bmPandemicTextured and style.border
     if border and (not border.texture or border.texture == "solid" or border.texture == ""
         or not EllesmereUI.ResolveBorderTexture(border.texture)) then border = nil end
-    if border then
+    local rounded = style.bmPandemicEnabled and dd.auraRound and dd.auraRound.on
+    if border or rounded then
         local ring = dd.bmPandemicRing
         if not ring then
             ring = CreateFrame("Frame", nil, holder)
@@ -1496,9 +1506,14 @@ local function ApplyBmPandemicBorder(button, dd, style)
             dd.bmPandemicW, dd.bmPandemicH = style.width, style.height
         end
         -- The engine owns the holder's visibility; only draw on its child.
-        EllesmereUI.ApplySecretSafeBorderStyle(ring, ring, border.size, r, g, b, alpha,
-            border.texture, border.offsetX, border.offsetY, border.shiftX, border.shiftY,
-            "unitframes", border.size, nil, border.edgePx)
+        if border then
+            EllesmereUI.ApplySecretSafeBorderStyle(ring, ring, border.size, r, g, b, alpha,
+                border.texture, border.offsetX, border.offsetY, border.shiftX, border.shiftY,
+                "unitframes", border.size, nil, border.edgePx)
+        else
+            EllesmereUI.ApplySecretSafeBorderStyle(ring, ring, width, r, g, b, alpha, "solid")
+        end
+        EllesmereUI.RoundAuraOverlay(ring, not border and width > 0 and dd.auraRound)
     elseif dd.bmPandemicRing then
         EllesmereUI.ApplySecretSafeBorderStyle(dd.bmPandemicRing, dd.bmPandemicRing,
             0, 0, 0, 0, 0, "solid")
@@ -1506,7 +1521,7 @@ local function ApplyBmPandemicBorder(button, dd, style)
     end
     for i, edge in ipairs(dd.bmPandemicEdges) do
         if i <= 2 then edge:SetHeight(width) else edge:SetWidth(width) end
-        edge:SetColorTexture(r, g, b, border and 0 or alpha)
+        edge:SetColorTexture(r, g, b, (border or rounded) and 0 or alpha)
     end
     if not dd.bmPandemicBound then
         button:AddPandemicRegion(holder)
@@ -3566,7 +3581,7 @@ end
 
 -- Colors page edits (swatches, darken, resets, profile switches) all end in
 -- ApplyColorsToOUF. Once a Class-mode glow was printed (ns.RF_GlowClassFP), a
--- changed class colour re-runs the fingerprinted reload, which restyles only
+-- changed class color re-runs the fingerprinted reload, which restyles only
 -- the glows whose print changed. Calls in one frame (a profile switch can
 -- make two) collapse into one check on the next frame: the flush frame stays
 -- hidden until a call and hides itself before working.

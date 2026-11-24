@@ -148,6 +148,21 @@ function EllesmereUI.RunRegisteredMigrations()
     end
 end
 
+-- A spec's Cooldown Manager data made this session is born in the current
+-- format: it carries every specProfile migration's flag from the start.
+-- Without them the next load would run each conversion of older data on what
+-- the player put in it since (custom buffs on the default Buffs bar, items and
+-- claim markers on buff bars, a Bloodlust preset or Tracking Bar are data
+-- those conversions take out). Returns prof.
+function EllesmereUI.StampSpecProfile(prof)
+    if type(prof) ~= "table" then return prof end
+    local flags = GetFlagTable(prof)
+    for _, spec in ipairs(_migrations) do
+        if spec.scope == "specProfile" then flags[spec.id] = true end
+    end
+    return prof
+end
+
 --------------------------------------------------------------------------------
 --  Registered migrations
 --------------------------------------------------------------------------------
@@ -2479,6 +2494,63 @@ EllesmereUI.RegisterMigration({
 })
 end
 
+-- Chat's sidebar icons: fresh installs and future profiles start with Friends,
+-- Copy Chat, M+ Portals (retail) or Durability (WoW Forever) and Chat Menu;
+-- every already-existing profile keeps Settings on and Chat Menu off, and on
+-- WoW Forever Durability off, unless its user had changed them.
+EllesmereUI.RegisterMigration({
+    id          = "chat_sidebar_icon_defaults_existing_v1",
+    scope       = "global",
+    description = "Pin Chat's Settings icon ON and Chat Menu icon OFF (and on WoW Forever the Durability icon OFF) for existing profiles; fresh installs and future profiles inherit the new sidebar icon defaults.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db or not db.profiles then return end
+        local forever = EllesmereUI.IS_FOREVER == true
+        for _, profData in pairs(db.profiles) do
+            if type(profData) == "table" and type(profData.addons) == "table"
+               and next(profData.addons) then
+                local mod = profData.addons.EllesmereUIChat
+                if type(mod) ~= "table" then
+                    mod = {}
+                    profData.addons.EllesmereUIChat = mod
+                end
+                if type(mod.chat) ~= "table" then mod.chat = {} end
+                local chat = mod.chat
+                if chat.showSettings == nil then chat.showSettings = true end
+                if chat.showChatMenu == nil then chat.showChatMenu = false end
+                if forever and chat.showDurability == nil then chat.showDurability = false end
+            end
+        end
+    end,
+})
+
+-- WoW Forever: Raid & Party Frames' Heal Prediction is on for fresh installs and
+-- future profiles; every already-existing profile keeps it off unless its user
+-- had turned it on. Registered on the Forever client only, the one whose
+-- default changed.
+if EllesmereUI.IS_FOREVER == true then
+EllesmereUI.RegisterMigration({
+    id          = "rf_heal_prediction_forever_existing_v1",
+    scope       = "global",
+    description = "Pin Raid & Party Frames' Heal Prediction OFF for existing WoW Forever profiles; fresh installs and future profiles inherit the new ON default.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db or not db.profiles then return end
+        for _, profData in pairs(db.profiles) do
+            if type(profData) == "table" and type(profData.addons) == "table"
+               and next(profData.addons) then
+                local rf = profData.addons.EllesmereUIRaidFrames
+                if type(rf) ~= "table" then
+                    rf = {}
+                    profData.addons.EllesmereUIRaidFrames = rf
+                end
+                if rf.healPrediction == nil then rf.healPrediction = false end
+            end
+        end
+    end,
+})
+end
+
 -- Guardian Druid Ironfur bar ships ON (DEFAULTS.secondary.guardianIronfurBar=true)
 -- for new installs; existing users expect no class resource bar, so pin every
 -- already-existing profile OFF. Runs at parent ADDON_LOADED BEFORE any child NewDB
@@ -2723,7 +2795,7 @@ EllesmereUI.RegisterMigration({
 EllesmereUI.RegisterMigration({
     id          = "global_colors_per_profile_seed_v1",
     scope       = "global",
-    description = "Seed every profile's customColors from the global table for the opt-in per-profile colours mode.",
+    description = "Seed every profile's customColors from the global table for the opt-in per-profile colors mode.",
     body        = function(ctx)
         local db = ctx.db
         if not db or type(db.customColors) ~= "table" or type(db.profiles) ~= "table" then return end
@@ -3487,6 +3559,124 @@ EllesmereUI.RegisterMigration({
         local ma = qol and qol.movementAlert
         if type(ma) ~= "table" or ma.precision == nil then return end
         ma.precision = (tonumber(ma.precision) or 1) > 0 and 1 or 0
+    end,
+})
+
+--------------------------------------------------------------------------------
+--  AuraBuff Reminders: Talent Reminders are kept per spec (owner 2026-11-17).
+--  A reminder that names its class but no spec (a class-tree talent, or one
+--  saved before its tree was known) applied to every spec of its class:
+--  SplitTalentReminders puts one copy per retail spec of that class in its
+--  place, so every spec keeps the reminder it had. A copy the list already
+--  holds (same spec, talent, zones and Not Needed choice) is not added twice.
+--  A reminder with no class (saved before reminders knew their class) stays:
+--  the runtime names its class once a character knows the talent, then splits
+--  it. Copies carry talentSource = "spec", which an older version reads too.
+--  Static spec data only (EllesmereUI._SPEC_DATA): migrations run before the
+--  game's spec APIs can be trusted. Called by the migration below and by the
+--  Talent Reminders runtime (listed in the AuraBuff Reminders guard).
+--------------------------------------------------------------------------------
+do
+    local specsOf
+    local function SpecsOf(class)
+        if not specsOf then
+            specsOf = {}
+            for _, c in ipairs(EllesmereUI._SPEC_DATA or {}) do
+                local ids = {}
+                for j = 1, #c.specs do ids[j] = c.specs[j].id end
+                specsOf[c.class] = ids
+            end
+        end
+        return specsOf[class]
+    end
+
+    -- A set's keys, sorted and joined (an activity set of a reminder).
+    local function SetText(set)
+        local ks = {}
+        if type(set) == "table" then
+            for k, v in pairs(set) do
+                if v then ks[#ks + 1] = tostring(k) end
+            end
+        end
+        table.sort(ks)
+        return table.concat(ks, ",")
+    end
+    local function CopySet(set)
+        local c = {}
+        for k, v in pairs(set) do c[k] = v end
+        return c
+    end
+
+    -- A reminder's identity for one spec: talent, zones (in any order), its
+    -- activities, and where its Not Needed reminder shows (the old checkbox
+    -- read as the runtime does, or its activities).
+    local function Key(r, specID)
+        local zs = {}
+        if type(r.zoneNames) == "table" and #r.zoneNames > 0 then
+            for i = 1, #r.zoneNames do zs[i] = tostring(r.zoneNames[i]) end
+        elseif r.zoneName then
+            zs[1] = tostring(r.zoneName)
+        end
+        table.sort(zs)
+        local mode = r.notNeededMode or (r.showNotNeeded and "season" or "never")
+        return tostring(specID) .. "|" .. tostring(r.spellID) .. "|" .. tostring(mode) .. "|" .. table.concat(zs, ",")
+            .. "|" .. SetText(r.acts) .. "|" .. SetText(r.notNeededActs)
+    end
+
+    --- Splits every class-wide reminder of `list` in place into one reminder
+    --- per spec of its class. Returns true when the list changed.
+    function EllesmereUI.SplitTalentReminders(list)
+        if type(list) ~= "table" then return false end
+        local seen = {}
+        for _, r in ipairs(list) do
+            if type(r) == "table" and r.specID then seen[Key(r, r.specID)] = true end
+        end
+        local out, changed = {}, false
+        for _, r in ipairs(list) do
+            local specs = type(r) == "table" and r.specID == nil and type(r.class) == "string" and SpecsOf(r.class)
+            if specs and #specs > 0 then
+                changed = true
+                for _, specID in ipairs(specs) do
+                    local k = Key(r, specID)
+                    if not seen[k] then
+                        seen[k] = true
+                        local c = {}
+                        for f, v in pairs(r) do c[f] = v end
+                        if type(r.zoneNames) == "table" then
+                            local zs = {}
+                            for i = 1, #r.zoneNames do zs[i] = r.zoneNames[i] end
+                            c.zoneNames = zs
+                        end
+                        -- Each copy its own sets: an edit of one spec's reminder
+                        -- must not change another's.
+                        if type(r.acts) == "table" then c.acts = CopySet(r.acts) end
+                        if type(r.notNeededActs) == "table" then c.notNeededActs = CopySet(r.notNeededActs) end
+                        c.specID = specID
+                        c.talentSource = "spec"
+                        out[#out + 1] = c
+                    end
+                end
+            else
+                out[#out + 1] = r
+            end
+        end
+        if changed then
+            for i = #list, 1, -1 do list[i] = nil end
+            for i = 1, #out do list[i] = out[i] end
+        end
+        return changed
+    end
+end
+
+EllesmereUI.RegisterMigration({
+    id          = "abr_talent_reminders_per_spec_v1",
+    scope       = "profile",
+    description = "AuraBuff Reminders: every Talent Reminder saved for a whole class becomes one reminder per spec of that class, so each spec keeps what it had (owner 2026-11-17).",
+    body = function(ctx)
+        -- Idempotent: a split list holds no class-wide reminder.
+        local abr = ctx.profile.addons and ctx.profile.addons.EllesmereUIAuraBuffReminders
+        if type(abr) ~= "table" then return end
+        EllesmereUI.SplitTalentReminders(abr.talentReminders)
     end,
 })
 
@@ -4585,8 +4775,8 @@ EllesmereUI.RegisterMigration({
 -- Queued Only / Full) replaces Highlight Queued Attacks, Highlight Active Attack
 -- and Show Shot Pending; Movement Guide (Off / Segments / Wind-Up Bar) replaces
 -- Latency Overlay and Smooth Swing Timing. Only explicit values
--- move (defaults are stripped at logout); the colour keys keep their names, and
--- the latency zone keeps its old red where no colour was stored (GO's default
+-- move (defaults are stripped at logout); the color keys keep their names, and
+-- the latency zone keeps its old red where no color was stored (GO's default
 -- is white). Per profile: no current setting writes the old keys, so a profile
 -- imported later from an older string migrates on its next load.
 EllesmereUI.RegisterMigration({

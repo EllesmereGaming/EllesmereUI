@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Modern action bars built for performance and clarity.
 ## Author: Ellesmere
-## Version: 9.8.6
+## Version: 9.9.3
 ## Dependencies: EllesmereUI
 ## OptionalDeps: Masque
 ## SavedVariables: EllesmereUIActionBarsDB
@@ -39,6 +39,9 @@ EUI_ActionBars_ExtraBars.lua
 EUI_ActionBars_QuickKeybind.lua
 EUI_ActionBars_XPBar.lua
 EUI_ActionBars_Flyout.lua
+EUI_ActionBars_ForeverSwingSweep.lua
+EUI_ActionBars_Populate.lua
+EUI_ActionBars_PopulatePicker.lua
 
 # Options
 

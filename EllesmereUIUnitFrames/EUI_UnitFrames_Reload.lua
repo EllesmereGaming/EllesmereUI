@@ -456,6 +456,8 @@ ReloadFramesBody = function()
                 else
                     frame.Portrait.backdrop:SetFrameLevel(frame:GetFrameLevel() + 1)
                 end
+                -- Rested Indicator on the portrait: follows its show / hide and level.
+                if frame._restFollowPortrait then frame._restFollowPortrait() end
             end
 
             if unit == "player" or unit == "target" then
@@ -774,7 +776,7 @@ ReloadFramesBody = function()
                                 btb.bg:SetColorTexture(bgc.r, bgc.g, bgc.b, bga)
                             end
                             if btb._applyBTBTextTags then
-                                btb._applyBTBTextTags(settings.btbLeftContent or "none", settings.btbRightContent or "none", settings.btbCenterContent or "none")
+                                btb._applyBTBTextTags(settings)
                             end
                             if btb._applyBTBTextPositions then
                                 btb._applyBTBTextPositions(settings)
@@ -783,7 +785,7 @@ ReloadFramesBody = function()
                             btb:Show()
                         end
                     elseif frame.BottomTextBar then
-                        frame.BottomTextBar:Hide()
+                        ns.UF_HideBottomTextBar(frame.BottomTextBar)
                     end
 
                     UpdateBordersForScale(frame, unit)
@@ -933,7 +935,7 @@ ReloadFramesBody = function()
                                 btb.bg:SetColorTexture(bgc.r, bgc.g, bgc.b, bga)
                             end
                             if btb._applyBTBTextTags then
-                                btb._applyBTBTextTags(settings.btbLeftContent or "none", settings.btbRightContent or "none", settings.btbCenterContent or "none")
+                                btb._applyBTBTextTags(settings)
                             end
                             if btb._applyBTBTextPositions then
                                 btb._applyBTBTextPositions(settings)
@@ -942,7 +944,7 @@ ReloadFramesBody = function()
                             btb:Show()
                         end
                     elseif frame.BottomTextBar then
-                        frame.BottomTextBar:Hide()
+                        ns.UF_HideBottomTextBar(frame.BottomTextBar)
                     end
 
                     -- Castbar (target)
@@ -1211,7 +1213,7 @@ ReloadFramesBody = function()
                             btb.bg:SetColorTexture(bgc.r, bgc.g, bgc.b, bga)
                         end
                         if btb._applyBTBTextTags then
-                            btb._applyBTBTextTags(settings.btbLeftContent or "none", settings.btbRightContent or "none", settings.btbCenterContent or "none")
+                            btb._applyBTBTextTags(settings)
                         end
                         if btb._applyBTBTextPositions then
                             btb._applyBTBTextPositions(settings)
@@ -1220,7 +1222,7 @@ ReloadFramesBody = function()
                         btb:Show()
                     end
                 elseif frame.BottomTextBar then
-                    frame.BottomTextBar:Hide()
+                    ns.UF_HideBottomTextBar(frame.BottomTextBar)
                 end
 
                 -- Castbar (focus)
@@ -1232,9 +1234,9 @@ ReloadFramesBody = function()
             elseif unit == "pet" or unit == "targettarget" or unit == "focustarget" then
                 -- Pet, ToT and FoT all share the same simple-frame layout:
                 -- optional portrait on either side, health bar filling the rest.
-                -- A WoW Forever pet adds its own power bar (built at spawn): an
-                -- attached bar grows the stack and the portrait squares off it.
-                local miniPower = (unit == "pet" and ns.UF_PetHasPower and not ns.UF_Blizz()) and frame.Power or nil
+                -- An EUI mini power bar (built at spawn), when attached, grows
+                -- the stack and the portrait squares off it.
+                local miniPower = (ns.UF_MiniHasPower(unit) and not ns.UF_Blizz()) and frame.Power or nil
                 local miniPpPos = miniPower and (settings.powerPosition or "below") or "none"
                 local miniPowerH = (miniPpPos == "below" or miniPpPos == "above") and (settings.powerHeight or 6) or 0
                 local miniAboveOff = (miniPpPos == "above") and miniPowerH or 0
@@ -1866,6 +1868,10 @@ ReloadFramesBody = function()
             local src = isBoss and ns.UF_BossBorderSettings()
                 or (isMini and GetMiniDonorSettings(unit)) or GetSettingsForUnit(unit)
             local us = GetSettingsForUnit(unit)
+            if frame._euiWantedBorderColorChannel
+                or (src and (src.borderClassColored or ns.UF_ClassificationBorderEnabled(src, unit))) then
+                ns.UF_SyncBorderColor(frame, unit, src)
+            end
             local radius = (not frame._blizzArtFrame and src and src.cornerRadius) or 0
             local corners = src and src.cornerMask
             local power = frame.Power

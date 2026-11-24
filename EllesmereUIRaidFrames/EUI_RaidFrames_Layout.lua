@@ -201,8 +201,9 @@ end
 --  Layout groups
 --  Two perpendicular axes: groupGrowth (where next group goes) and
 --  unitGrowth (where next unit within a group goes). groupGrowth also accepts
---  the grid flow "DOWNRIGHT" (ns._RFGroupFlow): ns._RF_GRID_ROWS groups stack
---  down one column before the next column starts to the right, instead of one
+--  the grid flows (ns._RFGroupFlow): "DOWNRIGHT" stacks ns._RFGridSize groups
+--  down one column before the next column starts to the right, "RIGHTDOWN"
+--  fills a row of that many before the next row starts below, instead of one
 --  continuous run.
 -------------------------------------------------------------------------------
 local MOVER_GROUPS = 4
@@ -409,13 +410,14 @@ ns._LayoutGroupsImpl = function()
         if ns._flatHeader and ns._flatHeader:IsShown() then ns._flatHeader:Hide() end
 
         -- Group slot origins along the growth flow: a plain direction is one
-        -- continuous run, the grid flow ("Down and then Right") stacks
-        -- ns._RF_GRID_ROWS groups per column. Eight slots are generated (up to
+        -- continuous run, a grid flow wraps every ns._RFGridSize groups
+        -- (per column or per row). Eight slots are generated (up to
         -- 8 visible groups) but only the four the box is sized for
         -- (MOVER_GROUPS) set the normalization origin, so a group past the box
         -- keeps the same per-slot step instead of rescaling everything in front
         -- of it.
-        local slots, minX, maxY = ns._RFGroupFlow(groupGrowth, groupW, groupH, gs, 8, groupFlowSlots)
+        local slots, minX, maxY = ns._RFGroupFlow(groupGrowth, groupW, groupH, gs, 8, groupFlowSlots,
+            ns._RFGridSize(activeOv))
 
         -- For UP/LEFT unit growth, pin each header by the corner its units
         -- grow away from: the offset moves (x, y) to that cell edge and the
@@ -524,7 +526,7 @@ ns._LayoutGroupsImpl = function()
             totalH = MOVER_GROUPS * groupH + (MOVER_GROUPS - 1) * gs
         end
     else
-        totalW, totalH = ns._RFFootprint(bw, bh, unitGrowth, groupGrowth, cs, gs)
+        totalW, totalH = ns._RFFootprint(bw, bh, unitGrowth, groupGrowth, cs, gs, ns._RFGridSize(activeOv))
     end
     containerFrame:SetSize(PixelSnap(totalW), PixelSnap(totalH))
 

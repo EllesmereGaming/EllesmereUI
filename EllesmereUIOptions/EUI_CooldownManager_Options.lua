@@ -218,6 +218,27 @@ initFrame:SetScript("OnEvent", function(self)
         return labels, order
     end
 
+    -- Default Glow Type (profile-wide): the glow type a new Bar Glow entry starts
+    -- with. Shown on the Bar Glows page only; saved entries keep theirs.
+    local function DefaultBarGlowStyle()
+        local p = DB()
+        local v = p and p.cdmBars and tonumber(p.cdmBars.defaultBarGlowStyle)
+        if v and ns.GLOW_STYLES and ns.GLOW_STYLES[v] then return v end
+        return 1
+    end
+    local function DefaultGlowTypeCfg()
+        local labels, order = GetGlowStyleValues()
+        return { type = "dropdown", text = "Default Glow Type",
+                 values = labels, order = order,
+                 tooltip = "The glow type a new Bar Glow starts with. Glows you already made keep their own.",
+                 getValue = DefaultBarGlowStyle,
+                 setValue = function(v)
+                     local p = DB()
+                     if not p or not p.cdmBars then return end
+                     p.cdmBars.defaultBarGlowStyle = tonumber(v) or 1
+                 end }
+    end
+
     ---------------------------------------------------------------------------
     --  Glow sites for Global Settings > Glows: per-bar Pandemic Glow, Buff Glow
     --  and Pixel Glow parameters, Tracked Buff Bars (active spec) and Rotation
@@ -271,14 +292,10 @@ initFrame:SetScript("OnEvent", function(self)
         -- configured = Blizzard Default, not None: the built-in bars never seed the
         -- key (the templates that do ship true + -1) and Blizzard's PandemicIcon
         -- still draws for them, so only an explicit false reads as None.
-        -- WoW Forever: the anti-clip glow (EUI_CDM_ForeverAntiClip.lua) has no
-        -- Blizzard look, so there Blizzard Default is not offered and an unset or
-        -- Blizzard Default bar reads as None, as the bar draws it.
         local function PandemicDesc(getBd, onChange)
-            local antiClip = ns.CDM_ANTI_CLIP
             return {
                 view = ns.GLOW_VIEW, host = "icon", excludes = { [4] = true },
-                extras = not antiClip and { { value = -1, label = "Blizzard Default" } } or nil,
+                extras = { { value = -1, label = "Blizzard Default" } },
                 caps = { mode = true, params = true, bg = true },
                 defaultColor = { r = 1, g = 1, b = 0 },
                 onChange = onChange or Rebuild,
@@ -286,10 +303,8 @@ initFrame:SetScript("OnEvent", function(self)
                     local bd = getBd(); if not bd then return nil end
                     if f == "style" then
                         if bd.pandemicGlow == false then return 0 end
-                        if bd.pandemicGlow == nil then return antiClip and 0 or -1 end
-                        local style = bd.pandemicGlowStyle or 1
-                        if antiClip and style == -1 then return 0 end
-                        return style
+                        if bd.pandemicGlow == nil then return -1 end
+                        return bd.pandemicGlowStyle or 1
                     end
                     return PandemicGet(bd, f)
                 end,
@@ -570,15 +585,15 @@ initFrame:SetScript("OnEvent", function(self)
                 list = function()
                     local out = {}
                     local c = CdmBars()
-                    -- WoW Forever: the bars' Pandemic Glow rows read Anti-Clip Glow.
-                    local panLabel = ns.CDM_ANTI_CLIP and "Anti-Clip Glow" or "Pandemic Glow"
+                    -- WoW Forever has no Pandemic Glow (ns.CDM_NO_PANDEMIC).
+                    local noPan = ns.CDM_NO_PANDEMIC
                     for _, bd in ipairs((c and c.bars) or {}) do
                         -- Ghost and custom buff bars stay out, like the pandemic sync.
                         if not bd.isGhostBar and bd.barType ~= "custom_buff" then
                             local name = EllesmereUI.L(bd.name or bd.key or "?")
-                            if ns.CDM_BarHasExtras(bd) then
-                                out[#out + 1] = { label = panLabel, sub = name, desc = PandemicDesc(function() return bd end),
-                                    nav = BarNav(bd.key, "EXTRAS", panLabel) }
+                            if not noPan and ns.CDM_BarHasExtras(bd) then
+                                out[#out + 1] = { label = "Pandemic Glow", sub = name, desc = PandemicDesc(function() return bd end),
+                                    nav = BarNav(bd.key, "EXTRAS", "Pandemic Glow") }
                             end
                             if ns.IsBarBuffFamily and ns.IsBarBuffFamily(bd) then
                                 out[#out + 1] = { label = "Buff Glow", sub = name, desc = BuffGlowDesc(function() return bd end),
@@ -589,13 +604,12 @@ initFrame:SetScript("OnEvent", function(self)
                             end
                         end
                     end
-                    local tbb = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
-                    local tbbSub = EllesmereUI.L("Tracking Bars") .. " - " .. (ns.CDM_ANTI_CLIP
-                        and EllesmereUI.L("Anti-Clip Glow") or EllesmereUI.L("Pandemic Glow"))
+                    local tbb = not noPan and ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
+                    local tbbSub = EllesmereUI.L("Tracking Bars") .. " - " .. EllesmereUI.L("Pandemic Glow")
                     for i, bd in ipairs((tbb and tbb.bars) or {}) do
                         out[#out + 1] = { label = bd.name or "?", sub = tbbSub,
                             desc = TbbDesc(function() return bd end, RebuildTBB),
-                            nav = { page = PAGE_BUFF_BARS, section = "EXTRAS", highlight = panLabel,
+                            nav = { page = PAGE_BUFF_BARS, section = "EXTRAS", highlight = "Pandemic Glow",
                                 preSelect = function() if ns._TBBSelectBar then ns._TBBSelectBar(i) end end } }
                     end
                     return out
@@ -707,7 +721,7 @@ initFrame:SetScript("OnEvent", function(self)
                     assignedSet[sp.spellID] = true
                     local newEntry = {
                         spellID = sp.spellID,
-                        glowStyle = 1,
+                        glowStyle = DefaultBarGlowStyle(),
                         mode = sp.usable and "USABLE" or "ACTIVE",
                         onlyInCombat = false,
                     }
@@ -1079,8 +1093,10 @@ initFrame:SetScript("OnEvent", function(self)
                     if nonGlowable then iconTex:SetDesaturated(true) end
                     local z = zoom
                     if btnShape == "cropped" then
-                        local t = isCDMBar and ns.CdmCropTrim(cdmBd) or 0.10
-                        iconTex:SetTexCoord(z, 1 - z, z + t, 1 - z - t)
+                        -- The icon's height factor; the top and bottom are cut, the art keeps its proportions.
+                        local f = isCDMBar and ns.CdmCropFactor(cdmBd) or 0.80
+                        local half = (1 - 2 * z) * f / 2
+                        iconTex:SetTexCoord(z, 1 - z, 0.5 - half, 0.5 + half)
                     elseif z > 0 or square then
                         iconTex:SetTexCoord(z, 1 - z, z, 1 - z)
                     else
@@ -1354,6 +1370,9 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:Spacer(parent, y, 8);  y = y - h
 
+        parent._showRowDivider = true
+        _, h = W:DualRow(parent, y, DefaultGlowTypeCfg(), EllesmereUI.BlankRowCfg());  y = y - h
+
         -- A selected slot that is (now) non-glowable shows no glow settings (the header tip stays).
         if curBtn and type(curBar) == "string" then
             local cdmIcons = ns.cdmBarIcons and ns.cdmBarIcons[curBar]
@@ -1408,6 +1427,37 @@ initFrame:SetScript("OnEvent", function(self)
                         local removeAIdx = aIdx
                         y = ns.BuildBarGlowWhenRow(W, parent, y, entry, Refresh, cdmSid)
 
+                        -- WoW Forever: late in the Main Hand swing
+                        -- (EllesmereUICdmBarGlowSwing.lua; absent elsewhere).
+                        if ns.BarGlowSwingPass then
+                            _, h = W:DualRow(parent, y,
+                                { type = "toggle", text = "Glow Late in Swing",
+                                  tooltip = "Only glow during the last seconds of your main hand swing, and not while this attack is already queued for it.",
+                                  getValue = function() return tonumber(entry.swingWindow) ~= nil end,
+                                  setValue = function(v)
+                                      entry.swingWindow = v and 0.5 or nil
+                                      -- The glow pass alone (SetupOverlays re-syncs the
+                                      -- windows): never a full CDM rebuild.
+                                      ns.RequestBarGlowUpdate()
+                                      EllesmereUI:RefreshPage()
+                                  end },
+                                { type = "slider", text = "Seconds Before Swing",
+                                  min = 0.1, max = 2, step = 0.1,
+                                  disabled = function() return not tonumber(entry.swingWindow) end,
+                                  disabledTooltip = "Glow Late in Swing",
+                                  getValue = function() return tonumber(entry.swingWindow) or 0.5 end,
+                                  setValue = function(v)
+                                      entry.swingWindow = math.floor(v * 10 + 0.5) / 10
+                                      -- Writes on every drag step: the glow pass only.
+                                      ns.RequestBarGlowUpdate()
+                                  end })
+                            y = y - h
+                        end
+
+                        -- Health below / above a percentage
+                        -- (EUI_CooldownManager_BarGlowConditions.lua)
+                        y = ns.BuildBarGlowHealthRow(W, parent, y, entry, Refresh)
+
                         -- Helper: resolve current glow color and restart preview if active
                         local pvKey = assignKey .. "_" .. aIdx
                         local function RefreshPreviewGlow()
@@ -1430,15 +1480,19 @@ initFrame:SetScript("OnEvent", function(self)
                         end
 
                         -- At Stacks (toggle) + gear (Comparison / Stack Count), paired with
-                        -- Glow Type so every row stays filled. Same operator set and same
-                        -- fail-open bias as the per-icon Glow at Stacks feature (Stack Text
-                        -- and Glows cog): an unknown/secret application count never blocks
-                        -- the glow.
+                        -- Glow Type so every row stays filled. Same operator set as the per-icon
+                        -- Glow at Stacks feature (Stack Text and Glows cog), and the same
+                        -- fail-open bias where the game hides the count (a secret count goes to
+                        -- the native gates); with no aura data at all the Bar Glow stays off.
+                        -- A Glow When Usable glow has no stacks: that half
+                        -- holds Require Resource (EUI_CooldownManager_BarGlowConditions.lua).
+                        local usable = entry.mode == "USABLE"
                         local stackRow
                         stackRow, h = W:DualRow(parent, y,
+                            usable and ns.BarGlowResourceCfg(entry) or
                             { type = "toggle", text = "At Stacks",
                               tooltip = "Only glow once the buff's stack count matches the comparison set via the gear.",
-                              disabled = function() return entry.mode == "MISSING" or entry.mode == "USABLE" end,
+                              disabled = function() return entry.mode == "MISSING" end,
                               disabledTooltip = "Only available for a buff in Active mode",
                               getValue = function() return entry.stackEnabled == true end,
                               setValue = function(v)
@@ -1463,14 +1517,13 @@ initFrame:SetScript("OnEvent", function(self)
                               end,
                             }
                         );  y = y - h
-                        do
+                        if not usable then
                             local rgn = stackRow._leftRegion
                             EllesmereUI.BuildInlineCog(rgn, {
                                 title = "At Stacks",
-                                disabled = function() return entry.mode == "MISSING" or entry.mode == "USABLE" or not entry.stackEnabled end,
+                                disabled = function() return entry.mode == "MISSING" or not entry.stackEnabled end,
                                 disabledTooltip = function()
                                     if entry.mode == "MISSING" then return "This option is not available in Buff Missing mode" end
-                                    if entry.mode == "USABLE" then return "This option is not available in Glow When Usable mode" end
                                     return "At Stacks"
                                 end,
                                 frameStrata = "FULLSCREEN_DIALOG", frameLevel = 350,

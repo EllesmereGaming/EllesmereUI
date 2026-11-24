@@ -18,9 +18,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --                   Location-independent, so it applies inside AND outside
 --                   instances; below keybind and gamepad (explicit actions
 --                   still win).
---    3b. specgroup -- WoW Forever only: primary / secondary spec group
---                   (C_SpecializationInfo.GetActiveSpecGroup 1 / 2).
---                   Location-independent, so below Dark Mode and above
+--    3b. secondaryspec -- WoW Forever only: the secondary spec group is the
+--                   active one (C_SpecializationInfo.GetActiveSpecGroup
+--                   reads 2). The primary spec has no condition: it is the
+--                   base. Location-independent, so below Dark Mode and above
 --                   instance. Never on retail.
 --    4. instance -- dungeon / raid / arena / battleground. Naturally mutually
 --                   exclusive (the client reports one instance type). First
@@ -89,14 +90,11 @@ EllesmereUI.CONDITIONS = {
 if EllesmereUI.IS_FOREVER == true then
     EllesmereUI.CONDITIONS[#EllesmereUI.CONDITIONS + 1] = { id = "gamepad", label = "Gamepad Mode",
         tooltip = "Active while WoW's gamepad interface is on." }
-    EllesmereUI.CONDITIONS[#EllesmereUI.CONDITIONS + 1] = { id = "primaryspec", label = "Primary Spec",
-        tooltip = "Active while your primary spec is active." }
     EllesmereUI.CONDITIONS[#EllesmereUI.CONDITIONS + 1] = { id = "secondaryspec", label = "Secondary Spec",
         requires = HasDualSpec,
         tooltip = "Active while your secondary spec is active.",
         requiresHint = "Learn Dual Specialization to use this condition." }
 end
-local SPEC_GROUP_COND = { [1] = "primaryspec", [2] = "secondaryspec" }
 
 local INSTANCE_COND = {
     party = "dungeon",
@@ -195,11 +193,10 @@ function EllesmereUI.Conditions_ActiveGroup()
             if g.conds and g.conds.darkmode then return g end
         end
     end
-    -- Tier 3b: WoW Forever spec group (nil on retail).
-    local sg = SPEC_GROUP_COND[ActiveSpecGroup() or 0]
-    if sg then
+    -- Tier 3b: WoW Forever's secondary spec group (never on retail).
+    if ActiveSpecGroup() == 2 then
         for _, g in ipairs(groups) do
-            if g.conds and g.conds[sg] then return g end
+            if g.conds and g.conds.secondaryspec then return g end
         end
     end
     -- Tier 4: instance type (client reports exactly one).
@@ -424,7 +421,7 @@ if EllesmereUI.IS_FOREVER == true
             and not C_EventUtils.IsEventValid("INPUT_DEVICE_INTERFACE_TRANSITION")) then
     evFrame:RegisterEvent("INPUT_DEVICE_INTERFACE_TRANSITION")
 end
--- Spec group swap (WoW Forever) drives Primary / Secondary Spec flips.
+-- Spec group swap (WoW Forever) drives the Secondary Spec flips.
 if EllesmereUI.IS_FOREVER == true
    and not (C_EventUtils and C_EventUtils.IsEventValid
             and not C_EventUtils.IsEventValid("ACTIVE_TALENT_GROUP_CHANGED")) then

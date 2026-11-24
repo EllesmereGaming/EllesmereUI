@@ -243,7 +243,8 @@ local function _applyBuffShape()
         end
         local z = (EP("iconZoom") or 11) / 100
         if shape == "cropped" then
-            buffTex:SetTexCoord(z, 1 - z, z + 0.10, 1 - z - 0.10)
+            -- 80% as tall as wide: the top and bottom are cut, the art keeps its proportions.
+            buffTex:SetTexCoord(z, 1 - z, 0.1 + 0.8 * z, 0.9 - 0.8 * z)
         elseif z > 0 then
             buffTex:SetTexCoord(z, 1 - z, z, 1 - z)
         else
@@ -302,7 +303,7 @@ local function ApplyShape()
         _snapOff(-2 + (EP("countOffsetX") or 0)), _snapOff(2 + (EP("countOffsetY") or 0)))
 
     -- Ready label: same font family as the countdown it replaces, but its own
-    -- size, colour and offset. Dropped back to hidden so the next poll re-renders
+    -- size, color and offset. Dropped back to hidden so the next poll re-renders
     -- it with the new style instead of leaving a stale string on screen.
     if readyFS then
         readyFS:SetFont((EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, RP("readySize") or 12, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
@@ -341,7 +342,8 @@ local function ApplyShape()
 
         local z = (EP("iconZoom") or 11) / 100
         if shape == "cropped" then
-            iconTex:SetTexCoord(z, 1 - z, z + 0.10, 1 - z - 0.10)
+            -- 80% as tall as wide: the top and bottom are cut, the art keeps its proportions.
+            iconTex:SetTexCoord(z, 1 - z, 0.1 + 0.8 * z, 0.9 - 0.8 * z)
         elseif z > 0 then
             iconTex:SetTexCoord(z, 1 - z, z, 1 - z)
         else
@@ -517,8 +519,10 @@ local function _lustBuffIcon()
     if _lustIconResolved then return _lustIconCache end
     for i = 1, #LUST_SPELLS do
         local sid = LUST_SPELLS[i]
-        local known = (IsPlayerSpell and IsPlayerSpell(sid))
-            or (IsSpellKnown and IsSpellKnown(sid))
+        -- The spellbook itself: the IsPlayerSpell / IsSpellKnown globals are Blizzard's
+        -- deprecation fallbacks and exist only while loadDeprecationFallbacks is on.
+        local known = C_SpellBook.IsSpellKnown(sid)
+            or C_SpellBook.IsSpellInSpellBook(sid, Enum.SpellBookSpellBank.Player, false)
         if known then
             local tex = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)
             if tex then
@@ -601,7 +605,7 @@ local function _hideReadyState()
 end
 
 -- Grey the base icon while it shows a lockout (real or preview), never in the
--- ready state. The 40s buff overlay is its own texture and stays in colour.
+-- ready state. The 40s buff overlay is its own texture and stays in color.
 local _lastDesat = false
 local function _syncDesat()
     if not iconTex then return end

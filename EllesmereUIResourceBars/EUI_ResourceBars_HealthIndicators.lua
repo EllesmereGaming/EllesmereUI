@@ -14,7 +14,7 @@ local Glow = EllesmereUI.AbsorbGlow
 -- The overlays in paint order (heal absorbs over damage absorbs): settings
 -- keys and defaults, read by the options rows too. An absorb is off at style
 -- None and takes its alpha from its opacity setting; the reduction has its own
--- toggle and an alpha colour.
+-- toggle and an alpha color.
 ns.HEALTH_INDICATORS = {
     { key = "absorb", style = "absorbStyle", color = "absorbColor",
       opacity = "absorbOpacity", opacityDef = 65, r = 0.3, g = 0.75, b = 1 },
@@ -359,7 +359,7 @@ function ns.HealthIndicatorsApply(bar, cfg, orientation)
         if on[k.key] then
             local ov = Overlay(k.key)
             ov:SetFrameLevel(level + (k.key == "healAbsorb" and 2 or 1))
-            -- A retexture resets the colour, so the colour goes on after it.
+            -- A retexture resets the color, so the color goes on after it.
             local style = StyleOf(cfg, k)
             local tiled = TILED[style] == true
             local fw = k.key == "absorb" and ov._forward
@@ -380,7 +380,7 @@ function ns.HealthIndicatorsApply(bar, cfg, orientation)
             local r, g, b, a = k.r, k.g, k.b, k.a
             if c then r, g, b, a = c.r or r, c.g or g, c.b or b, c.a or a end
             if k.opacity then a = (cfg[k.opacity] or k.opacityDef) / 100 end
-            -- The outlined stripes carry their own colours: only the alpha tints them.
+            -- The outlined stripes carry their own colors: only the alpha tints them.
             if style == "largeOutlinedStripes" or style == "largeOutlinedStripesR" then r, g, b = 1, 1, 1 end
             ov:SetStatusBarColor(r, g, b, a)
             if fw then

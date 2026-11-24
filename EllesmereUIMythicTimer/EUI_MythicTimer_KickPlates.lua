@@ -52,7 +52,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  (LayoutPlate; a ghost always sits with the ones on cooldown).
 --
 --  Secret discipline: a kicker the engine names is a plain group unit, so
---  its spec, kick, class, colour and cooldown are plain; a class token the
+--  its spec, kick, class, color and cooldown are plain; a class token the
 --  engine could not read goes only into SetFormattedText (the inline class
 --  icon), never compared, concatenated or keyed, and the border stays black.
 --  Icons live in the nameplate tree, where nothing can be measured: layout is
@@ -1135,7 +1135,7 @@ local function StyleIcon(b)
     b.styleGen = styleGen
 end
 
--- The border in the kicker's colour while Class Color Border is on and the
+-- The border in the kicker's color while Class Color Border is on and the
 -- class is plain; black otherwise (grey for a kicker without a class).
 local function PaintBorder(b, cls)
     local host = b.d.borderHost

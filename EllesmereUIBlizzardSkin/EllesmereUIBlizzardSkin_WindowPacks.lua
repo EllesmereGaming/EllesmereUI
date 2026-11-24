@@ -1490,15 +1490,19 @@ local function Skin_EncounterJournal()
         end
     end
     -- Search autocomplete popout + full results window: container -> flat dark
-    -- panel; preview rows + "show all results" -> subtle hover + white text;
+    -- panel; "show all results" -> its own panel, subtle hover + white text;
     -- results window -> panel + slim scrollbar + house close button.
+    -- INTENTIONAL, do not "fix": the popout's preview rows (the search box's
+    -- GetButtons()) keep Blizzard's own look on purpose (owner pick 2026-11-19;
+    -- PR #3532 skinned them and was reverted). Never skin those rows or hook
+    -- EncounterJournal_UpdateSearchPreview to restyle them.
     local sbox = f.searchBox
     local prevC = sbox and sbox.searchPreviewContainer
     if prevC then
         WSkin.Panel(prevC)
-        -- framed = the button is its OWN panel (bg + border). Preview rows sit
-        -- inside the container's panel so need none; showAllResults is a SIBLING
-        -- below the container with no backdrop, so it gets its own fill+border.
+        -- framed = the button is its OWN panel (bg + border): showAllResults is
+        -- a SIBLING below the container with no backdrop, so it gets its own
+        -- fill+border.
         local function SkinEJSearchBtn(btn, framed)
             if not btn or btn:IsForbidden() then return end
             local d = GetFFD(btn)
@@ -1528,20 +1532,8 @@ local function Skin_EncounterJournal()
                 if fs and fs.SetTextColor then WSkin.White(fs) end
             end
         end
-        local function SkinAllEJSearch()
-            -- Re-assert the container panel: Blizzard re-raises corner art on popout show, hiding our border.
-            WSkin.Panel(prevC)
-            for i = 1, (_G.EJ_NUM_SEARCH_PREVIEWS or 5) do
-                SkinEJSearchBtn(sbox["searchPreview" .. i])
-            end
-            SkinEJSearchBtn(sbox.showAllResults, true)
-        end
-        SkinAllEJSearch()
-        -- Preview rows re-populate as you type; re-white after each update.
-        if not GetFFD(sbox).searchHook and type(_G.EncounterJournal_SetSearchPreview) == "function" then
-            GetFFD(sbox).searchHook = true
-            hooksecurefunc("EncounterJournal_SetSearchPreview", SkinAllEJSearch)
-        end
+        -- Show All Results only: the preview rows stay Blizzard's (see above).
+        SkinEJSearchBtn(sbox.showAllResults, true)
     end
     local sr = _G.EncounterJournalSearchResults
     if sr then
@@ -4195,13 +4187,14 @@ local function SkinResultRow(child)
         local hov = SolidTex(child, "HIGHLIGHT", 1, 1, 1, 0.1)
         hov:SetAllPoints(child)
         d.hover = hov
-        WSkin.Register(child, true)
+        WSkin.Register(child, child.Icon and { [child.Icon] = true } or true)
         if child.Icon then WSkin.SquareIcon(child.Icon) end
     end
     -- Pooled rows: re-fade the native art every pass (see SkinAchRow).
     local keep = {}
     if d.bg then keep[d.bg] = true end
     if d.hover then keep[d.hover] = true end
+    if child.Icon then keep[child.Icon] = true end
     WSkin.FadeRegions(child, keep)
     AchWhiteTexts(child)
 end
@@ -4829,7 +4822,7 @@ end
 -- Letter body: force readable white + skin font on the SimpleHTML elements. The
 -- body is another player's writing, so the font is a family (no shadow, as
 -- Blizzard's own mail font): the skin font draws what it has, the client's own
--- faces the scripts it lacks. The colour goes on after the font.
+-- faces the scripts it lacks. The color goes on after the font.
 local function WhitenMailText()
     local html = _G.OpenMailBodyText
     if html and html.SetTextColor then
@@ -7610,6 +7603,10 @@ end
 -- section; this table stays empty, and the list and the grid skip it, until the
 -- setting is first on (SetOwnedActive).
 local owned = {}
+-- Other addons' item callbacks (EllesmereUI.RegisterMerchantItemCallback). The
+-- code sits after the Expand Vendor UI section; the list and the grid run them
+-- only while one is registered.
+local itemHooks = { list = {} }
 
 local function UpdateCustomMerchantList(sf, child)
     local isBuyback = MerchantFrame.selectedTab == 2
@@ -7772,6 +7769,7 @@ local function UpdateCustomMerchantList(sf, child)
             if owned.markRow then owned.markRow(row, i, isBuyback) end
 
             row:Show()
+            if itemHooks.list[1] then itemHooks.Run(row.ItemButton, i, row, row.SlotTexture, isBuyback) end
         else
             row:Hide()
         end
@@ -7786,19 +7784,21 @@ end
 EllesmereUI._Merchant_RefreshRowHeight = function()
     local f = _G.MerchantFrame
     if not f then return end
-    if not EllesmereUIDB.merchantShowAsList or not (f.wSkinScrollFrame and f.wSkinScrollChild) then return end
+    local d = FFD[f]
+    local sf, child = d and d.merchantList, d and d.merchantListChild
+    if not EllesmereUIDB.merchantShowAsList or not (sf and child) then return end
 
     local rowHeight = (EllesmereUIDB and EllesmereUIDB.merchantListRowHeight) or 32
     -- Rows are cached, so resize each existing one; rows created later pick up
     -- the new height by default.
-    for _, row in ipairs(f.wSkinScrollFrame.rows or {}) do
+    for _, row in ipairs(sf.rows or {}) do
         row:SetHeight(rowHeight)
         SkinMerchantListItem(row)
     end
 
     -- Force a full update when changed while the merchant frame is open.
     if f:IsVisible() then
-        UpdateCustomMerchantList(f.wSkinScrollFrame, f.wSkinScrollChild)
+        UpdateCustomMerchantList(sf, child)
     end
 end
 
@@ -8084,6 +8084,7 @@ local function EX_FillTile(tile, slot, index, numItems)
     SetItemButtonTextureVertexColor(btn, r, g, b)
     SetItemButtonNormalTextureVertexColor(btn, r, g, b)
     if owned.markTile then owned.markTile(tile, index) end
+    if itemHooks.list[1] then itemHooks.Run(btn, index, tile, btn.icon, false) end
 end
 
 local EX_Update
@@ -8278,6 +8279,63 @@ EllesmereUI._Merchant_RefreshExpand = function()
     if ExpandOn() then EnsureExpand() end
     EX_Update()
 end
+
+-------------------------------------------------------------------------------
+--  Item callbacks (public, EllesmereUI.RegisterMerchantItemCallback). Expand
+--  Vendor UI and Show As List draw the vendor's items on tiles and rows of our
+--  own, so other addons' hooks on Blizzard's ten tiles never reach what shows.
+--  A callback gets each item our layouts show, after every fill (an update, a
+--  page flip, the list's own refresh). Blizzard's own page runs none: the
+--  addon's usual hooks cover it. Developer guide: PLUGINS_API.md.
+-------------------------------------------------------------------------------
+function itemHooks.Run(btn, index, tile, icon, isBuyback)
+    local list = itemHooks.list
+    for i = 1, #list do
+        local ok, err = pcall(list[i].fn, btn, index, tile, icon, isBuyback)
+        if not ok then geterrorhandler()(err) end
+    end
+end
+
+-- Every item our layout shows now, again (a registration, or the addon's own
+-- state changed).
+function itemHooks.RunAll()
+    local f = _G.MerchantFrame
+    if not (itemHooks.list[1] and f and f:IsShown()) then return end
+    if ex.active then
+        for i = 1, ex.perPage do
+            local t = ex.tiles[i]
+            if t and t:IsShown() then
+                local btn = t.ItemButton
+                itemHooks.Run(btn, btn:GetID(), t, btn.icon, false)
+            end
+        end
+        return
+    end
+    local d = FFD[f]
+    local sf = EllesmereUIDB.merchantShowAsList and d and d.merchantList
+    if not (sf and sf.rows) then return end
+    local buyback = f.selectedTab == 2
+    for i = 1, #sf.rows do
+        local row = sf.rows[i]
+        if row:IsShown() then itemHooks.Run(row.ItemButton, i, row, row.SlotTexture, buyback) end
+    end
+end
+
+-- Public: fn(itemButton, index, tile, icon, isBuyback) for each item shown.
+function EllesmereUI.RegisterMerchantItemCallback(id, fn)
+    if type(id) ~= "string" or id == "" or type(fn) ~= "function" then return false end
+    local list = itemHooks.list
+    for i = 1, #list do
+        if list[i].id == id then return false end
+    end
+    list[#list + 1] = { id = id, fn = fn }
+    itemHooks.RunAll()
+    return true
+end
+
+-- Public: run every callback again on the next frame. Built at load, so no
+-- skin callback wraps it.
+EllesmereUI.RefreshMerchantItems = WSkin.Debounce(itemHooks.RunAll)
 
 -------------------------------------------------------------------------------
 --  Flag/Hide Owned Items (Merchant card, EllesmereUIDB.merchantMarkOwned; needs
@@ -8499,7 +8557,8 @@ local function OwnedRedraw()
     if ExpandActive() then
         EX_Update()
     elseif EllesmereUIDB.merchantShowAsList then
-        if f.wSkinScrollFrame then UpdateCustomMerchantList(f.wSkinScrollFrame, f.wSkinScrollChild) end
+        local d = FFD[f]
+        if d and d.merchantList then UpdateCustomMerchantList(d.merchantList, d.merchantListChild) end
     else
         MarkOwnedNative()
     end
@@ -8585,10 +8644,12 @@ local function Skin_Merchant()
     if EllesmereUIDB.merchantShowAsList then
         HideNativeMerchantGrid()
 
-        if not f.wSkinScrollFrame then
+        -- The list's frames live in the frame data, never on MerchantFrame itself.
+        local d = GetFFD(f)
+        if not d.merchantList then
             local sf, child = CreateMerchantScrollList(f)
-            f.wSkinScrollFrame = sf
-            f.wSkinScrollChild = child
+            d.merchantList = sf
+            d.merchantListChild = child
         end
     else
         -- Item tiles (10 merchant, buyback page reuses up to 12) plus the most-recent-buyback slot on the merchant tab.
@@ -8648,8 +8709,9 @@ local function Skin_Merchant()
         if type(_G.MerchantFrame_Update) == "function" then
             hooksecurefunc("MerchantFrame_Update", WSkin.Debounce(function()
                 if f:IsVisible() then
-                    if EllesmereUIDB.merchantShowAsList and f.wSkinScrollFrame then
-                        UpdateCustomMerchantList(f.wSkinScrollFrame, f.wSkinScrollChild)
+                    local d = FFD[f]
+                    if EllesmereUIDB.merchantShowAsList and d and d.merchantList then
+                        UpdateCustomMerchantList(d.merchantList, d.merchantListChild)
                     else
                         for i = 1, 12 do SkinMerchantTile(_G["MerchantItem" .. i]) end
                         SkinMerchantTile(_G.MerchantBuyBackItem)
@@ -8687,11 +8749,14 @@ local function UpdateMerchantItemLevels()
     local onSellTab = (f.selectedTab or 1) == 1
     local numItems
     local prefix = "MerchantItem"
-    if EllesmereUIDB.merchantShowAsList then
+    -- The list and grid only exist once the Merchant reskin built them; else use native tiles.
+    local d = FFD[f]
+    local asList = EllesmereUIDB.merchantShowAsList and d and d.merchantList
+    if asList then
         -- GetNumBuybackItems is irrelevant: text only shows on the sell tab.
         numItems = GetMerchantNumItems()
         prefix = "EUI_MerchantItem"
-    elseif EllesmereUI._Merchant_ExpandActive() then
+    elseif EllesmereUI._Merchant_ExpandActive() and EllesmereUI._Merchant_ExpandPerPage() > 0 then
         numItems = EllesmereUI._Merchant_ExpandPerPage()
         prefix = "EUI_MerchantPage"
     else
@@ -8710,7 +8775,7 @@ local function UpdateMerchantItemLevels()
             else
                 if not fs then
                     fs = btn:CreateFontString(nil, "OVERLAY", nil, 7)
-                    if EllesmereUIDB.merchantShowAsList then
+                    if asList then
                         fs:SetPoint("TOPLEFT", _G["EUI_MerchantItem" .. i .. "SlotTexture"], "TOPLEFT", 1, -1)
                     else
                         fs:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
@@ -8853,7 +8918,7 @@ local function Skin_Trainer()
         if step.NineSlice then WSkin.FadeNineSlice(step.NineSlice) end
         local shl = _G.ClassTrainerFrameSkillStepButtonHighlight
         -- Kept out of the fade: the selection and hover textures (the step's
-        -- click feedback, recoloured below) and the lock.
+        -- click feedback, recolored below) and the lock.
         local keep = {}
         if icon then keep[icon] = true end
         if sdt.tabTex then keep[sdt.tabTex] = true end
@@ -14853,13 +14918,13 @@ end
 --
 --  Dressed as the house unit frames are: the bar pair flat inside one 1px
 --  black border with a 1px line at the bars' seam, health in the carrier's
---  class colour and power in its power colour (both from the Colors page),
+--  class color and power in its power color (both from the Colors page),
 --  and the spec icon square at the bars' end in place of Blizzard's class
 --  circle and round badge (both at alpha 0). Blizzard paints the health bar
 --  its default green on every value change and update and the power bar its
---  type's colour on every power update; ours goes back on after those writes
+--  type's color on every power update; ours goes back on after those writes
 --  only, so the grey of a carrier out of sight or offline stays. In instanced
---  PvP the class token is secret: it goes to C_ClassColor and the colour to
+--  PvP the class token is secret: it goes to C_ClassColor and the color to
 --  SetStatusBarColor, both of which take secrets, and is never compared.
 --
 --  Kept as Blizzard draws them: the faction icon, the cast bar's fill (its
@@ -14878,7 +14943,7 @@ local FC = {
     },
 }
 
--- ok, r, g, b: unit's class colour from the Colors page, or Blizzard's shade
+-- ok, r, g, b: unit's class color from the Colors page, or Blizzard's shade
 -- of it while the class token is secret. ok is plain; r, g, b may be secret,
 -- so they only ever go to a setter.
 function FC.ClassRGB(unit)
@@ -14895,8 +14960,8 @@ function FC.ClassRGB(unit)
     return false
 end
 
--- Every colour write on a health bar of ours: Blizzard's default green is
--- taken over by the class colour, any other write is kept.
+-- Every color write on a health bar of ours: Blizzard's default green is
+-- taken over by the class color, any other write is kept.
 function FC.HealthColor(bar, r, g, b)
     local d = FFD[bar]
     if not d or d.fcPaint then return end
@@ -14910,9 +14975,9 @@ function FC.HealthColor(bar, r, g, b)
 end
 
 -- The pre-10.0 power-type update these frames still use puts Blizzard's bar
--- texture back on every call, and the type's colour (white under the atlas
+-- texture back on every call, and the type's color (white under the atlas
 -- some types draw with). A power bar of ours goes flat again after it, in the
--- power colour from the Colors page, or the colour the atlas carried for a
+-- power color from the Colors page, or the color the atlas carried for a
 -- type the page has none for.
 function FC.ManaType(bar)
     local d = bar and FFD[bar]
@@ -14929,7 +14994,7 @@ function FC.ManaType(bar)
     bar:SetStatusBarColor(c.r, c.g, c.b)
 end
 
--- A bar of ours: flat fill. unit is the class colour's source for a health
+-- A bar of ours: flat fill. unit is the class color's source for a health
 -- bar (a pet's is its owner); nil marks the power bar.
 function FC.Bar(bar, unit)
     if not bar or bar:IsForbidden() then return end
@@ -14949,7 +15014,7 @@ end
 
 -- The frame round a bar pair: a backing of ours under the bars at the
 -- button's own level (the house fill for the EllesmereUI style, the Modern
--- colour for Modern; the shell registry swaps them live), and on a frame of
+-- color for Modern; the shell registry swaps them live), and on a frame of
 -- ours above the bars a 1px black border over their outer pixel. seam: the
 -- bars touch, so a 1px line marks where.
 function FC.Frame(owner, top, bottom, seam)
@@ -15030,7 +15095,7 @@ function FC.Trinket(cc)
     EllesmereUI.PP.CreateBorder(edge, 0, 0, 0, 1, 1, "OVERLAY", 7)
     d.fcEdge = edge
     hooksecurefunc(cc.Icon, "SetTexture", function(_, file) edge:SetShown(type(file) ~= "nil") end)
-    edge:SetShown(type(cc.Icon:GetTexture()) ~= "nil")
+    edge:SetShown(type((cc.Icon:GetTexture())) ~= "nil")
 end
 
 function FC.SkinPet(pet, unit)

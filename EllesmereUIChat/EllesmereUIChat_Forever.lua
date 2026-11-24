@@ -217,7 +217,7 @@ function ECHAT.FV_BuildPanel(cf, bg, inputH)
     PaintFill(d.fvIn.fill, p.tex, p.r, p.g, p.b, p.a)
 end
 
--- The chat background colour/texture (Chat page) fills both boxes.
+-- The chat background color/texture (Chat page) fills both boxes.
 function ECHAT.FV_PaintFills(tex, r, g, b, a)
     local p = FV._fill
     p.tex, p.r, p.g, p.b, p.a = tex, r, g, b, a
@@ -238,7 +238,7 @@ end
 --  meeting the frame's rim). Built once per ghost; repainted only when its
 --  selected state flips.
 -------------------------------------------------------------------------------
-local tabCol   -- colour objects (selected bottom, top, idle bottom, top)
+local tabCol   -- color objects (selected bottom, top, idle bottom, top)
 local function TabColours()
     local s, i = FV.tabSel, FV.tabIdle
     tabCol = {

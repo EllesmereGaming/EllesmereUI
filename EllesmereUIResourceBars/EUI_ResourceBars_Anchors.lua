@@ -33,6 +33,11 @@ local castBarFrame
 I.castBarFrameSetters[#I.castBarFrameSetters + 1] = function(v) castBarFrame = v end
 local gcdBarFrame
 I.gcdBarFrameSetters[#I.gcdBarFrameSetters + 1] = function(v) gcdBarFrame = v end
+
+-- The resting stand-in of a bar riding the cursor (PlaceCursorStandIn), else nil.
+local function CursorStandIn(f)
+    return f and f._erbMouseTrack and f._erbStandIn or nil
+end
 local totemBarFrame
 I.totemBarFrameSetters[#I.totemBarFrameSetters + 1] = function(v) totemBarFrame = v end
 local cachedSecondary
@@ -175,6 +180,7 @@ local function RegisterUnlockElements()
         elements[#elements + 1] = MK({
             key = "ERB_Health", label = "Health Bar", group = "Resource Bars", order = 500,
             getFrame = function() return healthBar end,
+            anchorStandIn = function() return CursorStandIn(healthBar) end,
             isHidden = function() local s = S(); return not s.enabled or IsSpecDisabled(s) end,
             -- Reported through the ON-SCREEN axes, not the stored ones: a vertical
             -- bar renders through OrientedSize, so stored width is what the player
@@ -218,8 +224,8 @@ local function RegisterUnlockElements()
                     SetDim(s, "height", PP.Snap(h))
                 end
             end,
+            -- Anchor to Cursor leaves no mover, as with cursor CDM bars.
             isAnchored = function() local s = S(); return s.anchorTo and s.anchorTo ~= "none" end,
-            keepMoverWhenAnchored = true,
             onLiveMove = LiveMove,
             savePos = save, loadPos = load, clearPos = clear, applyPos = apply,
         })
@@ -235,6 +241,7 @@ local function RegisterUnlockElements()
         elements[#elements + 1] = MK({
             key = "ERB_Power", label = "Power Bar", group = "Resource Bars", order = 501,
             getFrame = function() return primaryBar end,
+            anchorStandIn = function() return CursorStandIn(primaryBar) end,
             isHidden = function() local s = S(); return s.enabled == false or IsSpecDisabled(s) end,
             -- On-screen axes, as with the health bar above.
             getSize  = function()
@@ -276,8 +283,8 @@ local function RegisterUnlockElements()
                     SetDim(s, "height", PP.Snap(h))
                 end
             end,
+            -- Anchor to Cursor leaves no mover, as with cursor CDM bars.
             isAnchored = function() local s = S(); return s.anchorTo and s.anchorTo ~= "none" end,
-            keepMoverWhenAnchored = true,
             onLiveMove = LiveMove,
             savePos = save, loadPos = load, clearPos = clear, applyPos = apply,
             -- Spec and Conditional Overrides layout layers bank and restore the
@@ -305,6 +312,7 @@ local function RegisterUnlockElements()
         elements[#elements + 1] = MK({
             key = "ERB_ClassResource", label = "Class Resource", group = "Resource Bars", order = 502,
             getFrame = function() return secondaryFrame end,
+            anchorStandIn = function() return CursorStandIn(secondaryFrame) end,
             -- On-screen axes. This bar's OWN orientation key (pipOrientation, no
             -- fallback to general) treats anything not HORIZONTAL as vertical in
             -- its renderer -- mirrored here so the mover and W/H match what is drawn.
@@ -344,8 +352,8 @@ local function RegisterUnlockElements()
                 end
             end,
             isHidden = function() local s = S(); return s.enabled == false or IsSpecDisabled(s) end,
+            -- Anchor to Cursor leaves no mover, as with cursor CDM bars.
             isAnchored = function() local s = S(); return s.anchorTo and s.anchorTo ~= "none" end,
-            keepMoverWhenAnchored = true,
             onLiveMove = LiveMove,
             savePos = save, loadPos = load, clearPos = clear, applyPos = apply,
         })
@@ -800,6 +808,32 @@ local function ApplyFreeBarPosition(frame, settings, defaultX, defaultY, width, 
     frame:SetPoint("CENTER", mainFrame, "CENTER", settings.offsetX or defaultX or 0, settings.offsetY or defaultY or 0)
 end
 
+-- A cursor-riding bar leaves an invisible stand-in at its resting spot (its own
+-- link, else saved spot); anchored bars stay there instead of following the cursor.
+-- centerShiftY: a free CENTER spot's shift the bar itself takes there (Expand
+-- Power Bar if No Resource grows it toward the class resource).
+local function PlaceCursorStandIn(frame, unlockKey, settings, defaultX, defaultY, width, height, centerShiftY)
+    local s = frame._erbStandIn
+    if not s then
+        s = CreateFrame("Frame", nil, frame:GetParent())
+        frame._erbStandIn = s
+    end
+    ApplyFreeBarPosition(s, settings, defaultX, defaultY, width, height)
+    if centerShiftY and centerShiftY ~= 0 then
+        local pt, rel, rp, x, y = s:GetPoint(1)
+        if pt == "CENTER" then s:SetPoint(pt, rel, rp, x, y + centerShiftY) end
+    end
+    -- The bar's own unlock link, if any, then places the stand-in. Registered
+    -- only, or the link would move the bar itself (no-op without a link).
+    local reg = EllesmereUI._unlockRegisteredElements
+    if reg and reg[unlockKey] and EllesmereUI.ReapplyUnlockAnchor then
+        EllesmereUI.ReapplyUnlockAnchor(unlockKey)
+    end
+    if not EllesmereUI._unlockActive and EllesmereUI.PropagateAnchorChain then
+        EllesmereUI.PropagateAnchorChain(unlockKey)
+    end
+end
+
 local function ReapplyInternalBarAnchors()
     if not (ERB and ERB.db and ERB.db.profile) then return end
 
@@ -852,6 +886,73 @@ RefreshAnchoredBarsForUnlockTarget = function(unlockKey)
 end
 
 I.ApplyBarAnchor, I.ApplyFreeBarPosition = ApplyBarAnchor, ApplyFreeBarPosition
+I.PlaceCursorStandIn = PlaceCursorStandIn
+
+-- A linked bar off the cursor without a reload (profile, spec override): stop
+-- tracking, then let its link (unless an override placed it) re-place the bar.
+function ns.ERB_LeaveCursorForLink(frame, unlockKey, overrideOwned)
+    if not frame._erbMouseTrack then return end
+    ApplyBarAnchor(frame, "none")
+    if not overrideOwned and EllesmereUI.ReapplyUnlockAnchor then
+        EllesmereUI.ReapplyUnlockAnchor(unlockKey)
+    end
+end
+
+-- Both a bar and its unlock-link target ride the cursor: the bar keeps that
+-- link and rides along with the target as one unit.
+local LINK_SIDE_POINTS = {
+    TOP = { "BOTTOM", "TOP" }, BOTTOM = { "TOP", "BOTTOM" },
+    LEFT = { "RIGHT", "LEFT" }, RIGHT = { "LEFT", "RIGHT" },
+}
+local LINK_TARGET_FRAMES = {
+    ERB_Health = function() return healthBar end,
+    ERB_Power = function() return primaryBar end,
+    ERB_ClassResource = function() return secondaryFrame end,
+}
+local function FollowCursorLinkTarget(frame, unlockKey)
+    local adb = EllesmereUIDB and EllesmereUIDB.unlockAnchors
+    local ai = adb and adb[unlockKey]
+    local get = ai and ai.target and LINK_TARGET_FRAMES[ai.target]
+    local tgt = get and get()
+    if not (tgt and tgt ~= frame and tgt._erbMouseTrack and tgt:IsShown()) then return end
+    -- Links that lead back to this bar through cursor bars (only imported data:
+    -- Unlock Mode refuses a loop) would be an anchor loop: keep its own cursor.
+    local key = ai.target
+    for _ = 1, 3 do
+        local nai = adb[key]
+        key = nai and nai.target
+        if key == unlockKey then return end
+        local nget = key and LINK_TARGET_FRAMES[key]
+        local nf = nget and nget()
+        if not (nf and nf._erbMouseTrack and nf:IsShown()) then break end
+    end
+    local fromPt, toPt
+    if ai.mode == "POINT" then
+        fromPt, toPt = ai.sourcePoint, ai.targetPoint
+    else
+        local p = LINK_SIDE_POINTS[ai.side or "BOTTOM"]
+        fromPt, toPt = p and p[1], p and p[2]
+    end
+    if not (fromPt and toPt) then return end
+    ApplyBarAnchor(frame, "none")
+    frame:ClearAllPoints()
+    frame:SetPoint(fromPt, tgt, toPt, ai.offsetX or 0, ai.offsetY or 0)
+    -- Rides the cursor through its target: same strata, click-through and
+    -- cleanup as a cursor bar (ApplyBarAnchor restores it on the next apply).
+    frame:SetFrameStrata("TOOLTIP")
+    frame:SetFrameLevel(9980)
+    SetFrameClickThrough(frame, true)
+    frame._erbMouseTrack = true
+end
+
+-- One pass after BuildBars: every cursor bar is tracked by then, so a chain
+-- links up in any build order (Health lays out before its targets).
+I.ResolveCursorFollowers = function()
+    for key, get in pairs(LINK_TARGET_FRAMES) do
+        local f = get()
+        if f and f._erbMouseTrack then FollowCursorLinkTarget(f, key) end
+    end
+end
 I.GetAnchorOffsets, I.NormalizeAnchorKey = GetAnchorOffsets, NormalizeAnchorKey
 I.ReapplyInternalBarAnchors = ReapplyInternalBarAnchors
 I.RegisterUnlockElements, I.ResolveExpandDirSign = RegisterUnlockElements, ResolveExpandDirSign

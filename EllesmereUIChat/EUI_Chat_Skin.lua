@@ -61,13 +61,22 @@ local function SkinChatFrame(cf)
     -- the strip and that read: re-anchor the point-less frame at the cursor
     -- (the drop spot) so the position save completes cleanly. Same shipped
     -- object-hook shape as the ApplySystemAnchor guard; fires only when a
-    -- chat frame stops moving (user drag), self-gates to the broken state.
+    -- chat frame stops moving or sizing (user drag or resize), self-gates to
+    -- the broken state.
     hooksecurefunc(cf, "StopMovingOrSizing", function(f)
         if f.isDocked then return end
         if f:GetNumPoints() == 0 then
-            -- TOPLEFT, matching Blizzard's own undock anchor convention (the
-            -- tab drag grabs near the frame's top-left, so a later re-attach
-            -- by anchor point lands without a jump; CENTER produced one).
+            -- Resize grip release (only a tab drag sets MOVING_CHATFRAME): keep
+            -- the last top-left, so the window keeps its place.
+            local df = CFD(f)
+            if not df._cfWasDocked and df._cfL and _G.MOVING_CHATFRAME ~= f then
+                f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", df._cfL, df._cfT)
+                return
+            end
+            -- Tab-drag drop: at the cursor, by TOPLEFT, matching Blizzard's own
+            -- undock anchor convention (the tab drag grabs near the frame's
+            -- top-left, so a later re-attach by anchor point lands without a
+            -- jump; CENTER produced one).
             local issec = _G.issecretvalue
             local mx, my = GetCursorPosition()
             local es = f:GetEffectiveScale()
@@ -93,6 +102,13 @@ local function SkinChatFrame(cf)
     -- (redock, tab position, position save) runs unchanged on our geometry;
     -- its no-op StopMovingOrSizing at release strips nothing.
     local dragTab = _G[name .. "Tab"]
+    -- A tab click can open the tab menu (Close Window etc.); wake the state
+    -- watcher so the menu's open-check holds it until the action lands.
+    if dragTab then
+        dragTab:HookScript("OnMouseDown", function()
+            if ECHAT.FollowKick then ECHAT.FollowKick() end
+        end)
+    end
     if dragTab and cf ~= _G.ChatFrame1 then
         dragTab:HookScript("OnDragStart", function()
             if cf.isDocked then return end
@@ -128,6 +144,7 @@ local function SkinChatFrame(cf)
                 tk:Hide()
                 tk:SetScript("OnUpdate", function()
                     if cf.isDocked or not IsMouseButtonDown("LeftButton") then
+                        ECHAT._PositionChatPanelNow(cf)
                         tk:Hide()
                         return
                     end
@@ -139,6 +156,9 @@ local function SkinChatFrame(cf)
                     cf:ClearAllPoints()
                     cf:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT",
                         cx / es2 + dcf._tabDragOffX, cy / es2 + dcf._tabDragOffY)
+                    -- Panel follows here, not via the hover-armed follower,
+                    -- which disarms once the cursor outruns the tab ghost.
+                    ECHAT._PositionChatPanelNow(cf)
                 end)
                 dcf._tabDragTicker = tk
             end

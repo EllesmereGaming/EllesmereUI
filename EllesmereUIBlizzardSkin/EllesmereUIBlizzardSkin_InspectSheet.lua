@@ -13,6 +13,12 @@ local GetItemInfoInstant = C_Item.GetItemInfoInstant
 -- External weak-keyed lookup table for frame state (prevents tainting Blizzard frames)
 local FFD, GetFFD = EllesmereUI.NewFrameData()
 
+-- The Character Sheet card's Blizz Default: Blizzard's own inspect window,
+-- only the slot text and the item level / M+ score lines added.
+local function StockLook()
+    return ns.CharSheetStock()
+end
+
 -- Equipment slot lists
 local EUI_ALL_SLOTS = {
     "InspectHeadSlot", "InspectNeckSlot", "InspectShoulderSlot", "InspectBackSlot",
@@ -56,6 +62,193 @@ local function EUI_ClearSlotLabels(slot)
     if d.enchantText then d.enchantText:Hide(); d.cachedEnchantText = d.enchantText; d.enchantText = nil end
     if d.enchantHoverFrame then d.enchantHoverFrame:Hide(); d.cachedEnchantHover = d.enchantHoverFrame; d.enchantHoverFrame = nil end
     if d.upgradeText then d.upgradeText:Hide(); d.cachedUpgradeText = d.upgradeText; d.upgradeText = nil end
+    if d.dpsText then d.dpsText:Hide(); d.cachedDpsText = d.dpsText; d.dpsText = nil end
+end
+
+-- WoW Forever: the slot text as that client's character sheet shows it. The
+-- item level sits where this sheet's own Show Item Level says
+-- (inspectItemLevelPos: heading the first line beside the slot unless set,
+-- or inside the slot icon; inspectShowItemLevel false is Never). With Show
+-- Item Stats on (inspectShowItemStats, off unless true) that line carries
+-- the item's stats and a weapon's damage per second sits under it; the
+-- enchant name comes under those. Text runs right of the left column and of
+-- the ranged slot, left of the right column and of the main hand, and
+-- stacks above the off hand, whose sides are taken. A label exists only for
+-- what the settings show, so the lines close up. The stats line is the
+-- slot's upgradeText and the damage line its dpsText.
+local FV_EX, FV_GAP, FV_LINE = 5, 3, 13  -- text edge off the slot, item level to stats, weapon line pitch
+local FV_WY = 7                          -- the outer weapon slots' first line, above the slot's centre
+local FV_WEAPON = { InspectMainHandSlot = "L", InspectSecondaryHandSlot = "T", InspectRangedSlot = "R" }
+
+-- One line of a slot's text, reused from the slot's cache; nothing for "".
+local function ForeverLine(d, cacheKey, overlay, text, path, size, flags, shadow, c)
+    if text == "" then return nil end
+    local fs = d[cacheKey] or overlay:CreateFontString(nil, "OVERLAY")
+    EllesmereUI.PrimeFontShadow(fs, shadow)
+    fs:SetFont(path, size, flags)
+    fs:SetWordWrap(false)
+    fs:SetWidth(0)
+    fs:SetText(text)
+    fs:SetTextColor(c.r, c.g, c.b, 0.8)
+    fs:ClearAllPoints()
+    fs:Show()
+    return fs
+end
+
+-- Returns true while the item's data or its enchant line has not arrived.
+local function ForeverSlotLabels(slot, slotName, slotID, unit, itemLink, overlay, isRightColumn)
+    local d = GetFFD(slot)
+    local itemID = GetInventoryItemID(unit, slotID)
+    if not (itemID and C_Item.IsItemDataCachedByID(itemID)) then
+        if itemID then C_Item.RequestLoadItemDataByID(itemID) end
+        return true
+    end
+    local db = EllesmereUIDB or {}
+    local path = EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
+    local _, _, quality = GetItemInfo(itemLink)
+    local c = EllesmereUI.GetItemLevelColor(itemLink, quality)
+    local side = FV_WEAPON[slotName] or (isRightColumn and "L" or "R")
+    local weapon = FV_WEAPON[slotName] ~= nil
+
+    -- Item level, in the item's color; inside an icon it is always outlined.
+    local ilvl
+    local level = db.inspectShowItemLevel ~= false and C_Item.GetDetailedItemLevelInfo(itemLink)
+    local iconPoint, iconY = ns.ForeverIlvlIcon(db.inspectItemLevelPos or "beside")
+    if level and level > 0 then
+        local layer = GetFFD(InspectFrame).ilvlOverlay or overlay
+        ilvl = d.cachedILvlText or layer:CreateFontString(nil, "OVERLAY")
+        EllesmereUI.PrimeFontShadow(ilvl, db.charSheetItemLevelShadow)
+        ilvl:SetFont(path, db.charSheetItemLevelSize or 11,
+            (iconPoint or db.charSheetItemLevelOutline) and EllesmereUI.SlugFlag("OUTLINE, SLUG") or "")
+        ilvl:SetWordWrap(false)
+        ilvl:SetText(level)
+        ilvl:SetTextColor(c.r, c.g, c.b, 0.9)
+        ilvl:ClearAllPoints()
+        if iconPoint then ilvl:SetPoint(iconPoint, slot, iconPoint, 0, iconY) end
+        ilvl:Show()
+        d.iLvlText = ilvl
+    end
+    local head = not iconPoint and ilvl or nil  -- the item level when it heads the first line
+
+    -- Stats (or armor) and a weapon's damage per second, in the item's color
+    -- unless the upgrade track has a color of its own.
+    local showStats = db.inspectShowItemStats == true
+    local sc = db.charSheetUpgradeTrackUseColor and db.charSheetUpgradeTrackColor or c
+    local size = db.charSheetUpgradeTrackSize or 11
+    local flags = db.charSheetUpgradeTrackOutline and EllesmereUI.SlugFlag("OUTLINE, SLUG") or ""
+    local stats = ForeverLine(d, "cachedUpgradeText", overlay, showStats and ns.ForeverStatText(itemLink) or "",
+        path, size, flags, db.charSheetUpgradeTrackShadow, sc)
+    d.upgradeText = stats
+    local dps = weapon and ForeverLine(d, "cachedDpsText", overlay, showStats and ns.ForeverDpsText(itemLink) or "",
+        path, size, flags, db.charSheetUpgradeTrackShadow, sc) or nil
+    d.dpsText = dps
+
+    -- Enchant name: plain, or outlined and tinted from the item's color
+    -- under Colored Text; capped at 45% of the gap between the two columns.
+    local ench, pending = nil, false
+    if db.inspectShowEnchants ~= false then
+        local raw = EllesmereUI.GetEnchantText(slotID, unit) or ""
+        if raw == "" then
+            -- An enchanted item whose tooltip has not arrived: no label yet.
+            local linkEnchant = tonumber(itemLink:match("item:%d+:(%d+)"))
+            pending = linkEnchant ~= nil and linkEnchant ~= 0
+        else
+            ench = d.cachedEnchantText or overlay:CreateFontString(nil, "OVERLAY")
+            local esize = db.inspectEnchantSize or db.charSheetEnchantSize or 9
+            if db.inspectEnchantNames then
+                ench:SetFont(path, esize, EllesmereUI.SlugFlag("OUTLINE, SLUG"))
+                ench:SetTextColor(c.r + (1 - c.r) * 0.5, c.g + (1 - c.g) * 0.5, c.b + (1 - c.b) * 0.5, 0.9)
+            else
+                ench:SetFont(path, esize, "")
+                ench:SetTextColor(1, 1, 1, 0.8)
+            end
+            local lr = _G.InspectHeadSlot and _G.InspectHeadSlot:GetRight()
+            local rl = _G.InspectHandsSlot and _G.InspectHandsSlot:GetLeft()
+            local maxW = 0
+            if lr and rl and not (issecretvalue and (issecretvalue(lr) or issecretvalue(rl))) and rl > lr then
+                maxW = (rl - lr) * 0.45
+            end
+            ench:SetWordWrap(false)
+            ench:SetWidth(maxW)
+            ench:SetText(ns.ForeverEnchantName(raw))
+            ench:ClearAllPoints()
+            ench:Show()
+            d.enchantText = ench
+        end
+    end
+
+    if side == "T" then
+        -- Upward from the slot, centred: the enchant, the damage, the first line.
+        -- Blizz Default: from past the bronze slot frame (9px), as the character sheet does.
+        local y = StockLook() and 11 or 3
+        if ench then
+            ench:SetPoint("BOTTOM", slot, "TOP", 0, y)
+            ench:SetJustifyH("CENTER")
+            y = y + ench:GetStringHeight() + 1
+        end
+        if dps then
+            dps:SetPoint("BOTTOM", slot, "TOP", 0, y)
+            y = y + dps:GetStringHeight() + 1
+        end
+        if head and stats then
+            local w = head:GetStringWidth() + FV_GAP + stats:GetStringWidth()
+            head:SetPoint("BOTTOMLEFT", slot, "TOP", -w / 2, y)
+            stats:SetPoint("BOTTOMLEFT", head, "BOTTOMRIGHT", FV_GAP, 0)
+        elseif head or stats then
+            (head or stats):SetPoint("BOTTOM", slot, "TOP", 0, y)
+        end
+        return pending
+    end
+
+    -- Blizz Default: past Blizzard's bronze slot frames (9px), as on the character sheet.
+    local ex = StockLook() and 13 or FV_EX
+    local point, rel, x = "LEFT", "RIGHT", ex
+    if side == "L" then point, rel, x = "RIGHT", "LEFT", -ex end
+    -- The outer weapon slots' lines stop short of the window's edge.
+    if weapon then
+        local hi, lo
+        if side == "L" then
+            hi, lo = slot:GetLeft(), InspectFrame:GetLeft()
+        else
+            hi, lo = InspectFrame:GetRight(), slot:GetRight()
+        end
+        if hi and lo and not (issecretvalue and (issecretvalue(hi) or issecretvalue(lo))) then
+            local room = hi - lo - ex - 6
+            if room > 0 then
+                if stats then
+                    stats:SetWidth(math.max(1, room - (head and head:GetStringWidth() + FV_GAP or 0)))
+                    stats:SetJustifyH(point)
+                end
+                if dps then dps:SetWidth(room); dps:SetJustifyH(point) end
+                if ench and ench:GetWidth() > room then ench:SetWidth(room) end
+            end
+        end
+    end
+    -- Blizz Default: an outer weapon's first line on the slot's centre, clear of
+    -- the bronze frame of the column's bottom slot, as on the character sheet.
+    local y = weapon and (StockLook() and 0 or FV_WY) or 10
+    if head then
+        head:SetPoint(point, slot, rel, x, y)
+        if stats then stats:SetPoint(point, head, rel, x < 0 and -FV_GAP or FV_GAP, 0) end
+    elseif stats then
+        stats:SetPoint(point, slot, rel, x, y)
+    end
+    -- A weapon's lines stack down from the first; any other slot's enchant
+    -- keeps its spot under the first line.
+    local enchY = -5
+    if weapon then
+        if head or stats then y = y - FV_LINE end
+        if dps then
+            dps:SetPoint(point, slot, rel, x, y)
+            y = y - FV_LINE
+        end
+        enchY = math.min(y, -3) - 2
+    end
+    if ench then
+        ench:SetPoint(point, slot, rel, x, enchY)
+        ench:SetJustifyH(point)
+    end
+    return pending
 end
 
 -- Returns true when the slot's item or tooltip data has not arrived yet (its
@@ -101,6 +294,17 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
     end
     GetFFD(slot).border = true
 
+    -- WoW Forever lays its slot text out as that client's character sheet does.
+    if ns.ForeverStatText then
+        if not itemLink or skipLabels then return false end
+        return ForeverSlotLabels(slot, slotName, slotID, inspectUnit, itemLink, textOverlayFrame, isRightColumn)
+    end
+
+    -- Label offsets off the slot edge: further out under Blizz Default, past
+    -- Blizzard's bronze slot frames (the character sheet's values).
+    local LX, EX = 15, 5
+    if StockLook() then LX, EX = 22, 12 end
+
     -- Item level label (font size matches CharacterSheet)
     if itemLink and not GetFFD(slot).iLvlText and not skipLabels then
         -- GetItemInfo's itemLevel is the cached base level, wrong for upgrade-track
@@ -118,13 +322,13 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
             if above then
                 ilvlText:SetPoint("BOTTOM", slot, "TOP", 0, 3)
             elseif slotName == "InspectMainHandSlot" then
-                ilvlText:SetPoint("CENTER", slot, "LEFT", -15, 10)
+                ilvlText:SetPoint("CENTER", slot, "LEFT", -LX, 10)
             elseif slotName == "InspectSecondaryHandSlot" then
-                ilvlText:SetPoint("CENTER", slot, "RIGHT", 15, 10)
+                ilvlText:SetPoint("CENTER", slot, "RIGHT", LX, 10)
             elseif isRightColumn then
-                ilvlText:SetPoint("CENTER", slot, "LEFT", -15, 10)
+                ilvlText:SetPoint("CENTER", slot, "LEFT", -LX, 10)
             else
-                ilvlText:SetPoint("CENTER", slot, "RIGHT", 15, 10)
+                ilvlText:SetPoint("CENTER", slot, "RIGHT", LX, 10)
             end
 
             ilvlText:SetText(ilvl)
@@ -199,16 +403,16 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
                 enchantLabel:SetPoint("BOTTOM", lvlText or slot, "TOP", 0, lvlText and 1 or 3)
                 enchantLabel:SetJustifyH("CENTER")
             elseif slotName == "InspectMainHandSlot" then
-                enchantLabel:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                enchantLabel:SetPoint("RIGHT", slot, "LEFT", -EX, -5)
                 enchantLabel:SetJustifyH("RIGHT")
             elseif slotName == "InspectSecondaryHandSlot" then
-                enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                enchantLabel:SetPoint("LEFT", slot, "RIGHT", EX, -5)
                 enchantLabel:SetJustifyH("LEFT")
             elseif isRightColumn then
-                enchantLabel:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                enchantLabel:SetPoint("RIGHT", slot, "LEFT", -EX, -5)
                 enchantLabel:SetJustifyH("RIGHT")
             else
-                enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                enchantLabel:SetPoint("LEFT", slot, "RIGHT", EX, -5)
                 enchantLabel:SetJustifyH("LEFT")
             end
 
@@ -223,13 +427,13 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
             if above then
                 hoverFrame:SetPoint("CENTER", enchantLabel, "CENTER", 0, 0)
             elseif slotName == "InspectMainHandSlot" then
-                hoverFrame:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                hoverFrame:SetPoint("RIGHT", slot, "LEFT", -EX, -5)
             elseif slotName == "InspectSecondaryHandSlot" then
-                hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                hoverFrame:SetPoint("LEFT", slot, "RIGHT", EX, -5)
             elseif isRightColumn then
-                hoverFrame:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                hoverFrame:SetPoint("RIGHT", slot, "LEFT", -EX, -5)
             else
-                hoverFrame:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                hoverFrame:SetPoint("LEFT", slot, "RIGHT", EX, -5)
             end
             hoverFrame:EnableMouse(true)
 
@@ -287,7 +491,10 @@ local function ApplyTabVisibility(showLabels)
 
     -- Show/hide individual labels based on settings
     local showItemLevel = (not EllesmereUIDB) or (EllesmereUIDB.inspectShowItemLevel ~= false)
-    local showUpgradeTrack = (not EllesmereUIDB) or (EllesmereUIDB.inspectShowUpgradeTrack ~= false)
+    -- WoW Forever: the stats and damage lines exist only while Show Item
+    -- Stats is on (the track's key is retail's alone)
+    local showUpgradeTrack = ns.ForeverStatText ~= nil
+        or (not EllesmereUIDB) or (EllesmereUIDB.inspectShowUpgradeTrack ~= false)
     local showEnchants = (not EllesmereUIDB) or (EllesmereUIDB.inspectShowEnchants ~= false)
 
     for slotName, _ in pairs(slotGridMap) do
@@ -299,6 +506,10 @@ local function ApplyTabVisibility(showLabels)
             end
             if GetFFD(slot).upgradeText then
                 GetFFD(slot).upgradeText:SetShown(showLabels and showUpgradeTrack)
+            end
+            -- WoW Forever: a weapon's damage line goes with its stats
+            if GetFFD(slot).dpsText then
+                GetFFD(slot).dpsText:SetShown(showLabels and showUpgradeTrack)
             end
             if GetFFD(slot).enchantText then
                 GetFFD(slot).enchantText:SetShown(showLabels and showEnchants)
@@ -337,12 +548,125 @@ local function CalculateAverageItemLevel()
     return 0
 end
 
+-- Average item level + M+ score, centered below the title/level text.
+-- Anchored to frame TOP so they sit below the character info header.
+local function UpdateInspectHeader(frame)
+    local fontPath = EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
+
+    -- Text overlay frame above model bg and fade
+    if not GetFFD(frame).textOverlay then
+        local txo = CreateFrame("Frame", nil, frame)
+        txo:SetAllPoints(frame)
+        txo:SetFrameLevel((_G.InspectModelFrame and _G.InspectModelFrame:GetFrameLevel() or frame:GetFrameLevel()) + 5)
+        txo:EnableMouse(false)
+        GetFFD(frame).textOverlay = txo
+    end
+    local txo = GetFFD(frame).textOverlay
+    txo:Show()
+
+    if not GetFFD(frame).avgIlvlText then
+        local ilvlFS = txo:CreateFontString(nil, "OVERLAY")
+        ilvlFS:SetFont(fontPath, 16, "")
+        ilvlFS:SetTextColor(0.6, 0.2, 1, 1)
+        ilvlFS:SetJustifyH("CENTER")
+        -- Under Blizzard's level line wherever the client draws it (WoW
+        -- Forever puts it lower and larger than retail).
+        local levelText = _G.InspectLevelText
+        -- Blizz Default: under Blizzard's View in Dressing Room button, which sits below that line.
+        local viewBtn = StockLook() and _G.InspectPaperDollFrame and _G.InspectPaperDollFrame.ViewButton
+        if viewBtn and viewBtn:IsShown() then
+            ilvlFS:SetPoint("TOP", viewBtn, "BOTTOM", 0, -3)
+        elseif levelText then
+            ilvlFS:SetPoint("TOP", levelText, "BOTTOM", 0, -3)
+        else
+            ilvlFS:SetPoint("TOP", frame, "TOP", 0, -43)
+        end
+        GetFFD(frame).avgIlvlText = ilvlFS
+    end
+
+    if not GetFFD(frame).mPlusScoreText then
+        local mpFS = txo:CreateFontString(nil, "OVERLAY")
+        mpFS:SetFont(fontPath, 12, "")
+        mpFS:SetTextColor(0.8, 0.8, 0.8, 1)
+        mpFS:SetJustifyH("CENTER")
+        mpFS:SetPoint("TOP", GetFFD(frame).avgIlvlText, "BOTTOM", 0, -2)
+        GetFFD(frame).mPlusScoreText = mpFS
+    end
+
+    local avg = CalculateAverageItemLevel()
+    if avg and avg > 0 then
+        GetFFD(frame).avgIlvlText:SetFormattedText("%.2f", avg)
+        GetFFD(frame).avgIlvlText:Show()
+    else
+        -- Cleared too: ApplyTabVisibility re-shows the line on Tab 1
+        GetFFD(frame).avgIlvlText:SetText("")
+        GetFFD(frame).avgIlvlText:Hide()
+    end
+
+    local inspectUnit = frame.unit
+    local mpScore = 0
+    if inspectUnit and C_PlayerInfo and C_PlayerInfo.GetPlayerMythicPlusRatingSummary then
+        local summary = C_PlayerInfo.GetPlayerMythicPlusRatingSummary(inspectUnit)
+        if summary and summary.currentSeasonScore then
+            mpScore = summary.currentSeasonScore
+        end
+    end
+    if mpScore > 0 then
+        local hex = ns.GetMPScoreHex(mpScore)
+        GetFFD(frame).mPlusScoreText:SetText(EllesmereUI.L("M+ Score:") .. string.format(" |cff%s%d|r", hex, math.floor(mpScore)))
+        GetFFD(frame).mPlusScoreText:Show()
+    else
+        GetFFD(frame).mPlusScoreText:SetText("")
+        GetFFD(frame).mPlusScoreText:Hide()
+    end
+end
+
+-- Blizz Default: Blizzard's window, slots and tabs stay untouched; only the
+-- slot text, the item level / M+ score lines and their tab visibility.
+local function SkinStockInspectSheet(frame)
+    -- Above Blizzard's model, below the slot buttons; hides with the tab.
+    local textOverlayFrame = GetFFD(frame).textOverlayFrame
+    if not textOverlayFrame then
+        local host = _G.InspectPaperDollFrame or frame
+        local model = _G.InspectModelFrame
+        textOverlayFrame = CreateFrame("Frame", "EUI_InspectSheet_TextOverlay", host)
+        textOverlayFrame:SetAllPoints(frame)
+        textOverlayFrame:SetFrameLevel((model and model:GetFrameLevel() or host:GetFrameLevel()) + 10)
+        textOverlayFrame:EnableMouse(false)
+        GetFFD(frame).textOverlayFrame = textOverlayFrame
+    end
+    textOverlayFrame:Show()
+
+    -- WoW Forever: the item levels' own layer, above the slot buttons.
+    if ns.ForeverStatText and InspectPaperDollItemsFrame and not GetFFD(frame).ilvlOverlay then
+        local layer = CreateFrame("Frame", nil, InspectPaperDollItemsFrame)
+        layer:SetAllPoints(InspectPaperDollItemsFrame)
+        layer:SetFrameLevel((_G.InspectHeadSlot and _G.InspectHeadSlot:GetFrameLevel() or 100) + 5)
+        GetFFD(frame).ilvlOverlay = layer
+    end
+
+    for slotName, gridPos in pairs(slotGridMap) do
+        local slot = _G[slotName]
+        if slot then EUI_UpdateSlotStyle(slotName, slot:GetID(), textOverlayFrame, gridPos.col == 1) end
+    end
+
+    UpdateInspectHeader(frame)
+
+    if not GetFFD(frame)._tabHooked then
+        GetFFD(frame)._tabHooked = true
+        local function OnTab() ApplyTabVisibility((frame.selectedTab or 1) == 1) end
+        frame:HookScript("OnShow", OnTab)
+        if _G.InspectSwitchTabs then hooksecurefunc("InspectSwitchTabs", OnTab) end
+    end
+end
+
 local function SkinInspectSheet()
     if skinned then return end
     skinned = true
 
     local frame = InspectFrame
     if not frame then return end
+    if StockLook() then return SkinStockInspectSheet(frame) end
 
 
     local FRAME_BG_R, FRAME_BG_G, FRAME_BG_B = 0.03, 0.045, 0.05
@@ -601,6 +925,14 @@ local function SkinInspectSheet()
             label:SetPoint("CENTER", btn, "CENTER", 0, 0)
             label:SetJustifyH("CENTER")
             label:SetText(labelText)
+            -- A translated label wider than the button shrinks to fit (never under 8), then is cut.
+            local room = BTN_W - 6
+            local textW = label:GetStringWidth()
+            if textW and textW > room then
+                label:SetFont(fontPath, math.max(8, math.floor(10 * room / textW)), "")
+            end
+            label:SetWidth(room)
+            label:SetWordWrap(false)
             label:SetTextColor(1, 1, 1, 1)
             ffd.label = label
 
@@ -626,11 +958,15 @@ local function SkinInspectSheet()
                     child:EnableMouse(false)
                 end
             end
-            RestyleButton(talentsBtn, "Talents", "BOTTOMRIGHT", "BOTTOMRIGHT", -7)
+            RestyleButton(talentsBtn, EllesmereUI.L("Talents"), "BOTTOMRIGHT", "BOTTOMRIGHT", -7)
         end
 
-        local blizViewBtn = InspectPaperDollFrame and InspectPaperDollFrame.ViewButton
-        RestyleButton(blizViewBtn, "Transmog", "BOTTOMLEFT", "BOTTOMLEFT", 10)
+        -- WoW Forever: Blizzard keeps the View button hidden there, and it
+        -- stays hidden (the room left of the main hand is its text's).
+        if not EllesmereUI.IS_FOREVER then
+            local blizViewBtn = InspectPaperDollFrame and InspectPaperDollFrame.ViewButton
+            RestyleButton(blizViewBtn, EllesmereUI.L("Transmog"), "BOTTOMLEFT", "BOTTOMLEFT", 10)
+        end
     end
 
     -- Hide slot wrapper frames
@@ -644,7 +980,15 @@ local function SkinInspectSheet()
     -- Show actual slot buttons and style them
     for _, slotName in ipairs(EUI_ALL_SLOTS) do
         local slot = _G[slotName]
-        if slot then
+        -- WoW Forever: the slot dress of that client's character sheet (the
+        -- bronze frame off, a grey square and a 2px border colored by the
+        -- item in EUI_UpdateSlotStyle).
+        if slot and ns.ForeverSkinSlot then
+            slot:Show()
+            ns.ForeverSkinSlot(slot, slotName)
+            local parent = slot:GetParent()
+            if parent then parent:Show() end
+        elseif slot then
             slot:Show()
 
             -- Hide ALL unnamed Texturen in den Slots (die Dekoration)
@@ -724,6 +1068,20 @@ local function SkinInspectSheet()
     textOverlayFrame:SetAlpha(GetFFD(frame).textHidden and 0 or 1)
     textOverlayFrame:Show()
 
+    -- WoW Forever: the item levels' own layer, above the slot buttons (the
+    -- overlay above sits under them), so a level can sit inside its icon. A
+    -- child of the slots' frame: it goes with them on the other tabs.
+    if ns.ForeverStatText and InspectPaperDollItemsFrame then
+        local layer = GetFFD(frame).ilvlOverlay
+        if not layer then
+            layer = CreateFrame("Frame", nil, InspectPaperDollItemsFrame)
+            layer:SetAllPoints(InspectPaperDollItemsFrame)
+            GetFFD(frame).ilvlOverlay = layer
+        end
+        layer:SetFrameLevel((_G.InspectHeadSlot and _G.InspectHeadSlot:GetFrameLevel() or 100) + 5)
+        layer:SetAlpha(GetFFD(frame).textHidden and 0 or 1)
+    end
+
     -- Top-left eyeball toggle: temporarily hides all item slot text (item level,
     -- upgrade track, enchants) by alpha-ing the shared overlay. Session-only,
     -- matches the CharacterSheet eyeball. State lives in FFD so it survives the
@@ -745,6 +1103,9 @@ local function SkinInspectSheet()
             eyeTex:SetTexture(hidden and EYE_INVISIBLE or EYE_VISIBLE)
             if GetFFD(frame).textOverlayFrame then
                 GetFFD(frame).textOverlayFrame:SetAlpha(hidden and 0 or 1)
+            end
+            if GetFFD(frame).ilvlOverlay then
+                GetFFD(frame).ilvlOverlay:SetAlpha(hidden and 0 or 1)
             end
         end)
         eyeBtn:SetScript("OnEnter", function(self)
@@ -796,71 +1157,7 @@ local function SkinInspectSheet()
         end
     end
 
-    -- Average item level + M+ score, centered below the title/level text.
-    -- Anchored to frame TOP so they sit below the character info header.
-    do
-        local fontPath = EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
-
-        -- Text overlay frame above model bg and fade
-        if not GetFFD(frame).textOverlay then
-            local txo = CreateFrame("Frame", nil, frame)
-            txo:SetAllPoints(frame)
-            txo:SetFrameLevel((_G.InspectModelFrame and _G.InspectModelFrame:GetFrameLevel() or frame:GetFrameLevel()) + 5)
-            txo:EnableMouse(false)
-            GetFFD(frame).textOverlay = txo
-        end
-        local txo = GetFFD(frame).textOverlay
-        txo:Show()
-
-        if not GetFFD(frame).avgIlvlText then
-            local ilvlFS = txo:CreateFontString(nil, "OVERLAY")
-            ilvlFS:SetFont(fontPath, 16, "")
-            ilvlFS:SetTextColor(0.6, 0.2, 1, 1)
-            ilvlFS:SetJustifyH("CENTER")
-            -- Under Blizzard's level line wherever the client draws it (WoW
-            -- Forever puts it lower and larger than retail).
-            local levelText = _G.InspectLevelText
-            if levelText then
-                ilvlFS:SetPoint("TOP", levelText, "BOTTOM", 0, -3)
-            else
-                ilvlFS:SetPoint("TOP", frame, "TOP", 0, -43)
-            end
-            GetFFD(frame).avgIlvlText = ilvlFS
-        end
-
-        if not GetFFD(frame).mPlusScoreText then
-            local mpFS = txo:CreateFontString(nil, "OVERLAY")
-            mpFS:SetFont(fontPath, 12, "")
-            mpFS:SetTextColor(0.8, 0.8, 0.8, 1)
-            mpFS:SetJustifyH("CENTER")
-            mpFS:SetPoint("TOP", GetFFD(frame).avgIlvlText, "BOTTOM", 0, -2)
-            GetFFD(frame).mPlusScoreText = mpFS
-        end
-
-        local avg = CalculateAverageItemLevel()
-        if avg and avg > 0 then
-            GetFFD(frame).avgIlvlText:SetFormattedText("%.2f", avg)
-            GetFFD(frame).avgIlvlText:Show()
-        else
-            GetFFD(frame).avgIlvlText:Hide()
-        end
-
-        local inspectUnit = frame.unit
-        local mpScore = 0
-        if inspectUnit and C_PlayerInfo and C_PlayerInfo.GetPlayerMythicPlusRatingSummary then
-            local summary = C_PlayerInfo.GetPlayerMythicPlusRatingSummary(inspectUnit)
-            if summary and summary.currentSeasonScore then
-                mpScore = summary.currentSeasonScore
-            end
-        end
-        if mpScore > 0 then
-            local hex = ns.GetMPScoreHex(mpScore)
-            GetFFD(frame).mPlusScoreText:SetFormattedText("M+ Score: |cff%s%d|r", hex, math.floor(mpScore))
-            GetFFD(frame).mPlusScoreText:Show()
-        else
-            GetFFD(frame).mPlusScoreText:Hide()
-        end
-    end
+    UpdateInspectHeader(frame)
 
     -- Style Tabs (InspectFrameTab1, 2, 3)
     local fontPath = EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
@@ -1168,6 +1465,10 @@ end
 local function RefreshDock()
     local insp, cf = InspectFrame, _G.CharacterFrame
     if not insp or not cf then return end
+    -- Blizz Default: Blizzard's own panel layout docks its windows, unless the
+    -- Shifter holds a spot for one of them (it puts that one back after every
+    -- Blizzard move, so Blizzard's layout no longer keeps the two apart).
+    if StockLook() and not (ShifterPinned("CharacterFrame") or ShifterPinned("InspectFrame")) then return end
     if EllesmereUIDB and (EllesmereUIDB.themedInspectSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
 
     if not (insp:IsShown() and cf:IsShown()) then
@@ -1210,7 +1511,7 @@ end
 -- Persistently hide NineSlice borders
 local function EnsureInspectNineSliceHidden()
     if EllesmereUIDB and (EllesmereUIDB.themedInspectSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
-    if not InspectFrame then return end
+    if not InspectFrame or StockLook() then return end
 
     local frame = InspectFrame
 
@@ -1455,7 +1756,8 @@ end
 function EllesmereUI._refreshInspectUpgradeTrackVisibility()
     if not InspectFrame or not InspectPaperDollItemsFrame then return end
 
-    local showUpgradeTrack = (not EllesmereUIDB) or (EllesmereUIDB.inspectShowUpgradeTrack ~= false)
+    local showUpgradeTrack = ns.ForeverStatText ~= nil
+        or (not EllesmereUIDB) or (EllesmereUIDB.inspectShowUpgradeTrack ~= false)
     local isTab1 = InspectPaperDollItemsFrame and InspectPaperDollItemsFrame:IsShown()
 
     for slotName, _ in pairs(slotGridMap) do
@@ -1463,6 +1765,9 @@ function EllesmereUI._refreshInspectUpgradeTrackVisibility()
         if slot and GetFFD(slot).upgradeText then
             -- Only show if Tab 1 AND setting is enabled
             GetFFD(slot).upgradeText:SetShown(isTab1 and showUpgradeTrack)
+        end
+        if slot and GetFFD(slot).dpsText then
+            GetFFD(slot).dpsText:SetShown(isTab1 and showUpgradeTrack)
         end
     end
 end

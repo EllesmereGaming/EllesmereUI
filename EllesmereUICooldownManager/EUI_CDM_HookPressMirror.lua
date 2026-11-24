@@ -24,7 +24,7 @@ local GetTime = GetTime
 --  press that ability's keybind, even while on cooldown. Hooks the
 --  action-button key-down path (ActionButtonDown/MultiActionButtonDown), which
 --  fires on the physical press regardless of cooldown or the cast-on-key-
---  down/up CVar. Pushed texture + colour are read live from the EllesmereUI
+--  down/up CVar. Pushed texture + color are read live from the EllesmereUI
 --  action bars settings, so the CDM press matches real buttons (falling back
 --  to a border-cropped Blizzard depress texture if that module isn't present).
 --  On a custom-shape bar the press is masked to the shape, so a hexagon icon
@@ -156,6 +156,8 @@ do
     -- nil: their icon art fills the frame rect, so a square press is correct.
     local function IconShape(icon)
         local ifc = _ecmeFC and _ecmeFC[icon]
+        local rounded = ifc and ifc.auraRound
+        if rounded and rounded.on then return nil, rounded.mask, rounded end
         if not (ifc and ifc.shapeApplied and ifc.shapeMask) then return nil end
         local shape = ifc.shapeName
         if not shape or shape == "none" or shape == "cropped" then return nil end
@@ -165,7 +167,7 @@ do
     -- Ring art for "border" pushed mode on a shaped icon: four straight edges
     -- around a hexagon leave the corners hanging in space, so press-flash the
     -- shape's own border texture instead. Its thickness is baked into the art,
-    -- so the bars' pushed border size doesn't apply -- colour still does.
+    -- so the bars' pushed border size doesn't apply -- color still does.
     local function EnsureShapeRing(ov)
         if ov._shapeRing then return ov._shapeRing end
         local t = ov:CreateTexture(nil, "OVERLAY", nil, 2)
@@ -194,7 +196,7 @@ do
         -- cleared between presses, and a cleared shapeMask is emptied + hidden
         -- rather than destroyed -- left attached it would blank the overlay.
         -- A shape swap keeps the same mask object (re-textured), so it stays.
-        local shape, mask = IconShape(icon)
+        local shape, mask, rounded = IconShape(icon)
         if ov._shapeMask and ov._shapeMask ~= mask then
             pcall(ov._tex.RemoveMaskTexture, ov._tex, ov._shapeMask)
             ov._shapeMask = nil
@@ -221,7 +223,23 @@ do
         ov:SetPoint("TOPLEFT", region, "TOPLEFT", 0, 0)
         ov:SetPoint("BOTTOMRIGHT", region, "BOTTOMRIGHT", 0, 0)
         local ringTex = shape and ns.CDM_SHAPE_BORDERS and ns.CDM_SHAPE_BORDERS[shape]
-        if result == "border" and ringTex then
+        if ov.auraRound and ov.auraRound.on and not (result == "border" and rounded) then
+            EllesmereUI.RoundAuraOverlay(ov, nil)
+            EllesmereUI.PP.HideBorder(ov)
+        end
+        if result == "border" and rounded then
+            ov._tex:Hide()
+            if ov._shapeRing then ov._shapeRing:Hide() end
+            if ov._borderEdges then for j = 1, 4 do ov._borderEdges[j]:Hide() end end
+            local PP = EllesmereUI.PP
+            if PP.GetBorders(ov) then
+                PP.UpdateBorder(ov, bsz, cr, cg, cb, 1)
+                PP.ShowBorder(ov)
+            else
+                PP.CreateBorder(ov, cr, cg, cb, 1, bsz)
+            end
+            EllesmereUI.RoundAuraOverlay(ov, rounded)
+        elseif result == "border" and ringTex then
             ov._tex:Hide()
             if ov._borderEdges then for j = 1, 4 do ov._borderEdges[j]:Hide() end end
             local ring = EnsureShapeRing(ov)

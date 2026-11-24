@@ -16,7 +16,6 @@ local GetTime = GetTime
 local pcall = pcall
 local abs = math.abs
 local min = math.min
-local ANTI_CLIP = ns.CDM_ANTI_CLIP
 
 local _pandemicState, FormatTime = I._pandemicState, I.FormatTime
 local LifebloomPandemic, _tbbWake = I.LifebloomPandemic, I._tbbWake
@@ -138,7 +137,7 @@ local function TBBUsesVisCondition(cfg)
     return false
 end
 
--- Name, icon, auto fill colour and stacks on a mirrored bar change only when
+-- Name, icon, auto fill color and stacks on a mirrored bar change only when
 -- Blizzard refreshes the bound frame's data: on player and target aura events
 -- and target changes (the wake frame counts both), a new binding or slot, and
 -- the active edge. So the tick re-reads them on those edges, once more on the
@@ -356,7 +355,7 @@ function ns.UpdateTrackedBuffBarTimers()
                 local wasShown = bar:IsShown()
                 if not wasShown then bar:Show() end
                 local sb = bar._bar
-                -- Name, icon, auto fill colour and stacks: on edges only (TBBContentDue).
+                -- Name, icon, auto fill color and stacks: on edges only (TBBContentDue).
                 local content = TBBContentDue(bar, blzChild, cfg, wasShown, now)
 
                 -- Stacks (gated)
@@ -562,7 +561,7 @@ function ns.UpdateTrackedBuffBarTimers()
                         if blzIconTex then
                             local file = blzIconTex:GetTexture()
                             if file then
-                                bar._icon._tex:SetTexture(file)
+                                ns.SetTBBIconTexture(bar._icon, file)
                                 bar._lastIconSID = nil
                                 gotIcon = true
                             end
@@ -572,7 +571,7 @@ function ns.UpdateTrackedBuffBarTimers()
                                 blzChild.auraDataUnit, blzChild.auraInstanceID)
                             -- Instance ids recycle onto other buffs; only trust a match.
                             if ok and ad and ad.icon and CfgWantsSID(cfg, ad.spellId) then
-                                bar._icon._tex:SetTexture(ad.icon)
+                                ns.SetTBBIconTexture(bar._icon, ad.icon)
                                 bar._lastIconSID = nil
                                 gotIcon = true
                             end
@@ -582,7 +581,7 @@ function ns.UpdateTrackedBuffBarTimers()
                             if iconSID and iconSID ~= bar._lastIconSID then
                                 local spInfo = C_Spell.GetSpellInfo(iconSID)
                                 if spInfo and spInfo.iconID then
-                                    bar._icon._tex:SetTexture(spInfo.iconID)
+                                    ns.SetTBBIconTexture(bar._icon, spInfo.iconID)
                                     bar._lastIconSID = iconSID
                                 end
                             end
@@ -591,19 +590,14 @@ function ns.UpdateTrackedBuffBarTimers()
 
                     -- Pandemic glow: the ShowPandemicStateFrame hook sets _pandemicState.
                     -- Requires the user to enable pandemic alerts in Blizzard CDM settings.
-                    -- WoW Forever: the anti-clip glow instead (EUI_CDM_ForeverAntiClip.lua).
+                    -- _anyPandemic is never set on WoW Forever (ns.CDM_NO_PANDEMIC).
                     if _anyPandemic and cfg.pandemicGlow then
-                        local inPandemic
-                        if ANTI_CLIP then
-                            inPandemic = blzChild and ns.CDM_AntiClip and ns.CDM_AntiClip(blzChild)
-                        else
-                            inPandemic = blzChild and _pandemicState[blzChild]
-                            -- Fallback for auras Blizzard never pandemic-flags (currently only
-                            -- Lifebloom). bar._isLifebloom is cached after the first resolve, so a
-                            -- bar known not to be Lifebloom costs one table read and skips.
-                            if not inPandemic and blzChild and bar._isLifebloom ~= false then
-                                inPandemic = LifebloomPandemic(bar, blzChild)
-                            end
+                        local inPandemic = blzChild and _pandemicState[blzChild]
+                        -- Fallback for auras Blizzard never pandemic-flags (currently only
+                        -- Lifebloom). bar._isLifebloom is cached after the first resolve, so a
+                        -- bar known not to be Lifebloom costs one table read and skips.
+                        if not inPandemic and blzChild and bar._isLifebloom ~= false then
+                            inPandemic = LifebloomPandemic(bar, blzChild)
                         end
                         -- TBBs always show OUR glow (Blizzard Default included): the native
                         -- PandemicIcon lives on the hidden blzChild frame, not our visible TBB bar.
@@ -734,7 +728,7 @@ function ns.UpdateTrackedBuffBarTimers()
                 -- only on a clean read (font strings need a plain string) and never
                 -- over a bar's custom name.
                 if bar._icon and bar._icon:IsShown() and fbAura.icon then
-                    bar._icon._tex:SetTexture(fbAura.icon)
+                    ns.SetTBBIconTexture(bar._icon, fbAura.icon)
                     bar._lastIconSID = nil
                 end
                 local fbName = fbAura.name

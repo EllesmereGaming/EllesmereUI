@@ -248,6 +248,20 @@ local function RestylePxRings()
     for key in pairs(pxRingStyles) do AK.RestyleSoon(key) end
 end
 
+local function TrackPxRing(d, active)
+    local key = d.styleKey
+    if not key or d.akRingPx == active then return end
+    d.akRingPx = active
+    if active then
+        if not next(pxRingStyles) then EllesmereUI.RegisterPxReapply(AK, RestylePxRings) end
+        pxRingStyles[key] = (pxRingStyles[key] or 0) + 1
+    else
+        local count = pxRingStyles[key] - 1
+        pxRingStyles[key] = count > 0 and count or nil
+        if not next(pxRingStyles) then EllesmereUI.RegisterPxReapply(AK, nil) end
+    end
+end
+
 -- Dispel-type ICON channel (style.dispelTypeIcon): ONE texture per button
 -- registered with the engine's NATIVE Icon style
 -- (Enum.CustomAuraButtonDispelTypeTextureStyle.Icon). Per aura, the engine
@@ -305,6 +319,20 @@ local function ApplyStyleToRegions(button, style)
     -- is an engine-wrapped call, so restyles skip it when unchanged.
     local w = style.width or 32
     local h = style.height or style.width or 32
+    local b = style.border
+    local radius = b and b.cornerRadius
+    if radius and (radius <= 0 or (b.size or 1) <= 0 or (b.edgePx or 1) <= 0
+        or (b.texture and b.texture ~= "" and b.texture ~= "solid")
+        or style.shapeMaskPath or style.blizzRoundArt or style.blizzBorder) then radius = nil end
+    local wasRounded = d.auraRound and d.auraRound.on
+    if (radius or wasRounded) and not d.plainCell and not AK.CanTouchButton(button) then
+        AK.DeferRestyle(d.styleKey)
+        return
+    end
+    if wasRounded and not radius then
+        EllesmereUI.RoundAuraCorners(button, d, d.icon, d.cooldown, d.borderHost, 0)
+    end
+    if radius and d.akBlizzRoundMasked then AK.ApplyBlizzRoundArt(button, d, style, true) end
     if d.appliedW ~= w or d.appliedH ~= h then
         -- Stamp AFTER the call: SetSize on the button is denied while auras
         -- are secret, and a pre-stamped failure would make the
@@ -432,7 +460,6 @@ local function ApplyStyleToRegions(button, style)
 
     if d.borderHost then
         local PP = EllesmereUI.PP
-        local b = style.border
         if PP and b then
             if shapeActive and style.shapeBorderPath then
                 -- A previous non-shaped style may have left either PP strips or
@@ -515,6 +542,12 @@ local function ApplyStyleToRegions(button, style)
         end
     end
 
+    local rounded
+    if radius and not d.akIconShapeKey then
+        rounded = EllesmereUI.RoundAuraCorners(button, d, d.icon, d.cooldown, d.borderHost, radius, w, h)
+        if not rounded and not d.plainCell and AK.AurasRestricted() then AK.DeferRestyle(d.styleKey) end
+    end
+
     -- Engine dispel-type border (style.dispelBorder): textures the engine shows only on
     -- typed (dispellable) auras and tints per dispel type -- per-aura dispel data is
     -- secret, so show/hide and color are ENGINE decisions. The ART is entirely ours,
@@ -563,7 +596,7 @@ local function ApplyStyleToRegions(button, style)
     -- Blizzard Style (style.blizzBorder): ONE texture registered with the
     -- engine's built-in Border style -- the engine stamps Blizzard's own
     -- per-dispel-type debuff border atlas on it (red for untyped debuffs via
-    -- showWithoutDispelType), so this IS the stock aura border, art and colour
+    -- showWithoutDispelType), so this IS the stock aura border, art and color
     -- both engine-owned. No static border, no palette, no strips.
     local blizzBorderStyle = style.blizzBorder and button.AddDispelTypeTexture
         and Enum and Enum.CustomAuraButtonDispelTypeTextureStyle
@@ -573,7 +606,7 @@ local function ApplyStyleToRegions(button, style)
     -- ring and the strips. Eight slices cut from the edge art, laid on the aura
     -- border's own geometry (SecretBorderGeometry, the numbers its textured border is
     -- drawn with) and tinted per dispel type by the engine through PreserveAsset like
-    -- the strips, so white art takes the dispel colour. Only beside a textured aura
+    -- the strips, so white art takes the dispel color. Only beside a textured aura
     -- border of positive size (a size-0 border keeps the strips), never with the
     -- Blizzard border or a shaped icon. Every other style pays this one nil test.
     local ringPath
@@ -584,22 +617,11 @@ local function ApplyStyleToRegions(button, style)
             ringPath = EllesmereUI.ResolveBorderTexture(style.dispelBorderTexture)
         end
     end
-    -- An exact-size ring rides the UI-scale re-apply (see pxRingStyles); d.akRingPx
-    -- marks the buttons that joined it, so every other button pays two nil tests.
-    if ringPath and style.border.edgePx then
-        if not d.akRingPx then
-            d.akRingPx = true
-            if d.styleKey and not pxRingStyles[d.styleKey] then
-                pxRingStyles[d.styleKey] = true
-                EllesmereUI.RegisterPxReapply(AK, RestylePxRings)
-            end
-        end
+    -- Both ring widths follow the physical pixel grid.
+    if rounded or (ringPath and style.border.edgePx) then
+        TrackPxRing(d, true)
     elseif d.akRingPx then
-        d.akRingPx = nil
-        if d.styleKey and pxRingStyles[d.styleKey] then
-            pxRingStyles[d.styleKey] = nil
-            if not next(pxRingStyles) then EllesmereUI.RegisterPxReapply(AK, nil) end
-        end
+        TrackPxRing(d, nil)
     end
     if style.dispelBorder and d.dispelHolder
         and (button.AddDispelTypeTexture or button.SetAuraBorder) and dispelTint ~= nil then
@@ -615,6 +637,8 @@ local function ApplyStyleToRegions(button, style)
                 tex:Hide()
                 d.blizzBorderTex = tex
             end
+        elseif rounded and (style.dispelBorderPx or 2) > 0 then
+            EllesmereUI.RoundAuraDispel(rounded, d.dispelHolder, style.dispelBorderPx or 2)
         elseif shapeActive and style.shapeBorderPath then
             if not d.dispelShapeTex then
                 -- Neutral white tint base, written ONCE here (same rule as the strips
@@ -747,6 +771,19 @@ local function ApplyStyleToRegions(button, style)
         if d.blizzBorderTex then d.blizzBorderTex:Hide() end
     end
 
+    local roundSet = d.auraRound and d.auraRound.dispel
+    if roundSet then
+        if rounded and style.dispelBorder and (style.dispelBorderPx or 2) > 0 then
+            if dispelTexSet then
+                for i = 1, #dispelTexSet do dispelTexSet[i]:Hide() end
+            end
+            dispelTexSet = roundSet
+        else
+            roundSet[1]:Hide()
+            if not dispelTexSet then dispelTexSet = roundSet end
+        end
+    end
+
     if dispelTexSet or d.dispelIconTex then
         -- Level re-assert (change-guarded): a style can move the border host's level;
         -- the ring stays FOUR levels above it (PP strip container at +1, DM fx
@@ -760,8 +797,8 @@ local function ApplyStyleToRegions(button, style)
             d.akDispelLvl = bl
         end
 
-        if not dispelTexSet then
-            -- Icons-only style: no ring set was ever created, skip ring geometry.
+        if not dispelTexSet or dispelTexSet == roundSet then
+            -- Icons only, or rounded geometry already laid out above.
         elseif blizzBorderStyle and d.blizzBorderTex then
             -- The stock buff frame draws its 40px border round a 30px icon: a
             -- sixth of the icon on each side. Anchored to the holder (button
@@ -807,7 +844,7 @@ local function ApplyStyleToRegions(button, style)
         elseif dispelTexSet == d.dispelRing then
             -- The aura border's own geometry: the same arguments its textured lane
             -- passes ApplySecretSafeBorderStyle above, as numbers only. That call is
-            -- not used for the ring: it rewrites colour and Show on every pass and
+            -- not used for the ring: it rewrites color and Show on every pass and
             -- registers exact sizes for the UI-scale re-apply, all engine-owned here.
             -- Change-guarded on the numbers (no per-pass string); the key built on a
             -- change is the setKey, because the engine snapshots geometry at
@@ -909,7 +946,9 @@ local function ApplyStyleToRegions(button, style)
         -- Blizzard border folds in its own geometry key the same way.
         local setKey = "noborder"
         if borderWant then
-            if blizzBorderStyle and d.blizzBorderTex then
+            if rounded and dispelTexSet == roundSet then
+                setKey = rounded.dispelKey
+            elseif blizzBorderStyle and d.blizzBorderTex then
                 setKey = "blizz:" .. (d.akBlizzGeom or "")
             elseif shapeActive and d.dispelShapeTex then
                 setKey = "shape:" .. style.iconShape .. "|" .. (style.shapeBorderSize or style.dispelBorderPx or 2)
@@ -1368,7 +1407,7 @@ end
 function AK.CreateStyledCell(parent, styleKey, extra)
     local style = AK.styles[styleKey] or {}
     local button = CreateFrame("Frame", nil, parent)
-    local d = {}
+    local d = { plainCell = true }
     bd[button] = d
     d.styleKey = styleKey
     d.icon = button:CreateTexture(nil, "ARTWORK")
@@ -2296,6 +2335,7 @@ function AK.ReleaseContainer(container)
     local function Untrack(button)
         local d = type(button) == "table" and bd[button]
         if d then
+            if d.akRingPx then TrackPxRing(d, nil) end
             if d.styleKey and styleButtons[d.styleKey] then
                 styleButtons[d.styleKey][button] = nil
             end

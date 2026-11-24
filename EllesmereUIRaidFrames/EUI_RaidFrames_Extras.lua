@@ -111,7 +111,8 @@ do
         local alignC   = hm.align == "CENTER"
         local growUp   = hm.growth == "UP"
         local inRaid   = IsInRaid()
-        local showNames = (hm.showNames ~= false) and (inRaid or preview)
+        local showNames = hm.showNames == "always"
+            or ((hm.showNames ~= false) and (inRaid or preview))
         local classNames = hm.classNames ~= false
         local powerMode  = hm.colorMode == "power"
         local cc = hm.color
@@ -165,10 +166,12 @@ do
                     nameFS:SetText(fakeName)
                 else
                     -- Display sink: a secret name renders raw, never inspected.
-                    -- The raid frames' Name Format (live names show only in a
-                    -- raid).
+                    -- The Name Format of the frames in use: the raid's in a
+                    -- raid, the party's (ns._partyProxy) in a party.
                     local hmName = unit and EllesmereUI.WithSurname(UnitName(unit))
-                    if hmName then hmName = ns.RF_FormatName(hmName, db.profile) end
+                    if hmName then
+                        hmName = ns.RF_FormatName(hmName, inRaid and db.profile or ns._partyProxy)
+                    end
                     nameFS:SetFormattedText("%s", hmName or "")
                 end
                 nameFS:Show()

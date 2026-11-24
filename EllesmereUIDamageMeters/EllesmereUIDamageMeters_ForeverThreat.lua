@@ -4,7 +4,7 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  EllesmereUIDamageMeters_ForeverThreat.lua  (WoW Forever only)
 --  The "Threat" meter type: Forever Essentials' threat list in a Damage Meters
 --  window, painted by the window like any other type and in its style (the
---  rows carry their own value text, rank and highlight colours). Offered only
+--  rows carry their own value text, rank and highlight colors). Offered only
 --  while Forever Essentials is loaded, which hands the list over as
 --  EllesmereUI._ThreatFeed; a window saved on the type reads as Damage Done
 --  wherever it is not offered. The other Damage Meters files reach this file

@@ -22,6 +22,7 @@ local min          = math.min
 local abs          = math.abs
 local pairs        = pairs
 local ipairs       = ipairs
+local UnitClass             = UnitClass
 local UnitExists            = UnitExists
 local IsInRaid              = IsInRaid
 local GetNumGroupMembers    = GetNumGroupMembers
@@ -318,10 +319,17 @@ end
 -- color (nearly) equal to the border's own shows no change at all: every
 -- textured style but Pixels seeds a white border and the highlight defaults
 -- to white. Such a highlight draws gold instead (white on a gold border).
-function ns.RF_VisibleHighlight(s, r, g, b)
-    local c = s.borderColor
-    local br, bg, bb = 0, 0, 0
-    if c then br, bg, bb = c.r, c.g, c.b end
+function ns.RF_BaseBorderColor(classToken, custom, alpha)
+    if not issecretvalue(classToken) and classToken then
+        local c = EllesmereUI.GetClassColor(classToken)
+        if c then return c.r, c.g, c.b, alpha end
+    end
+    if custom then return custom.r, custom.g, custom.b, alpha end
+    return 0, 0, 0, alpha
+end
+
+function ns.RF_VisibleHighlight(s, r, g, b, br, bg, bb)
+    if br == nil then br, bg, bb = ns.RF_BaseBorderColor(nil, s.borderColor) end
     if math.abs(r - br) + math.abs(g - bg) + math.abs(b - bb) >= 0.15 then return r, g, b end
     if math.abs(1 - br) + math.abs(0.82 - bg) + math.abs(bb) >= 0.15 then return 1, 0.82, 0 end
     return 1, 1, 1
@@ -329,8 +337,38 @@ end
 
 function ns.RF_ColorPowerDivider(host, r, g, b, a)
     if not host or host._powerArtMode ~= "divider" then return end
-    host._powerArtR, host._powerArtG, host._powerArtB, host._powerArtAlpha = r, g, b, a
+    if issecretvalue(r) or issecretvalue(g) or issecretvalue(b) or issecretvalue(a) then
+        host._powerArtColorDirty = true
+    else
+        if not host._powerArtColorDirty and host._powerArtR == r and host._powerArtG == g
+            and host._powerArtB == b and host._powerArtAlpha == a then return end
+        host._powerArtColorDirty = nil
+        host._powerArtR, host._powerArtG, host._powerArtB, host._powerArtAlpha = r, g, b, a
+    end
     host._powerArtTex:SetVertexColor(r, g, b, a)
+end
+
+local function TintClassBorder(border, r, g, b, a)
+    local backdrop = EllesmereUI._bdBorderData and EllesmereUI._bdBorderData[border]
+    if backdrop and backdrop:IsShown() then
+        -- Restyles and overlays can recolor the backdrop independently.
+        local cr, cg, cb, ca = backdrop:GetBackdropBorderColor()
+        if not (issecretvalue(cr) or issecretvalue(cg) or issecretvalue(cb) or issecretvalue(ca))
+            and cr and cg and cb and ca
+            and abs(cr - r) < 0.000001 and abs(cg - g) < 0.000001
+            and abs(cb - b) < 0.000001 and abs(ca - a) < 0.000001 then return end
+    end
+    EllesmereUI.SetBorderStyleColor(border, r, g, b, a)
+end
+
+function ns.RF_TintMatchedPowerBorder(host, r, g, b, a)
+    if not host then return end
+    if host._powerArtMode == "divider" then
+        ns.RF_ColorPowerDivider(host, r, g, b, a)
+    elseif host._powerArtMode == "border" then
+        host._powerArtR, host._powerArtG, host._powerArtB, host._powerArtAlpha = r, g, b, a
+        TintClassBorder(host, r, g, b, a)
+    end
 end
 
 function ns.RF_ClearPowerBorderArt(host)
@@ -406,6 +444,7 @@ function ns.RF_ApplyPowerBorderArt(host, s, force, preview, nameBar)
     local c = s.borderColor
     host._powerArtR, host._powerArtG, host._powerArtB = c and c.r or 0, c and c.g or 0, c and c.b or 0
     host._powerArtAlpha = s.borderAlpha or 1
+    host._powerArtColorDirty = nil
     host._powerArtOffset, host._powerArtOffsetY = s.borderTextureOffset, s.borderTextureOffsetY
     host._powerArtShiftX, host._powerArtShiftY = s.borderTextureShiftX, s.borderTextureShiftY
     if mode == "divider" then
@@ -942,6 +981,19 @@ local function StyleButton(button)
             ns.RF_StockHighlight(d, d.borderFrame, s, hover, d._isTarget and s.targetBorderEnabled ~= false)
             return
         end
+        local classToken
+        if s.borderClassColored and (s.borderSize or 1) > 0 then
+            classToken = d._clsTok
+            local unit = not classToken and button:GetAttribute("unit")
+            if not classToken and unit then
+                local _, token = UnitClass(unit)
+                if not issecretvalue(token) then
+                    classToken = token
+                    d._clsTok = token
+                end
+            end
+        end
+        local br, bg, bb, ba = ns.RF_BaseBorderColor(classToken, s.borderColor, s.borderAlpha or 1)
         local r, g, b, a
         local raised, hlSize, hlPx = false, nil, nil
         if d._hovered and s.hoverBorderEnabled ~= false then
@@ -961,22 +1013,29 @@ local function StyleButton(button)
             r, g, b, a = 1, 0, 0, 1
             raised = true
         else
-            local c = s.borderColor or { r = 0, g = 0, b = 0 }
-            r, g, b, a = c.r, c.g, c.b, s.borderAlpha or 1
+            r, g, b, a = br, bg, bb, ba
         end
         ApplyBorderLevel(raised, s)
         if (s.borderSize or 1) <= 0 then
             ns.ApplyHighlightBorder(d.borderFrame, s, hlSize, r, g, b, a, hlPx)
             return
         end
-        if hlSize then r, g, b = ns.RF_VisibleHighlight(s, r, g, b) end
+        if hlSize then r, g, b = ns.RF_VisibleHighlight(s, r, g, b, br, bg, bb) end
         d.borderFrame._hlBorderSize = nil
-        EllesmereUI.SetBorderStyleColor(d.borderFrame, r, g, b, a)
+        if s.borderClassColored then
+            TintClassBorder(d.borderFrame, r, g, b, a)
+        else
+            EllesmereUI.SetBorderStyleColor(d.borderFrame, r, g, b, a)
+        end
         if s.powerBorderMatchColor == true and d.powerBorderFrame and d.powerBorderFrame._powerArtMode == "divider" then
             ns.RF_ColorPowerDivider(d.powerBorderFrame, r, g, b, a)
+        elseif s.borderClassColored then
+            ns.RF_TintMatchedPowerBorder(d.powerBorderFrame, br, bg, bb, ba)
         end
         if s.topNameBarDividerMatchColor == true and d.topNameBar and d.topNameBar._divider then
             ns.RF_ColorPowerDivider(d.topNameBar._divider, r, g, b, a)
+        elseif s.borderClassColored and d.topNameBar then
+            ns.RF_ColorPowerDivider(d.topNameBar._divider, br, bg, bb, ba)
         end
     end
     d.ApplyBorderColor = ApplyBorderColor
@@ -1069,7 +1128,10 @@ local function StyleButton(button)
         if s.powerBorderMatchFrame == true or d.powerBorderFrame._powerArtKey then
             local handled, refreshed = ns.RF_ApplyPowerBorderArt(d.powerBorderFrame, s, force)
             if handled then
-                if refreshed and s.powerBorderMatchColor == true and d.powerBorderFrame._powerArtMode == "divider" then ApplyBorderColor() end
+                if refreshed and (s.borderClassColored
+                    or (s.powerBorderMatchColor == true and d.powerBorderFrame._powerArtMode == "divider")) then
+                    ApplyBorderColor()
+                end
                 return
             end
         end

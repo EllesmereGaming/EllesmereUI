@@ -266,6 +266,7 @@ local function ApplyMinimap()
         end
     end
     minimap:SetHitRectInsets(0, 0, crop, crop)
+    EBS._ApplyPinCrop(mapSize, crop)
     if crop > 0 and not GetFFD(minimap).layoutFrame then
         local layout = CreateFrame("Frame", nil, UIParent)
         layout:EnableMouse(false)
@@ -386,8 +387,8 @@ local function ApplyMinimap()
         texCircBorder:Show()
     end
 
-    -- Live-update border on accent change, only while the border actually resolves to the accent (accent swatch active, no class colour override).
-    -- Neither square frame on the Forever client draws an EUI border to recolour.
+    -- Live-update border on accent change, only while the border actually resolves to the accent (accent swatch active, no class color override).
+    -- Neither square frame on the Forever client draws an EUI border to recolor.
     if p.useClassColor and not p.borderUseClassColor and not EBS._fvSquare then
         if not GetFFD(minimap).accentBorderCB then
             GetFFD(minimap).accentBorderCB = function(ar, ag, ab)
@@ -959,7 +960,7 @@ local function ApplyMinimap()
             end
             -- One FontString per SEGMENT ("58 FPS"): number+suffix rasterize in a single
             -- pass, so spacing can never wobble sub-pixel like two separately snapped
-            -- strings. Suffix colour rides an inline escape (Accented Text); SetFormattedText keeps formatting C-side with no template rebuilds.
+            -- strings. Suffix color rides an inline escape (Accented Text); SetFormattedText keeps formatting C-side with no template rebuilds.
             local fsFps, fsWorld, fsLocal = MakeFS(12), MakeFS(12), MakeFS(12)
             fpsBg._fsAll = { fsFps, fsWorld, fsLocal }
             local divWorld = MakeDivider()
@@ -968,7 +969,7 @@ local function ApplyMinimap()
             local floor = math.floor
             local function UpdateFPS(self)
                 local mp = EBS.db and EBS.db.profile.minimap
-                -- Numbers render white; the "FPS"/"MS" suffixes take the description colour while FPS/MS is checked in Accented Text (default on).
+                -- Numbers render white; the "FPS"/"MS" suffixes take the description color while FPS/MS is checked in Accented Text (default on).
                 local hex = "ffffff"
                 if (mp and mp.fpsColorSuffix) ~= false then
                     local _, _, _, h = GetDescColor(mp)
@@ -1081,7 +1082,7 @@ local function ApplyMinimap()
     end
 
     -- Instance Difficulty as Text: compact "20M" readout replacing the Blizzard flag
-    -- (suppressed above while enabled); event-driven, zero cost while disabled. Count renders white, letter follows the description colour (as FPS/MS suffixes).
+    -- (suppressed above while enabled); event-driven, zero cost while disabled. Count renders white, letter follows the description color (as FPS/MS suffixes).
     if p.diffTextEnabled then
         if not diffTextFrame then
             diffTextFrame = CreateFrame("Frame", nil, minimap)
@@ -1106,7 +1107,7 @@ local function ApplyMinimap()
                 [1152] = true, [1153] = true, [1154] = true, [1158] = true,
                 [1159] = true, [1160] = true, [1330] = true, [1331] = true,
             }
-            -- Difficulty (Reactive): letter colours by tier (normal/scenarios bronze like delves, heroic blue, mythic purple, keystones legendary orange).
+            -- Difficulty (Reactive): letter colors by tier (normal/scenarios bronze like delves, heroic blue, mythic purple, keystones legendary orange).
             local REACTIVE_HEX = {
                 N = "c69b6d", H = "0070dd", M = "a335ee",
                 S = "c69b6d", HS = "0070dd", MS = "a335ee",
@@ -1122,7 +1123,7 @@ local function ApplyMinimap()
                     out:SetText("")
                     return
                 end
-                -- Letter colour follows Accented Text: Reactive = tier colour, plain Difficulty = flat accent/custom, neither = white; Reactive wins.
+                -- Letter color follows Accented Text: Reactive = tier color, plain Difficulty = flat accent/custom, neither = white; Reactive wins.
                 local reactive = mp2.diffTextReactive
                 local hex = "ffffff"
                 if not reactive and mp2.diffTextAccent then

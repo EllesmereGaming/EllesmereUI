@@ -70,14 +70,15 @@ local UpdateGCDBar
 I.UpdateGCDBarSetters[#I.UpdateGCDBarSetters + 1] = function(v) UpdateGCDBar = v end
 
 -- Update functions (event-driven)
--- WoW Forever: no health/power number under 10,000 abbreviates
--- (EllesmereUI_NumberFormat.lua). On ns, not a local:
--- the druid mana bar file reads it too.
-ns.AbbreviateNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateNumbers) or AbbreviateNumbers
--- Health text: the global Number Format for valueType (power text keeps the
--- default above). On ns for the options preview.
+-- Health and power text: the global Number Format for valueType (power follows
+-- only the Unit Style). On ns for the options preview and the druid mana bar.
 ns.AbbreviateValue = EllesmereUI.AbbreviateValue
-EllesmereUI.RegisterNumberFormatCallback(function() I.UpdateHealthBar() end)
+-- The power text memo names no Number Format input, so a format change drops it.
+EllesmereUI.RegisterNumberFormatCallback(function()
+    I.UpdateHealthBar()
+    if primaryBar then primaryBar._txtGen = nil end
+    I.UpdatePrimaryBar()
+end)
 local function UpdateHealthBar()
     if not healthBar or not healthBar:IsShown() then return end
     local hp = _G._ERB_ResolveHealthCfg()
@@ -216,7 +217,7 @@ local function UpdatePrimaryBar()
     -- Config resolution cache: ResolvePowerCfg/ResolveThresholdSpecEntry/
     -- ResolveBandConfig walk profile tables and only change on a profile edit,
     -- spec swap or form change, but power events fire a dozen times/sec while
-    -- casting -- and this pair sat above the "is threshold colouring even on"
+    -- casting -- and this pair sat above the "is threshold coloring even on"
     -- branch, so it ran in full for users with the feature off. Resolve once per
     -- config generation (bumped by ApplyAll).
     local pc = ns.PPC
@@ -495,17 +496,17 @@ local function UpdatePrimaryBar()
             local txt
             if fmt == "smart" then
                 local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(cachedPrimary)
-                txt = isPercent and percentText or ns.AbbreviateNumbers(cur)
+                txt = isPercent and percentText or ns.AbbreviateValue(cur, "power")
             elseif fmt == "both" then
-                txt = ns.AbbreviateNumbers(cur) .. " | " .. percentText
+                txt = ns.AbbreviateValue(cur, "power") .. " | " .. percentText
             elseif fmt == "curpp" then
-                txt = ns.AbbreviateNumbers(cur)
+                txt = ns.AbbreviateValue(cur, "power")
             elseif fmt == "curmaxpp" then
-                txt = ns.AbbreviateNumbers(cur) .. " / " .. ns.AbbreviateNumbers(mx)
+                txt = ns.AbbreviateValue(cur, "power") .. " / " .. ns.AbbreviateValue(mx, "power")
             elseif fmt == "perpp" then
                 txt = percentText
             else
-                txt = ns.AbbreviateNumbers(cur)
+                txt = ns.AbbreviateValue(cur, "power")
             end
             primaryBar._text:SetText(txt)
         end
@@ -2287,7 +2288,7 @@ local function UpdateSecondaryResource()
                     -- fill's moving edge so it covers only the empty remainder,
                     -- never reading the secret value. _fillOp is nil at 100.
                     -- Factor 1 (Background on individual pips) keeps the
-                    -- colour alpha each SetStatusBarColor above wrote.
+                    -- color alpha each SetStatusBarColor above wrote.
                     if pip._fillOp then
                         local _fo = pip._fillOp < 1 and pip._fillOp
                         local _sft = pip._secretBar:GetStatusBarTexture()

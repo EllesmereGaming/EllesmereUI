@@ -130,7 +130,7 @@ end
 --  smaller than the EUI glyphs with a gap between them (the art fills its
 --  crop, the glyphs carry their own margin). Blizzard Style keeps the EUI
 --  glyphs (no entries). A key with no entry keeps the glyph. Stock art is
---  coloured: no desaturation, no Icon Colour tint, hover is a brightness
+--  colored: no desaturation, no Icon Color tint, hover is a brightness
 --  step, and an entry with hover art swaps it in.
 -------------------------------------------------------------------------------
 ns.DM_HDR_ART = {
@@ -202,7 +202,7 @@ function ns.DMSeatHdrArt(tex, size)
 end
 -- Paints an art entry on a header icon texture and stamps it (tex._hdrArt)
 -- for the hover pass. An atlas is never followed by SetTexCoord. An entry
--- with `tint` is a desaturated glyph in that colour, one with `plate` sits
+-- with `tint` is a desaturated glyph in that color, one with `plate` sits
 -- on WoW Forever's square button plate (ns.DMFvPlate).
 function ns.DMApplyHdrArt(tex, art)
     tex._hdrArt = art
@@ -262,8 +262,8 @@ function ns.DMSetTypeIcon(tex, dmType)
     tex._hdrArt = nil
     tex:SetTexture(DM_TYPE_ICONS[dmType] or DM_TYPE_ICONS[Enum.DamageMeterType.DamageDone])
 end
--- A texture as the tiled tooltip background in the given colour and opacity
--- (the file is near-white; the vertex colour is the tone). Tiling is set up
+-- A texture as the tiled tooltip background in the given color and opacity
+-- (the file is near-white; the vertex color is the tone). Tiling is set up
 -- once per texture; every call re-tints.
 function ns.DMClassicTint(tex, r, g, b, a)
     if not tex._classicTiled then
@@ -276,10 +276,10 @@ end
 -- Header background: the stock atlas (opacity still applies) under Blizzard
 -- Style, Forever's header band in its place under the WoW Forever variant
 -- (ns.DMFvHeader); under Classic WoW UI the window's tooltip background
--- again as a lighter band (the header's own colour is not used, its opacity
+-- again as a lighter band (the header's own color is not used, its opacity
 -- is), the way the stock meter's header stands off its body: the window
--- colour is the trailing winR/winG/winB when given (a window body tinted
--- from its own settings), the main meter's otherwise; the configured colour
+-- color is the trailing winR/winG/winB when given (a window body tinted
+-- from its own settings), the main meter's otherwise; the configured color
 -- on the EUI look.
 function ns.DMPaintHeaderBg(tex, r, g, b, a, winR, winG, winB)
     local style = ns.DMStyle()
@@ -354,7 +354,7 @@ end
 -- window carrying the texture wears the whole classic box: the tinted
 -- tooltip tile spanning the window rect inside the rim, the eight chat tab
 -- edge pieces along the rect's inside, and the bg texture itself paints
--- nothing. The tab's own inside is pure black (no vertex tint could colour
+-- nothing. The tab's own inside is pure black (no vertex tint could color
 -- it), so the window keeps the tile as its body. All regions of the window
 -- frame, under every child; built once per bg texture, re-tinted per call.
 function ns.DMPaintClassicBg(tex, r, g, b, a, edged)
@@ -401,7 +401,7 @@ function ns.DMClassicSeparator(tex, h)
     tex:Show()
     return true
 end
--- Window background: the configured colour on the EUI look, drawn through the
+-- Window background: the configured color on the EUI look, drawn through the
 -- texKey bar texture when one is given (the meter windows pass their
 -- Background Texture; Spell History passes none); the classic box above under
 -- Classic WoW UI (`edged` = this texture's window wears the edge).
@@ -413,7 +413,7 @@ end
 -- 20px top band running from half the body alpha up to it over a flat black
 -- body, both hung off the bg texture's own rect (the window code owns that
 -- rect and re-anchors it under the header), which itself paints nothing.
--- Parts are created once per bg texture; every call re-colours them with
+-- Parts are created once per bg texture; every call re-colors them with
 -- the configured opacity multiplied in.
 ns.DM_BLIZZ_BG_BODY = 245 / 255
 ns._dmBgLo = CreateColor(0, 0, 0, 1)
@@ -466,8 +466,8 @@ function ns.DMPaintWindowBg(tex, r, g, b, a, edged, texKey)
     parts[1]:SetGradient("VERTICAL", ns._dmBgLo, ns._dmBgHi)
     parts[2]:SetGradient("VERTICAL", ns._dmBgLo, ns._dmBgLo)
 end
--- Bar fill: the user's own texture keeps its colour (the stock fill art is
--- pre-coloured and halves every tint, the ruling the unit frames and plates
+-- Bar fill: the user's own texture keeps its color (the stock fill art is
+-- pre-colored and halves every tint, the ruling the unit frames and plates
 -- follow), and the bevel that art bakes in is drawn over the filled part:
 -- four gradient strips anchored to the fill TEXTURE so they follow the
 -- value, above the fill and under the edge highlight and the texts. Created
@@ -737,7 +737,7 @@ function ns.DMFvMenuArt(f, bg)
 end
 -- A home page card's background as Forever's list button ("normal" |
 -- "hover" | "selected"), `a` its opacity (the add button reads fainter).
--- False off the variant or without the art (the caller paints its colour).
+-- False off the variant or without the art (the caller paints its color).
 function ns.DMFvCard(tex, state, a)
     if not ns._dmForever then return false end
     local C = ns.DM_FV.card

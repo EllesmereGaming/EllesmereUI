@@ -1,0 +1,24 @@
+Homespun (Homespun TT BRK), Copyright (c) AEnigma Fonts (Brian Kent), 2003.
+
+The font file is unchanged. Brian Kent's permission to redistribute his fonts, to build new
+fonts on them and to change them (changes noted, the originals attributed to him) is on
+public record in the copyright file of Debian's fonts-aenigma package:
+https://sources.debian.org/src/fonts-aenigma/0.0.20080511+dfsg-5/debian/copyright/
+
+The exchange recorded there (2008-07-04):
+
+  Brian Kent:
+    Yes, you can redistribute any of my fonts.
+
+  Debian:
+    As I said, it's not enough to give us the permission, it has to extend to all our
+    users who need to be able
+    - to distribute your fonts further, without asking you
+    - to create new fonts, based on your fonts, without asking you
+    - to make changes to your fonts, provided those changes are noted and the original
+      fonts are still attributed to you.
+    Is this what you intended when you wrote the above?
+
+  Brian Kent:
+    Hi,
+    Yes, all of the things mentioned above I agree to.

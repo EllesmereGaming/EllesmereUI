@@ -522,6 +522,71 @@ do
     end
 end
 
+-------------------------------------------------------------------------------
+--  Emotes: one entry per emote the client knows, stored by TOKEN ("DANCE"),
+--  which is the same in every language, while the command is not ("/dance",
+--  "/danse" on a French client). The command is looked up from the token when
+--  the attributes are written and fired as macro text from the secure button,
+--  the markers' route. An entry is named by its command, slash included, in
+--  the client's language. Every emote draws one glyph
+--  (media\micromenu\quickdraw-emote.png), and the paint writes the name in its
+--  empty lower band.
+-------------------------------------------------------------------------------
+do
+    ns.EMOTE_ICON = "Interface\\AddOns\\EllesmereUI\\media\\micromenu\\quickdraw-emote.png"
+
+    -- token -> { token, command, name }, and the same records as a list,
+    -- built on first use (the emote strings are global strings).
+    local byToken, list
+
+    local function Build()
+        byToken, list = {}, {}
+        -- Indexes have gaps, so the walk runs to the client's own ceiling
+        -- rather than stopping at the first missing one.
+        for i = 1, (MAXEMOTEINDEX or 1000) do
+            local token = _G["EMOTE" .. i .. "_TOKEN"]
+            local cmd = _G["EMOTE" .. i .. "_CMD1"]
+            -- Several indexes alias one token; the first is the emote's own.
+            if type(token) == "string" and type(cmd) == "string"
+               and cmd:sub(1, 1) == "/" and not byToken[token] then
+                -- Named by the command it fires (some locales list an English
+                -- command first, frFR HELLO among them).
+                local rec = { token = token, command = cmd, name = cmd }
+                byToken[token] = rec
+                list[#list + 1] = rec
+            end
+        end
+    end
+
+    local function Emote(slot)
+        if not slot or type(slot.token) ~= "string" then return nil end
+        if not byToken then Build() end
+        return byToken[slot.token]
+    end
+
+    -- The command this entry fires, or nil for a token this client has not got.
+    ns.EmoteCommand = function(slot)
+        local rec = Emote(slot)
+        return rec and rec.command
+    end
+
+    -- The name drawn on the entry: its command. A token this client does not
+    -- know still names itself, as a command the way the game's own read.
+    ns.EmoteName = function(slot)
+        local rec = Emote(slot)
+        if rec then return rec.name end
+        return slot and type(slot.token) == "string" and ("/" .. slot.token:lower()) or nil
+    end
+
+    -- Candidate slots for the picker, one per emote.
+    ns.EmoteSlots = function()
+        if not list then Build() end
+        local out = {}
+        for i = 1, #list do out[i] = { kind = "emote", token = list[i].token } end
+        return out
+    end
+end
+
 I.CycleNext, I.CyclePosBack, I.CycleSteps = CycleNext, CyclePosBack, CycleSteps
 I.MARKER_NAMES, I.MarkerIcon = MARKER_NAMES, MarkerIcon
 I.RANDOM_FAVORITE_MOUNT, I.SpecIndexFor = RANDOM_FAVORITE_MOUNT, SpecIndexFor

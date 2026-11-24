@@ -615,7 +615,7 @@ function PaletteView:HaloNest(claims, shown, m)
         -- caption to move to and it keeps the placement it would have had.
         c.icon, c.dim = icon, true
         -- The parent draws back to leave the ring somewhere to be. It keeps its
-        -- full colour, unlike the rest of the block: it is what the ring is
+        -- full color, unlike the rest of the block: it is what the ring is
         -- about, and dimming it would leave nothing saying which entry opened.
         c.parentScale = 0.6
         -- Eight captions around one icon are eight captions on top of each
