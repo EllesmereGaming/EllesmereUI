@@ -277,7 +277,7 @@ local function BindCast()
     ClearOverrideBindings(castButton)
     local key = F.Get("key")
     -- Mouse-wheel input has no release event. Fire the secure action on down.
-    castButton:SetAttribute("useOnKeyDown", IsWheelKey(key))
+    castButton:SetAttribute("useOnKeyDown", not clickArmed and IsWheelKey(key))
     if key then SetOverrideBindingClick(castButton, true, key, BUTTON_NAME) end
 end
 
@@ -293,6 +293,7 @@ local function Disarm()
     if clickArmed and not InCombatLockdown() then
         ClearOverrideBindings(clickOwner)
         clickArmed = false
+        castButton:SetAttribute("useOnKeyDown", IsWheelKey(F.Get("key")))
         UpdateCastButton()  -- back to what the key does
     end
 end
@@ -340,7 +341,7 @@ local function BuildButton()
             -- An armed double-click keeps reading its own Apply Lure, not the key's.
             UpdateCastButton(clickArmed)
         end
-        local onDown = IsWheelKey(F.Get("key"))
+        local onDown = self:GetAttribute("useOnKeyDown")
         if ((onDown and down) or (not onDown and not down))
            and self:GetAttribute("type") == "spell" then
             StartSession()
@@ -369,6 +370,7 @@ local function OnWorldMouseDown(_, button)
         return
     end
     UpdateCastButton(true)
+    castButton:SetAttribute("useOnKeyDown", false)
     SetOverrideBindingClick(clickOwner, true, "BUTTON2", BUTTON_NAME)
     clickArmed = true
     armedAt = GetTime()
@@ -413,6 +415,7 @@ ev:SetScript("OnEvent", function(_, event, _, arg2, arg3)
         if event == "PLAYER_REGEN_DISABLED" then
             ClearOverrideBindings(clickOwner)
             clickArmed = false
+            if castButton then castButton:SetAttribute("useOnKeyDown", IsWheelKey(F.Get("key"))) end
         end
         lineOut = false
         EndSession()
