@@ -1979,7 +1979,7 @@ function ns.UF_ApplyBlizzardLayout(frame, unit)
 
     -- No EUI chrome: unified border and text bar step aside for the art.
     if frame.unifiedBorder then frame.unifiedBorder:Hide() end
-    if frame.BottomTextBar then frame.BottomTextBar:Hide() end
+    if frame.BottomTextBar then ns.UF_HideBottomTextBar(frame.BottomTextBar) end
 
     ns.UF_BlizzTextPass(frame)
     ns.UF_BlizzLevelPass(frame)

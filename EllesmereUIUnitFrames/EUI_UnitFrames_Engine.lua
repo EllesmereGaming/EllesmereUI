@@ -120,6 +120,7 @@ local OPTIN_EVENTS = {
     powerval = { "UNIT_POWER_FREQUENT" },
     bordercolor = BORDER_COLOR_EVENTS,
     borderclassification = { "UNIT_CLASSIFICATION_CHANGED", unpack(BORDER_COLOR_EVENTS) },
+    textclassification = { "UNIT_CLASSIFICATION_CHANGED" },
 }
 
 -- Events consumed by the castbar channel; routed raw (event identity matters

@@ -116,7 +116,7 @@ function ns.UFO_AddCustomFormatAccessor(rgn, label, prefix, content, getDB, appl
         function(v) getDB()[fk] = v; apply() end)
 end
 
--- Level coloring is shared by the unit, and edited from its level-text cogs.
+-- Level settings are shared by the unit, and edited from its level-text cogs.
 function ns.UF_CoreTextRows(prefix, contentDefault, get, set, rows)
     rows = ns.UF_NameFormatRows(prefix, contentDefault, get, set, rows)
     local content = get(prefix .. "Content", contentDefault)
@@ -141,6 +141,10 @@ function ns.UF_CoreTextRows(prefix, contentDefault, get, set, rows)
             set("levelDifficultyColorFriendly", v)
             ns._UFO_OptEnv.UpdatePreview()
         end }
+    rows[#rows + 1] = { type="toggle", label="Level Text: Classification",
+        tooltip="Adds + for elites, R for rares, and R+ for rare elites.",
+        get=function() return get("levelClassification", false) == true end,
+        set=function(v) set("levelClassification", v or nil) end }
     return rows
 end
 

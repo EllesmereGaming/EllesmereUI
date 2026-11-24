@@ -35,6 +35,7 @@ TextTags.UNIT = {
         { tag = "name", keys = { "name", "name:first", "name:last", "name:abbr" } },
         { tag = "target", keys = { "target", "target:first", "target:last", "target:abbr" } },
         { tag = "level", keys = { "level" } },
+        { tag = "classification", keys = { "classification", "classification:abbr" } },
         { tag = "group", keys = { "group" } },
     },
     keys = {
@@ -61,6 +62,8 @@ TextTags.UNIT = {
         ["target:last"]    = { reads = "tgt", width = 72, sample = "Proudmoore" },
         ["target:abbr"]    = { reads = "tgt", width = 72, sample = "J. Proudmoore" },
         ["level"]          = { reads = "id", width = 24, sample = "80" },
+        ["classification"] = { reads = "id", width = 58, sample = "Elite" },
+        ["classification:abbr"] = { reads = "id", width = 18, sample = "+" },
         ["group"]          = { reads = "roster", width = 10, sample = "3" },
     },
     -- Built on demand: the active locale is resolved only at ADDON_LOADED.
@@ -71,6 +74,7 @@ TextTags.UNIT = {
                 absorb = EllesmereUI.L("Absorb shield"), healabsorb = EllesmereUI.L("Heal absorb"),
                 name = EllesmereUI.L("Unit name"), target = EllesmereUI.L("Name of the unit's target"),
                 level = EllesmereUI.L("Unit level"), group = EllesmereUI.L("Raid group number"),
+                classification = EllesmereUI.L("Elite, Rare, or Rare Elite (abbr: +, R, R+)"),
             },
             mods = {
                 abr = EllesmereUI.L("Abbreviated (132 K)"),
@@ -97,6 +101,8 @@ TextTags.UNIT = {
                 ["target:first"] = EllesmereUI.L("Target, first name"), ["target:last"] = EllesmereUI.L("Target, last name"),
                 ["target:abbr"] = EllesmereUI.L("Target, abbreviated"),
                 ["level"] = EllesmereUI.L("Unit level"), ["group"] = EllesmereUI.L("Raid group"),
+                ["classification"] = EllesmereUI.L("Unit classification"),
+                ["classification:abbr"] = EllesmereUI.L("Unit classification, abbreviated"),
             },
         }
     end,
