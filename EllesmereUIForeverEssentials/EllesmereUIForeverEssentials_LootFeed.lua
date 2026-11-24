@@ -1191,6 +1191,12 @@ local function OnMoney(text)
     if Get("money") then ShowMoney(copper) end
 end
 
+-- Coin from opened containers arrives as a system line ("Received %s.").
+local function OnSystem(text)
+    local coins = Match("ERR_QUEST_REWARD_MONEY_S", text)
+    if coins then OnMoney(coins) end
+end
+
 local function OnFaction(text)
     local faction, amount = Match("FACTION_STANDING_INCREASED", text)
     if faction then return ShowReputation(faction, tonumber(amount)) end
@@ -1207,6 +1213,7 @@ end
 local CHAT_EVENTS = {
     CHAT_MSG_LOOT = { setting = "items", handler = OnLoot, tracked = true },
     CHAT_MSG_MONEY = { setting = "money", handler = OnMoney, tracked = true },
+    CHAT_MSG_SYSTEM = { setting = "money", handler = OnSystem, tracked = true },
     CHAT_MSG_COMBAT_FACTION_CHANGE = { setting = "reputation", handler = OnFaction },
     CHAT_MSG_SKILL = { setting = "skills", handler = OnSkill },
 }
