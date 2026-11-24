@@ -395,6 +395,21 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
+        -- Test Bars: sample rows in every window until pressed again or combat
+        -- starts; they stay after the options close. Not saved. The rebuild
+        -- swaps the button text.
+        if not EllesmereUI._prebuilding then ns._dmPreviewShown = ns._dmPreview == true end
+        _, h = W:DualRow(parent, y,
+            { type="labeledButton", text="Test Bars",
+              buttonText = ns._dmPreview and "Hide Test Bars" or "Show Test Bars",
+              tooltip = "Fills every meter window with sample bars so you can see your changes without a fight. They stay in every shown window after you close the options and go away when you press the button again or enter combat.",
+              onClick = function()
+                  if ns.SetDMPreview then ns.SetDMPreview(not ns._dmPreview) end
+                  EllesmereUI:RefreshPage(true)
+              end },
+            EllesmereUI.BlankRowCfg())
+        y = y - h
+
         -- ── HEADER ──────────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "HEADER", y); y = y - h
 
@@ -2099,6 +2114,14 @@ initFrame:SetScript("OnEvent", function(self)
         return math.abs(y)
     end
 
+    -- Combat start ends the Test Bars while the panel is closed: a cached page
+    -- still says "Hide Test Bars", so rebuild it on the next show.
+    local function SyncTestBarsButton(pageName)
+        if pageName == "Damage Meters" and (ns._dmPreview == true) ~= (ns._dmPreviewShown == true) then
+            EllesmereUI:RefreshPage(true)
+        end
+    end
+
     EllesmereUI:RegisterModule("EllesmereUIDamageMeters", {
         title       = "Damage Meters",
         description = "Custom damage meter using Blizzard's built-in combat data.",
@@ -2125,7 +2148,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
             return BuildPage(pageName, p, yOffset)
         end,
-        onPageCacheRestore = function()
+        onPageCacheRestore = function(pageName)
+            SyncTestBarsButton(pageName)
             ns._optionsOpen = true
             if ns.ShowSATimerPreview and Cfg("standaloneTimer") then ns.ShowSATimerPreview() end
             if ns.ApplySpellHistory then ns.ApplySpellHistory() end
@@ -2152,6 +2176,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- Show preview when panel opens on DM page, hide when panel closes
     EllesmereUI:RegisterOnShow(function()
         if EllesmereUI:GetActiveModule() == "EllesmereUIDamageMeters" then
+            SyncTestBarsButton(EllesmereUI:GetActivePage())
             if ns.ShowSATimerPreview and Cfg("standaloneTimer") then ns.ShowSATimerPreview() end
             ns._optionsOpen = true
             for _, w in ipairs(ns._windows or {}) do

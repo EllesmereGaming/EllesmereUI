@@ -464,6 +464,8 @@ local function CreateDMWindow(winIdx)
         bar.ApplyTextOffsets()
         bar.row:SetScript("OnClick", function(_, button)
             if button == "LeftButton" then
+                -- Test Bars rows have no breakdown.
+                if ns._dmPreview then return end
                 -- In combat, rows open when a PLAIN guid exists for them:
                 -- death recaps (NeverSecret plain ID), the local player's
                 -- own breakdown (own GUID plain), and group members via the
@@ -508,8 +510,8 @@ local function CreateDMWindow(winIdx)
         bar._hl:SetAllPoints(bar.row); bar._hl:SetColorTexture(1, 1, 1, 0.08); bar._hl:Hide()
         bar.row:SetScript("OnEnter", function()
             bar._hl:Show()
-            -- Threat rows (WoW Forever) have no breakdown to show.
-            if W.curDMType == "threat" then return end
+            -- Threat rows (WoW Forever) and Test Bars rows have no breakdown to show.
+            if W.curDMType == "threat" or ns._dmPreview then return end
             -- Deaths without recap: show "no recap available" tooltip
             if W.curDMType == Enum.DamageMeterType.Deaths and bar._src then
                 local rid = bar._src.deathRecapID
@@ -1987,8 +1989,8 @@ local function CreateDMWindow(winIdx)
         -- read. The second-memo repaints on the first tick after it shows again, and a
         -- window's OnShow catch-up refresh runs this at once.
         if not W.timerText or not W.timerText:IsVisible() then return end
-        -- A Threat list (WoW Forever) has no fight clock.
-        if W.curDMType == "threat" then
+        -- A Threat list (WoW Forever) and the Test Bars have no fight clock.
+        if W.curDMType == "threat" or ns._dmPreview then
             if W._timerSec ~= -1 then W._timerSec = -1; W.timerText:SetText("") end
             return
         end
@@ -2034,6 +2036,11 @@ local function CreateDMWindow(winIdx)
             if winIdx == 1 then UpdateSATimerText() end
             -- A live Deaths view still stamps its in-combat death times
             ns._DMHiddenDeathsPass(W)
+            return
+        end
+        -- Test Bars (options button): the sample rows stand in for the session.
+        if ns._dmPreview and ns.DMPreviewSession then
+            RefreshUI(ns.DMPreviewSession(W.curDMType))
             return
         end
         -- WoW Forever's Threat type: Forever Essentials' list, no session fetch.

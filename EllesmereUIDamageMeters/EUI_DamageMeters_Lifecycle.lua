@@ -331,6 +331,8 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         return
     end
     if event == "PLAYER_REGEN_DISABLED" then
+        -- Test Bars outlive the options panel and end with any fight.
+        if ns._dmPreview and ns.SetDMPreview then ns.SetDMPreview(false) end
         -- Ignore post-match cleanup combat after a PvP match ends
         if _G._EUIDM_PvpBlocked and _G._EUIDM_PvpBlocked() then return end
         _combatGen = _combatGen + 1

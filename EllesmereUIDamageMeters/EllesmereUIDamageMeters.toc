@@ -22,6 +22,7 @@ EUI_DamageMeters_Window.lua
 EUI_DamageMeters_Apply.lua
 EUI_DamageMeters_Timer.lua
 EUI_DamageMeters_Lifecycle.lua
+EUI_DamageMeters_Preview.lua
 EllesmereUIDamageMeters_SpellHistory.lua
 EllesmereUIDamageMeters_ForeverThreat.lua
 
