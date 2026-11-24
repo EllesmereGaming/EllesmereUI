@@ -1420,6 +1420,8 @@ local REFRESH_ADDON_STEPS = {
         if _G._EUI_BattleRes_Apply then _G._EUI_BattleRes_Apply() end
         if _G._EUI_Bloodlust_Apply then _G._EUI_Bloodlust_Apply() end
     end,
+    -- QoL Loot Roll Frame (enable state, style, position; both clients)
+    function() if _G._EUI_LootRolls_Apply then _G._EUI_LootRolls_Apply() end end,
     -- AuraBuffReminders (style + refresh + position)
     function()
         if _G._EABR_UpdateGroupAuraRegistration then _G._EABR_UpdateGroupAuraRegistration() end
