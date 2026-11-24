@@ -17,7 +17,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --      stats (its left edge is the divider between the two panes);
 --    - the item slots as on retail: icons cropped by the Icon Zoom setting,
 --      a grey square behind each and a 2px border in the item's quality
---      colour (dark grey when empty), recoloured through Blizzard's own
+--      color (dark grey when empty), recolored through Blizzard's own
 --      per-slot update;
 --    - text beside each slot where retail shows its item level and upgrade
 --      track: the item level (Show Item Level: beside the slot unless set,
@@ -27,12 +27,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --      the enchant name under those, painted through the same per-slot
 --      update; retail's top-left eyeball hides it all for the session;
 --    - the character name and the "Level N Class" line in the house font,
---      as on retail (Blizzard keeps writing the text, so the class colour
+--      as on retail (Blizzard keeps writing the text, so the class color
 --      and the pvp title still come from the client);
 --    - the stats list stays Blizzard's list on Blizzard's scrollbar, whose
 --      track and thumb take the house thin style in place (arrows kept);
---      its category headers and values take the retail sidebar's colour
---      system (per-category colours, the user's overrides from the options
+--      its category headers and values take the retail sidebar's color
+--      system (per-category colors, the user's overrides from the options
 --      page, the thin header bars) through the scroll box's own frame
 --      callbacks, never by touching its data;
 --    - the overall item level (the equipped average) on a line of its own
@@ -51,8 +51,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  Cost: a one-time pass at login on frames that already exist (under Blizz
 --  Default, a one-time text build at the slots' first show instead), then a
---  recolour per element initialisation (what Blizzard does anyway on each
---  stats refresh) and one colour compare plus one item-link compare per slot
+--  recolor per element initialisation (what Blizzard does anyway on each
+--  stats refresh) and one color compare plus one item-link compare per slot
 --  update (Blizzard's own, only while the slots are shown). The one event of
 --  our own, GET_ITEM_INFO_RECEIVED, is registered only while a shown slot
 --  waits on item data the client has not cached yet. Nothing at all while the
@@ -107,7 +107,7 @@ local function Discard(region)
 end
 
 --------------------------------------------------------------------------------
---  Colours: the retail sidebar's category palette, keyed the way the options
+--  Colors: the retail sidebar's category palette, keyed the way the options
 --  page stores overrides (EllesmereUIDB.statCategoryColors[key]). Forever's
 --  categories map onto it; General gets its own cyan, the pet pane's Combat
 --  takes Attack's.
@@ -130,7 +130,7 @@ if STAT_CATEGORY_COMBAT then CATEGORY_KEY[STAT_CATEGORY_COMBAT] = "Attack" end
 local function CategoryColor(categoryName)
     local key = categoryName and CATEGORY_KEY[categoryName]
     local db = EllesmereUIDB
-    -- A custom colour applies only while its "use" flag is on, as on retail.
+    -- A custom color applies only while its "use" flag is on, as on retail.
     local custom = key and db and db.statCategoryUseColor and db.statCategoryUseColor[key]
         and db.statCategoryColors and db.statCategoryColors[key]
     local c = custom or (key and DEFAULT_COLORS[key])
@@ -234,7 +234,7 @@ local function HookStatsList(box)
     end
 end
 
--- Options-page refresh: colour overrides and their use flags land here, on
+-- Options-page refresh: color overrides and their use flags land here, on
 -- the frames alive in both lists. The retail sheet's refresher of the same
 -- name is replaced (it walks retail-only state), so the swatches reach this.
 local STAT_BOXES = { "CharacterStatsPaneScrollBox", "CharacterStatsPanePetScrollBox" }
@@ -270,7 +270,7 @@ local function FadeChildren(frame, Fade)
     end
 end
 
--- The equipped item's quality colour; nothing when the slot is empty.
+-- The equipped item's quality color; nothing when the slot is empty.
 local function QualityColor(slot)
     local quality = GetInventoryItemQuality("player", slot:GetID())
     if quality and not (issecretvalue and issecretvalue(quality)) then
@@ -284,7 +284,7 @@ local function QualityColor(slot)
     end
 end
 
--- The slot border colour: the equipped item's quality, dark grey when empty
+-- The slot border color: the equipped item's quality, dark grey when empty
 -- (the retail sheet's values).
 local function SlotBorderColor(slot)
     local r, g, b = QualityColor(slot)
@@ -303,7 +303,7 @@ end
 --  Slot text where the retail sheet shows the item level and upgrade track:
 --  the item level and the item's main and secondary stat, or its armor when
 --  it has no stats, and the enchant name under it. It reads the retail item
---  level and enchant keys and the retail sizes and colours, so those rows
+--  level and enchant keys and the retail sizes and colors, so those rows
 --  drive it through the refreshers redefined below; the stats have a key of
 --  this client's own (charSheetShowItemStats, off unless true).
 --------------------------------------------------------------------------------
@@ -724,7 +724,7 @@ local function PaintSlotText(slot)
         return
     end
 
-    -- The item's colour as retail colours its item level: the custom colour,
+    -- The item's color as retail colors its item level: the custom color,
     -- else the item's quality (unless turned off), else white.
     local r, g, b = 1, 1, 1
     local custom = DB("charSheetItemLevelUseColor") and DB("charSheetItemLevelColor")
@@ -736,12 +736,12 @@ local function PaintSlotText(slot)
     end
 
     -- Show Item Stats (off unless turned on): the item's stats (or its
-    -- armor), in the upgrade track's colour override, else the item's
-    -- colour. A weapon's damage per second rides the same key and colour.
+    -- armor), in the upgrade track's color override, else the item's
+    -- color. A weapon's damage per second rides the same key and color.
     local showStats = DB("charSheetShowItemStats") == true
     local statText = showStats and StatText(link) or ""
     stats:SetText(statText)
-    -- Item level (retail's key, on unless false) in the item's colour, as
+    -- Item level (retail's key, on unless false) in the item's color, as
     -- on retail.
     local level = DB("showItemLevel") ~= false and C_Item.GetDetailedItemLevelInfo(link)
     local shown = level and level > 0 or false
@@ -772,7 +772,7 @@ local function PaintSlotText(slot)
 
     -- Vanilla enchants carry no icon, so the name always shows; Enchants set
     -- to Colored Text gives it retail's name look (outlined, tinted from the
-    -- item's colour). Capped at 45% of the gap between the columns, as on
+    -- item's color). Capped at 45% of the gap between the columns, as on
     -- retail, less Blizz Default's extra inset on each side (so the two
     -- columns' enchants keep a gap in the middle).
     local name = DB("showEnchants") ~= false and EnchantName(slotID) or ""
@@ -940,13 +940,13 @@ end
 -- One slot's dress, the same on this sheet and on the inspect sheet
 -- (ns.ForeverSkinSlot): the bronze frame and the button art off, the quality
 -- ring collapsed, the icon cropped, a grey square behind it and a 2px border
--- that the sheet colours by its item. Once per slot.
+-- that the sheet colors by its item. Once per slot.
 local function DressSlot(slot, slotName, Fade)
     if GetFFD(slot).done then return end
     GetFFD(slot).done = true
     -- The bronze slot frame lives on a child frame; the button art is the
     -- named NormalTexture (hidden, not faded: the client rewrites its vertex
-    -- colour, and with it the alpha, on every item update).
+    -- color, and with it the alpha, on every item update).
     if slot.BorderFrame then
         Fade(slot.BorderFrame)
     else
@@ -961,7 +961,7 @@ local function DressSlot(slot, slotName, Fade)
     end
     local normal = _G[slotName .. "NormalTexture"] or (slot.GetNormalTexture and slot:GetNormalTexture())
     if normal then normal:Hide() end
-    -- Blizzard's quality ring gets re-shown and recoloured on every item
+    -- Blizzard's quality ring gets re-shown and recolored on every item
     -- update, so it is collapsed onto one blank texel instead of hidden.
     if slot.IconBorder then slot.IconBorder:SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8) end
     -- The item icon is the button's own; the ammo slot also declares a
@@ -991,7 +991,7 @@ local function SkinSlot(slotName, Fade)
     if GetFFD(slot).border then ColorSlotBorder(slot) end
 end
 
--- The inspect sheet's slots: the same dress, the border coloured by that
+-- The inspect sheet's slots: the same dress, the border colored by that
 -- sheet from the inspected item. Its styling pass runs on every show and
 -- every arrival of inspect data, so the icon crop is set again on each call.
 function ns.ForeverSkinSlot(slot, slotName)
@@ -1190,7 +1190,7 @@ local function SkinFrame()
 
     -- Name in the top bar and the level lines (the player's and the pet
     -- view's): the house font on Blizzard's own font strings, so the text
-    -- (pvp title, class colour) stays theirs.
+    -- (pvp title, class color) stays theirs.
     local title = _G.CharacterFrameTitleText or (frame.TitleContainer and frame.TitleContainer.TitleText)
     if title and WSkin.Font then WSkin.Font(title, 1, 1, 1) end
     local level = _G.CharacterLevelText
@@ -1262,7 +1262,7 @@ local function SkinFrame()
     end
     HookSlotUpdates()
 
-    -- Stats list colours.
+    -- Stats list colors.
     HookStatsList(_G.CharacterStatsPaneScrollBox)
     HookStatsList(_G.CharacterStatsPanePetScrollBox)
     BuildAverage(frame)

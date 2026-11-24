@@ -484,7 +484,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             return n
         end
         -- literal: the Target content's padded prefix in place of the
-        -- separator ("" = none); plain: the name in the slot colour.
+        -- separator ("" = none); plain: the name in the slot color.
         local function _pvTargetSuffix(literal, plain)
             local _, ct = UnitClass("player")
             local cc = ct and EllesmereUI.GetClassColor(ct)
@@ -530,13 +530,14 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         elseif content == "level" or content == "levelname" or content == "namelevel" then
             local lvl = UnitLevel("player")
             lvl = (type(lvl) == "number" and lvl > 0) and tostring(lvl) or "80"
+            local levelText = s and s.levelClassification and (lvl .. "+") or lvl
             -- Level Difficulty Color: sample as an attackable unit of your level.
             if s and s.levelDifficultyColor then
-                lvl = EllesmereUI.ColorText(lvl, EllesmereUI.GetLevelDifficultyColor(tonumber(lvl), true))
+                levelText = EllesmereUI.ColorText(levelText, EllesmereUI.GetLevelDifficultyColor(tonumber(lvl), true))
             end
-            if content == "level" then return lvl
-            elseif content == "levelname" then return lvl .. " | " .. _pvName()
-            else return _pvName() .. " | " .. lvl end
+            if content == "level" then return levelText
+            elseif content == "levelname" then return levelText .. " | " .. _pvName()
+            else return _pvName() .. " | " .. levelText end
         elseif content == "both" or content == "bothdash" or content == "curhpshort" or content == "healthshort" or content == "curmaxhp" or content == "perhp" or content == "perhpnosign" or content == "perhpnum" or content == "perhpnumdash" then
             local maxHP = UnitHealthMax("player") or 1
             local pct = optState._previewHealthPct or 0.70
@@ -604,6 +605,8 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 elseif key == "target" then v = "Target"
                 elseif key == "group" then v = "3"
                 elseif key == "level" then v = PreviewTextForContent("level", s, prefix)
+                elseif key == "classification" or key == "classification:abbr" then
+                    v = ns.UF_TextTags.schema.keys[key].sample
                 elseif key == "hp" then v = tostring(curHP)
                 elseif key == "hp:abr" then v = _pvAbbrev(curHP, "health")
                 elseif key == "hp:max" then v = tostring(maxHP)
@@ -1803,7 +1806,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         if pf._levelOv then pf._levelOv:SetShown(lvOn and true or false) end
 
         -- Health bar at the stock spot; horizontal fill (the stock track has
-        -- no vertical variant); colours, texture, gradient, opacity as set.
+        -- no vertical variant); colors, texture, gradient, opacity as set.
         health:ClearAllPoints()
         ns.UF_BlizzPoint(health, "TOPLEFT", barArea, "TOPLEFT", HB.x, -HB.y, mirror)
         health:SetSize(HB.w, HB.h)
@@ -4010,7 +4013,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         end
         -- Color Custom Borders: while the Magic border copy shows, both
         -- separators are tinted Magic at full opacity in place, as the live
-        -- copies draw them (the two passes above reset the border colour
+        -- copies draw them (the two passes above reset the border color
         -- first), so the preview does not depend on copy-frame draw order
         -- inside the options panel.
         if pf._pvDispelBorder and pf._pvDispelBorder:IsShown() then
@@ -4177,7 +4180,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 end
                 local _, classToken = UnitClass("player")
                 -- Custom combat icons (combat0..5) render untinted; Standard/Class
-                -- Theme are tinted by the colour mode below.
+                -- Theme are tinted by the color mode below.
                 if ciStyle:find("^combat%d") then
                     combatInd:SetTexture(COMBAT_MEDIA_P .. ciStyle .. ".tga")
                     combatInd:SetTexCoord(0, 1, 0, 1)

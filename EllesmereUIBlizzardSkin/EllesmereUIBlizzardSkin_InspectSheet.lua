@@ -110,7 +110,7 @@ local function ForeverSlotLabels(slot, slotName, slotID, unit, itemLink, overlay
     local side = FV_WEAPON[slotName] or (isRightColumn and "L" or "R")
     local weapon = FV_WEAPON[slotName] ~= nil
 
-    -- Item level, in the item's colour; inside an icon it is always outlined.
+    -- Item level, in the item's color; inside an icon it is always outlined.
     local ilvl
     local level = db.inspectShowItemLevel ~= false and C_Item.GetDetailedItemLevelInfo(itemLink)
     local iconPoint, iconY = ns.ForeverIlvlIcon(db.inspectItemLevelPos or "beside")
@@ -130,8 +130,8 @@ local function ForeverSlotLabels(slot, slotName, slotID, unit, itemLink, overlay
     end
     local head = not iconPoint and ilvl or nil  -- the item level when it heads the first line
 
-    -- Stats (or armor) and a weapon's damage per second, in the item's colour
-    -- unless the upgrade track has a colour of its own.
+    -- Stats (or armor) and a weapon's damage per second, in the item's color
+    -- unless the upgrade track has a color of its own.
     local showStats = db.inspectShowItemStats == true
     local sc = db.charSheetUpgradeTrackUseColor and db.charSheetUpgradeTrackColor or c
     local size = db.charSheetUpgradeTrackSize or 11
@@ -143,7 +143,7 @@ local function ForeverSlotLabels(slot, slotName, slotID, unit, itemLink, overlay
         path, size, flags, db.charSheetUpgradeTrackShadow, sc) or nil
     d.dpsText = dps
 
-    -- Enchant name: plain, or outlined and tinted from the item's colour
+    -- Enchant name: plain, or outlined and tinted from the item's color
     -- under Colored Text; capped at 45% of the gap between the two columns.
     local ench, pending = nil, false
     if db.inspectShowEnchants ~= false then
@@ -981,7 +981,7 @@ local function SkinInspectSheet()
     for _, slotName in ipairs(EUI_ALL_SLOTS) do
         local slot = _G[slotName]
         -- WoW Forever: the slot dress of that client's character sheet (the
-        -- bronze frame off, a grey square and a 2px border coloured by the
+        -- bronze frame off, a grey square and a 2px border colored by the
         -- item in EUI_UpdateSlotStyle).
         if slot and ns.ForeverSkinSlot then
             slot:Show()

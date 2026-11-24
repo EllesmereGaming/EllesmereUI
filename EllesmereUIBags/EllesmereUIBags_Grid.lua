@@ -1515,6 +1515,18 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
         local hiddenSet = BP().bagHiddenInAllItems or {}
         -- A turned-off category shows no section (its items are in the catch-all's)
         local dc = BP().bagDisabledCategories
+        -- Separated set categories (Split Set Gear by Set's Separate Sets in Bags) draw
+        -- right after their Item Set Gear anchor's section, or the section of the group
+        -- holding it: they move with it in the sidebar and hide with it (a set
+        -- category's own index is fixed until the list is built again).
+        local function RenderSetSections()
+            if EUI_CategoryManager:FoldSetChildren() then return end
+            for si, sc in ipairs(cats) do
+                if sc.isEquipSet and not EUI_CategoryManager:IsCategoryOff(sc, dc) then
+                    RenderSection(sc.name, itemsByCat[si] or {}, false, nil, nil, si, true)
+                end
+            end
+        end
         for ci, cat in ipairs(cats) do
             if cat.isPinned then
                 -- Pinned Items quickview
@@ -1576,15 +1588,19 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                         local firstOn = EUI_CategoryManager:FirstOnMember(cat.groupName, dc)
                         if firstOn then
                             RenderSection(cat.groupName, merged, false, nil, nil, firstOn, true)
+                            for _, mi in ipairs(members) do
+                                local mc = cats[mi]
+                                if mc and mc.isSetGear and not mc.isEquipSet then
+                                    if not EUI_CategoryManager:IsCategoryOff(mc, dc) then RenderSetSections() end
+                                    break
+                                end
+                            end
                         end
                     end
                 end
             elseif cat.isEquipSet then
-                -- Set children render inside their anchor's section unless separated
-                if not EUI_CategoryManager:FoldSetChildren() and not hiddenSet["Item Set Gear"]
-                    and not EUI_CategoryManager:IsCategoryOff(cat, dc) then
-                    RenderSection(cat.name, itemsByCat[ci] or {}, false, nil, nil, ci, true)
-                end
+                -- Set children render inside their anchor's section, or right after it
+                -- when separated (RenderSetSections), never at their own place
             else
                 if not hiddenSet[cat._defaultName] and not EUI_CategoryManager:IsCategoryOff(cat, dc) then
                     local catItems = itemsByCat[ci] or {}
@@ -1604,6 +1620,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                     end
                     local isUserCreated = cat.isUserCreated
                     RenderSection(cat.name, catItems, isUserCreated, cat.isPinned, cat.isRecent, ci, true, cat.isReagentBag)
+                    if cat.isSetGear then RenderSetSections() end
                 end
             end
         end

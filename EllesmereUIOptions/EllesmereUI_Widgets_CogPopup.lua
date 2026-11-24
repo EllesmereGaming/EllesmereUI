@@ -1495,7 +1495,7 @@ local function BuildCogPopup(opts)
                 end
             end)
             btn:SetScript("OnClick", function()
-                -- A footer action writes settings (a colour reset): captured by
+                -- A footer action writes settings (a color reset): captured by
                 -- Spec Overrides as the rows' and swatches' writes are.
                 local f = popupOwner or opts.captureRegion
                 local snap = EllesmereUI._SOAttribution(f)
@@ -1558,7 +1558,7 @@ local function BuildCogPopup(opts)
                         rw.box:SetText(rw.get())
                         if rw.leftJustify then rw.box:SetCursorPosition(0) end
                     end
-                    -- Re-apply save button colour for the current theme
+                    -- Re-apply save button color for the current theme
                     if rw.saveBg then
                         rw.saveBg:SetColorTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 0.85)
                     end

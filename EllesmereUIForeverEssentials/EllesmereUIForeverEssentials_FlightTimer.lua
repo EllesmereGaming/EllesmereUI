@@ -226,7 +226,7 @@ local function LayoutRoute(b, fl)
     b.over:SetFrameLevel(level)
     b.clip:SetFrameLevel(level)
 
-    -- The ends: a dot in the fill colour (Show End Caps) with the node's name
+    -- The ends: a dot in the fill color (Show End Caps) with the node's name
     -- above it; a hidden dot still places its name.
     local caps = Get("showEndCaps")
     for i = 1, 2 do
@@ -393,7 +393,7 @@ local function StyleBar(b, fl)
     b:SetSize(Get("width"), BoxHeight())
     track:SetHeight(Get("trackHeight"))
     track:SetStatusBarTexture(EllesmereUI.ResolveTexturePath(BAR_TEXTURES, Get("texture"), WHITE))
-    -- The fill's one alpha owner: a texture's SetAlpha and its colour alpha
+    -- The fill's one alpha owner: a texture's SetAlpha and its color alpha
     -- are the same channel. A plain SetValue does not reliably take the fill
     -- back from an armed SetTimerDuration, so an elapsed-only flight hides it.
     local cr, cg, cb = FillColor()

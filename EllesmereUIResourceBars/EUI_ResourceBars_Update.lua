@@ -217,7 +217,7 @@ local function UpdatePrimaryBar()
     -- Config resolution cache: ResolvePowerCfg/ResolveThresholdSpecEntry/
     -- ResolveBandConfig walk profile tables and only change on a profile edit,
     -- spec swap or form change, but power events fire a dozen times/sec while
-    -- casting -- and this pair sat above the "is threshold colouring even on"
+    -- casting -- and this pair sat above the "is threshold coloring even on"
     -- branch, so it ran in full for users with the feature off. Resolve once per
     -- config generation (bumped by ApplyAll).
     local pc = ns.PPC
@@ -2288,7 +2288,7 @@ local function UpdateSecondaryResource()
                     -- fill's moving edge so it covers only the empty remainder,
                     -- never reading the secret value. _fillOp is nil at 100.
                     -- Factor 1 (Background on individual pips) keeps the
-                    -- colour alpha each SetStatusBarColor above wrote.
+                    -- color alpha each SetStatusBarColor above wrote.
                     if pip._fillOp then
                         local _fo = pip._fillOp < 1 and pip._fillOp
                         local _sft = pip._secretBar:GetStatusBarTexture()

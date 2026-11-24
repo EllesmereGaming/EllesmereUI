@@ -1127,7 +1127,7 @@ local function DarkenColor(r, g, b, factor)
     return r * factor, g * factor, b * factor
 end
 -- Out-of-combat darkening, gated by "Modify Out of Combat". On (default): enemies
--- confirmed in combat (clean boolean) keep full colour, out-of-combat/secret states darken --
+-- confirmed in combat (clean boolean) keep full color, out-of-combat/secret states darken --
 -- or, with "Change Color", take the flat Out of Combat Color rather than dimming.
 local function MaybeDarken(r, g, b, inCombat)
     local on = (p and p.darkenEnemiesOOC)

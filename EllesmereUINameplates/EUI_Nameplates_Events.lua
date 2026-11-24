@@ -261,7 +261,7 @@ factionFrame:SetScript("OnEvent", function(_, event, unit)
     end
     -- Tap state changes arrive here, not on any per-plate event. WoW
     -- Forever's level box follows too: whether a unit can be attacked picks
-    -- its level's colour, and the player's own faction moves every one.
+    -- its level's color, and the player's own faction moves every one.
     local plate = ns.plates[unit]
     if plate then
         plate:UpdateHealthColor()

@@ -211,6 +211,10 @@ local function Activate()
             localeData[fbCode] = nil
         end
         if src then
+            -- Keys written with the British "colour": each also serves the same
+            -- text in the American spelling the UI uses (collected here, added
+            -- below: a table must not gain keys while pairs walks it).
+            local british
             -- Resolve the "= true" keep-English sentinel and build the reverse map.
             for k, v in pairs(src) do
                 if v == true then src[k] = k; v = k end
@@ -219,6 +223,30 @@ local function Activate()
                 if type(v) == "string" and type(k) == "string"
                     and (not reverse[v] or (k == k:upper() and reverse[v] ~= reverse[v]:upper())) then
                     reverse[v] = k
+                end
+                if type(k) == "string" and (k:find("olour", 1, true) or k:find("OLOUR", 1, true)) then
+                    british = british or {}
+                    british[#british + 1] = k
+                end
+            end
+            -- A translation keyed by the British spelling of a text keeps
+            -- working for that text in the American spelling, so a locale file
+            -- written against the older wording needs no edit. A key the
+            -- locale already has in the American spelling wins.
+            if british then
+                for i = 1, #british do
+                    local old = british[i]
+                    local new = old:gsub("colour", "color")
+                    new = new:gsub("Colour", "Color")
+                    new = new:gsub("COLOUR", "COLOR")
+                    if new ~= old and src[new] == nil then
+                        local v = src[old]
+                        if v == old then v = new end   -- "= true": the text stays in English
+                        src[new] = v
+                        if type(v) == "string" and (reverse[v] == nil or reverse[v] == old) then
+                            reverse[v] = new
+                        end
+                    end
                 end
             end
         end

@@ -781,10 +781,10 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             -- untouched. item.showLockedFn dims the show lane; while it is locked, row clicks
             -- fall through to the hide lane (broad "All" modes already show everything).
             local negBox, negBrd, negChk = row._negBox, row._negBrd, row._negChk
-            -- Opt-in colour swatch (item.swatch = { get = fn -> r, g, b, a, set = fn(r, g, b, a),
+            -- Opt-in color swatch (item.swatch = { get = fn -> r, g, b, a, set = fn(r, g, b, a),
             -- hasAlpha, disabled = fn, disabledTooltip (+ rawTooltip / requireState, as
             -- ResolveDisabledTip) }): its own button at the row's right edge, so a click
-            -- opens the colour picker and never toggles the row. While disabled it dims
+            -- opens the color picker and never toggles the row. While disabled it dims
             -- and a blocker takes its clicks and explains the requirement.
             local sw, swUpdate, swBlock = row._sw, row._swUpdate, row._swBlock
             if sw then row._swSpec = item.swatch end
@@ -1032,7 +1032,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                     sealLbl:SetPoint("TOPRIGHT", seal, "TOPRIGHT", -6, -5)
                     sealLbl:SetText(EllesmereUI.L("Not overridable"))
                     -- The section header's divider line runs straight THROUGH the caption at
-                    -- this height. A plate in the menu's own background colour cuts the line
+                    -- this height. A plate in the menu's own background color cuts the line
                     -- for the width of the text: the seal sits at a higher frame level than
                     -- the header, so anything it draws covers that line.
                     local plate = seal:CreateTexture(nil, "ARTWORK", nil, 6)
@@ -1261,7 +1261,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         -- Track the open menu globally so popup outside-click watchers don't treat clicks on rows that extend below the popup as a dismissing outside click.
         EllesmereUI._openDropdownMenu = menu
         menu:SetScript("OnUpdate", function(self)
-            -- Close when left-clicking outside the menu and button. The shared colour
+            -- Close when left-clicking outside the menu and button. The shared color
             -- picker is a separate popup a row swatch opens: working in it keeps the menu.
             local cp = EllesmereUI._colorPickerPopup
             if not self:IsMouseOver() and not ddBtn:IsMouseOver() and IsMouseButtonDown("LeftButton")

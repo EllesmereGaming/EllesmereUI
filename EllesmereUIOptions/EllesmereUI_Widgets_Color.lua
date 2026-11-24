@@ -265,7 +265,7 @@ local function BuildColorPickerPopup()
     local EDGE_R, EDGE_G, EDGE_B = 0.077 * 0.94 + 0.06, 0.068 * 0.94 + 0.06, 0.058 * 0.94 + 0.06
     -- The three layers stay square: a mask on each let the hue show through
     -- the partly drawn gradients at the edge (a red rim). The cover in the
-    -- popup's colour rounds them, and they fill the outline's whole-pixel
+    -- popup's color rounds them, and they fill the outline's whole-pixel
     -- seat, so no part of an edge pixel lies outside it.
     local svEdge = EllesmereUI.MakeRoundedBorder(svPad, EDGE_R, EDGE_G, EDGE_B, 1)
     svEdge:SetCover(0.077, 0.068, 0.058)
@@ -424,7 +424,7 @@ local function BuildColorPickerPopup()
     alphaBar:SetScript("OnMouseUp", function(self) alphaDragging = false; self:SetScript("OnUpdate", nil) end)
 
     -- Controller cursor: the three pads read the pointer position, which its presses
-    -- do not move, so they are skipped (Hex#, Opacity and the swatches set colours);
+    -- do not move, so they are skipped (Hex#, Opacity and the swatches set colors);
     -- the drag bar is no stop, and Cancel clicks the close button.
     if EllesmereUI.PadCP() then
         EllesmereUI.PadHint(svPad, "nodeignore")
@@ -773,8 +773,8 @@ local function BuildColorPickerPopup()
         popup:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x, y)
         EllesmereUI._colorPickerOpen = true
         RefreshSwatchRows()
-        -- A hex typed then cancelled with Escape leaves this cache on the old colour: reset it
-        -- so each open writes the box from the colour being edited.
+        -- A hex typed then cancelled with Escape leaves this cache on the old color: reset it
+        -- so each open writes the box from the color being edited.
         lastHexR, lastHexG, lastHexB = -1, -1, -1
         popup:Show(); UpdateAllControls()
         -- Controller cursor: into the picker, on OK (its first stop would be the close box).

@@ -509,8 +509,8 @@ function ShowFriendsTooltip(anchor)
             FTTNameFont(row.name, 10)
             row.zone:SetFont(font, 10, "")
 
-            -- The suite's class colours (a custom one included); a class the client
-            -- does not know stays uncoloured.
+            -- The suite's class colors (a custom one included); a class the client
+            -- does not know stays uncolored.
             local cc = e.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[e.class]
                 and EllesmereUI.GetClassColor(e.class)
             local colored = cc and EllesmereUI.ColorText(e.name, cc.r, cc.g, cc.b) or e.name

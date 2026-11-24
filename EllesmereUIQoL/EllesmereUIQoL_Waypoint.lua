@@ -151,7 +151,7 @@ end
 --  Links
 -------------------------------------------------------------------------------
 -- The link C_Map.GetUserWaypointHyperlink builds: x, y in 0..100 travel as
--- 0..10000, in the colour every worldmap link takes.
+-- 0..10000, in the color every worldmap link takes.
 local function PinLink(mapID, x, y)
     return ("|cffffff00|Hworldmap:%d:%d:%d|h[%s]|h|r"):format(mapID,
         math.floor(x * 100 + 0.5), math.floor(y * 100 + 0.5), MAP_PIN_HYPERLINK)

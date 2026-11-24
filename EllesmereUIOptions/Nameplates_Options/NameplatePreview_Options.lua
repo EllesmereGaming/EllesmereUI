@@ -211,10 +211,10 @@ local function ChainPreview(cx)
     end
 end
 
--- Core Text slot colours by the slot's Text Coloring mode. The preview is a
+-- Core Text slot colors by the slot's Text Coloring mode. The preview is a
 -- hostile NPC at the player's level: Hostility / Class shows the Hostile name
--- colour, Level Difficulty that level's difficulty colour (friendly levels
--- included, as the player stands in for the mob), Custom the slot colour.
+-- color, Level Difficulty that level's difficulty color (friendly levels
+-- included, as the player stands in for the mob), Custom the slot color.
 -- File level, so the custom text popup (DisplayLayout_Options.lua) shares it
 -- without holding a preview build. PV_LVL_COLOR is reused by every level read.
 local PV_LVL_COLOR = { r = 1, g = 1, b = 1 }
@@ -519,7 +519,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
         gf:Hide()
     end
 
-    -- "Highlight" wash across the health bar: the Target Effect's, or the Hover Effect's while no Hover Texture is picked. previewGlow.state colours, layers and shows it.
+    -- "Highlight" wash across the health bar: the Target Effect's, or the Hover Effect's while no Hover Texture is picked. previewGlow.state colors, layers and shows it.
     previewGlow.highlight = health:CreateTexture(nil, "OVERLAY", nil, 5)
     previewGlow.highlight:SetAllPoints(health)
     previewGlow.highlight:Hide()
@@ -573,7 +573,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
     hpNumber:SetText(hpNumStr)
     hpNumber:Hide()
 
-    -- Standalone level FontString mirrors the live plate's levelText; the player's level stands in for the mob level. Plain text: its colour comes from the slot's Text Coloring mode (previewGlow.slotColor).
+    -- Standalone level FontString mirrors the live plate's levelText; the player's level stands in for the mob level. Plain text: its color comes from the slot's Text Coloring mode (previewGlow.slotColor).
     local lvlText = healthTextFrame:CreateFontString(nil, "OVERLAY")
     SetPVFont(lvlText, FONT_PATH, 10, GetNPOptOutline())
     lvlText:SetPoint("CENTER", health, "CENTER", 0, 0)
@@ -602,8 +602,8 @@ local function BuildNameplatePreview(parent, parentW, mode)
     pf._totSample = function(slotKey)
         return ns.NP_FormatName(EllesmereUI.WithSurname(UnitName("player")) or "", slotKey)
     end
-    -- Its colour: in Class mode the player's class colour (the sample target),
-    -- else the slot colour passed in.
+    -- Its color: in Class mode the player's class color (the sample target),
+    -- else the slot color passed in.
     pf._totSampleColor = function(slotKey, r, g, b)
         if slotKey and ns.NP_SlotColorMode(slotKey, DB()) == "class" then
             local _, ct = UnitClass("player")
@@ -870,7 +870,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
             box:SetSize(L.w, bh)
             SetPVFont(box._fs, FONT_PATH, ns.NP_ForeverLevelFont(bh), GetNPOptOutline())
             -- Its border on the target and focus previews, in that state's
-            -- colour (as live, ns.NP_ForeverLevelSel).
+            -- color (as live, ns.NP_ForeverLevelSel).
             if box._sel then
                 local sc = (pf._mode == "target" and L.target) or (pf._mode == "focus" and L.focus) or nil
                 if sc then box._sel:SetVertexColor(sc[1], sc[2], sc[3]) end
@@ -1184,7 +1184,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
 
     -- Icon Borders cog (Custom Border on Aura Icons / on Spell Icon), as the live plates
     -- draw them: an owned border child over the icon in place of its 1px edges, the aura
-    -- icon inset at 0, the plate's custom border style, size (exact px included), colour
+    -- icon inset at 0, the plate's custom border style, size (exact px included), color
     -- and offsets. Update calls it after the 1px edge and inset refreshes and the cast
     -- icon layout, and it overrides them only where a custom icon border draws. Stashed on
     -- previewGlow (already an Update upvalue) so Update gains no upvalue.
@@ -1193,7 +1193,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
         local sTex, sPath, sSz, sPx, sR, sG, sB, sA, sOX, sOY, sSX, sSY, sMult
         -- One icon, built once. ApplyBorderStyle runs only when an input it draws from
         -- changed since this icon's last paint: texture key and its resolved file, size
-        -- step, exact px, colour and alpha, offsets, shifts, the pixel grid, the icon's
+        -- step, exact px, color and alpha, offsets, shifts, the pixel grid, the icon's
         -- effective scale (the anchor snap), its frame level, or its shown state. The
         -- 1px edges and the inset are reset by every Update pass, so they are overridden
         -- on every pass.
@@ -1280,7 +1280,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
             end
         end
     end
-    -- Core Text slot colours (file level, shared with the custom text popup).
+    -- Core Text slot colors (file level, shared with the custom text popup).
     previewGlow.slotColor = ns.NPO_PreviewSlotColor
 
     -- Cached position values for the health bar anchor (see health block).
@@ -1293,7 +1293,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
     -------------------------------------------------------------------
     -- Target Effect / Hover Effect on the border (NameplateFrame:ApplyTarget,
     -- ns.ApplyHoverExtras): the Border Size channel's size and the Border Color
-    -- channel's colour, each nil while its channel is off or the plate is in no
+    -- channel's color, each nil while its channel is off or the plate is in no
     -- such state. Update's border passes draw the border with them.
     previewGlow.fxBorder = function(m)
         local P = (m == "target" and "Target") or (m == "hover" and "Hover") or nil
@@ -1350,7 +1350,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
         PP.Point(previewGlow.frame, "TOPLEFT", healthWrapper, "TOPLEFT", -previewGlow.extend, previewGlow.extend)
         PP.Point(previewGlow.frame, "BOTTOMRIGHT", healthWrapper, "BOTTOMRIGHT", previewGlow.extend, -previewGlow.extend)
         -- Paints the state m ("target" | "focus" | "hover") over the plate Update
-        -- laid out: the texts are placed and the bar wears its colour.
+        -- laid out: the texts are placed and the bar wears its color.
         previewGlow.state = function(m, fontPath, npOutline)
             local P = (m == "target" and "Target") or (m == "hover" and "Hover") or nil
             -- EUI Glow (ApplyTarget, ns.ApplyHoverExtras): the background glow, tinted
@@ -1369,7 +1369,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
             end
             -- Target / Focus / Hover Texture (UpdateHealthColor's overlay passes,
             -- ns.ShowHoverEffect): the hover one rides the Hover Effect's Highlight
-            -- channel and takes that channel's colour and opacity.
+            -- channel and takes that channel's color and opacity.
             local pre = m .. "Overlay"
             local tex = DBVal(pre .. "Texture")
             if m == "hover" and not ns.GetHoverGlowHighlight() then tex = "none" end
@@ -1378,7 +1378,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                 local a = DBVal(m == "hover" and "hoverAlpha" or (pre .. "Alpha"))
                 local c = DBVal(m == "hover" and "hoverColor" or (pre .. "Color"))
                 local r, g, b = c.r, c.g, c.b
-                -- No Tint: the bar's own colour.
+                -- No Tint: the bar's own color.
                 if m ~= "hover" and DBVal(pre .. "NoTint") then r, g, b = health:GetStatusBarColor() end
                 local path = ns.ResolveOverlayTexPath(tex)
                 -- A stripe pattern is cropped to the bar's share of its 200px span.
@@ -1568,7 +1568,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
         local pcb = healthWrapper._customBorder
         -- The Target Effect's or Hover Effect's Border Size and Border Color, as live:
         -- the border is drawn at that size (never the exact pixel size, which is the
-        -- plate's own) and in that colour, opaque.
+        -- plate's own) and in that color, opaque.
         local fxSz, fxCol = previewGlow.fxBorder(self._mode)
         if customOn then
             -- Custom border (shared engine) replaces the simple preview border.
@@ -2469,7 +2469,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                 end
             end
         end
-        -- Preview sample for whichever name-family variant is slotted (player level stands in for mob level), run after slot branches so text re-flows under the new justify (SetJustifyH alone won't re-flow it). The name slot's key carries its Level | Name part colours.
+        -- Preview sample for whichever name-family variant is slotted (player level stands in for mob level), run after slot branches so text re-flows under the new justify (SetJustifyH alone won't re-flow it). The name slot's key carries its Level | Name part colors.
         ns.SetNameElementText(nameFS,
             (ns.IsNameElement(slotTop) and slotTop)
             or (ns.IsNameElement(slotRight) and slotRight)

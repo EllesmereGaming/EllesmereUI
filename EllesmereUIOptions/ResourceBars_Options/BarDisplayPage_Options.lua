@@ -1212,8 +1212,8 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                         },
                     })
                     if not EllesmereUI._prebuilding then
-                        -- Text colour, left of the text cog: custom colour or the
-                        -- mana colour, like the Power Text swatches.
+                        -- Text color, left of the text cog: custom color or the
+                        -- mana color, like the Power Text swatches.
                         EllesmereUI.BuildInlineSwatches(fdmRow._rightRegion, {
                             { tooltip = "Custom Colored",
                               hasAlpha = true,
@@ -1392,7 +1392,7 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
         end
         _, h = W:DualRow(parent, y,
             { type = "dropdown", text = "Countdown Format",
-              tooltip = "Seconds counts the time down in tenths. GCD Count counts whole global cooldowns instead, so inside Arcane Soul it reads as the number of Arcane Barrages that still fit, ending on a coloured LAST. Seconds + GCD in Soul mixes the two: tenths counting down to the window, Barrage count once it opens.",
+              tooltip = "Seconds counts the time down in tenths. GCD Count counts whole global cooldowns instead, so inside Arcane Soul it reads as the number of Arcane Barrages that still fit, ending on a colored LAST. Seconds + GCD in Soul mixes the two: tenths counting down to the window, Barrage count once it opens.",
               disabled = asOff, disabledTooltip = AS_TIP,
               values = asFormatValues, order = asFormatOrder,
               getValue = function() local p = DB(); return p and p.arcaneSoul.countMode or "seconds" end,

@@ -3,8 +3,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EUI_MythicTimer_KickBars.lua
 --  Kick Tracker (Mythic+ Tools), the bars: one movable group with a row per
 --  group member who has an interrupt (you included), in roster order: the
---  interrupt's icon, the member's name on a bar in their class colour over a
---  darkened class colour (or a custom colour), and, while their interrupt is
+--  interrupt's icon, the member's name on a bar in their class color over a
+--  darkened class color (or a custom color), and, while their interrupt is
 --  on cooldown, the seconds left on the right with its bar draining to the
 --  left as the cooldown runs (full again once it is back). The
 --  cooldowns are the kick engine's (ns.KickEngine): from each member's class,
@@ -71,7 +71,7 @@ local WHERE_KEYS = MTWhere.NewKeySet(KE.WHERE_LIST)
 local DEFAULT_X, DEFAULT_Y = -340, -120
 local TICK = 0.1            -- seconds text repaint while a row is on cooldown
 local TENTHS_BELOW = 10     -- seconds left shown with a tenth under this
-local BG_CLASS_DARK = 0.3   -- the class colour's share in the Dark Class Color background
+local BG_CLASS_DARK = 0.3   -- the class color's share in the Dark Class Color background
 local BG_CLASS_ALPHA = 0.9
 local MARKER_GAP = 3        -- the interrupted mob's raid marker sits this far outside the row
 local MARKER_MAX = 24       -- the marker's largest size
@@ -302,9 +302,9 @@ end
 --------------------------------------------------------------------------------
 --  Paint
 --------------------------------------------------------------------------------
--- The member: their interrupt's icon, name and class colour, the row's
--- background a darkened class colour or the custom colour. cls plain. A
--- layer's row also has its backing: the background's colour made opaque.
+-- The member: their interrupt's icon, name and class color, the row's
+-- background a darkened class color or the custom color. cls plain. A
+-- layer's row also has its backing: the background's color made opaque.
 local function PaintMember(holder, cfg, cls, kick, name)
     local tex = kick and C_Spell.GetSpellTexture(kick)
     if tex then holder.icon:SetTexture(tex) else holder.icon:SetTexture(WHITE) end

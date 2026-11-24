@@ -175,10 +175,10 @@ end
 -------------------------------------------------------------------------------
 -- A row's eye in the highlight cogs puts that entry on a sample: the players'
 -- entries on the player sample, the NPCs' and their pets' on the NPC sample,
--- which becomes a pet for a pet entry. The colour comes from the catalog by
+-- which becomes a pet for a pet entry. The color comes from the catalog by
 -- that key (EUI_Nameplates_AlliedColors.lua), so a sample can never disagree
 -- with a live plate; with no eye on, the sample is the plain unit. Name Only
--- only -- the health bar plate colours its name by its own settings.
+-- only -- the health bar plate colors its name by its own settings.
 local function PreviewIsPet(key)
     if not (key and ns.Allied and ns.Allied.PreviewTarget) then return false end
     local _, pet = ns.Allied.PreviewTarget(key)
@@ -244,7 +244,7 @@ end
 -- compose it (mirrors UpdateNameOnlyText and FriendlyFrame:UpdateName; your
 -- own plate never takes group brackets, so the sample wears the party's): the
 -- Name Format, the title around the name, the brackets, the level. Both modes
--- draw the guild under the name in the guild colour, as a text of its own at
+-- draw the guild under the name in the guild color, as a text of its own at
 -- Guild Text Size (ApplySubText; Name Only's WriteNameOnlySub). When a row's
 -- eye previews the player's pet entry the
 -- sample becomes that pet: the pet's sizes and its owner's line. Returns the
@@ -274,8 +274,8 @@ local function PaintPlayer(s, DB, DBVal, nameOnly, key, tagged)
     local body = DBVal("friendlyBelowNameGuildBrackets") ~= false and "<%s>" or "%s"
     local _, class = UnitClass("player")
     local cc = EllesmereUI.GetClassColor(class)
-    -- The guild line's colour: Match Player Name Color makes it the name's own
-    -- colour, else Class Colored the class colour, else the Custom one.
+    -- The guild line's color: Match Player Name Color makes it the name's own
+    -- color, else Class Colored the class color, else the Custom one.
     local plateName = ns.FriendlyNameClass(DB(), false) and cc or DBVal("friendlyNameColor") or WHITE
     local gc = DBVal("friendlyBelowNameMatchNameColor") == true and plateName
         or (DBVal("friendlyBelowNameClassColor") and cc or DBVal("friendlyBelowNameColor"))
@@ -292,13 +292,13 @@ local function PaintPlayer(s, DB, DBVal, nameOnly, key, tagged)
         end
         return h
     end
-    -- Name Only: Blizzard's name text under our font, size and colour. The
+    -- Name Only: Blizzard's name text under our font, size and color. The
     -- player's pet entry makes it the overlay's pet plate: the pet's own sizes,
     -- and the owner's line under the name.
     local pet = PreviewIsPet(key)
     local size = pet and DBVal("friendlyPetNameSize") or DBVal("friendlyNameSize")
-    -- Name Color, as Name Only shows it: the class colour, else the Custom
-    -- colour, then the previewed entry's own.
+    -- Name Color, as Name Only shows it: the class color, else the Custom
+    -- color, then the previewed entry's own.
     local nc = ns.FriendlyNameClass(DB(), true) and cc or DBVal("friendlyNameColor") or WHITE
     local nr, ng, nb = PreviewColor(key, nc)
     s.health:Hide()
@@ -335,10 +335,10 @@ end
 
 -- The NPC sample. Name Only: the name-only overlay of an NPC (mirrors
 -- ShowNPCOverlay, ApplyOverlayStyle, FormatNPCName and UpdateOverlayRaidIcon):
--- the name in its format, size and colour, the title under it and, while the
+-- the name in its format, size and color, the title under it and, while the
 -- page's eye asks for one (marked), a raid marker in the Raid Marker slot. A
 -- row's eye previewing a pet entry makes it that pet: the pet's sizes and its
--- owner's line. Otherwise the health bar plate in the NPC colour, its name
+-- owner's line. Otherwise the health bar plate in the NPC color, its name
 -- whole and with no title (the tail of PaintFriendlyColors and
 -- FriendlyFrame:UpdateName). Returns the sample's height.
 local function PaintNPC(s, DBVal, nameOnly, marked, key)
@@ -356,7 +356,7 @@ local function PaintNPC(s, DBVal, nameOnly, marked, key)
     local pet = PreviewIsPet(key)
     local font, outline, shadow = ns.GetFont(), "OUTLINE", ns.GetNPUseShadow()
     local h, top = pet and DBVal("friendlyPetNameSize") or DBVal("friendlyNPCNameSize"), 0
-    -- The overlay's own base colour, then the previewed entry's.
+    -- The overlay's own base color, then the previewed entry's.
     local nr, ng, nb = PreviewColor(key, DBVal("friendlyNPCNameColor"))
     s.health:Hide()
     EllesmereUI.SetFontFamily(s.name, font, h, outline, shadow)

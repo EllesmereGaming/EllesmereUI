@@ -163,7 +163,7 @@ local function SetAtlasArt(icon, atlas)
 end
 
 -- Blizzard's guild button: in a guild with a tabard, the banner tinted with the
--- tabard's background colour (the block draws the emblem over it); otherwise
+-- tabard's background color (the block draws the emblem over it); otherwise
 -- the plain guild icon. The tint rides icon._edbTint for IconColor.
 local function SetGuildArt(icon)
     local tabard = select(10, GetGuildLogoInfo()) and C_GuildInfo.GetGuildTabardInfo("player")
@@ -671,7 +671,7 @@ local function MMBuildSocialTip()
             if issecretvalue(displayCharName) then displayCharName = nil end
             if issecretvalue(displayArea) then displayArea = nil end
             local secretFaction = issecretvalue(faction)
-            -- Character name in its class colour when the class reads plain, else gold.
+            -- Character name in its class color when the class reads plain, else gold.
             local nameText
             local classID = ga.classID
             local ci = displayCharName and classID and not issecretvalue(classID)
@@ -714,7 +714,7 @@ local function MMBuildSocialTip()
                 if fi.afk then icon = FRIENDS_TEXTURE_AFK end
                 if fi.dnd then icon = FRIENDS_TEXTURE_DND end
                 -- No |c codes on the left (hover recolor needs a plain string); the class
-                -- colour rides the left-color args (white when the class is unknown).
+                -- color rides the left-color args (white when the class is unknown).
                 local left = format("|T%s:16|t %s  %s", icon, fi.name or "?", fi.level or "")
                 local cr, cg, cb = 1, 1, 1
                 local token = EllesmereUI.ClassTokenFromLocalized(fi.className)

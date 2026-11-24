@@ -983,7 +983,9 @@ local function ShowBuffBarPicker(anchorFrame, targetBarKey, onChanged)
     end
 
     -- Custom Spell ID entry -- add an arbitrary buff by spell ID, tracked
-    -- as a real aura (12.1 engine slot; no duration asked). Entries that
+    -- as a real aura (12.1 engine slot; no duration asked). A one-spell
+    -- potion's buff or item id is refused here and turned into its cast-timed
+    -- preset if already saved (ns.AdoptPotionCustomEntries). Entries that
     -- carry a stored duration are legacy cast-timer customs and keep that
     -- path untouched. Its own section at the top, matching the CD/utility
     -- picker.

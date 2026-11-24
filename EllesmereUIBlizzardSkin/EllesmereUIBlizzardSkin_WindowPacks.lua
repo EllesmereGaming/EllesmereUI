@@ -4822,7 +4822,7 @@ end
 -- Letter body: force readable white + skin font on the SimpleHTML elements. The
 -- body is another player's writing, so the font is a family (no shadow, as
 -- Blizzard's own mail font): the skin font draws what it has, the client's own
--- faces the scripts it lacks. The colour goes on after the font.
+-- faces the scripts it lacks. The color goes on after the font.
 local function WhitenMailText()
     local html = _G.OpenMailBodyText
     if html and html.SetTextColor then
@@ -8918,7 +8918,7 @@ local function Skin_Trainer()
         if step.NineSlice then WSkin.FadeNineSlice(step.NineSlice) end
         local shl = _G.ClassTrainerFrameSkillStepButtonHighlight
         -- Kept out of the fade: the selection and hover textures (the step's
-        -- click feedback, recoloured below) and the lock.
+        -- click feedback, recolored below) and the lock.
         local keep = {}
         if icon then keep[icon] = true end
         if sdt.tabTex then keep[sdt.tabTex] = true end
@@ -14918,13 +14918,13 @@ end
 --
 --  Dressed as the house unit frames are: the bar pair flat inside one 1px
 --  black border with a 1px line at the bars' seam, health in the carrier's
---  class colour and power in its power colour (both from the Colors page),
+--  class color and power in its power color (both from the Colors page),
 --  and the spec icon square at the bars' end in place of Blizzard's class
 --  circle and round badge (both at alpha 0). Blizzard paints the health bar
 --  its default green on every value change and update and the power bar its
---  type's colour on every power update; ours goes back on after those writes
+--  type's color on every power update; ours goes back on after those writes
 --  only, so the grey of a carrier out of sight or offline stays. In instanced
---  PvP the class token is secret: it goes to C_ClassColor and the colour to
+--  PvP the class token is secret: it goes to C_ClassColor and the color to
 --  SetStatusBarColor, both of which take secrets, and is never compared.
 --
 --  Kept as Blizzard draws them: the faction icon, the cast bar's fill (its
@@ -14943,7 +14943,7 @@ local FC = {
     },
 }
 
--- ok, r, g, b: unit's class colour from the Colors page, or Blizzard's shade
+-- ok, r, g, b: unit's class color from the Colors page, or Blizzard's shade
 -- of it while the class token is secret. ok is plain; r, g, b may be secret,
 -- so they only ever go to a setter.
 function FC.ClassRGB(unit)
@@ -14960,8 +14960,8 @@ function FC.ClassRGB(unit)
     return false
 end
 
--- Every colour write on a health bar of ours: Blizzard's default green is
--- taken over by the class colour, any other write is kept.
+-- Every color write on a health bar of ours: Blizzard's default green is
+-- taken over by the class color, any other write is kept.
 function FC.HealthColor(bar, r, g, b)
     local d = FFD[bar]
     if not d or d.fcPaint then return end
@@ -14975,9 +14975,9 @@ function FC.HealthColor(bar, r, g, b)
 end
 
 -- The pre-10.0 power-type update these frames still use puts Blizzard's bar
--- texture back on every call, and the type's colour (white under the atlas
+-- texture back on every call, and the type's color (white under the atlas
 -- some types draw with). A power bar of ours goes flat again after it, in the
--- power colour from the Colors page, or the colour the atlas carried for a
+-- power color from the Colors page, or the color the atlas carried for a
 -- type the page has none for.
 function FC.ManaType(bar)
     local d = bar and FFD[bar]
@@ -14994,7 +14994,7 @@ function FC.ManaType(bar)
     bar:SetStatusBarColor(c.r, c.g, c.b)
 end
 
--- A bar of ours: flat fill. unit is the class colour's source for a health
+-- A bar of ours: flat fill. unit is the class color's source for a health
 -- bar (a pet's is its owner); nil marks the power bar.
 function FC.Bar(bar, unit)
     if not bar or bar:IsForbidden() then return end
@@ -15014,7 +15014,7 @@ end
 
 -- The frame round a bar pair: a backing of ours under the bars at the
 -- button's own level (the house fill for the EllesmereUI style, the Modern
--- colour for Modern; the shell registry swaps them live), and on a frame of
+-- color for Modern; the shell registry swaps them live), and on a frame of
 -- ours above the bars a 1px black border over their outer pixel. seam: the
 -- bars touch, so a 1px line marks where.
 function FC.Frame(owner, top, bottom, seam)

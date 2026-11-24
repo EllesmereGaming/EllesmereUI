@@ -912,7 +912,7 @@ function ERB:OnEnable()
     RegisterUnlockElements()
 
     -- Re-render when the global Dark Mode palette changes so the class resource
-    -- bar's dark colours update live (colours are fetched live each render, so a
+    -- bar's dark colors update live (colors are fetched live each render, so a
     -- plain rebuild is enough). ApplyAll touches secure positioning, so guard combat.
     EllesmereUI.RegisterDarkModeRefresh(function()
         if InCombatLockdown() then return end

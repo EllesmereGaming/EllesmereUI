@@ -547,7 +547,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
     end
 
     -- Blizzard Style: the stock level number in the frame's level circle,
-    -- with its size, offsets and difficulty colouring on a cog. The row is
+    -- with its size, offsets and difficulty coloring on a cog. The row is
     -- the preview level text's click target (stashed on the page: the
     -- targets table at the end reads it).
     if EllesmereUI.BlizzStyle.Get("unitframes") then
@@ -573,7 +573,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                     { type="slider", label="Y Offset", min=-150, max=150, step=1,
                       get=function() return SVal("blizzLevelY", 0) end,
                       set=function(v) SSet("blizzLevelY", v); UpdatePreview() end },
-                    -- The player's own level never takes a difficulty colour.
+                    -- The player's own level never takes a difficulty color.
                     { type="toggle", label="Difficulty Color",
                       tooltip="Colors an attackable unit's level by difficulty, as the default UI does.",
                       disabled=function() return optState.selectedUnit == "player" end,
@@ -2112,7 +2112,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
               SSet("powerBorderShiftX", nil)
               SSet("powerBorderShiftY", nil)
               if v ~= "solid" then
-                  -- The style's select colour (Pixels grey), else white.
+                  -- The style's select color (Pixels grey), else white.
                   SSet("powerBorderColor", EllesmereUI.GetBorderSelectColor(v) or { r = 1, g = 1, b = 1 })
                   SSet("powerBorderAlpha", 1)
               else
@@ -2399,7 +2399,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                     },
                 })
             end
-            -- Form Power Text (its colour swatches inline) + Form Text Position:
+            -- Form Power Text (its color swatches inline) + Form Text Position:
             -- the form bar's text, apart from the power bar's (Mana) text. Built
             -- only with Mana + Form Power (Power Type rebuilds the page).
             if not NoFormBar() then
@@ -2436,7 +2436,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                         },
                     })
                     if not EllesmereUI._prebuilding then
-                    -- Text colour: custom, or the form power's colour. Neither set
+                    -- Text color: custom, or the form power's color. Neither set
                     -- follows the power bar's Text Color.
                     local function FormPowerColored()
                         local pc = SVal("foreverFormTextPowerColor", nil)

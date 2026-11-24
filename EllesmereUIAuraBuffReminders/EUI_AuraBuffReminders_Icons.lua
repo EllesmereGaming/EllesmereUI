@@ -123,7 +123,10 @@ do
                 state.highlightAttached = nil
             end
             if state.mask then state.mask:Hide() end
-            icon:SetTexCoord(zoom, 1 - zoom, zoom + crop / 100, 1 - zoom - crop / 100)
+            -- Cropped: the frame is (1 - 2 x crop) as tall as wide; only the top and bottom are
+            -- cut, so the art keeps its proportions.
+            local half = (1 - 2 * zoom) * (1 - 2 * crop / 100) / 2
+            icon:SetTexCoord(zoom, 1 - zoom, 0.5 - half, 0.5 + half)
         end
         if icon.SetSnapToPixelGrid then
             icon:SetSnapToPixelGrid(false)

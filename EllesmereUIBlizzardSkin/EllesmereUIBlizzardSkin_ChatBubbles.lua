@@ -93,7 +93,7 @@ local DEFAULTS = {
     nameOffsetX = 0,
     nameOffsetY = 0,
     textColor = { r = 1, g = 1, b = 1 },
-    -- On, the bubble takes the per-channel colour the engine already gave it.
+    -- On, the bubble takes the per-channel color the engine already gave it.
     followBlizzardColor = false,
 }
 
@@ -315,7 +315,7 @@ local function RawReadColor()
     _colorR, _colorG, _colorB = _colorFS:GetTextColor()
 end
 
--- The colour the engine itself put on this bubble, which is how "follow Blizzard" answers per
+-- The color the engine itself put on this bubble, which is how "follow Blizzard" answers per
 -- channel without us mapping chat events to chat types. Guarded like every other read of a
 -- Blizzard frame, and secret-tested because a restricted one answers with numbers that cannot
 -- be handed to SetTextColor.
@@ -472,8 +472,8 @@ local function Layout(f, cfg)
     BubbleFont(f.text, path, fontSize, flag)
     local tc = cfg.textColor or d.textColor
     local tr, tg, tb = (tc and tc.r) or 1, (tc and tc.g) or 1, (tc and tc.b) or 1
-    -- Blizzard's own colour when it was asked for AND we managed to read it; the configured
-    -- one otherwise, so a bubble whose colour would not come back is still readable.
+    -- Blizzard's own color when it was asked for AND we managed to read it; the configured
+    -- one otherwise, so a bubble whose color would not come back is still readable.
     if cfg.followBlizzardColor == true and f.blizzR then
         tr, tg, tb = f.blizzR, f.blizzG, f.blizzB
     end

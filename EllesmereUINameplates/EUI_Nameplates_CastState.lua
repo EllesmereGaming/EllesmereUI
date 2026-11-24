@@ -292,7 +292,7 @@ end
 ns._cachedTargetPlate = nil
 ns._cachedFocusPlate  = nil
 
--- Name Color: whether friendly players' names take the class colour in a style
+-- Name Color: whether friendly players' names take the class color in a style
 -- (nameOnly: Name Only, else the health bar plates). friendlyNameColorMode is
 -- "class" or "custom"; while it is unset each style reads a key of its own, Name
 -- Only the Class Colored Health Bar key (classColorFriendly) and the health bar
@@ -320,7 +320,7 @@ function ns.FriendlyNameOnlyNow(db)
     return db.friendlyNameOnlyInInstances == true and ns.InFriendlyInstance()
 end
 
--- Value (1/0) of the class-colour CVar for the friendly player names Blizzard draws
+-- Value (1/0) of the class-color CVar for the friendly player names Blizzard draws
 -- (Name Only's names, and the protected instance plates of the health bar style):
 -- the Name Color pick. While that is unset: on with Class Colored Health Bar, and in
 -- the health bar style with Class Colored Names as well, so those names match ours.
@@ -331,7 +331,7 @@ function ns.FriendlyNameClassCVar(db)
         on = mode == "class"
     else
         -- The saved style, not ns.FriendlyNameOnlyNow: under Name Only in
-        -- Instances the Nameplate style's names keep their own colour rule.
+        -- Instances the Nameplate style's names keep their own color rule.
         on = db.classColorFriendly ~= false
             or (db.friendlyNameOnly == false and db.friendlyNameClassColor == true)
     end

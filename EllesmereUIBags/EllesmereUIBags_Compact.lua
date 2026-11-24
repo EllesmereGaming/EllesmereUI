@@ -559,7 +559,7 @@ function ns.CompactLabel(pool, idx, owner)
     fs:SetMaxLines(1)
     fs:SetTextColor(0.7, 0.7, 0.7)
     lf._label = fs
-    -- The divider: the Grid display's category header line (colour, alpha,
+    -- The divider: the Grid display's category header line (color, alpha,
     -- one physical pixel thick)
     local line = lf:CreateTexture(nil, "ARTWORK")
     line:SetHeight(EUI.PP.mult)

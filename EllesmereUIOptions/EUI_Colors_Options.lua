@@ -170,7 +170,7 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
     --  DARK MODE section (per-profile, never subject to "Apply to All
     --  Profiles"). One palette drives Unit Frames, Raid Frames and
     --  Resource Bars (RB ignores the opacity sliders). "Darken" sliders
-    --  blacken class/power/class-resource colours inside the colour getters, reaching every module with no extra wiring.
+    --  blacken class/power/class-resource colors inside the color getters, reaching every module with no extra wiring.
     -------------------------------------------------------------------
     _, h = W:SectionHeader(parent, "DARK MODE", y);  y = y - h
     do
@@ -227,7 +227,7 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
               setValue = function() end });  y = y - h
 
         -- Row 2: Dark Mode Fill | Background -- each an opacity slider with its
-        -- colour as an inline swatch (Resource Bars use the colours but ignore
+        -- color as an inline swatch (Resource Bars use the colors but ignore
         -- the opacity).
         local fillRow
         fillRow, h = W:DualRow(parent, y,
@@ -330,10 +330,10 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
     _, h = W:Spacer(parent, y, 20);  y = y - h
 
     -------------------------------------------------------------------
-    --  Colour sections. Each opens with its own "Apply to All Profiles" |
+    --  Color sections. Each opens with its own "Apply to All Profiles" |
     --  "Pull Colors From" row (EllesmereUI.ColorSectionApplyAll / ColorSectionPullFrom;
     --  a section with no setting of its own reads the old shared pair). While a
-    --  section mirrors another profile's colours (global mode, viewed from a
+    --  section mirrors another profile's colors (global mode, viewed from a
     --  different profile) its grid -- not its source row -- gets a click-blocking
     --  overlay, built at the end of this builder from the bounds captured below.
     -------------------------------------------------------------------
@@ -487,7 +487,7 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
 
-    -- Colour-edit gate: a GLOBAL-mode section takes its palette from ONE profile, so its editing is blocked while viewing any other. ONE
+    -- Color-edit gate: a GLOBAL-mode section takes its palette from ONE profile, so its editing is blocked while viewing any other. ONE
     -- overlay PER SECTION, sized to that section's grid, judged by that section's own setting. Always created; a shared refresh callback
     -- shows/hides them and updates the message, so they stay correct after a profile or source change even on a cached page.
     do

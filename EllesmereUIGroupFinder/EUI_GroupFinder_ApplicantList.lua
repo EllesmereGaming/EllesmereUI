@@ -859,7 +859,7 @@ local function FillBlock(b, id, numAllowed, current, numInvited)
     -- same row highlight and fade as a results row
     local on = st and ns.OwnListGet(st[5]) ~= false or false
     local style = ns.OwnListGet("statusStyle")
-    if style == "none" then on = false end  -- the status text keeps its colour
+    if style == "none" then on = false end  -- the status text keeps its color
     local rowFx = on and style == "row" or false
     if rowFx then b.stat:SetColorTexture(lr * 0.15 + 0.045, lg * 0.15 + 0.045, lb * 0.15 + 0.045, 1)
     elseif on then b.under:SetColorTexture(lr, lg, lb, 0.9) end

@@ -310,7 +310,7 @@ local function RestoreTotemButtons()
                 end
             end
         end
-        -- The "Xs" text: its font's own colour (Blizzard tints it with SetVertexColor).
+        -- The "Xs" text: its font's own color (Blizzard tints it with SetVertexColor).
         local dur = btn.Duration
         local fo = dur and dur:GetFontObject()
         if fo then dur:SetTextColor(fo:GetTextColor()) end

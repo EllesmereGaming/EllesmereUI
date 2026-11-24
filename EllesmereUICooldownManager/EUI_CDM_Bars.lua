@@ -846,7 +846,7 @@ end })
 -- The width and height a CDM bar's own textured icon border draws OUTSIDE the
 -- bar frame, in bar units, from exactly the arguments the icon border renderer
 -- passes (bar-level size, texture, offsets and shifts, the "cdm" registry keyed
--- by the thickness label, the exact px, the colour's alpha). The outer icons sit
+-- by the thickness label, the exact px, the color's alpha). The outer icons sit
 -- flush with the bar's edges, so their reach is the bar's. The renderer
 -- normalizes the icon's scale away (UIParent / icon), so in bar units the ratio
 -- is UIParent / bar. nil for buff-family bars (never in a match), the stock

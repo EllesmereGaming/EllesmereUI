@@ -297,7 +297,7 @@ local function CardRow(parent, cy, h, shade, divider)
     return row
 end
 
--- The card's title (its description line hangs off it) in the class colour
+-- The card's title (its description line hangs off it) in the class color
 -- at full strength.
 local function CardClassTitle(tile, class)
     if not class then return end

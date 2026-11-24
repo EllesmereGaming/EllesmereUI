@@ -596,7 +596,7 @@ local function ApplyStyleToRegions(button, style)
     -- Blizzard Style (style.blizzBorder): ONE texture registered with the
     -- engine's built-in Border style -- the engine stamps Blizzard's own
     -- per-dispel-type debuff border atlas on it (red for untyped debuffs via
-    -- showWithoutDispelType), so this IS the stock aura border, art and colour
+    -- showWithoutDispelType), so this IS the stock aura border, art and color
     -- both engine-owned. No static border, no palette, no strips.
     local blizzBorderStyle = style.blizzBorder and button.AddDispelTypeTexture
         and Enum and Enum.CustomAuraButtonDispelTypeTextureStyle
@@ -606,7 +606,7 @@ local function ApplyStyleToRegions(button, style)
     -- ring and the strips. Eight slices cut from the edge art, laid on the aura
     -- border's own geometry (SecretBorderGeometry, the numbers its textured border is
     -- drawn with) and tinted per dispel type by the engine through PreserveAsset like
-    -- the strips, so white art takes the dispel colour. Only beside a textured aura
+    -- the strips, so white art takes the dispel color. Only beside a textured aura
     -- border of positive size (a size-0 border keeps the strips), never with the
     -- Blizzard border or a shaped icon. Every other style pays this one nil test.
     local ringPath
@@ -844,7 +844,7 @@ local function ApplyStyleToRegions(button, style)
         elseif dispelTexSet == d.dispelRing then
             -- The aura border's own geometry: the same arguments its textured lane
             -- passes ApplySecretSafeBorderStyle above, as numbers only. That call is
-            -- not used for the ring: it rewrites colour and Show on every pass and
+            -- not used for the ring: it rewrites color and Show on every pass and
             -- registers exact sizes for the UI-scale re-apply, all engine-owned here.
             -- Change-guarded on the numbers (no per-pass string); the key built on a
             -- change is the setKey, because the engine snapshots geometry at

@@ -21,11 +21,11 @@ if IS_STANDALONE then
     shared.__euiCoreNS = EUI_NS
 end
 -------------------------------------------------------------------------------
---  Constants & Colours (BURNE STAY AWAY FROM THIS SECTION)
+--  Constants & Colors (BURNE STAY AWAY FROM THIS SECTION)
 -------------------------------------------------------------------------------
 --  Visual Settings  (edit these to adjust the look -- values only, no tables)
 -------------------------------------------------------------------------------
--- Accent colour -- canonical default: #0CD29D teal. The Forever client opens
+-- Accent color -- canonical default: #0CD29D teal. The Forever client opens
 -- on #DCA77F (soft bronze) instead; a chosen accent always wins over this.
 local DEFAULT_ACCENT_R, DEFAULT_ACCENT_G, DEFAULT_ACCENT_B = 12/255, 210/255, 157/255
 if EUI_CLIENT_FOREVER == true then
@@ -69,7 +69,7 @@ local THEME_BG_FILES = {
 -- layer at alpha 0, so nothing flashes), or at PLAYER_LOGIN for the player whose
 -- saved theme it is (EllesmereUI._PreloadLazyThemeBG).
 EllesmereUI._THEME_BG_LAZY = { ["Pixels"] = true }
--- Accent overlay per theme: its accent-coloured pieces (logo mark, rules, close X)
+-- Accent overlay per theme: its accent-colored pieces (logo mark, rules, close X)
 -- as white art, cropped to their band of the 1500x1154 canvas (x, y = top-left
 -- offset; w, h = size, all in canvas units). Drawn above the theme art and tinted
 -- with the live UI accent; built on the theme's first apply (CreateMainFrame).
@@ -80,10 +80,10 @@ EllesmereUI.THEME_ACCENT_OVERLAYS = {
 -- tight rect around its border; bx, by, bw, bh = outer rect of the border line
 -- itself and bd = its depth (the hover glow lights only that ring); gx, gy =
 -- centre of its X; gs = glyph size drawn over a copy (16 when absent); r, g, b =
--- the X colour; sh = alpha of the dark rim under a glyph; acc = alpha of a
+-- the X color; sh = alpha of the dark rim under a glyph; acc = alpha of a
 -- live-accent glyph stacked on top (art whose X comes from its accent overlay);
 -- ex, ey = top-left of the 76 unit square around the painted logo emblem; rr, rg,
--- rb = the logo badge ring colour. The collapse button and the collapsed mini
+-- rb = the logo badge ring color. The collapse button and the collapsed mini
 -- window rebuild their boxes and badge from these rects of the art on screen.
 EllesmereUI.THEME_CLOSE_BOX = {
     ["backgrounds\\eui-bg-new.png"] = { x = 1346, y = 114, w = 43, h = 41, gx = 1368, gy = 134,
@@ -187,7 +187,7 @@ local STYLE = {
     -- Slider  (white + alpha for track -- adapts to any background tint)
     SL_TRACK_R = 1, SL_TRACK_G = 1, SL_TRACK_B = 1,        -- track bg (white + alpha)
     SL_TRACK_A = 0.16,                                     -- track bg alpha
-    SL_FILL_A = 0.75,                                      -- filled portion alpha (colour = accent)
+    SL_FILL_A = 0.75,                                      -- filled portion alpha (color = accent)
     SL_INPUT_R = 0.030, SL_INPUT_G = 0.023, SL_INPUT_B = 0.018, -- input box background (darker than bg, stays as-is)
     SL_INPUT_A = 0.25,                                     -- input box alpha (all sliders)
     SL_INPUT_BRD_A = 0.12,                                 -- input box border alpha (white; a visible outline, dimmer than a dropdown's)
@@ -199,7 +199,7 @@ local STYLE = {
     -- Toggle  (white + alpha for off states -- adapts to any background tint)
     TG_OFF_R = 0.267, TG_OFF_G = 0.267, TG_OFF_B = 0.267,  -- track when OFF (#444)
     TG_OFF_A = 0.65,                                       -- track OFF alpha
-    TG_ON_A = 0.75,                                        -- track alpha at full ON (colour = accent)
+    TG_ON_A = 0.75,                                        -- track alpha at full ON (color = accent)
     TG_KNOB_OFF_R = 1, TG_KNOB_OFF_G = 1, TG_KNOB_OFF_B = 1, -- knob when OFF (white + alpha)
     TG_KNOB_OFF_A = 0.5,                                   -- knob OFF alpha
     TG_KNOB_ON_R = 1, TG_KNOB_ON_G = 1, TG_KNOB_ON_B = 1,  -- knob when ON
@@ -213,18 +213,18 @@ local STYLE = {
     BTN_BG_R = 0.089, BTN_BG_G = 0.080, BTN_BG_B = 0.072,  -- background
     BTN_BG_A = 0.6,
     BTN_BG_HA = 0.65,                                      -- background alpha hovered
-    BTN_BRD_A = 0.3,                                       -- border alpha (colour = white)
+    BTN_BRD_A = 0.3,                                       -- border alpha (color = white)
     BTN_BRD_HA = 0.45,                                     -- border alpha hovered
-    BTN_TXT_A = 0.55,                                      -- text alpha (colour = white)
+    BTN_TXT_A = 0.55,                                      -- text alpha (color = white)
     BTN_TXT_HA = 0.70,                                     -- text alpha hovered
 
     -- Dropdown
     DD_BG_R = 0.103, DD_BG_G = 0.095, DD_BG_B = 0.088,     -- background
     DD_BG_A = 0.9,
     DD_BG_HA = 0.98,                                       -- background alpha hovered
-    DD_BRD_A = 0.20,                                       -- border alpha (colour = white)
+    DD_BRD_A = 0.20,                                       -- border alpha (color = white)
     DD_BRD_HA = 0.30,                                      -- border alpha hovered
-    DD_TXT_A = 0.50,                                       -- selected value text alpha (colour = white)
+    DD_TXT_A = 0.50,                                       -- selected value text alpha (color = white)
     DD_TXT_HA = 0.60,                                      -- selected value text alpha hovered
     DD_ITEM_HL_A = 0.08,                                   -- menu item highlight alpha (hover)
     DD_ITEM_SEL_A = 0.04,                                  -- menu item highlight alpha (active selection)
@@ -284,7 +284,7 @@ local TEXT_WHITE      = { r = STYLE.TEXT_WHITE_R, g = STYLE.TEXT_WHITE_G, b = ST
 local TEXT_DIM        = { r = STYLE.TEXT_DIM_R, g = STYLE.TEXT_DIM_G, b = STYLE.TEXT_DIM_B, a = STYLE.TEXT_DIM_A }
 local TEXT_SECTION    = { r = STYLE.TEXT_SECTION_R, g = STYLE.TEXT_SECTION_G, b = STYLE.TEXT_SECTION_B, a = STYLE.TEXT_SECTION_A }
 
--- Dropdown widget colours: widgets reference DD_BG_*, DD_BRD_*, DD_TXT_* directly
+-- Dropdown widget colors: widgets reference DD_BG_*, DD_BRD_*, DD_TXT_* directly
 
 local CONTENT_PAD = 45
 local CONTENT_HEADER_TOP_PAD = 10  -- extra top padding on scroll content when header is present
@@ -1580,7 +1580,7 @@ EllesmereUI.EYE_VISIBLE_ICON   = MEDIA_PATH .. "icons\\eui-visible.png"
 EllesmereUI.EYE_INVISIBLE_ICON = MEDIA_PATH .. "icons\\eui-invisible.png"
 EllesmereUI.UNLOCK_ICON     = MEDIA_PATH .. "icons\\unlockmode.png"
 
--- Shared chat/tooltip colour escapes. Leave codes inside L()/Lf() literals alone:
+-- Shared chat/tooltip color escapes. Leave codes inside L()/Lf() literals alone:
 -- that text is the translation key.
 EllesmereUI.COLOR_CODES = {
     WHITE = "|cffffffff",
@@ -3572,7 +3572,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.9.2"
+EllesmereUI.VERSION = "9.9.3"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

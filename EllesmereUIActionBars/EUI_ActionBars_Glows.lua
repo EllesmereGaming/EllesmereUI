@@ -471,7 +471,7 @@ do
 
     -- The custom Assisted Highlight glows run on the shared glow engines with
     -- settings of their own (assistGlow*), never the Custom Proc Glow's.
-    -- Their colour: the palette's class colour or the picked one; the one
+    -- Their color: the palette's class color or the picked one; the one
     -- reader for the live buttons and the Animations page preview.
     ns._AssistCustomGlowColor = function()
         local p = EAB.db and EAB.db.profile

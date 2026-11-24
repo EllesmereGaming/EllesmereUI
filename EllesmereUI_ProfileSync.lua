@@ -872,7 +872,7 @@ do
 
         popup:SetSize(POPUP_W, popupH)
         -- The popup's border, header, profile rows (pooled by position) and action
-        -- button are built once; every open re-applies their fonts, texts, colours,
+        -- button are built once; every open re-applies their fonts, texts, colors,
         -- positions and actions.
         local ui = popup._ui
         if not ui then

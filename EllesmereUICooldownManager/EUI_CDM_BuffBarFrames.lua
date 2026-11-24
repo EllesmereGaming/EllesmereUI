@@ -1180,7 +1180,7 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         icon._roundSide, icon._maskSide = nil, nil
     end
     bar._ticksDirty = true
-    -- The settings may change what the name, icon, fill colour and stacks show:
+    -- The settings may change what the name, icon, fill color and stacks show:
     -- the next live tick re-reads them (TBBContentDue in EUI_CDM_BuffBarTick.lua).
     bar._cChild = nil
 end

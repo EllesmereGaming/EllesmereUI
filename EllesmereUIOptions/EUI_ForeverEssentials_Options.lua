@@ -20,7 +20,7 @@ local PAGE_LOOT    = "Loot"
 local PAGE_MACROS  = "Macros"
 
 -- Item quality dropdown values and order from Poor up to last, each in its
--- colour (the General and Loot pages).
+-- color (the General and Loot pages).
 _G._EUI_ItemQualityValues = function(last)
     local values, order = {}, {}
     for q = Enum.ItemQuality.Poor, last do

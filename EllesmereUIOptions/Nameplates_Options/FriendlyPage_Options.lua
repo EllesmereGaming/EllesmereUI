@@ -30,12 +30,12 @@ local function NameOnlyOff()
     return Val("showFriendlyPlayers") == false or Val("friendlyNameOnly") == false
 end
 -- Whether the pet nameplates this palette paints are off. Every pet row
--- colours a plate EllesmereUI names itself, and those are friendly plates:
+-- colors a plate EllesmereUI names itself, and those are friendly plates:
 -- Show Friendly Pet Nameplates is what brings them up. An attackable pet's
--- plate belongs to the enemy nameplates and never reaches these colours, so
+-- plate belongs to the enemy nameplates and never reaches these colors, so
 -- Show Enemy Pet Nameplates does not feed them.
 local function PetPlatesOff() return Val("showFriendlyPets") ~= true end
--- Why an entry cannot paint: the nameplates of the entity it colours are off.
+-- Why an entry cannot paint: the nameplates of the entity it colors are off.
 local function EntryDisabled(item)
     if NameOnlyOff() then return true end
     if PET_ENTRY[item.key] then return PetPlatesOff() end
@@ -179,7 +179,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
                 -- Picking Name Only means the user wants to SEE friendly plates -- the second sanctioned force-visible point.
                 if nameOnly and ns.ForceFriendlyPlayerCVarsOn then ns.ForceFriendlyPlayerCVarsOn() end
             end
-            -- Blizzard colours the names it draws by this CVar, and the two styles can answer differently.
+            -- Blizzard colors the names it draws by this CVar, and the two styles can answer differently.
             pcall(EllesmereUI.SetCVar, "nameplateUseClassColorForFriendlyPlayerUnitNames", ns.FriendlyNameClassCVar(db), "EllesmereUINameplates")
         end
         -- The page first, so the tab always repaints with the new style: this
@@ -219,7 +219,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
               local db = DB()
               local wasClass = NameClass()
               db.friendlyNameColor = { r = r, g = g, b = b }
-              -- A colour picked while no pick is saved is a pick of Custom (the page
+              -- A color picked while no pick is saved is a pick of Custom (the page
               -- refreshes where that changes which swatch is lit).
               if db.friendlyNameColorMode ~= "custom" then db.friendlyNameColorMode = "custom" end
               ApplyNameColor(wasClass)
@@ -279,7 +279,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
             if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
           end }
 
-    -- The health bar plate's two rows (the bar's size; its colour and the health
+    -- The health bar plate's two rows (the bar's size; its color and the health
     -- percent) are on the page only under the Nameplate style, and the name size
     -- row holds the slider of the style in use: a pick of the style builds the
     -- page again (SetStyle). While the two rows are off the page, Global Search
@@ -314,9 +314,9 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     -- section keeps the six rows it was cut to, so they share one cog.)
 
     ---------------------------------------------------------------
-    --  Name Only target highlights: one toggle + colour per entity
+    --  Name Only target highlights: one toggle + color per entity
     --  (EUI_Nameplates_AlliedColors.lua holds the list and the resolution).
-    --  Players here, off the Name Color row whose colour they override; the
+    --  Players here, off the Name Color row whose color they override; the
     --  NPC entries on the NPC name size row below, in their section.
     ---------------------------------------------------------------
     local ALLIED = ns.NAME_ONLY_TARGETS
@@ -328,7 +328,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
         if nameOnlyOff() then return NAMEONLY_REQ end
         return PET_PLATES_REQ
     end
-    -- A widget's colour changed under the popup: repaint the live plates, the
+    -- A widget's color changed under the popup: repaint the live plates, the
     -- NPC overlay's names, and the players' composed names. RefreshFriendlyBelowName
     -- already recomposes the name-only text (SweepPlayerSubText), so it is not
     -- called twice.
@@ -339,7 +339,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
         ns.NPO_FriendlyPreviewUpdate()
     end
     -- One entry's toggle + swatch, in the cog popup's togglecolor form, with the
-    -- eye that puts its colour on the sample at the top of the page.
+    -- eye that puts its color on the sample at the top of the page.
     local PREVIEW_KEY = { player = "friendlyPlayerPreview", npc = "friendlyNPCPreview" }
     local function EntryRow(item)
         local sample = ns.Allied and ns.Allied.PreviewTarget and ns.Allied.PreviewTarget(item.key)
@@ -366,7 +366,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
             end,
         }
         if previewKey then
-            -- The eye: this entry's colour goes on the player's or the NPC's
+            -- The eye: this entry's color goes on the player's or the NPC's
             -- sample, so a swatch is picked against a plate rather than guessed.
             -- One entry per sample at a time; the eye shows which one. It works
             -- only while the entry is on and its row is not greyed (EyeOffTip),
@@ -393,7 +393,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
         end
         return rows
     end
-    -- Reset the colour of one section, or of every section when none is named.
+    -- Reset the color of one section, or of every section when none is named.
     -- One repaint for the lot: the popup re-reads its swatches itself.
     local function ResetAlliedColors(...)
         local secs = { ... }
@@ -429,14 +429,14 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     end
 
     ---------------------------------------------------------------
-    --  The health bar plate: size, colour, health percent (Nameplate style only)
+    --  The health bar plate: size, color, health percent (Nameplate style only)
     ---------------------------------------------------------------
     -- Health Bar Color: a Custom | Class pair in the multiSwatch convention over
     -- the bar's two keys (classColorFriendly, friendlyBarColor).
     local function BarClass() return DBVal("classColorFriendly") ~= false end
     local function ApplyBarClass()
-        -- Blizzard's instance plates colour their names by this CVar, which reads
-        -- the bar's class colour while no Name Color is picked.
+        -- Blizzard's instance plates color their names by this CVar, which reads
+        -- the bar's class color while no Name Color is picked.
         if not InCombatLockdown() then
             pcall(EllesmereUI.SetCVar, "nameplateUseClassColorForFriendlyPlayerUnitNames", ns.FriendlyNameClassCVar(DB()), "EllesmereUINameplates")
         end
@@ -453,7 +453,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
           setValue = function(r, g, b)
               local db = DB()
               db.friendlyBarColor = { r = r, g = g, b = b }
-              -- A colour picked while the bar is class colored is a pick of Custom.
+              -- A color picked while the bar is class colored is a pick of Custom.
               if db.classColorFriendly ~= false then
                   db.classColorFriendly = false
                   ApplyBarClass()
@@ -627,8 +627,8 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
 
     ---------------------------------------------------------------
     --  Level Text and Subtitle Text. The title renders inline with the name, the
-    --  guild sits on its own line below; the colour pair styles ONLY the guild
-    --  line -- the inline title is part of the name string, using its colour.
+    --  guild sits on its own line below; the color pair styles ONLY the guild
+    --  line -- the inline title is part of the name string, using its color.
     ---------------------------------------------------------------
     -- Custom/Class pair follows the multiSwatch convention: clicking the INACTIVE custom swatch only selects custom mode (click again to open the picker); the inactive swatch dims, both grey out together.
     local function MakeGuildColorSwatches()
@@ -676,7 +676,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
         }
     end
 
-    -- Level Text: off, or the level in the name's colour or by difficulty
+    -- Level Text: off, or the level in the name's color or by difficulty
     -- (friendlyShowLevel, friendlyLevelDiffColor). Subtitle Text: a checklist
     -- over friendlyBelowName and the guild line's brackets; its stand-in
     -- dropdown reads those keys, so Spec Overrides know the slot by them. Both
@@ -696,8 +696,8 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
             if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
             ns.NPO_FriendlyPreviewUpdate()
           end }
-    -- The guild line takes the player's own name colour -- a target highlight
-    -- when one applies, else the name's custom or class colour -- instead of
+    -- The guild line takes the player's own name color -- a target highlight
+    -- when one applies, else the name's custom or class color -- instead of
     -- the pair of swatches on the row.
     local matchNameRow =
         { type="toggle", label="Match Player Name Color",
@@ -778,7 +778,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
                     end
                     db.friendlyBelowName = (title and guild and "both") or (title and "title") or (guild and "guild") or "none"
                     if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
-                    -- The guild colour swatches grey with the guild line.
+                    -- The guild color swatches grey with the guild line.
                     EllesmereUI:RefreshPage()
                     ns.NPO_FriendlyPreviewUpdate()
                 end,
@@ -801,8 +801,8 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
             rawTooltip = true,
         })
     end
-    -- Inline swatches, left of the cog: the guild line's colour, live while
-    -- the subtitle shows a guild and the line does not take the name's colour.
+    -- Inline swatches, left of the cog: the guild line's color, live while
+    -- the subtitle shows a guild and the line does not take the name's color.
     local function guildSwatchOff() return subtitleGuildOff() or DBVal("friendlyBelowNameMatchNameColor") == true end
     -- The style and the guild line first: Match Player Name Color only matters
     -- once the line shows.
@@ -1095,7 +1095,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     -- marker -- even with its nameplate toggle off or Blizzard's own NPC-names
     -- filter against it. Off by default, so a mark never brings up a plate the
     -- user switched off; the marker still draws on any plate already shown.
-    -- The cog sits nearest the toggle, the colour swatch left of it.
+    -- The cog sits nearest the toggle, the color swatch left of it.
     EllesmereUI.BuildInlineCog(npcRow._leftRegion, {
         title = "Friendly NPC Nameplates",
         rows = {
@@ -1249,7 +1249,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
           end });  y = y - h
 
     ---------------------------------------------------------------
-    --  The overlay's colours, on their own row as the players' Name Color is:
+    --  The overlay's colors, on their own row as the players' Name Color is:
     --  the name on the left with the entity highlights beside it, the subtitle
     --  on the right with the row that makes it follow the name.
     ---------------------------------------------------------------
@@ -1302,9 +1302,9 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
                 end },
           } });  y = y - h
 
-    -- NPC & pet highlights: the same toggle + colour per entity as the players'
-    -- cog above, for the entities this overlay draws, beside the name colour it
-    -- overrides. An entry greys out while the nameplates it colours are off; the
+    -- NPC & pet highlights: the same toggle + color per entity as the players'
+    -- cog above, for the entities this overlay draws, beside the name color it
+    -- overrides. An entry greys out while the nameplates it colors are off; the
     -- cog itself greys while nothing in it can paint.
     SearchWords("NPC Highlights", "FRIENDLY NPCS", "Friendly & Neutral Units", "Opposing Faction Units")
     local function npcHighlightsOff() return nameOnlyOff() or (npcOff() and petPlatesOff()) end

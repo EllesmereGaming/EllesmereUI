@@ -406,7 +406,7 @@ ns._eabBuildSkippedBars = function()
         _quickKeybindState.buttonsInit = nil
         if _quickKeybindState.open then _quickKeybindState.InitButtons() end
         -- Everything cosmetic (borders, shapes, fonts, backgrounds, button
-        -- art, cooldown visuals, range colouring) converges through the
+        -- art, cooldown visuals, range coloring) converges through the
         -- full apply. Next frame, not inline: ApplyAll calls back into
         -- RefreshRuntimeVisibility, and the marker is already cleared by then
         -- so it finds nothing to build. On ns, not on EAB, so the

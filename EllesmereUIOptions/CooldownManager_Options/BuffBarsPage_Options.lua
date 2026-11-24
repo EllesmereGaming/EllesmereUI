@@ -1953,7 +1953,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                                 ns.FOCUSKICK_SOUND_PATHS, names, ns.FOCUSKICK_SOUND_ORDER)
                             values._menuOpts.anchor = "RIGHT"
                             -- Match the CDM icon menu's flyouts: the CDM options font at 11 and
-                            -- the speaker atlas in its own colour.
+                            -- the speaker atlas in its own color.
                             values._menuOpts.labelFont = { FONT_PATH, 11, GetCDMOptOutline() }
                             values._menuOpts.iconNativeColor = true
                             local refresh
@@ -2823,7 +2823,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             prDDBg:SetAllPoints()
             prDDBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
             local prDDBrd = EllesmereUI.MakeRoundedBorder(prDD, 1, 1, 1, EllesmereUI.DD_BRD_A, prDDBg)
-            -- Resting alpha on the text colour, the channel PrApplyNormal /
+            -- Resting alpha on the text color, the channel PrApplyNormal /
             -- PrApplyHover write, so a hover and leave land back on it.
             local prDDLbl = EllesmereUI.MakeFont(prDD, 13, nil, 1, 1, 1, EllesmereUI.DD_TXT_A)
             prDDLbl:SetJustifyH("LEFT")
@@ -4152,8 +4152,9 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             end,
             disabledTooltip = function()
                 if EllesmereUI.BlizzStyle.Get("cdmbars") then return EllesmereUI.BlizzStyle.Label("cdmbars") end
-                return "Select an icon position to use this option."
+                return "This option requires an icon position to be selected."
             end,
+            requireState = "disabled",
             rows = {
                 { type = "toggle", label = "Show Icon Divider",
                   tooltip = "Use the bar's border style, size and color between the icon and the fill.",
@@ -4290,7 +4291,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             local function UpdateSwatchStates()
                 local bd = SelectedTBB()
                 local isAuto = false
-                -- Blizzard Style keeps the flat atlas fill, so the gradient end colour is inert there.
+                -- Blizzard Style keeps the flat atlas fill, so the gradient end color is inert there.
                 local noGrad = not bd or not bd.gradientEnabled or EllesmereUI.BlizzStyle.Get("cdmbars")
                 -- Fill swatch: disabled in auto mode
                 if isAuto then fillSwatch:SetAlpha(0.3); fillBlock:Show()
@@ -4373,6 +4374,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                     if EllesmereUI.BlizzStyle.Get("cdmbars") then return EllesmereUI.BlizzStyle.Label("cdmbars") end
                     return "This option requires the Solid, Glow or Shadow border style."
                 end,
+                requireState = "disabled",
                 rows = { EllesmereUI.AuraRadiusRow(
                     function() local bd = SelectedTBB(); return bd and bd.borderCornerRadius or 0 end,
                     function(v)

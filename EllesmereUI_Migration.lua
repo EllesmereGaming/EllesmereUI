@@ -2494,6 +2494,63 @@ EllesmereUI.RegisterMigration({
 })
 end
 
+-- Chat's sidebar icons: fresh installs and future profiles start with Friends,
+-- Copy Chat, M+ Portals (retail) or Durability (WoW Forever) and Chat Menu;
+-- every already-existing profile keeps Settings on and Chat Menu off, and on
+-- WoW Forever Durability off, unless its user had changed them.
+EllesmereUI.RegisterMigration({
+    id          = "chat_sidebar_icon_defaults_existing_v1",
+    scope       = "global",
+    description = "Pin Chat's Settings icon ON and Chat Menu icon OFF (and on WoW Forever the Durability icon OFF) for existing profiles; fresh installs and future profiles inherit the new sidebar icon defaults.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db or not db.profiles then return end
+        local forever = EllesmereUI.IS_FOREVER == true
+        for _, profData in pairs(db.profiles) do
+            if type(profData) == "table" and type(profData.addons) == "table"
+               and next(profData.addons) then
+                local mod = profData.addons.EllesmereUIChat
+                if type(mod) ~= "table" then
+                    mod = {}
+                    profData.addons.EllesmereUIChat = mod
+                end
+                if type(mod.chat) ~= "table" then mod.chat = {} end
+                local chat = mod.chat
+                if chat.showSettings == nil then chat.showSettings = true end
+                if chat.showChatMenu == nil then chat.showChatMenu = false end
+                if forever and chat.showDurability == nil then chat.showDurability = false end
+            end
+        end
+    end,
+})
+
+-- WoW Forever: Raid & Party Frames' Heal Prediction is on for fresh installs and
+-- future profiles; every already-existing profile keeps it off unless its user
+-- had turned it on. Registered on the Forever client only, the one whose
+-- default changed.
+if EllesmereUI.IS_FOREVER == true then
+EllesmereUI.RegisterMigration({
+    id          = "rf_heal_prediction_forever_existing_v1",
+    scope       = "global",
+    description = "Pin Raid & Party Frames' Heal Prediction OFF for existing WoW Forever profiles; fresh installs and future profiles inherit the new ON default.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db or not db.profiles then return end
+        for _, profData in pairs(db.profiles) do
+            if type(profData) == "table" and type(profData.addons) == "table"
+               and next(profData.addons) then
+                local rf = profData.addons.EllesmereUIRaidFrames
+                if type(rf) ~= "table" then
+                    rf = {}
+                    profData.addons.EllesmereUIRaidFrames = rf
+                end
+                if rf.healPrediction == nil then rf.healPrediction = false end
+            end
+        end
+    end,
+})
+end
+
 -- Guardian Druid Ironfur bar ships ON (DEFAULTS.secondary.guardianIronfurBar=true)
 -- for new installs; existing users expect no class resource bar, so pin every
 -- already-existing profile OFF. Runs at parent ADDON_LOADED BEFORE any child NewDB
@@ -2738,7 +2795,7 @@ EllesmereUI.RegisterMigration({
 EllesmereUI.RegisterMigration({
     id          = "global_colors_per_profile_seed_v1",
     scope       = "global",
-    description = "Seed every profile's customColors from the global table for the opt-in per-profile colours mode.",
+    description = "Seed every profile's customColors from the global table for the opt-in per-profile colors mode.",
     body        = function(ctx)
         local db = ctx.db
         if not db or type(db.customColors) ~= "table" or type(db.profiles) ~= "table" then return end
@@ -4718,8 +4775,8 @@ EllesmereUI.RegisterMigration({
 -- Queued Only / Full) replaces Highlight Queued Attacks, Highlight Active Attack
 -- and Show Shot Pending; Movement Guide (Off / Segments / Wind-Up Bar) replaces
 -- Latency Overlay and Smooth Swing Timing. Only explicit values
--- move (defaults are stripped at logout); the colour keys keep their names, and
--- the latency zone keeps its old red where no colour was stored (GO's default
+-- move (defaults are stripped at logout); the color keys keep their names, and
+-- the latency zone keeps its old red where no color was stored (GO's default
 -- is white). Per profile: no current setting writes the old keys, so a profile
 -- imported later from an older string migrates on its next load.
 EllesmereUI.RegisterMigration({

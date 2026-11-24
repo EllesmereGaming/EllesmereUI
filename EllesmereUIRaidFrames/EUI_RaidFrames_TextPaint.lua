@@ -4,7 +4,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  The texts of a raid frame (EUI_RaidFrames_TextKeys.lua) on live buttons: a
 --  text plan per settings source, one FontString per text built on first need,
---  its font, anchor and colour, and one painter per kind. The event paths read
+--  its font, anchor and color, and one painter per kind. The event paths read
 --  the plan and settings the button was last painted with (d._txP, d._txS).
 -------------------------------------------------------------------------------
 local _, ns = ...
@@ -34,7 +34,7 @@ for i = 1, NTEXTS do
 end
 
 -- Per kind, as the old element FontStrings: width (a share of the frame width; the
--- name its own), word wrap, alpha and the colour a mode falls back to.
+-- name its own), word wrap, alpha and the color a mode falls back to.
 local KIND = {
     name   = { width = ns.RF_NAME_WIDTH_FRACTION, wrap = false, a = 1 },
     level  = { wrap = false, a = 1 },
@@ -176,14 +176,14 @@ function ns.RF_TextNameAttach(s)
 end
 
 -------------------------------------------------------------------------------
---  Layout and colour
+--  Layout and color
 -------------------------------------------------------------------------------
 local function Dead(unit)
     return UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit)
 end
 
--- A text's colour for its colour mode; pr, pg, pb: the unit's power colour when the
--- caller has it. Unknown or unreadable falls back to the content's colour.
+-- A text's color for its color mode; pr, pg, pb: the unit's power color when the
+-- caller has it. Unknown or unreadable falls back to the content's color.
 local function TextColor(e, unit, s, pr, pg, pb)
     local mode, P = s[e.k.ColorMode], e.prop
     if mode == "accent" then
@@ -205,7 +205,7 @@ local function TextColor(e, unit, s, pr, pg, pb)
     return P.r or 1, P.g or 1, P.b or 1
 end
 
--- Stamped on the FontString (ours) so a repaint with the same colour sets nothing.
+-- Stamped on the FontString (ours) so a repaint with the same color sets nothing.
 local function Tint(fs, e, unit, s, pr, pg, pb)
     local r, g, b = TextColor(e, unit, s, pr, pg, pb)
     if fs._r ~= r or fs._g ~= g or fs._b ~= b then
@@ -214,8 +214,8 @@ local function Tint(fs, e, unit, s, pr, pg, pb)
     end
 end
 
--- A name's tint: the frame's own name colour when it has one (d._txName(unit) -> r, g, b,
--- plain numbers, or nothing: the pet frames' Text Color), else the text's colour mode.
+-- A name's tint: the frame's own name color when it has one (d._txName(unit) -> r, g, b,
+-- plain numbers, or nothing: the pet frames' Text Color), else the text's color mode.
 local function TintName(fs, e, unit, s, d)
     local own = d._txName
     if own then
@@ -450,7 +450,7 @@ local RepaintCustom = ns.RF_TextRepaintCustom
 
 -------------------------------------------------------------------------------
 --  Power Text: shown only while the button's power bar shows (d._pwtOn). The
---  full power paint shows it ahead of the identity edge that colours it; the
+--  full power paint shows it ahead of the identity edge that colors it; the
 --  value rides every power value push; dead/offline blanks it on the edge the
 --  health tick sees (d._pwtGone, cleared by the full power paint).
 -------------------------------------------------------------------------------
@@ -483,7 +483,7 @@ function ns.RF_TextPower(d, unit, ppct, pType, full)
     if not full and p.reads and p.reads.pp then RepaintCustom(d, unit, "pp") end
 end
 
--- Power Text colour on the identity edge; pr, pg, pb: the unit's power colour.
+-- Power Text color on the identity edge; pr, pg, pb: the unit's power color.
 function ns.RF_TextPowerColor(d, unit, s, pr, pg, pb)
     local l = d._pwtOn and d._txP and d._txP.pp
     if not l then return end
@@ -541,7 +541,7 @@ end
 --  Previews: no unit, made-up values in pv (hpPct, hpPer, ppPct, ppPer, ha:
 --  the heal absorb amount, name: as the name text shows it, dead, offline,
 --  power: the power bar shows, class and pToken: the sample member's class
---  and power type for the colours). The same layout and rules as live.
+--  and power type for the colors). The same layout and rules as live.
 -------------------------------------------------------------------------------
 local function PvPaint(fs, e, s, pv, fb)
     local kind = e.kind
@@ -566,7 +566,7 @@ local function PvPaint(fs, e, s, pv, fb)
         ns.FormatHealAbsorbInto(fs, pv.ha or 0, e.mode)
     end
     local P = e.prop
-    -- A preview name in the frame's own name colour (pv.nr, pv.ng, pv.nb: the pet
+    -- A preview name in the frame's own name color (pv.nr, pv.ng, pv.nb: the pet
     -- frames' Text Color).
     if kind == "name" and pv.nr then
         fs:SetTextColor(pv.nr, pv.ng, pv.nb, P.a)

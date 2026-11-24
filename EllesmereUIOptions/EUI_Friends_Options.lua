@@ -112,7 +112,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Stock styles (Blizzard Style / Classic WoW UI) keep Blizzard's own
         -- window and rows on either friends window (12.1 Social UI or the
-        -- legacy one) and add the class icon, class-coloured name and region
+        -- legacy one) and add the class icon, class-colored name and region
         -- mark to them, so those rows and auto-accept stay. The border and
         -- accent rows drive only the EllesmereUI skin of the legacy window,
         -- faction banners also the 12.1 tiles; all three hide under stock.

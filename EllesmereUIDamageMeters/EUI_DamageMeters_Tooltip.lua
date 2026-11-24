@@ -187,7 +187,7 @@ local function HideTTTargets()
 end
 
 -- An Enemy Damage Taken attacker row (AggregateEnemyPlayers): spec icon or
--- class art, class coloured fill, name and amount. A secret name or amount
+-- class art, class colored fill, name and amount. A secret name or amount
 -- passes whole to the bar and text setters.
 local function PaintAttackerRow(b, p, maxAmt, texPath, texKey, numFmt)
     local specIcon = p.specIcon
@@ -356,7 +356,7 @@ local function ShowGatePanel(gp, shown)
     gp.gateA:SetShown(shown); gp.gateB:SetShown(shown); gp.clipA:SetShown(shown)
 end
 
--- The tooltip's own background colour, opaque, so a panel covers the note.
+-- The tooltip's own background color, opaque, so a panel covers the note.
 local function TooltipBgRGB()
     if BlizzardSkinBordersAvailable() and EUI.GetTooltipBg then
         local r, g, b = EUI.GetTooltipBg()

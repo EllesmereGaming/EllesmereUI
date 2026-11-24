@@ -3768,11 +3768,11 @@ do
         vBar:SetPoint("CENTER", crosshairFrame, "CENTER", 0, 0)
         vBar:SetColorTexture(cr, cg, cb, ca)
 
-        -- Base colour for out-of-range recolor; melee state resets so OnUpdate re-applies the range colour next tick if still needed.
+        -- Base color for out-of-range recolor; melee state resets so OnUpdate re-applies the range color next tick if still needed.
         crosshairFrame._normalColor = { r = cr, g = cg, b = cb, a = ca }
         crosshairFrame._meleeActive = false
 
-        -- Pixel border: a slightly larger bar of border colour behind each arm.
+        -- Pixel border: a slightly larger bar of border color behind each arm.
         if bSize and bSize > 0 then
             local bp = PP.Scale(bSize)
             local br, bg, bb, ba = bc.r or 0, bc.g or 0, bc.b or 0, bc.a or 1
@@ -5279,7 +5279,7 @@ end
 -------------------------------------------------------------------------------
 --  Equipment Flyout item levels -- Blizzard's gear flyout (hover a character-
 --  sheet slot -> popup of same-slot bag/equipped items) only shows icons; when
---  enabled, overlays each button with the item's level, coloured by quality. Hooks
+--  enabled, overlays each button with the item's level, colored by quality. Hooks
 --  EquipmentFlyout_UpdateItems (after every flyout shape is populated) and reads EllesmereUIDB
 --  live, so the toggle applies to the next flyout with no reload. Toggle: EllesmereUIDB.flyoutItemLevels (Quality of Life -> UI).
 --  EllesmereUIDB.flyoutItemStats adds the stat letters (EllesmereUI.GetItemStatLetters)

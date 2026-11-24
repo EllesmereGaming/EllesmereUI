@@ -289,7 +289,7 @@ RestoreOverlayBorders = function(iconFrame, o)
     o._brdSavedLvl, o._sbSavedLvl, o._brdRaised = nil, nil, false
 end
 
--- Active swipe colour: class, custom, or default gold. Drives our own swipe.
+-- Active swipe color: class, custom, or default gold. Drives our own swipe.
 ResolveSwipeColor = function(ss)
     local cr, cg, cb
     if ss and ss.activeSwipeClassColor then
@@ -430,7 +430,7 @@ ApplyToFrame = function(iconFrame, rule, win)
         end
         -- Feed the active glow + border the underlying icon's shape / border so
         -- Shape Glow masks to the shape (it reads the shape from its glow frame's
-        -- parent FC) and Active Border can recolour the real (now-raised) border.
+        -- parent FC) and Active Border can recolor the real (now-raised) border.
         local ufd  = ns._hookFrameData and ns._hookFrameData[iconFrame]
         local uifc = ns._ecmeFC and ns._ecmeFC[iconFrame]
         o.borderFrame = (ufd and ufd.borderFrame) or nil
@@ -1326,7 +1326,7 @@ local function FrameBaseAlpha(fc)
 end
 
 -- cas is the rule's styling entry (passed in so a trinket, whose frame key is a
--- slot, still gets the per-item glow colour). Marks the frame "touched" so the
+-- slot, still gets the per-item glow color). Marks the frame "touched" so the
 -- restore pass below can find it even after the trinket has been swapped out.
 -- hide and glow are the two halves of the effect (ns.CdStateOf), each applied
 -- on its own: the hide runs on hideCD (the form alone, or unusable counting as
@@ -1711,7 +1711,7 @@ function ns.FakeActive_OnIconRestyled(iconFrame)
     local bd = barKey and ns.barDataByKey and ns.barDataByKey[barKey]
     IconTexture(iconFrame, o, o._rule)
     if ns.ApplyShapeToOverlay then ns.ApplyShapeToOverlay(iconFrame, o.icon, o.cd, bd) end
-    -- Re-apply Duration Text styling too (the font/size/colour may have changed).
+    -- Re-apply Duration Text styling too (the font/size/color may have changed).
     if ns.StyleOverlayCooldownText then
         ns.StyleOverlayCooldownText(o.cd, bd, o._ss, iconFrame:GetScale())
     end
@@ -1726,10 +1726,10 @@ function ns.FakeActive_OnIconRestyled(iconFrame)
     o._brdRaised = false
     RaiseOverlayBorders(iconFrame, o, bd)
     -- Re-feed the active glow / border the underlying shape + border refs, then
-    -- re-apply so a glow-colour / active-border edit takes effect live (the glow
-    -- only restarts if its style/colour actually changed). ApplyShapeToCDMIcon
-    -- just reset the shape border to its configured colour, so drop the stale
-    -- saved colour first to re-capture it for restore-on-falloff.
+    -- re-apply so a glow-color / active-border edit takes effect live (the glow
+    -- only restarts if its style/color actually changed). ApplyShapeToCDMIcon
+    -- just reset the shape border to its configured color, so drop the stale
+    -- saved color first to re-capture it for restore-on-falloff.
     local ufd  = ns._hookFrameData and ns._hookFrameData[iconFrame]
     local uifc = ns._ecmeFC and ns._ecmeFC[iconFrame]
     o.borderFrame = (ufd and ufd.borderFrame) or nil

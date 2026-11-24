@@ -115,11 +115,14 @@ function EAB_VTABLE.Hover.CustomFadeFrame(barKey)
     return BarAlphaFrame(barKey, info), info
 end
 
--- Whether the open spellbook or macro panel holds this mouseover bar up (Show
--- When Spellbook Is Open): every fade-out of the bar waits for the panel to
--- close, which empties the set before it fades the bars out.
+-- Whether the open spellbook or macro panel (Show When Spellbook Is Open), or
+-- the Choose Bars view (EUI_ActionBars_PopulatePicker.lua), holds this
+-- mouseover bar up: every fade-out of the bar waits until it lets go, which
+-- empties its set before it fades the bars out.
 function EAB_VTABLE.Hover.SpellbookHolds(barKey)
     local held = _gridState._sbMoForced
+    if held ~= nil and held[barKey] == true then return true end
+    held = _gridState._popMoForced
     return held ~= nil and held[barKey] == true
 end
 

@@ -4,7 +4,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Shared glow rendering engine for the EllesmereUI addon suite.
 --  Provides: Pixel Glow (procedural ants), Action Button Glow, Auto-Cast
 --  Shine, Shape Glow, FlipBook-based glows (GCD, Modern WoW, Classic WoW), and
---  Blackout (solid colour fill with adjustable transparency).
+--  Blackout (solid color fill with adjustable transparency).
 --  Each addon attaches to EllesmereUI.Glows.* instead of duplicating engines.
 -------------------------------------------------------------------------------
 if not EllesmereUI then return end
@@ -841,7 +841,7 @@ end
 
 -------------------------------------------------------------------------------
 --  Solid Fill Engine (Blackout)
---  One colour texture covering the wrapper at a caller-chosen alpha (opaque
+--  One color texture covering the wrapper at a caller-chosen alpha (opaque
 --  by default), so the icon can be fully hidden or only partially obscured.
 --  Static: no driver tick and no AnimationGroup, so it costs nothing per
 --  frame. The texture is created on the first start and PrewarmEngineHost has
@@ -957,7 +957,7 @@ local function StartGlow(wrapper, styleIdx, szOrW, cr, cg, cb, opts, szH)
     opts = opts or {}
     local w = szOrW or 36
     local h = szH or w
-    -- An unspecified colour means black for Blackout (its default look), not
+    -- An unspecified color means black for Blackout (its default look), not
     -- the white every other style falls back to below.
     local noColor = (cr == nil)
     local keepUntinted = opts.untinted and cr == nil
@@ -1548,7 +1548,7 @@ do
     function G.ResolveColor(mode, r, g, b, defR, defG, defB)
         if mode == "default" then return nil end
         if mode == "class" then
-            -- The palette colour (custom + Class Color Darken); an unknown class is white.
+            -- The palette color (custom + Class Color Darken); an unknown class is white.
             local c = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
             return c.r, c.g, c.b
         end
@@ -1601,7 +1601,7 @@ do
         if t[k.bg] then
             out.bg, out.bgR, out.bgG, out.bgB = true, t[k.bgR] or 0, t[k.bgG] or 0, t[k.bgB] or 0
         else
-            -- out is the caller's reused scratch: clear the colour too.
+            -- out is the caller's reused scratch: clear the color too.
             out.bg, out.bgR, out.bgG, out.bgB = nil, nil, nil, nil
         end
         return out
@@ -1643,7 +1643,7 @@ do
             out.bg = true
             out.bgR, out.bgG, out.bgB = bc and bc.r or 0, bc and bc.g or 0, bc and bc.b or 0
         else
-            -- out is the caller's reused scratch: clear the colour too.
+            -- out is the caller's reused scratch: clear the color too.
             out.bg, out.bgR, out.bgG, out.bgB = nil, nil, nil, nil
         end
         return out
@@ -1736,7 +1736,7 @@ do
         local N, th, period = spec.lines or 8, spec.thickness or 2, spec.speed or 4
         if extra and extra.panel then th = G.PanelThickness(th) end
         local bgOn = spec.bg and true or false
-        -- An off background draws nothing, so its colour never counts (a
+        -- An off background draws nothing, so its color never counts (a
         -- reused scratch spec can still carry an old one).
         local bgR, bgG, bgB = 0, 0, 0
         if bgOn then bgR, bgG, bgB = spec.bgR or 0, spec.bgG or 0, spec.bgB or 0 end

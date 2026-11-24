@@ -114,7 +114,7 @@ local mailable = 0                -- characters this page could mail before the 
 local sortRoster                  -- the roster the comparators read during one sort
 local menuGuid                    -- the row the right-click menu was opened on
 local myGuid                      -- this character, read at login (never in its own list)
-local paintedGen, paintedFaction  -- the class colour palette and faction the list was painted with
+local paintedGen, paintedFaction  -- the class color palette and faction the list was painted with
 local MENU, IGNORED_MENU, Changed, BuildTabs
 local showIgnored = false         -- the cog menu's Show Ignored Characters: they are listed too (this session)
 local ignoredShown = {}           -- player GUIDs of the ignored characters in the shown list
@@ -598,7 +598,7 @@ local function Build()
         topH, inset, gap = EUI_TOP, EUI_INSET, EUI_GAP
         panel = CreateFrame("Frame", "EllesmereUIMailAltList", SendMailFrame)
         -- The mail window's own shell layers: the atlas under a black wash
-        -- (EllesmereUI), or the one Modern colour. Built here rather than through
+        -- (EllesmereUI), or the one Modern color. Built here rather than through
         -- WSkin.Shell, which hooks OnSizeChanged: no script of ours may sit in
         -- SendMailFrame's subtree.
         bgArt = panel:CreateTexture(nil, "BACKGROUND", nil, -8)
@@ -822,7 +822,7 @@ Place = function()
 end
 
 -- Shown before the paint: a font string measures its height only while visible.
--- Repainted when the list changed, a class colour was edited since (the colour
+-- Repainted when the list changed, a class color was edited since (the color
 -- palette's generation) or this character has picked its faction since.
 local function ShowPanel()
     if not panel then Build() end

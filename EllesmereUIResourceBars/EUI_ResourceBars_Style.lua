@@ -220,7 +220,7 @@ end
 --  weight of frame; its opaque gold rim covers the bar's ends and bottom
 --  edge, so it goes ABOVE the fill and reaches 14.5 left and right, 12 above
 --  and 11 below the bar. Vanilla bars are plain rectangles: no mask, no bevel
---  strips, and the fill stays the user's texture and colours.
+--  strips, and the fill stays the user's texture and colors.
 -------------------------------------------------------------------------------
 ns.ERB_CLASSIC = {
     spark  = "Interface\\CastingBar\\UI-CastingBar-Spark",
@@ -299,7 +299,7 @@ end
 -- (0, 1, 1, 0) so the line sits at its bottom, strip bottom 2 x f below the
 -- bar's bottom edge; vertical strip size x f wide, left edge 2 x f before the
 -- gap midpoint, full bar height; cast divider size x f wide, leading edge
--- 2 x f over the icon side of the seam. Tint with the bar's border colour and
+-- 2 x f over the icon side of the seam. Tint with the bar's border color and
 -- alpha. Anchor to the outer bar frame, never the clipped inner StatusBar.
 -- Style/build time only.
 function ns.ERB_SeparatorArt(c, pick, role)
@@ -336,7 +336,7 @@ end
 -- ERB.ApplyGapFills receives; isVertical / isReversed = the pip orientation).
 -- level = the host's frame level (nil: the caller levels it). Nothing on: the
 -- host hides and leaves the UI-scale re-place. Art, size and offsets are
--- ns.ERB_SeparatorArt's, the colour the bar's border colour and alpha. Build
+-- ns.ERB_SeparatorArt's, the color the bar's border color and alpha. Build
 -- paths only: nothing here runs per frame or per power tick.
 do
 -- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
@@ -456,7 +456,7 @@ end
 -- runes (bar types pass no slots). Only while the class style is textured and
 -- our own bar draws: no stock style, no Blizzard Class Resource Art (its slot
 -- sits at zero alpha and the pips stop painting). Bar Spacing and the gap
--- colour are read through the pip layout, never written. Level: slot + 7,
+-- color are read through the pip layout, never written. Level: slot + 7,
 -- above the pips and the class borders (slot + 5, its strips + 6). With
 -- threshold bands it also clears the band stack (secret pip renderer: band k
 -- at slot + 1 + k, the reset bar one higher; the Ignore Pain bar's layers up
@@ -582,8 +582,8 @@ end
 -- Border Art Divider: the cast bar's icon/bar seam divider in the cast border
 -- style's own vertical companion art: size x f wide, its leading edge 2 x f
 -- over the icon side of the seam (the art mirrored for an icon on the right,
--- so its line stays on the seam), full icon height, the cast border's colour
--- and alpha as vertex colour. Returns true while sized from an exact Border
+-- so its line stays on the seam), full icon height, the cast border's color
+-- and alpha as vertex color. Returns true while sized from an exact Border
 -- Size. tex = our divider texture, icon = the icon frame.
 function ns.ERB_PlaceDividerArt(tex, icon, onRight, c)
     local path, f, size, exact = ns.ERB_SeparatorArt(c, "match", "sepV")
@@ -608,7 +608,7 @@ end
 -- divider is drawn), Border Art Divider is on, no stock style (stock) and the
 -- style has vertical companion art; returns true then, and the caller shows it.
 -- Otherwise returns false for the caller's solid line, after one reset when
--- leaving the art: texcoords, the vertex colour back to white (SetColorTexture
+-- leaving the art: texcoords, the vertex color back to white (SetColorTexture
 -- keeps a stale one) and the UI-scale re-place dropped. Two compares while it
 -- was never on. The state is kept on our own texture.
 function ns.ERB_CastDividerArt(tex, show, icon, onRight, c, stock)
@@ -628,9 +628,9 @@ end
 function ns.ERB_DividerReapply(tex)
     if tex._erbArt then ns.ERB_PlaceDividerArt(tex, tex._erbIcon, tex._erbRight, tex._erbC) end
 end
--- Spell Text / Duration Text colour on a cast bar FontString of ours (live bar
+-- Spell Text / Duration Text color on a cast bar FontString of ours (live bar
 -- and preview): written only while set off white, or once more to restore white
--- after an earlier tint, so an untouched profile never recolours the text.
+-- after an earlier tint, so an untouched profile never recolors the text.
 function ns.ERB_CastTextColor(fs, r, g, b, a)
     r, g, b, a = r or 1, g or 1, b or 1, a or 1
     local tinted = (r ~= 1 or g ~= 1 or b ~= 1 or a ~= 1)

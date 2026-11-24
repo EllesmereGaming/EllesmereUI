@@ -860,7 +860,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if cf then ECHAT.SeatStockBackground(cf) end
                     end
                 end
-                -- The stored window colour, re-read once settled.
+                -- The stored window color, re-read once settled.
                 if ECHAT.SB_SyncBackdrop then ECHAT.SB_SyncBackdrop(true) end
             end)
         end)

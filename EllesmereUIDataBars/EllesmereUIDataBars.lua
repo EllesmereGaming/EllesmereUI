@@ -398,7 +398,7 @@ function ns.GetAccent()
     return 0.047, 0.824, 0.616
 end
 
--- Colour gradient (bad -> caution -> good)
+-- Color gradient (bad -> caution -> good)
 function ns.SlowColorGradient(perc)
     perc = max(0, min(1, perc))
     local function smoothstep(t) return t * t * (3 - 2 * t) end

@@ -1682,7 +1682,7 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         row:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         rowH = 22 + 24
         -- The kit decides these auras' size and place on party frames: name
-        -- the override and its value, in the accent colour.
+        -- the override and its value, in the accent color.
         if kitMode and opts.kitAuras then
             local p = ns.db.profile
             local hint = parent:CreateFontString(nil, "OVERLAY")

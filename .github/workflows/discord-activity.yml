@@ -42,7 +42,7 @@ jobs:
           const repoName = repo.split("/")[1];
           const hook = process.env.DISCORD_WEBHOOK_URL;
 
-          // Left strip colours: pushes and new pull requests as the GitHub feed draws them,
+          // Left strip colors: pushes and new pull requests as the GitHub feed draws them,
           // merges in GitHub's merged purple.
           const COLOR = { push: 0x7289da, opened: 0x009800, merged: 0x8250df, release: 0xe3b341 };
 

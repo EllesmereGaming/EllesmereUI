@@ -16,7 +16,7 @@ end
 -- onSave runs after the format is stored and selects Custom for the slot.
 function ns.UFO_EditCustomText(prefix, db, unit, onSave)
     local key = prefix .. "CustomFormat"
-    -- The preview in the slot's text colour, as the unit preview shows it.
+    -- The preview in the slot's text color, as the unit preview shows it.
     local color
     -- Power Colored: the page's unit while it exists (boss1 for Boss),
     -- else the player, as the unit preview shows it.
@@ -63,7 +63,7 @@ end
 -- For a dropdown whose selection keeps the page: rebuilds the given regions'
 -- menus once the list has closed, for Custom's pencil to follow the selection.
 -- The widget refresh is the menu's own deferred one, which Custom's popup path
--- never reaches: without it colour swatches and cogs keep the previous state.
+-- never reaches: without it color swatches and cogs keep the previous state.
 function ns.UFO_RefreshMenus(...)
     local n, rgns = select("#", ...), { ... }
     C_Timer.After(0, function()
@@ -116,7 +116,7 @@ function ns.UFO_AddCustomFormatAccessor(rgn, label, prefix, content, getDB, appl
         function(v) getDB()[fk] = v; apply() end)
 end
 
--- Level coloring is shared by the unit, and edited from its level-text cogs.
+-- Level settings are shared by the unit, and edited from its level-text cogs.
 function ns.UF_CoreTextRows(prefix, contentDefault, get, set, rows)
     rows = ns.UF_NameFormatRows(prefix, contentDefault, get, set, rows)
     local content = get(prefix .. "Content", contentDefault)
@@ -141,6 +141,10 @@ function ns.UF_CoreTextRows(prefix, contentDefault, get, set, rows)
             set("levelDifficultyColorFriendly", v)
             ns._UFO_OptEnv.UpdatePreview()
         end }
+    rows[#rows + 1] = { type="toggle", label="Level Text: Classification",
+        tooltip="Adds + for elites, R for rares, and R+ for rare elites.",
+        get=function() return get("levelClassification", false) == true end,
+        set=function(v) set("levelClassification", v or nil) end }
     return rows
 end
 

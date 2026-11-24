@@ -181,7 +181,7 @@ do
         if f._rangeOut then
             -- Out of range the icon is range-driven: the dim memo goes (left set, it
             -- would hold the drain unsettled after the spell turned usable) and the
-            -- tint write is edge-gated. PaintTint is the only colour writer here.
+            -- tint write is edge-gated. PaintTint is the only color writer here.
             f._lastVertexDim = nil
             if not f._rangeTinted then
                 local c = CooldownViewerConstants and CooldownViewerConstants.ITEM_NOT_IN_RANGE_COLOR
@@ -599,7 +599,7 @@ local function GetOrCreatePlaceholderFrame(barKey, spellID, iconID, identKey)
         end)
         f:SetScript("OnLeave", GameTooltip_Hide)
         _placeholderFrames[fkey] = f
-        -- A new icon starts in full colour: the buff ticker draws Desaturate
+        -- A new icon starts in full color: the buff ticker draws Desaturate
         -- Off CD on it once the placement that made it has decorated it.
         ns._btDirty = true
         if ns.ArmBuffTicker then ns.ArmBuffTicker() end

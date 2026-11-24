@@ -192,7 +192,7 @@ function CogDot.Fit(L, k)
     ring:SetPoint("CENTER", note, "CENTER")
 end
 
--- The pulse: a ring of the dot's colour grows from it and fades, three times.
+-- The pulse: a ring of the dot's color grows from it and fades, three times.
 function CogDot.PulseLoop(ag)
     local n = (ag._euiLoops or 0) + 1
     ag._euiLoops = n
@@ -511,7 +511,7 @@ end
 -- opts: width (110), height (24), gap (8), chain (default true: becomes
 -- region._lastInline), tip (a string, or a function returning one: the hover
 -- tooltip while enabled), disabled + disabledTooltip/rawTooltip/requireState
--- (as ResolveDisabledTip): greyed, click-blocked, without hover colours and
+-- (as ResolveDisabledTip): greyed, click-blocked, without hover colors and
 -- explaining itself on hover while disabled, re-checked with the page's
 -- widgets. Returns the button; nil during the search prebuild.
 function EllesmereUI.BuildInlineButton(rgn, text, onClick, opts)
@@ -530,8 +530,8 @@ function EllesmereUI.BuildInlineButton(rgn, text, onClick, opts)
     MakeStyledButton(btn, text, 11, WB_COLOURS, onClick)
     local tip, disabled = opts.tip, opts.disabled
     if not (tip or disabled) then return btn end
-    -- The styled button's hover scripts paint its hover colours; these wrap
-    -- them so a disabled button keeps its resting colours.
+    -- The styled button's hover scripts paint its hover colors; these wrap
+    -- them so a disabled button keeps its resting colors.
     local hoverOn, hoverOff = btn:GetScript("OnEnter"), btn:GetScript("OnLeave")
     -- A state with no text hides the other state's tooltip (a flip replays this).
     local function OnEnter(self)
@@ -906,7 +906,7 @@ local function SetLessCommonSearchActive(active)
     end
 end
 
--- A colour scale across a swatch: stops = { { r, g, b }, ... }, drawn left to
+-- A color scale across a swatch: stops = { { r, g, b }, ... }, drawn left to
 -- right in equal steps over its fill (for a swatch that picks a scale, such as
 -- the meters' value gradient).
 local function PaintSwatchGradient(swatch, stops)
@@ -930,7 +930,8 @@ end
 --  region._lastInline: a slot's cog is built first and the swatches land left of it. opts.disabled/opts.disabledTooltip
 --  mirror the row-level disabled state of the multiSwatch form.
 --  opts.size: the swatch size (nil = 20, the inline swatch size; BuildColorSwatch's own 24 is a swatch half's).
---  sc.gradient: colour stops shown across the swatch in place of its colour (PaintSwatchGradient).
+--  sc.gradient: color stops shown across the swatch in place of its color (PaintSwatchGradient).
+--  sc.bindPicker: binds one picker session's writes and Cancel (BuildColorSwatch's bindPicker).
 -------------------------------------------------------------------------------
 local function BuildInlineSwatches(region, swatches, opts)
     -- Hidden search pre-build: swatches index nothing and the pre-built page is never shown, so none are built (its regions are stand-ins with no frame to build on).
@@ -940,7 +941,7 @@ local function BuildInlineSwatches(region, swatches, opts)
     local anchorTo = region._lastInline or region._control
     for i = #swatches, 1, -1 do
         local sc = swatches[i]
-        local swatch, updateSwatch = BuildColorSwatch(region, level, sc.getValue, sc.setValue, sc.hasAlpha, opts.size or 20)
+        local swatch, updateSwatch = BuildColorSwatch(region, level, sc.getValue, sc.setValue, sc.hasAlpha, opts.size or 20, sc.bindPicker)
         PP.Point(swatch, "RIGHT", anchorTo, "LEFT", -8, 0)
         anchorTo = swatch
         region._lastInline = swatch
@@ -1005,7 +1006,7 @@ EllesmereUI.BuildInlineSwatches = BuildInlineSwatches
 --  other flat modes) and the three gradient-stop swatches (100% | 50% | 0%, left to right), which
 --  take its place in "customDynamic". Chains from region._lastInline like the other inline items.
 --  opts.mode() -> the dropdown's value; opts.getCustom() -> r, g, b; opts.setCustom(r, g, b);
---  opts.keys = { key100, key50, key0 }; opts.getStop(key) -> the saved colour table or nil (a
+--  opts.keys = { key100, key50, key0 }; opts.getStop(key) -> the saved color table or nil (a
 --  missing stop shows its default); opts.setStop(key, r, g, b). Nothing in the search pre-build.
 -------------------------------------------------------------------------------
 local FILL_STOPS = {

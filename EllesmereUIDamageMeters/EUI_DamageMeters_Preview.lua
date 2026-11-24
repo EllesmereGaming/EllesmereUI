@@ -21,10 +21,19 @@ local SPEC_BY_ROLE = {
     ["MAGE:DAMAGER"] = 63, ["ROGUE:DAMAGER"] = 259, ["WARLOCK:DAMAGER"] = 267,
 }
 -- Enemy Damage Taken lists mobs: no class, so the window's own mob look applies.
-local MOBS = {
-    "Training Dummy", "Shadowguard Brute", "Void Ravager", "Ember Hound",
-    "Cultist Adept", "Gilded Sentinel", "Rift Stalker", "Bog Lurker",
-}
+-- Translated on the first use (the locale is fixed for the session).
+local MOBS
+local function Mobs()
+    if not MOBS then
+        MOBS = {
+            EllesmereUI.L("Training Dummy"), EllesmereUI.L("Shadowguard Brute"),
+            EllesmereUI.L("Void Ravager"), EllesmereUI.L("Ember Hound"),
+            EllesmereUI.L("Cultist Adept"), EllesmereUI.L("Gilded Sentinel"),
+            EllesmereUI.L("Rift Stalker"), EllesmereUI.L("Bog Lurker"),
+        }
+    end
+    return MOBS
+end
 
 local _sessions = {}
 
@@ -37,9 +46,9 @@ end
 
 local function OwnSpecIcon()
     if EllesmereUI.IS_FOREVER then return nil end
-    local idx = GetSpecialization and GetSpecialization()
-    if not (idx and GetSpecializationInfo) then return nil end
-    local _, _, _, icon = GetSpecializationInfo(idx)
+    local idx = C_SpecializationInfo.GetSpecialization()
+    if not idx then return nil end
+    local _, _, _, icon = C_SpecializationInfo.GetSpecializationInfo(idx)
     return icon
 end
 
@@ -65,10 +74,11 @@ local function Build(dmType)
     base = base * (0.75 + random() * 0.5)
     -- Who appears in which slot: seven random roster members and the player (slot 0),
     -- or the mob names; shares slightly varied and kept descending.
-    local roster = EllesmereUI.PREVIEW_ROSTER or {}
+    local roster = EllesmereUI.PREVIEW_ROSTER
+    local mobs = isEnemy and Mobs()
     local pick = {}
     if isEnemy then
-        for i = 1, #MOBS do pick[i] = i end
+        for i = 1, #mobs do pick[i] = i end
     else
         for i = 1, #roster do pick[i] = i end
         Shuffle(pick)
@@ -86,7 +96,7 @@ local function Build(dmType)
     for i = 1, n do
         local p, row = pick[i], {}
         if isEnemy then
-            row.name = MOBS[p]
+            row.name = mobs[p]
         elseif p == 0 then
             local _, classFile = UnitClass("player")
             row.name, row.classFilename = UnitName("player"), classFile
@@ -102,6 +112,7 @@ local function Build(dmType)
             t = t - random(15, 70)
         elseif isThreat then
             row.totalAmount = math.floor(shares[i] / shares[1] * 100 + 0.5)
+            row.threatScaled = row.totalAmount  -- the Value Gradient's threat share
             row.rankText, row.threatText = i .. ".", row.totalAmount .. "%"
         elseif isCount then
             row.totalAmount = math.max(1, math.floor(10 * shares[i] + 0.5))

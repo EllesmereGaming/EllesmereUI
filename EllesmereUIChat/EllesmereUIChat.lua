@@ -114,14 +114,18 @@ local CHAT_DEFAULTS = {
             activeUnderline = true,
             activeUnderlineColorMode = "accent",
             activeUnderlineColor = { r=0.05, g=0.82, b=0.61, a=1 },
+            -- Sidebar icons: Friends, Copy Chat, M+ Portals (retail; Forever has
+            -- none) or Durability (WoW Forever: per-client default), Chat Menu.
+            -- Profiles made before keep Settings on and Chat Menu and Durability
+            -- off (chat_sidebar_icon_defaults_existing_v1, EllesmereUI_Migration.lua).
             showFriends = true,
             showGuild = false,
-            showDurability = false,
+            showDurability = (EllesmereUI.IS_FOREVER == true),
             showCopy = true,
             showPortals = true,
             showVoice = false,
-            showSettings = true,
-            showChatMenu = false,
+            showSettings = false,
+            showChatMenu = true,
             showScroll = true,
             hideTooltipOnHover = true,
             sidebarRight = false,
@@ -347,7 +351,7 @@ local function GetTabAreaHeight()
 end
 
 -- Set<Name> for the locals this file shares with the EUI_Chat_*.lua files
--- (the background colour here, the sidebar fade state further down). Every
+-- (the background color here, the sidebar fade state further down). Every
 -- file that reads one keeps a copy, so a write goes through these; they are
 -- assigned at the end of this file, next to ns._internals.
 local SetBgR, SetBgG, SetBgB, SetBgA
@@ -449,7 +453,7 @@ function ECHAT.ApplyBackground()
             end
         end
     end
-    -- WoW Forever: the colour and texture fill the kit's framed boxes instead.
+    -- WoW Forever: the color and texture fill the kit's framed boxes instead.
     if ns.ChatForever() then ECHAT.FV_PaintFills(texPath, BG_R, BG_G, BG_B, BG_A) end
     local cf1 = _G.ChatFrame1
     if cf1 and CFD(cf1).sidebar then
@@ -457,7 +461,7 @@ function ECHAT.ApplyBackground()
         if sbBg and sbBg.SetColorTexture then
             sbBg:SetColorTexture(BG_R, BG_G, BG_B, stock and 0 or BG_A)
         end
-        -- Blizzard Style column backdrop: the window colour, re-read.
+        -- Blizzard Style column backdrop: the window color, re-read.
         if ECHAT.SB_SyncBackdrop then ECHAT.SB_SyncBackdrop(true) end
     end
     -- Keep the behind-tabs extension in sync with the new color/opacity.
@@ -1456,7 +1460,7 @@ do
                 if ECHAT.SB_FlashSync then ECHAT.SB_FlashSync() end
             end
             -- Blizzard Style sidebar backdrop: the selected window's stored
-            -- colour (tab-menu colour and opacity edits land while armed).
+            -- color (tab-menu color and opacity edits land while armed).
             if ECHAT.SB_SyncBackdrop then ECHAT.SB_SyncBackdrop() end
         end
         -- Blizzard's tab menu writes the frame font directly and does not emit

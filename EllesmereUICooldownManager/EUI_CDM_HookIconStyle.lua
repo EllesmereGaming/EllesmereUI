@@ -40,6 +40,10 @@ ns._tickBlizzActiveCache = _activeCache
 -- forwarded straight into a StatusBar:SetValue, never compared in Lua.
 local _activeStacksCache = {}
 ns._tickBlizzAuraStacks = _activeStacksCache
+-- spellID -> true where the count is unknown because the game hides the aura's
+-- data (combat restrictions), rebuilt in the same pass. Bar Glows' gate stays
+-- open for those; a count unknown for any other reason keeps the glow off.
+ns._tickBlizzAuraStacksHidden = {}
 
 -------------------------------------------------------------------------------
 --  IsFrameIncluded
@@ -297,7 +301,10 @@ end
 -- missable. Any later RefreshData then clears the instance via RefreshAuraInstance
 -- and leaves the link standing.
 --
--- Detected with nil-compares and never-secret bools ONLY. In instanced combat
+-- Detected without comparing a value that can be secret: the live cooldownInfo's
+-- IDs and the instance id can read secret in restricted combat (even a nil test
+-- on a secret is a hard error), so each is probed with issecretvalue first, and
+-- the self-link compare runs only when all three IDs are plain. In instanced combat
 -- Cooldown:GetCooldownDuration answers a SECRET value, which is exactly why
 -- ReAssertRealCooldown's "widget reads ~0" proof fails closed there -- i.e. in
 -- the content where this is reported.
@@ -306,15 +313,28 @@ end
 -- and isOnActualCooldown keep answering against the linked spell.
 --
 -- Ordered cheapest-first: linkedSpellID is nil for nearly every icon, so the
--- common case costs two table lookups and no API call. Returns the STRUCTURAL
--- verdict only; callers add their own "is on a real cooldown" test.
+-- common case costs two table lookups, one issecretvalue and no API call.
+-- Returns the STRUCTURAL verdict only; callers add their own "is on a real
+-- cooldown" test.
 local function CdmStaleLinkedSpell(frame)
     local info = frame and frame.cooldownInfo
-    if info == nil or info.linkedSpellID == nil then return false end
+    if info == nil then return false end
+    local link = info.linkedSpellID
+    local linkSecret = issecretvalue(link)
+    if not linkSecret and link == nil then return false end
     -- An aura that is actually being displayed owns the widget; never fight it.
     -- Covers the transient where UpdateLinkedSpell has set the link a moment
     -- before RefreshAuraInstance attaches the matching instance.
-    if frame.auraInstanceID ~= nil or frame.wasSetFromAura then return false end
+    local iid = frame.auraInstanceID
+    if issecretvalue(iid) or iid ~= nil or frame.wasSetFromAura then return false end
+    -- A self-link (the aura shares the spell's own ID or its override's: most WoW
+    -- Forever cooldowns) reads the same cooldown through Blizzard's item: not stale.
+    if not linkSecret then
+        local sid, ovr = info.spellID, info.overrideSpellID
+        if not (issecretvalue(sid) or issecretvalue(ovr)) and (link == sid or link == ovr) then
+            return false
+        end
+    end
     return true
 end
 

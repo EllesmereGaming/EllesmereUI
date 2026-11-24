@@ -817,6 +817,9 @@ local function SetupOverlays()
     -- to one of these ids pay the applications read; no gated entry = no reads.
     local stackSids, glowSids, anyHero, anyUsable, anySpellKey, swingWindows, anyHealth = BindOverlays(bg)
     ns._barGlowStackSids = stackSids
+    -- A gated spell whose buff is already up has no count until the buff
+    -- tick's next full pass: ask for one (no data keeps an At Stacks glow off).
+    if stackSids then ns._acGen = (ns._acGen or 0) + 1 end
     -- A hero-talent-gated glow exists: talent changes re-run the glow pass.
     ns._barGlowAnyHero = anyHero
     -- A Glow When Usable entry exists: its own cooldown / usability edges listen.
@@ -886,8 +889,10 @@ UpdateOverlayVisuals = function(only)
             -- regardless of state-change dedupe below, so the mask tracks a
             -- live stack count while the glow keeps running. A KNOWN count
             -- that fails the comparison stops the glow outright (Lua-side,
-            -- cheap); an UNKNOWN/SECRET count never blocks it -- the gate's
-            -- open value / the engine-side clamp decide instead.
+            -- cheap). A secret count goes straight to the native gates. An
+            -- unknown count keeps the gate open while the game hides the
+            -- aura's data (combat restrictions: the glow shows while the buff
+            -- is up, as before); with no aura data at all the glow stays off.
             local gateSt
             if shouldGlow and mode ~= "MISSING" and mode ~= "USABLE" and entry.stackEnabled and spellID and spellID > 0 then
                 local threshold = tonumber(entry.stackThreshold) or 2
@@ -905,7 +910,12 @@ UpdateOverlayVisuals = function(only)
                 if secret then
                     feedValue = stacks
                 elseif stacks == nil then
-                    feedValue = gateSt.openValue
+                    local hidden = ns._tickBlizzAuraStacksHidden
+                    if hidden and hidden[spellID] then
+                        feedValue = gateSt.openValue
+                    else
+                        shouldGlow = false
+                    end
                 elseif not StackGlowMatches(stacks, operator, threshold) then
                     shouldGlow = false
                 else

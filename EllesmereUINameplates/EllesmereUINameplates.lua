@@ -1,6 +1,6 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local addon, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI._Pool and EllesmereUI.Glows and EllesmereUI.Glows.FlatKeys and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.OwnSurnameHidden and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.SetFontObjectFace and EllesmereUI.SnapshotFontObject and EllesmereUI.RestoreFontObject and EllesmereUI.FitFactionArt and EllesmereUI.SetBorderEdgeFill and EllesmereUI.SetBorderSnapHost) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, the Name Format asks its UnitNameFormat, the [name:last] and [target:last] tags its OwnSurnameHidden, the plate texts take font families through its ApplyModuleFontFamily / SetFontFamily, and the friendly name-only fonts change through its SetFontObjectFace / SnapshotFontObject / RestoreFontObject, and the faction badges size their art through its FitFactionArt, and the custom borders take their edge fill and snap host through its SetBorderEdgeFill / SetBorderSnapHost)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI._Pool and EllesmereUI.Glows and EllesmereUI.Glows.FlatKeys and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.OwnSurnameHidden and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.SetFontObjectFace and EllesmereUI.SnapshotFontObject and EllesmereUI.RestoreFontObject and EllesmereUI.FitFactionArt and EllesmereUI.SetBorderEdgeFill and EllesmereUI.SetBorderSnapHost and EllesmereUI.RoundAuraCorners) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, the Name Format asks its UnitNameFormat, the [name:last] and [target:last] tags its OwnSurnameHidden, the plate texts take font families through its ApplyModuleFontFamily / SetFontFamily, and the friendly name-only fonts change through its SetFontObjectFace / SnapshotFontObject / RestoreFontObject, and the faction badges size their art through its FitFactionArt, and the custom borders take their edge fill and snap host through its SetBorderEdgeFill / SetBorderSnapHost, and the cast-lockout aura icon rounds through its RoundAuraCorners)
 EllesmereUI._ModuleNS[addon] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
@@ -309,7 +309,7 @@ local defaults = {
     friendlyShowDefaultNames = false,
     classColorFriendly = true,
     friendlyNameClassColor = false,
-    -- Name Color's Custom colour (friendlyNameColorMode, "class" or "custom", has no
+    -- Name Color's Custom color (friendlyNameColorMode, "class" or "custom", has no
     -- default: unset, each friendly style reads one of the two keys above).
     friendlyNameColor = { r = 1, g = 1, b = 1 },
     -- Target Border Effects (Friendly Nameplate Settings cog): the target Border Color
@@ -317,7 +317,7 @@ local defaults = {
     friendlyTargetBorderFx = false,
     friendlyBarColor = { r = 0.314, g = 0.800, b = 0.408 },
     -- Name Only target highlights (EUI_Nameplates_AlliedColors.lua): one toggle +
-    -- colour per entity type (below). All off by default.
+    -- color per entity type (below). All off by default.
     -- Show Friendly Pet Nameplates has no default: nil means the user never
     -- chose, and nil reads as off everywhere. Only the option's own click
     -- writes the pet and minion CVars (ns.ApplyPetCVars), so a profile that
@@ -690,7 +690,7 @@ local defaults = {
     textSlotBottomRightColor = { r = 1, g = 1, b = 1 },
     textSlotTopLeftColor = { r = 1, g = 1, b = 1 },
     textSlotTopRightColor = { r = 1, g = 1, b = 1 },
-    -- Core Text Positions: per-slot class colour flag, read only by ns.NP_SlotColorMode
+    -- Core Text Positions: per-slot class color flag, read only by ns.NP_SlotColorMode
     -- while the slot's Text Coloring mode (<slot>ColorMode, no default) is unset.
     textSlotTopClassColor = false, textSlotRightClassColor = false,
     textSlotLeftClassColor = false, textSlotCenterClassColor = false,
@@ -821,7 +821,7 @@ end
 -- itself spans the health bar's top to the cast bar's bottom. Casts In Front of
 -- Nameplates moves the cast bar out of the plate: the border then stays on the health
 -- bar and a lower piece (a child of the cast bar, drawn with the border's style, size
--- and live colour) spans the health bar's bottom to the cast bar's bottom. The two
+-- and live color) spans the health bar's bottom to the cast bar's bottom. The two
 -- pieces drop the edges where they touch (solid: the strips; textured: the backdrop
 -- pieces, ns.NP_SetWrapJoin), so both modes draw the same single outline and the seam
 -- follows Show Seam Line alone. While wrapped, the cast bar's 1px icon separator is
@@ -838,7 +838,7 @@ function ns.NP_UpdateCustomBorderWrap(plate)
     local EUI = EllesmereUI
     local tex, sz, px = bf._cbTex, bf._cbSz, bf._cbPx
     local solid = not tex or tex == "" or tex == "solid"
-    -- The colour the border shows right now (base, hover or target), read back from it.
+    -- The color the border shows right now (base, hover or target), read back from it.
     local uc = PP.GetBorders(bf)
     local r, g, b, a
     local bd = not solid and EUI._bdBorderData[bf]
@@ -875,7 +875,7 @@ function ns.NP_UpdateCustomBorderWrap(plate)
         local offX, offY = p and p.customBorderOffset, p and p.customBorderOffsetY
         local shX, shY = p and p.customBorderShiftX, p and p.customBorderShiftY
         -- Full restyle only when a style input moved, the level was reset or the piece
-        -- is down; a colour change alone is a tint.
+        -- is down; a color change alone is a tint.
         if not lower:IsShown() or lower:GetFrameLevel() ~= lvl
             or lower._sTex ~= tex or lower._sSz ~= sz or lower._sPx ~= px
             or lower._sOX ~= offX or lower._sOY ~= offY or lower._sSX ~= shX or lower._sSY ~= shY then

@@ -469,7 +469,7 @@ function ns.UF_ComboRingShift(G)
 end
 -- Which slots the arc uses (from the point cap, as the stock frame lays it
 -- out) and which empty pips show with the arc; re-run only on a cap or
--- colourblind change. A secret cap keeps the last layout.
+-- colorblind change. A secret cap keeps the last layout.
 function ns.UF_ComboArcLayout(arc)
     local mx = UnitPowerMax("player", Enum.PowerType.ComboPoints)
     if issecretvalue(mx) then
@@ -491,7 +491,7 @@ function ns.UF_ComboArcLayout(arc)
         if i >= 1 and i <= mx then
             gates[k]:SetMinMaxValues(i - 1, i)
             -- The empty pip shows with the arc, or only while filled (the
-            -- extra points; every point in colourblind mode).
+            -- extra points; every point in colorblind mode).
             local want = (cb or i >= extra) and pip._mask or arc._mask
             if pip._baseMask ~= want then
                 if pip._baseMask then pip._base:RemoveMaskTexture(pip._baseMask) end
@@ -623,7 +623,7 @@ function ns.UF_ApplyForeverComboArc()
     ev:RegisterEvent("PLAYER_ENTERING_WORLD")
     ev:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
     ev:RegisterUnitEvent("UNIT_MAXPOWER", "player")
-    -- Re-lays only on a cap or colourblind change (a colourblind change has
+    -- Re-lays only on a cap or colorblind change (a colorblind change has
     -- no event of its own, so every apply asks).
     ns.UF_ComboArcLayout(arc)
     arc:Show()

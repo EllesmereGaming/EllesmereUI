@@ -19,7 +19,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --      Add Friend / Send Message buttons, the ignore list's own framed
 --      window, the raid and quick-join panels' art and buttons, and every
 --      thin scrollbar under the window;
---    - the pooled list rows keep Blizzard's own row colouring and icons and
+--    - the pooled list rows keep Blizzard's own row coloring and icons and
 --      take the house font; the category headers lose their art.
 --  The card also hosts what the Friends module gives retail's friends list,
 --  from the shared friends kit (EllesmereUI_FriendsKit.lua), with its own
@@ -51,7 +51,7 @@ local WIN = "socialui"
 local FFD, GetFFD = EllesmereUI.NewFrameData()
 
 -- One pooled list frame: a category header (carries a Title) loses its art
--- and takes the house font; a friend or ignore row keeps Blizzard's colours
+-- and takes the house font; a friend or ignore row keeps Blizzard's colors
 -- and icons and only takes the font on its text.
 local function SkinListRow(btn)
     if not btn or (btn.IsForbidden and btn:IsForbidden()) then return end

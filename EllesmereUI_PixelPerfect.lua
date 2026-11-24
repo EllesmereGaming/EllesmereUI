@@ -479,7 +479,7 @@ do
         -- insets), NEVER borderSize input -- an input-vs-applied guard can't match a non-trivial
         -- transform and re-fires forever. Scale flows through (es -> onePixel -> edgeSize), so an
         -- equal-edgeSize skip is correct (every SetPoint here is anchor-relative, insets-only).
-        -- The colour block stays OUTSIDE this guard (textured path zeroes strip alpha; SetVertexColor
+        -- The color block stays OUTSIDE this guard (textured path zeroes strip alpha; SetVertexColor
         -- restores it); side-strip hidden flags need their own key slots since a left/right-only
         -- flip at unchanged geometry moves no inset and would otherwise be skipped.
         local hideL = container._hideLeft or false
@@ -1294,9 +1294,9 @@ do
         { key = "blizz",   name = "Blizzard",        path = "Interface\\AddOns\\EllesmereUI\\media\\borders\\blizz-border", defaultOffset = 3, defaultOffsetY = 2, scaleOffset = true, defaultThickness = "heavy" },
         { key = "lightspark", name = "Lightspark Border", path = "Interface\\AddOns\\EllesmereUI\\media\\borders\\lightspark-border", defaultOffset = 0, defaultOffsetY = 0, scaleOffset = true, defaultThickness = "normal" },
         { key = "dialog",  name = "Blizzard Dialog",  path = "Interface\\DialogFrame\\UI-DialogBox-Border",                 defaultOffset = 4, defaultOffsetY = 4, defaultThickness = "normal" },
-        -- Pixels: white art that keeps its shading, so the border colour tints the face
+        -- Pixels: white art that keeps its shading, so the border color tints the face
         -- and the outline stays dark; a pick seeds selectColor (GetBorderSelectColor).
-        -- Pixels Textured has its colours baked in and picks white like the others.
+        -- Pixels Textured has its colors baked in and picks white like the others.
         -- Both centre on the frame edge (scaleOffset), land on step 2 when picked
         -- (defaultSize, read by GetBorderDefaultSize) and carry companion art read
         -- through GetBorderCompanion: sepH / sepV = separator strip / divider files,
@@ -1326,7 +1326,7 @@ do
     --- = file paths; "sepSize" = the strip's thickness against the step-2 edge of 16
     --- (draw it at sepSize x edge / 16). "separatorH" / "separatorV" / "separatorSize"
     --- are accepted as the long spellings. Tint every piece with the host's live border
-    --- colour. Read at style-apply time only, never on a colour-only path or per frame.
+    --- color. Read at style-apply time only, never on a color-only path or per frame.
     function EllesmereUI.GetBorderCompanion(textureKey, role)
         if not textureKey or textureKey == "" or textureKey == "solid" then return nil end
         if role == "separatorH" then role = "sepH"
@@ -1606,9 +1606,9 @@ do
         return false
     end
 
-    --- The colour a pick of this border style seeds, as a FRESH table (callers store
+    --- The color a pick of this border style seeds, as a FRESH table (callers store
     --- it in the profile), or nil for a style without one (only Pixels has one).
-    --- Setters that hard-code their own pick colour write this one when it answers.
+    --- Setters that hard-code their own pick color write this one when it answers.
     function EllesmereUI.GetBorderSelectColor(textureKey)
         if not textureKey or textureKey == "" or textureKey == "solid" then return nil end
         for _, entry in ipairs(EllesmereUI._builtinBorderTextures) do
@@ -1623,7 +1623,7 @@ do
 
     --- Border color + layer defaults to apply when a border style is selected (Shadow is the
     --- only style rendered behind both its icon and Unit Frame). Returns (colorTable, behindBool, behindUnitFrameBool).
-    --- colorTable is always a fresh table: the style's select colour, else white (textured) or black.
+    --- colorTable is always a fresh table: the style's select color, else white (textured) or black.
     function EllesmereUI.GetBorderStyleSelectDefaults(textureKey)
         if textureKey == "shadow" then return { r = 0, g = 0, b = 0 }, true, true end
         if not textureKey or textureKey == "" or textureKey == "solid" then
@@ -1850,13 +1850,13 @@ do
                     bdFrame._edgeFill = fill
                     -- Opaque only: under translucent art a strip would stack darker.
                     -- The hook stays for good: while the fill is off it returns at once
-                    -- (the apply that turns it on recolours after setting fill.on).
+                    -- (the apply that turns it on recolors after setting fill.on).
                     hooksecurefunc(bdFrame, "SetBackdropBorderColor", function(self, cr, cg, cb, ca)
                         local f = self._edgeFill
                         if not f.on then return end
                         for i = 1, 4 do f[i]:SetVertexColor(cr, cg, cb, 1) end
-                        -- A colour read back from a border tinted with a secret (a nameplate's
-                        -- off-tank threat colour) arrives secret: written above, but its alpha
+                        -- A color read back from a border tinted with a secret (a nameplate's
+                        -- off-tank threat color) arrives secret: written above, but its alpha
                         -- cannot be compared, so the fill keeps its opacity state.
                         if issecretvalue and issecretvalue(ca) then return end
                         local opaque = (ca or 1) >= 0.999
@@ -2028,7 +2028,7 @@ do
     --- apply shows it, so a hidden one was hidden on purpose) is dropped instead of
     --- re-applied; the owner's next apply registers it again. A frame that cannot be
     --- touched right now (ReadBorderSize) is kept for its owner's next restyle. The
-    --- owner's frame level, live border colour and hidden state survive the re-apply
+    --- owner's frame level, live border color and hidden state survive the re-apply
     --- (an owner hidden with its border still set keeps its px current for its next Show).
     function EllesmereUI.ReapplyPxBorders()
         local m = EllesmereUI.PP.mult
@@ -2169,11 +2169,11 @@ do
     end
 
     --- The eight-slice geometry ApplySecretSafeBorderStyle draws a textured border with,
-    --- as numbers only (no colour, no Show, no UI-scale registration): the edge in the
+    --- as numbers only (no color, no Show, no UI-scale registration): the edge in the
     --- owner's units and the four snapped anchor offsets of the corner pieces against
     --- the owner (left, top, right, bottom). Same arguments as that function; owner is
     --- read only for its effective scale. Shared with AuraKit's textured dispel ring,
-    --- which must sit exactly on the aura border it recolours.
+    --- which must sit exactly on the aura border it recolors.
     function EllesmereUI.SecretBorderGeometry(owner, size, textureKey, offsetX, offsetY,
         shiftX, shiftY, addonKey, sizeKey, edgeScale, edgePx)
         edgeScale = edgeScale or 1
@@ -2209,7 +2209,7 @@ do
 
     --- Anchors an eight-slice set (keys as SECRET_BORDER_UV) on owner from
     --- SecretBorderGeometry's numbers. Sizes and points only: the caller clears the
-    --- old points first and owns texture, colour and visibility.
+    --- old points first and owns texture, color and visibility.
     function EllesmereUI.LayoutSecretBorderEdges(edges, owner, edgeSize, aL, aT, aR, aB)
         edges.topLeft:SetSize(edgeSize, edgeSize); edges.topLeft:SetPoint("TOPLEFT", owner, "TOPLEFT", aL, aT)
         edges.topRight:SetSize(edgeSize, edgeSize); edges.topRight:SetPoint("TOPRIGHT", owner, "TOPRIGHT", aR, aT)

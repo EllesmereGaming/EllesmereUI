@@ -4,7 +4,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  The chat sidebar under the stock styles (Global Settings > Style):
 --  Blizzard Style dresses it as Blizzard's own chat button column (the
---  ButtonFrame seat, a copy of its bordered backdrop in the window colour,
+--  ButtonFrame seat, a copy of its bordered backdrop in the window color,
 --  the chat button plates, the QuickJoin friends button, the voice plate, the
 --  chat menu bubble, the settings gear and the return-to-bottom arrow);
 --  Classic WoW UI dresses it as the vanilla column (bevelled square buttons,
@@ -222,7 +222,7 @@ end
 
 -- Blizzard Style: a copy of the chat window's bordered backdrop (the
 -- FloatingBorderedFrame template Blizzard hangs on its ButtonFrame) on a
--- child of our sidebar, under the buttons, in the window colour.
+-- child of our sidebar, under the buttons, in the window color.
 local BD = "Interface\\ChatFrame\\"
 function ECHAT.SB_BuildBackdrop(sidebar, d)
     local bd = CreateFrame("Frame", nil, sidebar)
@@ -275,7 +275,7 @@ function ECHAT.SB_BuildBackdrop(sidebar, d)
     if ECHAT.SB_SyncBackdrop then ECHAT.SB_SyncBackdrop(true) end
 end
 
--- The backdrop in the SELECTED window's stored colour and opacity (what
+-- The backdrop in the SELECTED window's stored color and opacity (what
 -- Blizzard paints its own column in); memoised, a secret read skips.
 function ECHAT._SB_SyncBackdropImpl(force)
     local cf1 = _G.ChatFrame1
@@ -492,7 +492,7 @@ function ECHAT.SB_MakeCount(btn, sidebar, key)
     local fs = btn:CreateFontString(nil, "OVERLAY")
     EUI.PrimeFontShadow(fs, true)
     fs:SetFont(ECHAT.GetFont(), 10, "")
-    -- A kit count colour (WoW Forever's tan), else white.
+    -- A kit count color (WoW Forever's tan), else white.
     local cc = ECHAT.SB_KIT and ECHAT.SB_KIT.countColor
     if cc then fs:SetTextColor(cc[1], cc[2], cc[3], 1) else fs:SetTextColor(1, 1, 1, 1) end
     if inside then

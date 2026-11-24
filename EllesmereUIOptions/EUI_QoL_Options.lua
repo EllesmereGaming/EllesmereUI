@@ -295,7 +295,7 @@ local function BuildSelfCombatTextSection(parent, y)
           getValue=function() return SCTGet(key) end,
           setValue=function(v) SCTSet(key, v) end }
     end
-    -- A category toggle's colour, locked while the feature or that category is off
+    -- A category toggle's color, locked while the feature or that category is off
     local function sctSwatch(rgn, key, colorKey, label)
         if EllesmereUI._prebuilding then return end
         EllesmereUI.BuildInlineSwatches(rgn, { {
@@ -1028,12 +1028,12 @@ initFrame:SetScript("OnEvent", function(self)
                 return not EllesmereUI.QoLExtrasGet("showFPS")
             end
 
-            -- Inline class + custom colour swatches, the same convention as the
+            -- Inline class + custom color swatches, the same convention as the
             -- Secondary Stats row: the active mode renders at full alpha, the
             -- other dimmed, each with a naming tooltip.
             local function fpsMode()
                 -- No mode saved: custom -- the look before the mode existed,
-                -- which is white until a colour is actually picked.
+                -- which is white until a color is actually picked.
                 return EllesmereUI.QoLExtrasGet("fpsColorMode") or "custom"
             end
             local fpsUpdateState   -- forward: swatches reference it from OnClick
@@ -1139,7 +1139,7 @@ initFrame:SetScript("OnEvent", function(self)
                 PP.Point(fpsSwatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
                 leftRgn._lastInline = fpsSwatch
 
-                -- Class-colour swatch: live player class colour.
+                -- Class-color swatch: live player class color.
                 local fpsClassSw, fpsUpdClass = EllesmereUI.BuildColorSwatch(
                     leftRgn, leftRgn:GetFrameLevel() + 5,
                     function()
@@ -1678,7 +1678,7 @@ initFrame:SetScript("OnEvent", function(self)
             })
 
             if not EllesmereUI._prebuilding then
-                -- Inline default + class + custom colour swatches, following the
+                -- Inline default + class + custom color swatches, following the
                 -- minimap border's swatch-row convention: the active mode renders
                 -- at full alpha, the others dimmed, each with a naming tooltip.
                 local function ssMode()
@@ -1695,7 +1695,7 @@ initFrame:SetScript("OnEvent", function(self)
                     if ssUpdateState then ssUpdateState() end
                 end
 
-                -- Custom swatch (nearest the cog): stored custom colour. A
+                -- Custom swatch (nearest the cog): stored custom color. A
                 -- click switches to custom mode first; a second click opens the
                 -- picker (same two-step as the minimap border swatches).
                 local ssCustom, ssUpdCustom = EllesmereUI.BuildColorSwatch(
@@ -1721,7 +1721,7 @@ initFrame:SetScript("OnEvent", function(self)
                 PP.Point(ssCustom, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
                 leftRgn._lastInline = ssCustom
 
-                -- Class-colour swatch: live player class colour.
+                -- Class-color swatch: live player class color.
                 local ssClass, ssUpdClass = EllesmereUI.BuildColorSwatch(
                     leftRgn, leftRgn:GetFrameLevel() + 5,
                     function()

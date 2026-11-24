@@ -50,7 +50,9 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
     local TexBgRowCfg = env.TexBgRowCfg
     local _, h
     opts = opts or {}
-
+    -- The power click targets belong to this build alone: an inactive frame
+    -- returns before its POWER BAR section, so clear the ones a page built earlier left.
+    parent._powerHeaderFrame, parent._powerHeightRow, parent._powerTextRow = nil, nil, nil
 
     -- Shorthand accessors for this mini frame's settings
     local function MGet(key) return settingsTable[key] end
@@ -1062,7 +1064,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
               values={ ["below"]="Below Health Bar", ["above"]="Above Health Bar", ["detached_bottom"]="Detached Bottom", ["detached_top"]="Detached Top", ["none"]="None" },
               order={ "below", "above", "---", "detached_bottom", "detached_top", "---", "none" },
               getValue=function() return MVal("powerPosition", "none") end,
-              setValue=function(v) MSet("powerPosition", v); EllesmereUI:RefreshPage(true) end }
+              setValue=function(v) MSet("powerPosition", v); EllesmereUI:RefreshPage() end }
         else
             posCfg = { type="toggle", text="Above Health Bar",
               getValue=function() return MVal("powerPosition", "below") == "above" end,

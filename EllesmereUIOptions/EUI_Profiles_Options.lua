@@ -328,7 +328,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
     parent = mainPage
     y = -10
 
-    -- Button colours matching dropdown border style
+    -- Button colors matching dropdown border style
     local _c = EllesmereUI.WB_COLOURS
     local PROF_BTN_COLOURS = {
         _c[1],  _c[2],  _c[3],  _c[4],   _c[5],  _c[6],  _c[7],  _c[8],
@@ -336,7 +336,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         _c[17], _c[18], _c[19], _c[20],  _c[21], _c[22], _c[23], _c[24],
     }
 
-    -- Accent button colours (green-tinted)
+    -- Accent button colors (green-tinted)
     local ACCENT_BTN_COLOURS = {
         EG.r * 0.15, EG.g * 0.15, EG.b * 0.15, 0.85,
         EG.r * 0.22, EG.g * 0.22, EG.b * 0.22, 0.95,
@@ -357,8 +357,8 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         bg:SetAllPoints()
         bg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
         local brd = EllesmereUI.MakeRoundedBorder(btn, 1, 1, 1, EllesmereUI.DD_BRD_A, bg)
-        -- The resting alpha is the text colour's, the channel the hover
-        -- colours below write, so a hover and leave land back on it.
+        -- The resting alpha is the text color's, the channel the hover
+        -- colors below write, so a hover and leave land back on it.
         local lbl = EllesmereUI.MakeFont(btn, 13, nil, 1, 1, 1, EllesmereUI.DD_TXT_A)
         lbl:SetJustifyH("LEFT")
         lbl:SetWordWrap(false)
@@ -733,7 +733,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         local stringHasBlizzSkin = (payload and payload.data
             and type(payload.data.blizzSkinGlobals) == "table") or false
         local includeWindowSkinsImport = false
-        -- "Global Settings": the exporter's global appearance (fonts, custom colours, dark mode, accent, number format) and UI scale. Presence = deliberate
+        -- "Global Settings": the exporter's global appearance (fonts, custom colors, dark mode, accent, number format) and UI scale. Presence = deliberate
         -- include; this toggle is the recipient's opt-out. ON when carried, inert when the string has none.
         local stringHasGlobals = false
         do
@@ -1080,7 +1080,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                 { label = "Global Settings", sum = "Globals",
                   enabled = stringHasGlobals,
                   offTip = "This profile string does not carry any global settings.",
-                  tip   = "Apply the sharer's fonts, custom colours, dark mode, accent colour and UI scale. Off = keep your own global look and scale; only the selected modules' settings come in.",
+                  tip   = "Apply the sharer's fonts, custom colors, dark mode, accent color and UI scale. Off = keep your own global look and scale; only the selected modules' settings come in.",
                   get   = function() return includeGlobalsImport end,
                   set   = function() includeGlobalsImport = not includeGlobalsImport end },
                 { label = "Window & Tooltip Skins", sum = "Window Skins",
@@ -2404,7 +2404,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                   get   = function() return includeLayoutExport end,
                   set   = function() includeLayoutExport = not includeLayoutExport end },
                 { label = "Global Settings",
-                  tip   = "Include fonts, custom colours, dark mode, accent colour and UI scale with this export. Off = only the selected modules' own settings export, keeping the recipient's global look.",
+                  tip   = "Include fonts, custom colors, dark mode, accent color and UI scale with this export. Off = only the selected modules' own settings export, keeping the recipient's global look.",
                   get   = function() return includeGlobalsExport end,
                   set   = function() includeGlobalsExport = not includeGlobalsExport end },
             }

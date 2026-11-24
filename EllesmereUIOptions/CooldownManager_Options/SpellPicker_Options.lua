@@ -1140,7 +1140,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     if not applyWrite then return end
                     local keys = applyKeys or {}
                     -- Resolve the value ONCE, before anything below clears a thing. A payload
-                    -- writer (custom colour, Threshold Seconds) reads the source spell's own keys
+                    -- writer (custom color, Threshold Seconds) reads the source spell's own keys
                     -- back out of its entry, and the sweeps clear exactly those keys -- re-running
                     -- it per tier and per stamp would make the result depend on sweep order.
                     local temp = {}
@@ -1455,7 +1455,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     local sInner = CreateFrame("Frame", nil, s)
                     sInner:SetWidth(SUBW)
                     sInner:SetPoint("TOPLEFT")
-                    -- One scope row: _active drives BOTH the accent label colour and the
+                    -- One scope row: _active drives BOTH the accent label color and the
                     -- persistent white overlay (the "selected" look, same as a subnav item); _rest repaints from it.
                     local function MakeScopeItem(text)
                         local b = CreateFrame("Button", nil, sInner)
@@ -1498,7 +1498,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     b3._shown = false
                     -- Exclude/Include This Spell reads apart from the scope rows: soft red
                     -- when it will Exclude, soft green when it will Include, and NO persistent
-                    -- white overlay when active (hover overlay only) -- b3._excluded (set in _updateActive) picks the colour.
+                    -- white overlay when active (hover overlay only) -- b3._excluded (set in _updateActive) picks the color.
                     b3._rest = function()
                         if b3._excluded then
                             b3._label:SetTextColor(0.55, 0.82, 0.55, 1)  -- Include: soft green
@@ -1509,7 +1509,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     end
                     b3:SetScript("OnEnter", function()
                         -- Hover overlay same as the other rows (the texture's own
-                        -- colour is already hlA, so SetAlpha(1) shows it); only the
+                        -- color is already hlA, so SetAlpha(1) shows it); only the
                         -- ACTIVE/persistent overlay is suppressed, in _rest.
                         b3._rest(); b3._hl:SetAlpha(1)
                     end)
@@ -1582,7 +1582,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         b2._active = (not excluded) and holds(bdSel and bdSel.barSpellSettings, false)
                         thisBtn._rest(); b1._rest(); b2._rest()
                         -- Exclude/Include This Spell: shown whenever a bar apply drives the
-                        -- setting (so this spell+spec can opt out/back in). Label + soft red/green colour flip on the excluded state (b3._excluded drives the colour -- see b3._rest above).
+                        -- setting (so this spell+spec can opt out/back in). Label + soft red/green color flip on the excluded state (b3._excluded drives the color -- see b3._rest above).
                         if AB.KeysBarApplied(keys) then
                             b3._excluded = excluded
                             b3._setText(excluded and ("+ " .. EllesmereUI.L("Include This Spell"))
@@ -1639,7 +1639,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         -- Apply to Bar/All Specs means "rejoin the bar" (same as Include This
                         -- Spell) -- not re-applying the bar's value, which would just toggle it
                         -- off. Items with a payload the flyout val doesn't capture (scalar
-                        -- Threshold Seconds; custom colour, where "custom" is fixed and the RGB
+                        -- Threshold Seconds; custom color, where "custom" is fixed and the RGB
                         -- lives in ss; + Border Color's flag + RGBA): rejoin ONLY when the payload matches this scope; otherwise fall through and push it -- rejoining would silently discard it.
                         if AB.KeysBarApplied(keys) and AB.SpellHasOwn(keys)
                            and (not (ctx.scalarApply or ctx.payloadValue)
@@ -1654,10 +1654,10 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         -- Toggle OFF: clicking a scope that already holds this exact value
                         -- un-applies it. Binary toggles carry no value, so any active scope is
                         -- an un-apply gesture -- EXCEPT + Border Color, whose RGBA payload makes
-                        -- equality meaningful: un-apply only on a colour match, else push the new
-                        -- one (un-applying would discard it). Custom-colour value items aren't toggles; isToggle already gates them -- only the rejoin branch above needed the payloadValue guard.
+                        -- equality meaningful: un-apply only on a color match, else push the new
+                        -- one (un-applying would discard it). Custom-color value items aren't toggles; isToggle already gates them -- only the rejoin branch above needed the payloadValue guard.
                         if scopeActive and (valuesMatch or (ctx.isToggle and not ctx.payloadValue)) then
-                            -- Payload items (custom colour RGB, scalar seconds): the apply swept
+                            -- Payload items (custom color RGB, scalar seconds): the apply swept
                             -- the per-icon originals, so this scope holds the ONLY copy of the
                             -- value -- a plain un-apply would discard it and snap the setting to
                             -- default. Seed the removed value back into the spell in hand first, so toggle-off is an undo (recreates its pre-apply own value) instead of a silent reset.
@@ -2290,7 +2290,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         -- which live outside this scope but capture `sub`.
                         sub._refreshSelection = RefreshFlyoutSelection
                         -- True when apply keys contain an R/G/B triple, i.e. the item carries a
-                        -- per-spell colour the flyout val doesn't capture. Structural on purpose:
+                        -- per-spell color the flyout val doesn't capture. Structural on purpose:
                         -- keying off val == "custom" missed payload toggles that use a different discriminator (Threshold Color, + Border Color), silently reintroducing the reset bug.
                         local function hasColourPayload(ks)
                             if not ks then return false end
@@ -2373,7 +2373,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             end
 
                             local sHl = si:CreateTexture(nil, "ARTWORK")
-                            -- Colour fixed to the hover white; alpha toggles it. The
+                            -- Color fixed to the hover white; alpha toggles it. The
                             -- SELECTED single-select item keeps this overlay on (a
                             -- persistent "hovered" look) so the active choice reads
                             -- clearly; the "+" items (toggles, choices, Border Color) never do.
@@ -2462,7 +2462,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                         isToggle = isChargeToggle or isActiveBorder or isFnToggle,
                                         excludeOff = isChoice,
                                         -- Item whose val is only a discriminator while the real value
-                                        -- carries a per-spell colour payload (an R/G/B triple in applyKeys),
+                                        -- carries a per-spell color payload (an R/G/B triple in applyKeys),
                                         -- or an item the row flags as carrying another payload (apply.payload(item): the Blackout opacity).
                                         -- For those, equality must be judged by valuesMatch, not the identifier, or the rejoin/toggle-off shortcuts discard the payload (see the two branches in the apply handler above).
                                         -- A scalar item (Threshold Seconds, Also Show Below) is a payload too:
@@ -2800,7 +2800,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         end
 
                         -- A later open re-derives everything a fresh build would show:
-                        -- each item's selection, caption, arrow, lock and swatch colour,
+                        -- each item's selection, caption, arrow, lock and swatch color,
                         -- the width from the base, an empty search and the top of the list.
                         reshowSub = function()
                             for _, e in ipairs(flyoutEntries) do
@@ -2915,7 +2915,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                   t.thresholdColorG = acc.get("thresholdColorG") or 0.2
                                   t.thresholdColorB = acc.get("thresholdColorB") or 0.2
                               else
-                                  -- Colour keys belong to the enabled state only; clear them so a stale colour can't linger in the tier and make valuesMatch always fail.
+                                  -- Color keys belong to the enabled state only; clear them so a stale color can't linger in the tier and make valuesMatch always fail.
                                   t.thresholdColorR = nil
                                   t.thresholdColorG = nil
                                   t.thresholdColorB = nil
@@ -3178,7 +3178,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                     end } })
 
                     -- Cooldown Swipe (buffs only): tints the aura-duration swipe. Default =
-                    -- the bar's swipe colour; Class/Custom mirror Glow Effect Color; None fully hides the swipe (alpha 0). Applied on the buff frame by the SetSwipeColor hook (which reads these keys).
+                    -- the bar's swipe color; Class/Custom mirror Glow Effect Color; None fully hides the swipe (alpha 0). Applied on the buff frame by the SetSwipeColor hook (which reads these keys).
                     local CD_SWIPE_COLOR_ITEMS = {
                         { val = nil,      label = "Default" },
                         { val = "class",  label = "Class Color" },
@@ -3715,7 +3715,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         { val = true, label = "Color Out of Range" },
                     }
 
-                    -- Right-aligned colour swatch on a subnav item.
+                    -- Right-aligned color swatch on a subnav item.
                     -- Per-spell settings are outside Spec Overrides, so the swatch opts out of capture.
                     local function MakeColorSwatch(si, getR, getG, getB, onChanged)
                         si._noCapture = true
@@ -4223,7 +4223,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             menu:Hide()
                         end)
                     else
-                        -- Active State (swipe colour / class / hide)
+                        -- Active State (swipe color / class / hide)
                         MakeSubnavRow("Active State", CA_SWIPE_ITEMS,
                             function()
                                 if cas and cas.activeSwipeMode == "none" then return "none" end
@@ -4268,15 +4268,15 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             { apply = { keys = { "activeSwipeMode", "activeSwipeClassColor",
                                                  "activeSwipeR", "activeSwipeG", "activeSwipeB", "activeSwipeA" },
                                         write = function(t, v)
-                                            -- Read the source colour BEFORE the clear below: a bar
-                                            -- apply stamps every preset member's cas entry, this icon's included, so clearing first would wipe the colour this write then reads back.
+                                            -- Read the source color BEFORE the clear below: a bar
+                                            -- apply stamps every preset member's cas entry, this icon's included, so clearing first would wipe the color this write then reads back.
                                             local pr, pg, pb, pa
                                             if cas then
                                                 pr, pg, pb, pa = cas.activeSwipeR, cas.activeSwipeG,
                                                                  cas.activeSwipeB, cas.activeSwipeA
                                             end
-                                            -- Colour keys belong to Custom only; clear them for
-                                            -- class/none so a stale colour from an earlier Custom
+                                            -- Color keys belong to Custom only; clear them for
+                                            -- class/none so a stale color from an earlier Custom
                                             -- apply can't linger in the tier. Leftover R/G/B/A
                                             -- make valuesMatch always fail, so the apply never
                                             -- toggles off and re-prompts the overwrite popup
@@ -4314,7 +4314,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                         write = function(t, v) t.activeGlow = v end } })
                     end
 
-                    -- Glow Effect Color (colours the active glow AND the CD-ready glow).
+                    -- Glow Effect Color (colors the active glow AND the CD-ready glow).
                     MakeSubnavRow("Glow Effect Color", GLOW_COLOR_ITEMS,
                         function()
                             if cas and cas.glowColor == "class" then return "class" end
@@ -4368,7 +4368,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                 e.duration = nil
                                 -- Prune only when nothing but active-overlay keys is left:
                                 -- the other rows (cd state, saturation, swipe, range, glow
-                                -- colour, sound, threshold) store here too. pairs walks own
+                                -- color, sound, threshold) store here too. pairs walks own
                                 -- keys only, so a chained slot stamp never holds it alive.
                                 local keep
                                 for k in pairs(e) do
@@ -4479,7 +4479,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                 -- Persist before mutating: for a spell with no saved settings yet
                                 -- (e.g. a freshly added Hero-talent spell like Wither/Celestial
                                 -- Conduit), `ss` is a throwaway {} -- without EnsureSS the picked
-                                -- colour is written to a temporary table and lost, so the swipe never changes and reverts to default on reopen.
+                                -- color is written to a temporary table and lost, so the swipe never changes and reverts to default on reopen.
                                 EnsureSS()
                                 -- Ensure custom mode is selected. SetOwn: a plain nil write would inherit a bar-tier "none"/class value instead of meaning custom.
                                 SetOwn("activeSwipeMode", nil)
@@ -4523,12 +4523,12 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     { apply = { keys = { "activeSwipeMode", "activeSwipeClassColor",
                                          "activeSwipeR", "activeSwipeG", "activeSwipeB", "activeSwipeA" },
                                 write = function(t, v)
-                                    -- Read the source colour BEFORE the clear below: "Apply to This
-                                    -- Spell" passes ss itself, so clearing first would wipe the picked colour this write then reads back, resetting it to the default.
+                                    -- Read the source color BEFORE the clear below: "Apply to This
+                                    -- Spell" passes ss itself, so clearing first would wipe the picked color this write then reads back, resetting it to the default.
                                     local pr, pg, pb, pa = ss.activeSwipeR, ss.activeSwipeG,
                                                            ss.activeSwipeB, ss.activeSwipeA
-                                    -- Colour keys belong to Custom only; clear them for class/none so a
-                                    -- stale colour from an earlier Custom apply can't linger in the tier and make valuesMatch always fail (perpetual overwrite popup, no change).
+                                    -- Color keys belong to Custom only; clear them for class/none so a
+                                    -- stale color from an earlier Custom apply can't linger in the tier and make valuesMatch always fail (perpetual overwrite popup, no change).
                                     t.activeSwipeR = nil; t.activeSwipeG = nil
                                     t.activeSwipeB = nil; t.activeSwipeA = nil
                                     if v == "class" then

@@ -1308,7 +1308,7 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
     -- ResolveFontName honours them. CJK keeps the old System-Default-only picker.
     local localeCyrillic = localeRestricted and EllesmereUI.LOCALE_SCRIPT == "cyrillic"
 
-    local fontDropValues = {}
+    local fontDropValues = { _menuOpts = EllesmereUI.FONT_MENU_OPTS }
     local fontDropOrder  = {}
     if localeRestricted then
         fontDropValues[EllesmereUI.SYSTEM_FONT_KEY] = { text = "System Default", font = EllesmereUI.LOCALE_FONT_FALLBACK }
@@ -1335,7 +1335,7 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
             end
         else
             -- Expressway is the informed Latin opt-in, using a distinct sentinel key so the untouched default still maps to System Default.
-            fontDropValues[EllesmereUI.EXPRESSWAY_FORCED_KEY] = { text = "Expressway (Latin only)",
+            fontDropValues[EllesmereUI.EXPRESSWAY_FORCED_KEY] = { text = EllesmereUI.LatinOnlyFontLabel(),
                 font = EllesmereUI.MEDIA_PATH .. "fonts\\Expressway.TTF" }
             fontDropOrder[#fontDropOrder + 1] = EllesmereUI.EXPRESSWAY_FORCED_KEY
         end
@@ -1526,7 +1526,7 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
         local gtsPending
         _, h = W:DualRow(parent, y,
             { type="dropdown", text="Name Font",
-              -- Coloured inline rather than via tooltipOpts.color, which would tint the explanation red along with the warning.
+              -- Colored inline rather than via tooltipOpts.color, which would tint the explanation red along with the warning.
               tooltip="Sets the font for the names that float above players, NPCs and enemies in the world.\n\nSeparate from Global Font - changing this does not affect the rest of the UI, and Global Font does not affect it.\n\nBlizzard Default leaves the name text completely untouched.\n\n|cffff4d4dRequires a re-log or restart of WoW to take effect.|r",
               values=nameFontValues, order=nameFontOrder,
               getValue=function()

@@ -1048,7 +1048,7 @@ do
                 local v = lockedOnSpecs[id]
                 return v ~= nil and v ~= false
             end
-            -- Label in the class colour at the given alpha.
+            -- Label in the class color at the given alpha.
             local function Tint(row, a)
                 local c = row._fvClr
                 if c then row._lbl:SetTextColor(c.r, c.g, c.b, a) else row._lbl:SetTextColor(1, 1, 1, a) end

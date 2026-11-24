@@ -74,7 +74,7 @@ local defaults = {
             diffTextSize      = 12,
             diffTextOffsetX   = 0,
             diffTextOffsetY   = 0,
-            -- Accented Text: which elements colour their descriptions (clock AM/PM =
+            -- Accented Text: which elements color their descriptions (clock AM/PM =
             -- fpsColorClockAMPM); diffTextReactive (tier) and diffTextAccent (flat) are mutually exclusive.
             fpsColorSuffix    = true,
             diffTextAccent    = false,
@@ -177,8 +177,8 @@ local function GetBorderColor(cfg)
     return cfg.borderR, cfg.borderG, cfg.borderB, cfg.borderA or 1
 end
 
--- Border colour precedence (3 swatches): borderUseClassColor > useClassColor (legacy) >
--- borderColor > legacy borderR/G/B, so pre-style users keep their colour until they touch the new controls. Clock/zone edge boxes share this precedence.
+-- Border color precedence (3 swatches): borderUseClassColor > useClassColor (legacy) >
+-- borderColor > legacy borderR/G/B, so pre-style users keep their color until they touch the new controls. Clock/zone edge boxes share this precedence.
 local function GetBorderStyleColor(cfg)
     if cfg.borderUseClassColor and EllesmereUI.GetClassColor then
         local cc = EllesmereUI.GetClassColor(select(2, UnitClass("player")))
@@ -192,9 +192,9 @@ local function GetBorderStyleColor(cfg)
     return GetBorderColor(cfg)
 end
 
--- The clock and zone Edge Box fill: the border colour above, or black under
--- a square frame on the Forever client (its bronze frame takes no colour, and
--- the border colour rows are hidden there). An EBS field.
+-- The clock and zone Edge Box fill: the border color above, or black under
+-- a square frame on the Forever client (its bronze frame takes no color, and
+-- the border color rows are hidden there). An EBS field.
 function EBS._EdgeBoxColor(cfg)
     if EBS._fvSquare then return 0, 0, 0 end
     return GetBorderStyleColor(cfg)

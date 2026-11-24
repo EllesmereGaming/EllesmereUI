@@ -54,7 +54,7 @@ _G._EDM_Rescale = ns.Rescale
 ns.RefreshColors = function()
     for _, w in ipairs(_windows) do
         w._stickyClassCache = false; w._stickySpecCache = nil
-        -- The key bust re-seeds every populated row's colour memo (the full-rebuild pass).
+        -- The key bust re-seeds every populated row's color memo (the full-rebuild pass).
         w._barCacheKey = nil
         w.Refresh()
     end
@@ -125,7 +125,7 @@ ns.ApplyBackground = function()
         if w.frame and w.frame._bg then ns.DMPaintWindowBg(w.frame._bg, r, g, b, a, true, cfg.bgTexture) end
         if w.sourceFrame and w.sourceFrame._bg then ns.DMPaintWindowBg(w.sourceFrame._bg, r, g, b, a, nil, cfg.bgTexture) end
     end
-    -- Under Classic WoW UI the header tint is shaded from the window colour.
+    -- Under Classic WoW UI the header tint is shaded from the window color.
     if ns.DMClassic() then ns.ApplyHeader() end
 end
 
@@ -228,7 +228,7 @@ ns.ApplyIconColor = function()
     else local c = cfg.iconColor; r = c and c.r or 1; g = c and c.g or 1; b = c and c.b or 1 end
     for _, w in ipairs(_windows) do
         for _, icon in ipairs(w.hdrIcons) do
-            -- Stock-style art carries its own colours.
+            -- Stock-style art carries its own colors.
             if not icon._hdrArt then icon:SetVertexColor(r, g, b, ICON_ALPHA) end
         end
     end

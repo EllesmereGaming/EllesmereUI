@@ -277,7 +277,7 @@ local function PaintButton(btn)
         PP.SetBorderColor(btn, 0.35, 0.35, 0.35, 0.9)
         PP.SetBorderSize(btn, BORDER_PX)
     end
-    -- Current build at a glance: taken talents in full colour, the rest dimmed.
+    -- Current build at a glance: taken talents in full color, the rest dimmed.
     local t = btn.node.taken
     local takenNow = t ~= false and (btn.entryID == nil or t == btn.entryID)
     btn.icon:SetDesaturated(not takenNow)

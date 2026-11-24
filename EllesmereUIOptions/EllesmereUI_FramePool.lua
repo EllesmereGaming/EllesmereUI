@@ -358,7 +358,7 @@ end
 
 -- A region as the engine made it on a probe object: its draw layer, anchors
 -- (relative to the object), shown state and look (a texture's blend mode; a
--- font string's font, colours and justification).
+-- font string's font, colors and justification).
 local function CaptureRegion(reg, p)
     local c = { points = {} }
     c.layer, c.sub = reg:GetDrawLayer()

@@ -4,7 +4,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Action Bars options: the Menu, Bags & Rep Bars page (BuildMenuBagsRepPage)
 --  and the data bar kit it shares with the XP Bar page (ns.ABO_DataBarKit):
 --  the data bar rows and controls (Visibility, Orientation and its Vertical
---  Text cog, Width | Height, the border rows, the fill colour swatches, Bar
+--  Text cog, Width | Height, the border rows, the fill color swatches, Bar
 --  Texture, Text Size and its cog, Click Through) and the per-bar section the
 --  reputation and House Favor bars use; the XP Bar page lays the same pieces
 --  out its own way. Definitions only; the shared helpers come from
@@ -291,8 +291,8 @@ local function DataBarKit(parent)
 
     -- Custom Border (each data-bar section's opt-in). Its two sync links copy
     -- between the built rep bars (BORDER_SYNC_KEYS) only. The style link
-    -- carries the style, its offsets, shifts and Show Behind plus the colour
-    -- a style pick seeds; the size link carries the size and the colour. Both
+    -- carries the style, its offsets, shifts and Show Behind plus the color
+    -- a style pick seeds; the size link carries the size and the color. Both
     -- turn the target's Custom Border on, so a target never holds values it
     -- does not draw.
     local function DataBarTextured(s)
@@ -378,7 +378,7 @@ local function DataBarKit(parent)
         })
     end
 
-    -- One bar's border rows: Border Style | Border Size (with the colour, the
+    -- One bar's border rows: Border Style | Border Size (with the color, the
     -- Border Options cog and, on a rep bar, the two sync links), then Width
     -- Offset | Height Offset for a textured style. implicit (the XP Bar page,
     -- which has no Custom Border toggle): until the bar's Custom Border is on,
@@ -608,7 +608,7 @@ local function DataBarKit(parent)
         return y
     end
 
-    -- The fill colour swatches of a bar's Color control: Custom, Accent and
+    -- The fill color swatches of a bar's Color control: Custom, Accent and
     -- Reactive (Default), the active one bright (multiSwatch or inline).
     function K.ColorSwatches(barKey)
         local function S() return EAB.db.profile.bars[barKey] end

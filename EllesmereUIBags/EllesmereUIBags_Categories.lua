@@ -824,6 +824,7 @@ function CategoryManager:ClassifyAll(items, separateReagentBag)
         end
     end
 
+    _splitPass = false  -- the pass is over: a ClassifyItem call outside one queues no rebuild
     return counts, total
 end
 
@@ -1317,11 +1318,12 @@ function CategoryManager:OnEquipmentSetsChanged()
 end
 
 -- Split mode: do the set categories fold into Item Set Gear's section? The bags
--- fold them unless separated, the bank keeps them apart unless nested.
+-- fold them unless separated (off by default), the bank keeps them apart unless
+-- that is turned off (on by default, today's bank).
 function CategoryManager:FoldSetChildren(bank)
     local p = BP()
     if not p.bagSplitSetGearBySet then return false end
-    if bank then return p.bankNestSetGear == true end
+    if bank then return p.bankSetSectionsSeparate == false end
     return p.bagSetSectionsSeparate ~= true
 end
 
@@ -1364,8 +1366,9 @@ local function QueueRepaint(bagsOnly)
     _repaint:Show()
 end
 
--- The list changed: rebuild it now (the open view re-resolves by key), repaint next.
-local function VirtualChanged(self)
+-- The list changed (a virtual category, or set categories the list missed):
+-- rebuild it now (the open view re-resolves by key), repaint next.
+local function CategoryListChanged(self)
     local bags = _G.EUI_Bags
     if bags and bags.InvalidateSetCategories then
         bags.InvalidateSetCategories()
@@ -1376,7 +1379,8 @@ local function VirtualChanged(self)
 end
 
 -- A set with no category of its own: the list was built before the sets loaded
--- (Forever login). Rebuild next frame, once until the set list changes again.
+-- (at login). Rebuild next frame, once until the set list changes again (the
+-- flag goes after the rebuild, whose OnEquipmentSetsChanged clears it).
 local _setCatsFix
 QueueSetCategoryRebuild = function(mgr)
     if mgr._setCatsRetried then return end
@@ -1384,14 +1388,8 @@ QueueSetCategoryRebuild = function(mgr)
         _setCatsFix = CreateFrame("Frame")
         _setCatsFix:SetScript("OnUpdate", function(self)
             self:Hide()
-            local bags = _G.EUI_Bags
-            if bags and bags.InvalidateSetCategories then
-                bags.InvalidateSetCategories()
-            else
-                mgr:OnEquipmentSetsChanged()
-            end
+            CategoryListChanged(mgr)
             mgr._setCatsRetried = true
-            QueueRepaint()
         end)
     end
     _setCatsFix:Show()
@@ -1420,7 +1418,7 @@ function CategoryManager:RegisterVirtualCategory(id, def)
         classify = def.classify,
     }
     table.sort(_virtual, VirtualBefore)
-    VirtualChanged(self)
+    CategoryListChanged(self)
     return true
 end
 
@@ -1431,7 +1429,7 @@ function CategoryManager:UnregisterVirtualCategory(id)
         if rec.id == id then
             table.remove(_virtual, i)
             if #_virtual == 0 then _virtual = nil end
-            VirtualChanged(self)
+            CategoryListChanged(self)
             return true
         end
     end

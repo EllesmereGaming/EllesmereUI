@@ -1536,7 +1536,7 @@ local function BuildBarAppearance(parent, y, ctx)
           end });  y = y - h
 
     -- Out of Range Coloring | Cooldown Swipe Opacity
-    RowSearch("Cooldown Swipe Opacity", { "Opacity of the cooldown swipe (the dark radial sweep); use the swatch to set its colour.",
+    RowSearch("Cooldown Swipe Opacity", { "Opacity of the cooldown swipe (the dark radial sweep); use the swatch to set its color.",
         "CD Swipe Opacity" })
     local rangeSwipeRow
     rangeSwipeRow, h = W:DualRow(parent, y,
@@ -1549,7 +1549,7 @@ local function BuildBarAppearance(parent, y, ctx)
               EllesmereUI:RefreshPage()
           end },
         { type="slider", text="Cooldown Swipe Opacity", min=0, max=100, step=5, trackWidth=120,
-          tooltip="Opacity of the cooldown swipe (the dark radial sweep); use the swatch to set its colour.",
+          tooltip="Opacity of the cooldown swipe (the dark radial sweep); use the swatch to set its color.",
           getValue=function() return EAB.db.profile.cdSwipeAlpha or 80 end,
           setValue=function(v)
               EAB.db.profile.cdSwipeAlpha = v
@@ -1631,7 +1631,7 @@ local function BuildBarAppearance(parent, y, ctx)
         end)
         rangeBlock:SetShown(RangeDisabled())
     end
-    -- Inline swatch for Cooldown Swipe Opacity (right): colour-only (hasAlpha=false), since alpha lives on the slider.
+    -- Inline swatch for Cooldown Swipe Opacity (right): color-only (hasAlpha=false), since alpha lives on the slider.
     do
         local rgn = rangeSwipeRow._rightRegion
         local ctrl = rgn._control
@@ -1648,7 +1648,7 @@ local function BuildBarAppearance(parent, y, ctx)
             false, 20)
         PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
         rgn._lastInline = swatch
-        -- Canonical inline-swatch pattern: auto-disable at 0 opacity (invisible swipe has no visible colour).
+        -- Canonical inline-swatch pattern: auto-disable at 0 opacity (invisible swipe has no visible color).
         local function SwipeDisabled()
             return (EAB.db.profile.cdSwipeAlpha or 80) == 0
         end
@@ -2161,7 +2161,7 @@ local function BuildBarAppearance(parent, y, ctx)
     textSectionHeader, h = W:SectionHeader(parent, SECTION_TEXT, y);  y = y - h
 
     -- Each row's left control turns its text on or off. While it is off, the
-    -- right half greys out: the size slider, its offsets cog and its colour.
+    -- right half greys out: the size slider, its offsets cog and its color.
     local TextOff = {
         cooldown = function() return not GetCVarBool("countdownForCooldowns") end,
         -- Charge Numbers with nothing ticked.

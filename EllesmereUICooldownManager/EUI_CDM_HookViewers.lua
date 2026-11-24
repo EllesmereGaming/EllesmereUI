@@ -769,7 +769,7 @@ function ns.SetupViewerHooks()
                                 -- the hook's idempotence check then believes the glow
                                 -- is still running and never restarts it, leaving the
                                 -- icon dark for the rest of the session. Re-assert from
-                                -- the same swipe colour the hook reads so both edges
+                                -- the same swipe color the hook reads so both edges
                                 -- self-heal within a tick.
                                 if fd and not fd._isBuffViewerFrame
                                    and (fd._activeGlowOn or ns._cdmAnyActiveGlow) then
@@ -801,7 +801,7 @@ function ns.SetupViewerHooks()
                                         -- Active, but no glow is actually running
                                         -- on the overlay. Drop any orphaned flag
                                         -- so ApplyActiveOverlays really restarts,
-                                        -- then let it re-resolve style + colour.
+                                        -- then let it re-resolve style + color.
                                         fd._activeGlowOn = false
                                         local ssA = ns._ResolveCdmSS(frame)
                                         if ssA and (tonumber(ssA.activeGlow) or 0) > 0 then
@@ -851,8 +851,10 @@ function ns.SetupViewerHooks()
             do
                 local ac = _activeCache
                 local asc = _activeStacksCache
+                local ash = ns._tickBlizzAuraStacksHidden
                 wipe(ac)
                 wipe(asc)
+                wipe(ash)
                 for vi = 1, 4 do
                     local vf = GetViewerFrame(vi)
                     -- BuffIcon (3) / BuffBar (4) viewers SHOW a frame only while its
@@ -900,16 +902,24 @@ function ns.SetupViewerHooks()
                                             end
                                         end
                                         if want and ns._ReadBuffApplications then
-                                            local apps = ns._ReadBuffApplications(frame)
+                                            local apps, hidden = ns._ReadBuffApplications(frame)
                                             -- Secret probe FIRST: a nil test on a secret
-                                            -- value hard-errors.
+                                            -- value hard-errors. With no count, the game
+                                            -- hiding the aura is marked apart (Bar Glows
+                                            -- keep the gate open only then).
+                                            local into
                                             if (issecretvalue and issecretvalue(apps)) or apps ~= nil then
-                                                asc[sid] = apps
-                                                if hasBase then asc[baseSID] = apps end
+                                                into = asc
+                                            elseif hidden then
+                                                into, apps = ash, true
+                                            end
+                                            if into then
+                                                into[sid] = apps
+                                                if hasBase then into[baseSID] = apps end
                                                 if linked then
                                                     for li = 1, #linked do
                                                         local lsid = linked[li]
-                                                        if lsid and lsid > 0 then asc[lsid] = apps end
+                                                        if lsid and lsid > 0 then into[lsid] = apps end
                                                     end
                                                 end
                                             end
@@ -987,31 +997,28 @@ function ns.SetupViewerHooks()
             -- window. Only UNIT_AURA carries an updateInfo table in this slot --
             -- PLAYER_ENTERING_WORLD's second arg is the isReconnect BOOLEAN (true on
             -- /reload), so the payload must never be indexed for the other events.
-            if event ~= "UNIT_AURA" then
+            -- SECRET-SAFE: the payload TABLE and each of its fields can all arrive
+            -- secret in instanced content, and a secret can never be boolean-tested
+            -- in Lua (a hard error, not a falsy read). So: probe the table before
+            -- indexing it (a secret or missing payload is a full refresh), bind
+            -- fields to locals (reading a secret is always legal), then
+            -- issecretvalue-gate every test. When unreadable, assume churn -- one
+            -- extra pool rebuild costs far less than a cache still holding released
+            -- frames. Same guard shape as the lust listener in EUI_CDM_BuffBarPresets.lua.
+            if event ~= "UNIT_AURA" or issecretvalue(updateInfo) or updateInfo == nil then
                 ns._acGen = (ns._acGen or 0) + 1
-            elseif updateInfo then
-                -- SECRET-SAFE: the payload TABLE and each of its fields can all arrive
-                -- secret in instanced content, and a secret can never be boolean-tested
-                -- in Lua (a hard error, not a falsy read). So: guard the table before
-                -- indexing it, bind fields to locals (reading a secret is always
-                -- legal), then issecretvalue-gate every test. When unreadable, assume
-                -- churn -- one extra pool rebuild costs far less than a cache still
-                -- holding released frames. Same guard shape as the lust listener in EUI_CDM_BuffBarPresets.lua.
-                if issecretvalue(updateInfo) then
+            else
+                local full    = updateInfo.isFullUpdate
+                local removed = updateInfo.removedAuraInstanceIDs
+                local added   = updateInfo.addedAuras
+                -- A stack change arrives as an UPDATE (no add/remove), so a
+                -- stack-gated Bar Glow's count stayed stale until some other
+                -- edge. Read only while a stack-gated glow exists (nil otherwise).
+                local updated = ns._barGlowStackSids and updateInfo.updatedAuraInstanceIDs
+                if issecretvalue(full) or issecretvalue(removed)
+                   or issecretvalue(added) or issecretvalue(updated)
+                   or full or removed or added or updated then
                     ns._acGen = (ns._acGen or 0) + 1
-                else
-                    local full    = updateInfo.isFullUpdate
-                    local removed = updateInfo.removedAuraInstanceIDs
-                    local added   = updateInfo.addedAuras
-                    -- A stack change arrives as an UPDATE (no add/remove), so a
-                    -- stack-gated Bar Glow's count stayed stale until some other
-                    -- edge. Read only while a stack-gated glow exists (nil otherwise).
-                    local updated = ns._barGlowStackSids and updateInfo.updatedAuraInstanceIDs
-                    if issecretvalue(full) or issecretvalue(removed)
-                       or issecretvalue(added) or issecretvalue(updated)
-                       or full or removed or added or updated then
-                        ns._acGen = (ns._acGen or 0) + 1
-                    end
                 end
             end
             if not _btTicker then

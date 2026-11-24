@@ -109,7 +109,7 @@ end
 local function OwnKey() return EUI.CharGUID() end
 Offline.CurrentKey = OwnKey
 
--- a class's colour code, custom class colours included
+-- a class's color code, custom class colors included
 local function ClassHex(class)
     local c = class and EUI.GetClassColor(class)
     return c and EUI.HexColor(c.r, c.g, c.b) or "|cffffffff"

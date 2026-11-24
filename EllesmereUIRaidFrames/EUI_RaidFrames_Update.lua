@@ -457,7 +457,7 @@ local function UpdateButton(button)
         -- unit, so the current-health area the Health Bar Color tints and the dispel
         -- wash cover (ns.RF_AnchorCurHealth) is the unit's own, last-known while
         -- offline. A corpse paints a full missing bar, the empty current-health area
-        -- of a normal bar at 0%; _ApplyHealthBg hides that fill over the Dead colour.
+        -- of a normal bar at 0%; _ApplyHealthBg hides that fill over the Dead color.
         local pct
         if health._euiInv then
             pct = deadOrGhost and 100 or GetSafeHealthPercent(unit, true)
@@ -574,7 +574,7 @@ ns._PaintPower = function(button, d, s, unit)
             local wasShown = power:IsShown()
             power:Show()
             if d.UpdatePowerBorder then d.UpdatePowerBorder() end
-            -- Power Texts: shown ahead of the edge below, which colours them.
+            -- Power Texts: shown ahead of the edge below, which colors them.
             ns.RF_TextPowerShow(d, s)
             local smoothPower = wasShown and s.smoothPowerBars and Enum
                 and Enum.StatusBarInterpolation
@@ -969,7 +969,7 @@ function ERF:UpdateAllFrames()
             local partyClassBorder = ns._scaledPartyProxy.borderClassColored
             for u, btn in pairs(ns._partyUnitToButton) do
                 ns._UpdateButtonHealth(btn)
-                -- Power Text's accent/power colour moves with these pushes too (raid and extra
+                -- Power Text's accent/power color moves with these pushes too (raid and extra
                 -- buttons take it from the full paint above): one field read while it is off.
                 local pd = GetFFD(btn)
                 if pd._pwtOn then ns.RF_TextPowerColor(pd, u, ns._scaledPartyProxy, GetPowerColor(u)) end
@@ -982,7 +982,7 @@ function ERF:UpdateAllFrames()
             for _, btn in pairs(ns._xfUnitToButton) do ns._UpdateButtonHealth(btn) end
         end
     end
-    -- Boss and pet frames paint through their own painter (names and their colours included).
+    -- Boss and pet frames paint through their own painter (names and their colors included).
     local FB = ns._FB
     for _, btn in ipairs(FB.buttons) do
         if btn:IsVisible() then FB.Update(btn) end

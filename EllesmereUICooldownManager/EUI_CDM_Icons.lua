@@ -30,7 +30,13 @@ I.inCombatSetters[#I.inCombatSetters + 1] = function(v) _inCombat = v end
 -- Layout can give different rows (or matched columns) different icon sizes.
 local function RefitRoundedIconOnScale(fc)
     local st = fc.auraRound
-    if st and st.on then ns.FitCDMRoundedIcon(fc.roundIcon, fc, st.w, st.h, true) end
+    if st and st.on then
+        local cell = st.swipeStart
+        ns.FitCDMRoundedIcon(fc.roundIcon, fc, st.w, st.h, true)
+        -- No reanchor follows a UI scale change: WoW Forever's swing sweep takes
+        -- the new swipe cell here (its sync returns at once with no swing sweep).
+        if st.swipeStart ~= cell and ns.CDM_SwingSweepSync then ns.CDM_SwingSweepSync() end
+    end
 end
 
 function ns.FitCDMRoundedIcon(icon, fc, w, h, fromLayout)
@@ -158,8 +164,10 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
                 -- the unsnapped cooldown swipe (1px swipe/icon split at some effective scales), so snapping is disabled to render the exact rect. No size change.
                 if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false) end
                 if tex.SetTexelSnappingBias then tex:SetTexelSnappingBias(0) end
-                local trim = ns.CdmCropTrim(barData)
-                tex:SetTexCoord(zoom, 1 - zoom, zoom + trim + extraCrop, 1 - zoom - trim - extraCrop)
+                -- Only the top and bottom are cut: the vertical span is the zoomed span times the
+                -- icon's height factor, so the art keeps its proportions.
+                local half = (1 - 2 * zoom) * ns.CdmCropFactor(barData) / 2
+                tex:SetTexCoord(zoom, 1 - zoom, 0.5 - half + extraCrop, 0.5 + half - extraCrop)
             else
                 -- Restore default grid snapping so an icon switched away from cropped stays crisp.
                 if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(true) end
@@ -440,7 +448,7 @@ end
 -- The overlay (EllesmereUICdmFakeActive.lua) runs its own Cooldown widget whose
 -- number would otherwise use Blizzard's default font. Mirrors the Duration Text
 -- styling the real icon gets in RefreshCDMIconAppearance: font, size
--- (scale-compensated), colour, position, offset, show/hide. ssb is the resolved
+-- (scale-compensated), color, position, offset, show/hide. ssb is the resolved
 -- per-icon settings, falling back to the bar's (nil is fine). Call AFTER
 -- SetCooldown so Blizzard's countdown FontString exists.
 function ns.StyleOverlayCooldownText(oCd, barData, ssb, iconScale)

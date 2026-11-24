@@ -24,7 +24,7 @@ local GetTime = GetTime
 --  press that ability's keybind, even while on cooldown. Hooks the
 --  action-button key-down path (ActionButtonDown/MultiActionButtonDown), which
 --  fires on the physical press regardless of cooldown or the cast-on-key-
---  down/up CVar. Pushed texture + colour are read live from the EllesmereUI
+--  down/up CVar. Pushed texture + color are read live from the EllesmereUI
 --  action bars settings, so the CDM press matches real buttons (falling back
 --  to a border-cropped Blizzard depress texture if that module isn't present).
 --  On a custom-shape bar the press is masked to the shape, so a hexagon icon
@@ -167,7 +167,7 @@ do
     -- Ring art for "border" pushed mode on a shaped icon: four straight edges
     -- around a hexagon leave the corners hanging in space, so press-flash the
     -- shape's own border texture instead. Its thickness is baked into the art,
-    -- so the bars' pushed border size doesn't apply -- colour still does.
+    -- so the bars' pushed border size doesn't apply -- color still does.
     local function EnsureShapeRing(ov)
         if ov._shapeRing then return ov._shapeRing end
         local t = ov:CreateTexture(nil, "OVERLAY", nil, 2)

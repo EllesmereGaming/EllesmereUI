@@ -129,7 +129,7 @@ local _gradColorA = CreateColor(1, 1, 1, 1)
 local _gradColorB = CreateColor(1, 1, 1, 1)
 
 local function ApplyBarGradient(ft, dir, br, bg, bb, ba, er, eg, eb, ea)
-    -- Bar colour only changes on a config edit or threshold/band crossing, but this
+    -- Bar color only changes on a config edit or threshold/band crossing, but this
     -- runs on every power/health event, so skip when inputs (plus the fill-opacity
     -- multiplier scaling the alphas below) are unchanged -- else four C calls
     -- repaint an identical gradient a dozen times a second. State lives on our own
@@ -142,7 +142,7 @@ local function ApplyBarGradient(ft, dir, br, bg, bb, ba, er, eg, eb, ea)
     ft._lgOn, ft._lgDir, ft._lgFop = true, dir, ft._erbFillOp
     ft._lgBr, ft._lgBg, ft._lgBb, ft._lgBa = br, bg, bb, ba
     ft._lgEr, ft._lgEg, ft._lgEb, ft._lgEa = er, eg, eb, ea
-    ft._lfOn = nil   -- a gradient invalidates any cached flat colour
+    ft._lfOn = nil   -- a gradient invalidates any cached flat color
 
     -- Bypass the Fill Opacity SetVertexColor wrapper (if installed): gradient
     -- opacity is carried in the endpoint alphas below, and its re-assert would
@@ -158,7 +158,7 @@ end
 
 -- Flat-color a bar fill (no gradient).
 local function ApplyBarFlat(ft, r, g, b, a)
-    -- As ApplyBarGradient: re-asserting an unchanged colour every event is waste.
+    -- As ApplyBarGradient: re-asserting an unchanged color every event is waste.
     a = a or 1
     if ft._lfOn and ft._lfR == r and ft._lfG == g and ft._lfB == b and ft._lfA == a then
         return
@@ -332,7 +332,7 @@ local function ApplyBarTexture(bar, texKey)
 end
 
 -- Textured Background: the bar's own texture on a background, tinted by the
--- background colour. Callers repaint the flat colour around it; nil path clears
+-- background color. Callers repaint the flat color around it; nil path clears
 -- the tint a texture left behind (SetColorTexture keeps it).
 function ns.ERB_BgTexture(bg, path, r, g, b, a)
     if path then
@@ -711,7 +711,7 @@ local function CreatePip(parent, w, h, idx, borderSize, borderR, borderG, border
             -- Fill Opacity on: re-assert fill alpha (unified channel, wiped by the
             -- SetVertexColor above) and hide bg so the translucent fill shows the
             -- world. _fillOp is nil unless below 100 (inert default). At
-            -- factor 1 (Background on individual pips) the colour alpha
+            -- factor 1 (Background on individual pips) the color alpha
             -- written above already is the fill alpha, so it is kept.
             if self._fillOp then
                 if self._fillOp < 1 then self._fill:SetAlpha(self._fillOp) end

@@ -298,7 +298,7 @@ local POWER_COLORS = setmetatable({}, { __index = function(t, powerKey)
     end
     return nil
 end })
--- ApplyColorsToOUF is the parent's universal "colours changed" entry point (swatch
+-- ApplyColorsToOUF is the parent's universal "colors changed" entry point (swatch
 -- edits, resets, global-mode toggle, Pull Colors From, profile switches), so wiping
 -- the memo there covers every palette edge; bars simply recolor next tick.
 if EllesmereUI and hooksecurefunc then
@@ -350,7 +350,7 @@ function ns.GetBlizzardPowerAtlas(powerKey)
     return nil
 end
 
--- Dark theme fill/bg COLOUR comes from the per-profile Dark Mode palette
+-- Dark theme fill/bg COLOR comes from the per-profile Dark Mode palette
 -- (GetDarkModeFill/GetDarkModeBg), fetched live; alpha stays local since the
 -- Dark Mode opacity sliders apply to Unit/Raid Frames only.
 local DARK_FILL_A = 0.90

@@ -1727,7 +1727,7 @@ local function BuildDispelColorFields(frame, fontPath, sy, cfg, apply)
     end
 
     -- Blizzard Style paints the stock per-type border art, so the palette has
-    -- nothing to colour: the whole section stays out (fully gated rows hide).
+    -- nothing to color: the whole section stays out (fully gated rows hide).
     if EllesmereUI.BlizzStyle.Get("playerauras") then return sy end
 
     _, hh = W:SectionHeader(frame, "DISPEL COLORS", sy); sy = sy - hh

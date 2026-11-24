@@ -359,8 +359,8 @@ local function Shape(bd, s, shaped, w, h)
     return true
 end
 
--- Class-coloured shape border: the unit's class for players, its reaction
--- colour otherwise, the player's own class in dark mode or with no unit.
+-- Class-colored shape border: the unit's class for players, its reaction
+-- color otherwise, the player's own class in dark mode or with no unit.
 local function PlayerClassColor()
     local _, ct = UnitClass("player")
     local c = ct and EllesmereUI.GetClassColor(ct)
@@ -487,7 +487,7 @@ function ns.RF_PtPaint(st, unit, event)
             repainted = true
         end
     end
-    -- The class-coloured border follows the occupant (a real assignment
+    -- The class-colored border follows the occupant (a real assignment
     -- too: a same-guid return after a no-unit re-shape).
     if repainted or changed or event == "UnitChanged" then TintBorder(bd, unit) end
 end
@@ -622,14 +622,14 @@ function ns.RF_PtApply(owner, st, s, bw, bh, unit)
     end
     if unit then
         ns.RF_PtPaint(st, unit, "Apply")
-        -- The border colour is in no paint memo (a re-shape, dark mode).
+        -- The border color is in no paint memo (a re-shape, dark mode).
         TintBorder(bd, unit)
         -- A new model starts at full alpha: take the unit's range fade now.
         if swapped and mode == "3d" and not bd._preview and ns._UpdateButtonRange then
             ns._UpdateButtonRange(unit, owner)
         end
     elseif reshaped and bd._tintClass and not bd._preview then
-        -- A re-shaped border takes the default colour: re-tint it.
+        -- A re-shaped border takes the default color: re-tint it.
         local u = owner:GetAttribute("unit")
         TintBorder(bd, (u and UnitExists(u)) and u or nil)
     end

@@ -7,7 +7,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local CreateFrame = EllesmereUI._Pool.CreateFrame
 local PoolKeep, PoolGen = EllesmereUI._Pool.Keep, EllesmereUI._Pool.Gen
 
--- An accent-coloured piece repaints itself (paint(r, g, b)) when the accent
+-- An accent-colored piece repaints itself (paint(r, g, b)) when the accent
 -- changes. Keyed by the piece: the page pool forgets the entry when it resets
 -- it, and the kept Legends page registers each piece once.
 local function OnAccent(obj, paint)
@@ -456,7 +456,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
     end
 
     -- A patch's closing thank-you (patch.thanks): its "contributors" word is a
-    -- link in the accent colour that opens the EUI Legends page with the team
+    -- link in the accent color that opens the EUI Legends page with the team
     -- wall scrolled to the contributor groups and outlined.
     local function MakeThanksLine(host, x, cy)
         local tmpl = EllesmereUI.L("Thank you to all of our %s!") or ""
@@ -495,7 +495,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
     end
 
     -- A tier's title (already localized) inside a patch card: the section label
-    -- colour and a faint rule under it, inset with the card's content.
+    -- color and a faint rule under it, inset with the card's content.
     local function TierHeader(host, x, cy, w, text)
         local ts = EllesmereUI.TEXT_SECTION
         local label = MakeFont(host, 12, nil, ts.r, ts.g, ts.b, ts.a)
@@ -759,7 +759,7 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
 
     -- A band brightest along its centre line and fading out toward both
     -- ends: two halves, each a horizontal gradient over a white base (the
-    -- gradient's vertex colours multiply it). The caller anchors the halves.
+    -- gradient's vertex colors multiply it). The caller anchors the halves.
     local function CenterBand(host, layer, w, h, c, a)
         local edge, mid = CreateColor(c.r, c.g, c.b, 0), CreateColor(c.r, c.g, c.b, a)
         local left = host:CreateTexture(nil, layer)
@@ -905,7 +905,7 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
     ---------------------------------------------------------------------------
     --  Spotlights: the Seasonal Legend (left) and the All-Time Legend (right),
     --  open on the page over the walls' two columns. Each stacks the Legends
-    --  crest in a breathing aura of its colour, the eyebrow between short
+    --  crest in a breathing aura of its color, the eyebrow between short
     --  rules, the name large on a fading underline, and the #2 and #3.
     --  Particles drift through each column's outer thirds. A rank nobody holds
     --  yet shows a dim placeholder.
@@ -936,7 +936,7 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
         Particles(motion, colW, BAND_H, fx, perSide)
 
         -- The crest at its own size: the glow art tinted in the column's
-        -- colour on a frame that breathes, the white crest on a frame above.
+        -- color on a frame that breathes, the white crest on a frame above.
         local aura = CreateFrame("Frame", nil, band)
         aura:SetFrameLevel(band:GetFrameLevel() + 1)
         PP.Size(aura, 52, 37)

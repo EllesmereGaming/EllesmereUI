@@ -71,7 +71,7 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
     local tiled = ns.ABSORB_TILED_STYLES[style] == true
     local mask = absorbBar._absorbMask
     absorbBar:SetStatusBarTexture(tex)
-    -- Per-component default: a partial colour table would throw here.
+    -- Per-component default: a partial color table would throw here.
     absorbBar:SetStatusBarColor(ac.r or 1, ac.g or 1, ac.b or 1, alpha)
     local fill = absorbBar:GetStatusBarTexture()
     if fill then

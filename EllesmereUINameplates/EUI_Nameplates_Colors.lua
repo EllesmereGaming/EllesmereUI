@@ -422,7 +422,7 @@ do
     local built, builtType
     -- 1 while the Quest Objective Text element is on (the scan reads the objective text).
     -- In instanced content, plus 2 while a consumer may show the result there (the Quest
-    -- Indicator, the quest mob health colour or the Quest Objective Text, each with its Show
+    -- Indicator, the quest mob health color or the Quest Objective Text, each with its Show
     -- In Instances), else plus 4 (no scan: every unit reads as no quest mob). Open world: 0 / 1.
     local function ScanState()
         local st = (ns.NP_GetQuestTextSlot() ~= "none") and 1 or 0
@@ -598,7 +598,7 @@ local function ResolveNeutralColor(unit)
     local c = _C("neutral")
     return c.r, c.g, c.b
 end
--- The Hostile or Neutral name colour (enemyNameHostileColor / enemyNameNeutralColor, shared
+-- The Hostile or Neutral name color (enemyNameHostileColor / enemyNameNeutralColor, shared
 -- by every text slot) for an NPC in a Hostility / Class text slot, matching the unit's
 -- reaction independent of the health-bar palette. Every NameplateFrame unit is an enemy
 -- (HideBlizzardFrame only suppresses Blizzard's frame on UnitCanAttack units), so only
@@ -621,7 +621,7 @@ end
 
 -- Core Text Coloring (ns.NP_SlotColorMode, per slot): a slot in
 -- Hostility / Class ("class") or Level Difficulty ("level") mode has whatever it shows
--- painted per unit from UpdateHealthColor; "custom" keeps the static slot colour.
+-- painted per unit from UpdateHealthColor; "custom" keeps the static slot color.
 -- ns._npSlotClassOn is materialized at login and by RefreshAllSettings (also the Spec
 -- Overrides refresher), so UpdateHealthColor pays one boolean read while every slot is
 -- custom. ns fields throughout: this file is at its local cap.
@@ -629,7 +629,7 @@ ns._npSlotClassOn = false
 ns._npSlotClassName = false
 ns._npSlotClassFS = {}  -- plate font string keys painted in class mode
 ns._npSlotLevelFS = {}  -- plate font string keys painted in level mode
-ns._npSlotLevelCK = {}  -- parallel: the owning slot's colour key (unreadable-level fallback)
+ns._npSlotLevelCK = {}  -- parallel: the owning slot's color key (unreadable-level fallback)
 -- Materialized with the class flags: the font string key each bottom slot owns
 -- (false = none, or a later slot rewrites that shared font string), whether
 -- either owns one (the cast show / hide re-anchor runs only then), the same for
@@ -657,7 +657,7 @@ do
         "textSlotBottomLeft", "textSlotBottomRight", "textSlotTopLeft", "textSlotTopRight",
         "textSlotTop" }
     local owner, ownerSlot, lastIdx = {}, {}, {}
-    local COLOR_KEY = {}  -- slot -> its colour key (prebuilt for UpdateToT and the painter)
+    local COLOR_KEY = {}  -- slot -> its color key (prebuilt for UpdateToT and the painter)
     for i = 1, #SLOTS do COLOR_KEY[SLOTS[i]] = SLOTS[i] .. "Color" end
     -- The plate font string key an element renders on (nil for None). slot: the slot
     -- showing it, which picks a custom text's own font string.
@@ -732,22 +732,22 @@ do
         end
         ns._npSlotClassName = owner.name == "class" or owner.name == "level"
         ns._npSlotClassOn = (L[1] or V[1]) and true or false
-        -- The name text's combo part colours (read by SetNameElementText).
+        -- The name text's combo part colors (read by SetNameElementText).
         ns.NP_RefreshSlotNameParts()
     end
 end
 -- Paints one plate's class- and level-mode slots. Class mode: enemy players take the EUI
--- class palette (EllesmereUI.GetClassColor: custom class colours count; the bar's own class
--- colour reads RAID_CLASS_COLORS, so the two differ only under a custom palette). A redacted
--- class token takes the restricted-unit palette, else Blizzard's class colour, handed
+-- class palette (EllesmereUI.GetClassColor: custom class colors count; the bar's own class
+-- color reads RAID_CLASS_COLORS, so the two differ only under a custom palette). A redacted
+-- class token takes the restricted-unit palette, else Blizzard's class color, handed
 -- straight to the font strings and never memoized (the memo entry is cleared instead).
--- Tapped NPCs take the Tapped name colour (default: the plate's Tapped grey), other
--- NPCs the Hostile / Neutral name colours. The class token is read once per unit (keyed
--- on the unit token; ClearUnit resets it). Level mode: the unit's level difficulty colour
--- (NP_UnitLevelColor); while the level cannot be read the slot colour is written once
+-- Tapped NPCs take the Tapped name color (default: the plate's Tapped grey), other
+-- NPCs the Hostile / Neutral name colors. The class token is read once per unit (keyed
+-- on the unit token; ClearUnit resets it). Level mode: the unit's level difficulty color
+-- (NP_UnitLevelColor); while the level cannot be read the slot color is written once
 -- (memo marker false). Per font string memo on our plate (_scMemo), reset wherever the
--- slot colours are written statically. Returns true while the name's slot is in either
--- mode. An inline colour escape in the text (a Level | Name part colour) still wins over
+-- slot colors are written statically. Returns true while the name's slot is in either
+-- mode. An inline color escape in the text (a Level | Name part color) still wins over
 -- it. skipName leaves the name alone (Threat Colors "Text" holds it) and drops its memo
 -- entry, so the first call without it repaints the name. A custom text's font string
 -- is missing until the plate's next appearance pass builds it: skipped until then.
@@ -939,7 +939,7 @@ function ns.ResolveThreatColor(unit, status)
         local otc = _C("offTankAggro")
         local folded, fr, fg, fb, fa = ns.ComputeOffTankFold(unit, base.r, base.g, base.b, otc.r, otc.g, otc.b)
         -- Secret when an isTanking read was: those components reach setters only. A
-        -- plain fold goes through the caller's memos like any other colour.
+        -- plain fold goes through the caller's memos like any other color.
         if folded then
             ns._threatOkA = fa
             return fr, fg, fb, (issecretvalue(fr) or issecretvalue(fg) or issecretvalue(fb))

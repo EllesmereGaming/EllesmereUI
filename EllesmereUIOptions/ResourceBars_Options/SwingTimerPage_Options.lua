@@ -530,9 +530,9 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
     );  y = y - h
     do
         -- Not tied to Show Spark: a combined off hand's spark shows either way.
-        -- Colours: store keys <key>SparkR/G/B/A, unset by default; each swatch
-        -- shows the colour the bar paints (ST_SparkColor). A pick of the unset
-        -- colour (white, or a combined off hand's fill) stores nothing, so the
+        -- Colors: store keys <key>SparkR/G/B/A, unset by default; each swatch
+        -- shows the color the bar paints (ST_SparkColor). A pick of the unset
+        -- color (white, or a combined off hand's fill) stores nothing, so the
         -- picker's Cancel leaves an unset spark following its default.
         local function Near(x, y) return math.abs(x - y) < 0.002 end
         local function SparkSwatch(name, key)
@@ -651,9 +651,9 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
           setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.showLabel = v; RefreshST() end }
     );  y = y - h
 
-    -- A cog's colour row: store keys prefix .. R/G/B/A, `def` the fallback
+    -- A cog's color row: store keys prefix .. R/G/B/A, `def` the fallback
     -- {r, g, b, a}; `off` (optional) greys it out with `offTip`.
-    -- `shared` (optional): a prefix whose colour shows while this one is unset.
+    -- `shared` (optional): a prefix whose color shows while this one is unset.
     local function ColorRow(label, prefix, def, tip, off, offTip, shared)
         return { type = "colorpicker", label = label, tooltip = tip, hasAlpha = true,
             disabled = off, disabledTooltip = offTip,

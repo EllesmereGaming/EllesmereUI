@@ -29,8 +29,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  The taller health bar is a real health-like StatusBar: it takes the
 --  frame's own painters (ApplyHealthBarTexture, ApplyHealthBarAlpha,
---  ApplyDarkTheme and the PostUpdateColor it installs), so every colour mode
---  matches the health bar by construction. Its value, bounds and flat colour
+--  ApplyDarkTheme and the PostUpdateColor it installs), so every color mode
+--  matches the health bar by construction. Its value, bounds and flat color
 --  follow the health bar through hooks on that one bar. The health bar itself
 --  is never resized, re-anchored or re-parented: its geometry stays plain,
 --  and so do the absorb and layout passes that read it. Only its fill and
@@ -112,7 +112,7 @@ end
 
 -- Hooks on this frame's own bars (installed once, on first enable; they read
 -- one field and return while the option is off). Every argument goes straight
--- through to the same setter: values, bounds and colours may be secret.
+-- through to the same setter: values, bounds and colors may be secret.
 local function MirrorValue(self, ...)
     local m = self._epMirror
     if m then m:SetValue(...) end
@@ -179,8 +179,8 @@ end
 function ns.UF_EmptyPowerPaint(health, unit)
     if not ns.UF_PaintHealthMirror(health, unit, "_epMirror", "_epChain") then return end
     SeatMask(health, true)
-    -- A gradient built on the class / reaction colour exists only inside a
-    -- real colour pass (PostUpdateColor's color argument): the engine repaint
+    -- A gradient built on the class / reaction color exists only inside a
+    -- real color pass (PostUpdateColor's color argument): the engine repaint
     -- that closes every reload pass, and each new unit, runs one through the
     -- chain.
 end

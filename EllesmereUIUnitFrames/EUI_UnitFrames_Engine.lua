@@ -120,6 +120,7 @@ local OPTIN_EVENTS = {
     powerval = { "UNIT_POWER_FREQUENT" },
     bordercolor = BORDER_COLOR_EVENTS,
     borderclassification = { "UNIT_CLASSIFICATION_CHANGED", unpack(BORDER_COLOR_EVENTS) },
+    textclassification = { "UNIT_CLASSIFICATION_CHANGED" },
 }
 
 -- Events consumed by the castbar channel; routed raw (event identity matters
@@ -1093,7 +1094,7 @@ globalFrame:SetScript("OnEvent", function(self, event, unit)
             -- The whole occupant changed, so the repaint is an identity one
             -- (the text painter paints only its target zones for the event
             -- name itself, which would leave the old name under the new
-            -- colour). The poll's GUID memo takes the new occupant, so its
+            -- color). The poll's GUID memo takes the new occupant, so its
             -- next tick does not repeat this paint.
             f._euiLastGuid = UnitGUID(f._euiUnit)
             Engine.RepaintAll(f, "UnitChanged")

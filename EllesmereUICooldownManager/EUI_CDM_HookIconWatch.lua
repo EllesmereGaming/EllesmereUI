@@ -478,6 +478,9 @@ end
 
 -- Reagent spells (Vanish/Flash Powder): Blizzard puts the reagent count on this
 -- counter, so the bar's Show Item Count (Never / Out of Combat) hides it here.
+-- Only for a spell without charges: Blizzard shows a charge spell's charges on
+-- the counter instead, which stay (and the zero-charge watch, which handles only
+-- charge spells, never asks this). The cheap consumable test runs first.
 local _zctInCombat = false
 do
     local CI = ns._internals
@@ -490,7 +493,9 @@ local function ReagentCountHidden(sid, bd)
     if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
         sid = C_SpellBook.FindSpellOverrideByID(sid) or sid
     end
-    return C_Spell.IsConsumableSpell and C_Spell.IsConsumableSpell(sid) or false
+    if not (C_Spell.IsConsumableSpell and C_Spell.IsConsumableSpell(sid)) then return false end
+    local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
+    return not (ci and (ci.maxCharges or 0) > 1)
 end
 
 local function EvalZeroChargeTextFrame(frame, fd)
@@ -513,10 +518,6 @@ local function EvalZeroChargeTextFrame(frame, fd)
         return
     end
     local bd = barDataByKey and barDataByKey[bkz]
-    if ReagentCountHidden(sidz, bd) then
-        ZctSetAlpha(fd, fs, 0)
-        return
-    end
     if not (bd and bd.hideZeroChargeText) then
         ns._zeroChargeTextWatch[frame] = nil
         ZctSetAlpha(fd, fs, 1)
@@ -1741,7 +1742,7 @@ local function ApplyOnlyNumbers(frame, fd, barData)
             -- SetVertexColor share ONE alpha slot on this client, and the
             -- resource-dim pass writes a 3-arg SetVertexColor on injected
             -- custom-spell icons, resetting alpha to 1 and popping the art back.
-            -- Shown-state is an independent channel no colour writer can touch,
+            -- Shown-state is an independent channel no color writer can touch,
             -- and nothing in the addon Shows an icon texture.
             tex:Hide()
         end
