@@ -77,7 +77,7 @@ local updated, completeSeen = {}, {}  -- QUEST_WATCH_UPDATE probe
 
 -- The pass's quest log snapshot: one GetInfo per entry per pass.
 local logList = {}                                           -- every entry, log order
-local logInfo, logHeader, logZone, logIndex = {}, {}, {}, {}  -- by questID
+local logInfo, logHeader, logIndex = {}, {}, {}  -- by questID
 local passZone, passInInstance, passInstance
 
 -- The custom tracker (Custom.lua) sorts, filters and auto-tracks its own list
@@ -152,21 +152,21 @@ local function FillWatched()
 end
 
 local function Snapshot()
-    wipe(logList); wipe(logInfo); wipe(logHeader); wipe(logZone); wipe(logIndex)
+    wipe(logList); wipe(logInfo); wipe(logHeader); wipe(logIndex)
     passZone = GetRealZoneText()
     passInInstance = IsInInstance()
     passInstance = passInInstance and GetInstanceInfo() or nil
-    local title, headerIdx = nil, 0
+    local title
     for i = 1, C_QuestLog.GetNumQuestLogEntries() do
         local info = C_QuestLog.GetInfo(i)
         if info then
             logList[#logList + 1] = info
             if info.isHeader then
-                title, headerIdx = info.title, i
+                title = info.title
             elseif info.questID then
                 local questID = info.questID
                 logInfo[questID], logHeader[questID] = info, title
-                logZone[questID], logIndex[questID] = headerIdx, i
+                logIndex[questID] = i
             end
         end
     end
@@ -306,7 +306,11 @@ local TYPE_RANK = {
 
 local function SortKeyFor(mode, questID, rank)
     if mode == "zone" then
-        return logZone[questID] or 0
+        -- Current zone first, then A-Z: the log's own header order moves with the map.
+        local header = logHeader[questID]
+        if not header then return "2" end
+        if header == passZone or (passInInstance and header == passInstance) then return "0" end
+        return "1" .. header:lower()
     elseif mode == "progress" then
         -- Most complete first: negated share of all objective counts.
         if C_QuestLog.IsComplete(questID) then return -1 end
