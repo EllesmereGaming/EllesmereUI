@@ -721,8 +721,10 @@ local function RefreshCDMIconAppearance(barKey)
         end
         -- "Hide Text at 0 Stacks" (bar-level): enroll/refresh on the same login + settings-change
         -- pass. Gated on the bar's key plus a next() probe so turning it OFF still reaches the unwatch/restore path; both empty = skipped entirely.
+        -- Sticky: Show Item Count also gates reagent counters there; stays set so Always restores.
+        if barData.showItemCount == false or barData.itemCountOOC then ns._cdmAnyItemCountGate = true end
         if not isBuffFamilyBar and ns.WatchZeroChargeTextIfEnabled
-           and (barData.hideZeroChargeText or ns._cdmAnyHideChargeText
+           and (barData.hideZeroChargeText or ns._cdmAnyHideChargeText or ns._cdmAnyItemCountGate
                 or next(ns._zeroChargeTextWatch or {}) ~= nil) then
             ns.WatchZeroChargeTextIfEnabled(icon)
         end
