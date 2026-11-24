@@ -48,6 +48,20 @@ function ns.GetMiniDonorSettings(unitKey)
 end
 local GetMiniDonorSettings = ns.GetMiniDonorSettings
 
+-- Width / Height Offset a frame border draws with (b = its border source). ToT / Focus Target /
+-- Pet: own override, else the donor's at the donor's size; another size takes texture defaults.
+local MINI_BORDER_KEYS = { pet = true, targettarget = true, focustarget = true }
+function ns.UF_BorderOffsets(key, s, b)
+    if not MINI_BORDER_KEYS[key] then return b.borderTextureOffset, b.borderTextureOffsetY end
+    local ox, oy = s.borderOffsetOverride, s.borderOffsetYOverride
+    local sz = s.borderSizeOverride
+    if not sz or sz == (b.borderSize or 1) then
+        if ox == nil then ox = b.borderTextureOffset end
+        if oy == nil then oy = b.borderTextureOffsetY end
+    end
+    return ox, oy
+end
+
 -- The frame a mini frame's auras take their look from (the pet's Copy Auras
 -- From, auraSource, no default): its pick while that frame can lend its look,
 -- else the frame its Copy Look From uses. Returns the key.
