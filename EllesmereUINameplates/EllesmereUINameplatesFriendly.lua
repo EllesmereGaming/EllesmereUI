@@ -1596,7 +1596,9 @@ end
 -- "mouseover", a nameplate token) is one call to the API.
 local function FriendlyPlateToken(eventUnit)
     if type(eventUnit) ~= "string" then return nil end
-    if eventUnit:find("^party") or eventUnit:find("^raid") then
+    -- Compound tokens ("targettarget", "focustarget") are refused by the API too.
+    if eventUnit:find("^party") or eventUnit:find("^raid")
+        or (eventUnit ~= "target" and eventUnit:find("target$")) then
         local pending = ns.pendingUnits
         if not pending then return nil end
         for tok in pairs(pending) do
