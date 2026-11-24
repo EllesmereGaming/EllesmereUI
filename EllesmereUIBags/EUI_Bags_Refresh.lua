@@ -864,9 +864,10 @@ function EUI_Bags:RefreshInventory()
     do
         local cats = EUI_CategoryManager:GetCategories()
         -- The "Item Set Gear" anchor view (and any group holding it) folds in the
-        -- split-mode set children, which hold the actual items.
-        local function AddSetChildren(anchorIdx)
+        -- split-mode set children; a group keeps them when they are separated too.
+        local function AddSetChildren(anchorIdx, inGroup)
             if not BP().bagSplitSetGearBySet then return end
+            if not inGroup and not EUI_CategoryManager:FoldSetChildren() then return end
             if not (cats[anchorIdx] and cats[anchorIdx].isSetGear and not cats[anchorIdx].isEquipSet) then return end
             for i, c in ipairs(cats) do
                 if c.isEquipSet then filterSet[i] = true end
@@ -877,7 +878,7 @@ function EUI_Bags:RefreshInventory()
             local members = EUI_CategoryManager:GetGroupMembers(selectedGroupName)
             for _, mi in ipairs(members) do
                 filterSet[mi] = true
-                AddSetChildren(mi)
+                AddSetChildren(mi, true)
             end
         elseif selectedCategoryIndex > 0 and not isRecentView and not isPinnedView and not reagentView then
             filterSet = { [selectedCategoryIndex] = true }
@@ -994,7 +995,7 @@ function EUI_Bags:RefreshInventory()
         if selectedCategoryIndex > 0 and not selectedGroupName then
             n = (categoryCounts and categoryCounts[selectedCategoryIndex]) or #tempItems
             -- The anchor view folds in its set children's items; count them too
-            if BP().bagSplitSetGearBySet then
+            if EUI_CategoryManager:FoldSetChildren() then
                 local szCats = EUI_CategoryManager:GetCategories()
                 local selCat = szCats[selectedCategoryIndex]
                 if selCat and selCat.isSetGear and not selCat.isEquipSet and categoryCounts then
@@ -1010,7 +1011,7 @@ function EUI_Bags:RefreshInventory()
             S = 0
             if categoryCounts then
                 -- Set children fold into their anchor's section: count them as one
-                local sizeCats = BP().bagSplitSetGearBySet and EUI_CategoryManager:GetCategories() or nil
+                local sizeCats = EUI_CategoryManager:FoldSetChildren() and EUI_CategoryManager:GetCategories() or nil
                 local hasSetChild = false
                 for i, c in pairs(categoryCounts) do
                     if i ~= reagentCatIdx and c and c > 0 then

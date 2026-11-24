@@ -1316,6 +1316,15 @@ function CategoryManager:OnEquipmentSetsChanged()
     self._setCatsRetried = nil
 end
 
+-- Split mode: do the set categories fold into Item Set Gear's section? The bags
+-- fold them unless separated, the bank keeps them apart unless nested.
+function CategoryManager:FoldSetChildren(bank)
+    local p = BP()
+    if not p.bagSplitSetGearBySet then return false end
+    if bank then return p.bankNestSetGear == true end
+    return p.bagSetSectionsSeparate ~= true
+end
+
 -------------------------------------------------------------------------------
 --  Virtual categories (public API for other addons)
 --  Runtime-only categories filled by a callback. They sit after every saved

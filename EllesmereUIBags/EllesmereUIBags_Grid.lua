@@ -1558,7 +1558,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                                 end
                             end
                             -- The Item Set Gear anchor folds in its set children's items
-                            if BP().bagSplitSetGearBySet and cats[mi] and cats[mi].isSetGear and not cats[mi].isEquipSet then
+                            if EUI_CategoryManager:FoldSetChildren() and cats[mi] and cats[mi].isSetGear and not cats[mi].isEquipSet then
                                 for i, c in ipairs(cats) do
                                     if c.isEquipSet and itemsByCat[i] then
                                         for _, data in ipairs(itemsByCat[i]) do
@@ -1580,12 +1580,16 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                     end
                 end
             elseif cat.isEquipSet then
-                -- Set children render inside their anchor's section
+                -- Set children render inside their anchor's section unless separated
+                if not EUI_CategoryManager:FoldSetChildren() and not hiddenSet["Item Set Gear"]
+                    and not EUI_CategoryManager:IsCategoryOff(cat, dc) then
+                    RenderSection(cat.name, itemsByCat[ci] or {}, false, nil, nil, ci, true)
+                end
             else
                 if not hiddenSet[cat._defaultName] and not EUI_CategoryManager:IsCategoryOff(cat, dc) then
                     local catItems = itemsByCat[ci] or {}
                     -- The Item Set Gear anchor folds in its set children's items
-                    if cat.isSetGear and BP().bagSplitSetGearBySet then
+                    if cat.isSetGear and EUI_CategoryManager:FoldSetChildren() then
                         local folded = nil
                         for i, c in ipairs(cats) do
                             if c.isEquipSet and itemsByCat[i] then
@@ -1740,11 +1744,24 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
             local expSubIdx = 0
             local useSlotNest = armorySlotGrouping and IsGearOnlyGroup(selectedGroupName)
 
+            -- Separated set children are members of their own, after the anchor
+            if BP().bagSplitSetGearBySet and not EUI_CategoryManager:FoldSetChildren() then
+                local withSets = {}
+                for _, mi in ipairs(members) do
+                    withSets[#withSets + 1] = mi
+                    if cats[mi] and cats[mi].isSetGear and not cats[mi].isEquipSet then
+                        for i, c in ipairs(cats) do
+                            if c.isEquipSet then withSets[#withSets + 1] = i end
+                        end
+                    end
+                end
+                members = withSets
+            end
             local itemsByMember = {}
             for _, mi in ipairs(members) do itemsByMember[mi] = {} end
             -- Split-mode set children fold into their anchor member's section
             local anchorMi, childSet
-            if BP().bagSplitSetGearBySet then
+            if EUI_CategoryManager:FoldSetChildren() then
                 for _, mi in ipairs(members) do
                     if cats[mi] and cats[mi].isSetGear and not cats[mi].isEquipSet then anchorMi = mi; break end
                 end
