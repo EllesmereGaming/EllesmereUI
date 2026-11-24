@@ -1348,3 +1348,7 @@ L["Answer the question on screen first."] = "Responda primeiro à pergunta na te
 L["Requires the council to be allowed to vote for themselves."] = "Requer que o conselho possa votar em si mesmo."
 L["skipped %d BoE item outside its six-hour window - click it in the bags panel to queue it anyway."] = "ignorado %d item BoE fora da janela de seis horas - clique nele no painel de bolsas para enfileirá-lo mesmo assim."
 L["skipped %d BoE items outside their six-hour window - click one in the bags panel to queue it anyway."] = "ignorados %d itens BoE fora da janela de seis horas - clique em um no painel de bolsas para enfileirá-lo mesmo assim."
+
+-- == Simple Loot Council: promotion tooltips ==
+L["Clear Loot Master promotion"] = "Limpar promoção de líder do saque"
+L["Clear stored auto-promotion"] = "Limpar promoção automática armazenada"
