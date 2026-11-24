@@ -987,7 +987,8 @@ function ns.SetupViewerHooks()
             -- window. Only UNIT_AURA carries an updateInfo table in this slot --
             -- PLAYER_ENTERING_WORLD's second arg is the isReconnect BOOLEAN (true on
             -- /reload), so the payload must never be indexed for the other events.
-            if event ~= "UNIT_AURA" then
+            -- Missing or secret aura deltas require a full cache refresh.
+            if event ~= "UNIT_AURA" or issecretvalue(updateInfo) or updateInfo == nil then
                 ns._acGen = (ns._acGen or 0) + 1
             elseif updateInfo then
                 -- SECRET-SAFE: the payload TABLE and each of its fields can all arrive

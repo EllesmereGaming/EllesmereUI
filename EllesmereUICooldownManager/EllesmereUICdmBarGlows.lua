@@ -886,8 +886,8 @@ UpdateOverlayVisuals = function(only)
             -- regardless of state-change dedupe below, so the mask tracks a
             -- live stack count while the glow keeps running. A KNOWN count
             -- that fails the comparison stops the glow outright (Lua-side,
-            -- cheap); an UNKNOWN/SECRET count never blocks it -- the gate's
-            -- open value / the engine-side clamp decide instead.
+            -- cheap). Unknown counts keep it off; secret counts go straight
+            -- to the native gates.
             local gateSt
             if shouldGlow and mode ~= "MISSING" and mode ~= "USABLE" and entry.stackEnabled and spellID and spellID > 0 then
                 local threshold = tonumber(entry.stackThreshold) or 2
@@ -905,7 +905,7 @@ UpdateOverlayVisuals = function(only)
                 if secret then
                     feedValue = stacks
                 elseif stacks == nil then
-                    feedValue = gateSt.openValue
+                    shouldGlow = false
                 elseif not StackGlowMatches(stacks, operator, threshold) then
                     shouldGlow = false
                 else
