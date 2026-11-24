@@ -1422,7 +1422,7 @@ function ns.PF_PreviewSpec(party, s, w, h, sp, boxW, boxH, ptSpec)
         -- the same edge a plain RIGHT run uses -- FB.Anchor agrees. Read raw,
         -- PF.OPPOSITE would return nil for it and the side would fall through
         -- to the vertical branch, drawing the pets above the groups.
-        if side == "DOWNRIGHT" then side = "RIGHT" end
+        if ns._RFIsGridFlow(side) then side = "RIGHT" end
         if before then side = PF.OPPOSITE[side] end
     end
 

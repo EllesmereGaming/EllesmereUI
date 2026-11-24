@@ -896,18 +896,21 @@ initFrame:SetScript("OnEvent", function(self)
     }
     local allGrowthOrder        = { "DOWN", "UP", "RIGHT", "LEFT" }
 
-    -- Group Growth additionally offers the grid flow: ns._RF_GRID_ROWS groups
-    -- stack down the first column (G1 above G2) before the next column starts to
-    -- the right (G3 above G4) -- a 2x2 raid block instead of one long run. Unit
-    -- Growth has no such mode: a header's children only ever run along one axis.
+    -- Group Growth additionally offers the two grid flows, which wrap every
+    -- Groups Before Wrap (ns._RFGridSize) groups: "Down and then Right" stacks
+    -- them down a column (G1 above G2) before the next column starts to the
+    -- right, "Right and then Down" fills a row (G1 G2 G3) before the next row
+    -- starts below. Unit Growth has no such mode: a header's children only ever
+    -- run along one axis.
     local groupGrowthValues = {
         DOWN      = "Down",
         UP        = "Up",
         RIGHT     = "Right",
         LEFT      = "Left",
         DOWNRIGHT = "Down and then Right",
+        RIGHTDOWN = "Right and then Down",
     }
-    local groupGrowthOrder  = { "DOWN", "UP", "RIGHT", "LEFT", "DOWNRIGHT" }
+    local groupGrowthOrder  = { "DOWN", "UP", "RIGHT", "LEFT", "DOWNRIGHT", "RIGHTDOWN" }
 
     -- Merge Groups renders through Blizzard's flat header, which has a single
     -- column axis and cannot wrap into a grid, so the grid flow degrades to the
@@ -915,7 +918,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- runtime). Report what actually renders instead of showing a value the
     -- merged grid ignores.
     local function ReadGroupGrowth(v)
-        if v == "DOWNRIGHT" and SVal("mergeGroups", false) then return "RIGHT" end
+        if ns._RFIsGridFlow(v) and SVal("mergeGroups", false) then return "RIGHT" end
         return v
     end
 
