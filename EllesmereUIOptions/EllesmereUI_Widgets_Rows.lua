@@ -190,6 +190,7 @@ function EllesmereUI.BuildKeybindButton(parent, opts)
     local function Stop()
         listening = false
         btn:EnableKeyboard(false)
+        btn:EnableMouseWheel(false)
         if padArmed and not padHeld then padArmed = false; btn:EnableGamePadButton(false) end
         -- OnLeave keeps the hover look while armed; drop it once capture ends.
         if not btn:IsMouseOver() then
@@ -239,6 +240,7 @@ function EllesmereUI.BuildKeybindButton(parent, opts)
         if button ~= "LeftButton" or listening then return end
         if opts.canArm and not opts.canArm() then return end
         listening = true
+        self:EnableMouseWheel(opts.wheel and true or false)
         lbl:SetText(EllesmereUI.L("Press a key..."))
         self:EnableKeyboard(true)
         -- Controller in use: its buttons are captured too, only while armed (Stop turns it off).
@@ -301,7 +303,7 @@ function EllesmereUI.BuildKeybindButton(parent, opts)
         if key == "ESCAPE" then Stop(); Refresh(); return end
         Commit(CreateKeyChordStringUsingMetaKeyState(key))
     end)
-    btn:EnableMouseWheel(opts.wheel and true or false)
+    btn:EnableMouseWheel(false)
     btn:SetScript("OnMouseWheel", opts.wheel and function(_, delta)
         if InCombatLockdown() or not listening or delta == 0 then return end
         if disabled and disabled() then return end
