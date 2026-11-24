@@ -103,8 +103,8 @@ local function UpdateHealthBar()
         pctRaw = 0
     end
 
-    -- Color: threshold via ColorCurve (same as the power bar), from the
-    -- per-spec threshold entry.
+    -- Color: threshold ColorCurve from the per-spec entry, read from predicted
+    -- health like the fill and text (unpredicted lags with no event after).
     local _hpTsEntry = ResolveThresholdSpecEntry(hp)
     local _hpTsEnabled = _hpTsEntry and (_hpTsEntry.thresholdEnabled ~= false) or false
     local _hpBandOn, _hpBands, _hpBandMode, _hpBandRev = ResolveBandConfig(hp, _hpTsEntry)
@@ -139,7 +139,7 @@ local function UpdateHealthBar()
                 curve = GetBarThresholdCurve(tbR, tbG, tbB, tR, tG, tB, _hpTsEntry.thresholdPct or hp.thresholdPct or 30)
             end
             if curve and healthBar._text then
-                local ok, colorResult = pcall(UnitHealthPercent, "player", false, curve)
+                local ok, colorResult = pcall(UnitHealthPercent, "player", true, curve)
                 if ok and colorResult and colorResult.GetRGBA then
                     healthBar._text:SetTextColor(colorResult:GetRGBA())
                 end
@@ -162,7 +162,7 @@ local function UpdateHealthBar()
                 curve = GetBarThresholdCurve(baseR, baseG, baseB, tR, tG, tB, _hpTsEntry.thresholdPct or hp.thresholdPct or 30)
             end
             if curve then
-                local ok, colorResult = pcall(UnitHealthPercent, "player", false, curve)
+                local ok, colorResult = pcall(UnitHealthPercent, "player", true, curve)
                 if ok and colorResult and colorResult.GetRGBA then
                     ft:SetVertexColor(colorResult:GetRGBA())
                 end
