@@ -773,6 +773,11 @@ end
 -- pet frame carries a power bar driven by the pet's own power settings, laid out
 -- like the boss frames'. A plain boolean, fixed per session.
 ns.UF_PetHasPower = (EllesmereUI.IS_FOREVER == true)
+-- Small frames with an EUI power bar: ToT, FoT, and the pet on WoW Forever.
+function ns.UF_MiniHasPower(unit)
+    if unit == "pet" then return ns.UF_PetHasPower end
+    return unit == "targettarget" or unit == "focustarget"
+end
 
 local function StyleSimpleFrame(frame, unit)
     local settings = GetSettingsForUnit(unit)
@@ -780,10 +785,9 @@ local function StyleSimpleFrame(frame, unit)
     if pStyle == "detached" then pStyle = "attached" end
     local showPortrait = pStyle ~= "none" and settings.showPortrait ~= false
     local pSide = settings.portraitSide or "left"
-    -- WoW Forever pet power bar (Blizzard Style keeps its stock one instead): an
-    -- attached bar adds its height to the stack and the portrait squares off the
-    -- whole stack, as on the boss frames. Zero for every other mini frame.
-    local petPower = unit == "pet" and ns.UF_PetHasPower and not ns.UF_Blizz()
+    -- Power bar (Blizzard Style keeps its stock one instead): an attached bar
+    -- adds its height to the stack and the portrait squares off the whole stack.
+    local petPower = ns.UF_MiniHasPower(unit) and not ns.UF_Blizz()
     local ppPos = petPower and (settings.powerPosition or "below") or "none"
     local powerH = (ppPos == "below" or ppPos == "above") and (settings.powerHeight or 6) or 0
     local aboveOff = (ppPos == "above") and powerH or 0
@@ -833,9 +837,8 @@ local function StyleSimpleFrame(frame, unit)
     ApplyDarkTheme(health, unit)
 
     frame.Health = health
-    -- Blizzard Style: the stock small-frame power bar. Otherwise only a WoW Forever
-    -- pet has one, built even at "none" so its position changes live (the painter
-    -- is parked while it is hidden); ToT and FoT carry none.
+    -- Blizzard Style: the stock small-frame power bar. Otherwise built even at
+    -- "none" so its position changes live (the painter is parked while hidden).
     if petPower then
         frame.Power = CreatePowerBar(frame, unit, settings)
         if ppPos == "none" then frame:DisableElement("Power") end

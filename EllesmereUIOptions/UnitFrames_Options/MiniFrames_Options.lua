@@ -1047,14 +1047,27 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
         apply=ReloadAndUpdate,
     })
 
-    -- POWER BAR section (mini units with a power bar: boss, and the pet on WoW Forever).
-    -- Fill always uses the unit's power color (powerPercentPowerColor default on);
-    -- a height of 0 effectively hides the bar.
+    -- POWER BAR section (mini units with a power bar: boss, ToT, FoT, and the
+    -- pet on WoW Forever). Fill always uses the unit's power color
+    -- (powerPercentPowerColor default on); a height of 0 effectively hides the bar.
     if opts.hasPowerBar then
         local powerHeader
         powerHeader, h = W:SectionHeader(parent, "POWER BAR", y); y = y - h
 
-        -- Row 1: Power Bar Height (+ Reverse Fill cog) | Above Health Bar toggle
+        -- Row 1: Power Bar Height (+ Reverse Fill cog) | Above Health Bar toggle,
+        -- or the Main Frames' Bar Position dropdown (opts.powerPositionMenu).
+        local posCfg
+        if opts.powerPositionMenu then
+            posCfg = { type="dropdown", text="Bar Position",
+              values={ ["below"]="Below Health Bar", ["above"]="Above Health Bar", ["detached_bottom"]="Detached Bottom", ["detached_top"]="Detached Top", ["none"]="None" },
+              order={ "below", "above", "---", "detached_bottom", "detached_top", "---", "none" },
+              getValue=function() return MVal("powerPosition", "none") end,
+              setValue=function(v) MSet("powerPosition", v); EllesmereUI:RefreshPage(true) end }
+        else
+            posCfg = { type="toggle", text="Above Health Bar",
+              getValue=function() return MVal("powerPosition", "below") == "above" end,
+              setValue=function(v) MSet("powerPosition", v and "above" or "below") end }
+        end
         local pwrRow1
         pwrRow1, h = W:DualRow(parent, y,
             -- Blizzard Style: the stock track fixes height and spot; the
@@ -1062,9 +1075,28 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
             EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Power Bar Height", min=0, max=100, step=1,
               getValue=function() return MVal("powerHeight", 6) end,
               setValue=function(v) MSet("powerHeight", v) end }, true),
-            EllesmereUI.BlizzStyle.Gate("unitframes", { type="toggle", text="Above Health Bar",
-              getValue=function() return MVal("powerPosition", "below") == "above" end,
-              setValue=function(v) MSet("powerPosition", v and "above" or "below") end }));  y = y - h
+            EllesmereUI.BlizzStyle.Gate("unitframes", posCfg));  y = y - h
+        -- Width + X/Y offsets cog on Bar Position (detached only), as on Main Frames.
+        if opts.powerPositionMenu then
+            EllesmereUI.BuildInlineCog(pwrRow1._rightRegion, {
+                disabled = function()
+                    local pos = MVal("powerPosition", "none"); return pos ~= "detached_top" and pos ~= "detached_bottom"
+                end,
+                disabledTooltip = "This option requires a detached position to be active.",
+                title = "Position Settings",
+                rows = {
+                    { type="slider", label="Width", min=0, max=400, step=1,
+                      get=function() return MVal("powerWidth", 0) end,
+                      set=function(v) MSet("powerWidth", v) end },
+                    { type="slider", label="X Offset", min=-200, max=200, step=1,
+                      get=function() return MVal("powerX", 0) end,
+                      set=function(v) MSet("powerX", v) end },
+                    { type="slider", label="Y Offset", min=-200, max=200, step=1,
+                      get=function() return MVal("powerY", 0) end,
+                      set=function(v) MSet("powerY", v) end },
+                },
+            })
+        end
         -- Expose the Power Bar Height row + POWER BAR header so the boss
         -- preview's power-bar click overlay can scroll here.
         parent._powerHeaderFrame = powerHeader
@@ -1546,8 +1578,11 @@ function ns.UFO_BuildFoTToTOptions(W, parent, y, settingsTable, unitKey)
         return portraitRow, h
     end
 
+    -- Power bar in the EUI look only (the stock styles paint their own).
+    local totPower = not EllesmereUI.BlizzStyle.Get("unitframes")
     local displayHeader, sizeRow, textHeader, textRow
-    y, displayHeader, sizeRow, textHeader, textRow = BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enableRow)
+    y, displayHeader, sizeRow, textHeader, textRow = BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enableRow, nil,
+        totPower and { hasPowerBar = true, powerPositionMenu = true } or nil)
 
     -- Store click targets for hover highlight system
     parent._ufClickTargets = {
@@ -1558,6 +1593,11 @@ function ns.UFO_BuildFoTToTOptions(W, parent, y, settingsTable, unitKey)
         centerText = ns.UFO_TextClickTarget(parent, "centerText", textHeader or displayHeader, textRow or sizeRow),
         extraText = ns.UFO_TextClickTarget(parent, "extraText", textHeader or displayHeader, textRow or sizeRow),
     }
+    if totPower and parent._powerHeaderFrame then
+        local tg = parent._ufClickTargets
+        tg.powerBar     = { section = parent._powerHeaderFrame, target = parent._powerHeightRow, slotSide = "left" }
+        tg.powerBarText = { section = parent._powerHeaderFrame, target = parent._powerTextRow, slotSide = "left" }
+    end
 
     return abs(y)
 end
