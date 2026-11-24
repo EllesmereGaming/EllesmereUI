@@ -776,7 +776,7 @@ ReloadFramesBody = function()
                                 btb.bg:SetColorTexture(bgc.r, bgc.g, bgc.b, bga)
                             end
                             if btb._applyBTBTextTags then
-                                btb._applyBTBTextTags(settings.btbLeftContent or "none", settings.btbRightContent or "none", settings.btbCenterContent or "none")
+                                btb._applyBTBTextTags(settings)
                             end
                             if btb._applyBTBTextPositions then
                                 btb._applyBTBTextPositions(settings)
@@ -785,7 +785,7 @@ ReloadFramesBody = function()
                             btb:Show()
                         end
                     elseif frame.BottomTextBar then
-                        frame.BottomTextBar:Hide()
+                        ns.UF_HideBottomTextBar(frame.BottomTextBar)
                     end
 
                     UpdateBordersForScale(frame, unit)
@@ -935,7 +935,7 @@ ReloadFramesBody = function()
                                 btb.bg:SetColorTexture(bgc.r, bgc.g, bgc.b, bga)
                             end
                             if btb._applyBTBTextTags then
-                                btb._applyBTBTextTags(settings.btbLeftContent or "none", settings.btbRightContent or "none", settings.btbCenterContent or "none")
+                                btb._applyBTBTextTags(settings)
                             end
                             if btb._applyBTBTextPositions then
                                 btb._applyBTBTextPositions(settings)
@@ -944,7 +944,7 @@ ReloadFramesBody = function()
                             btb:Show()
                         end
                     elseif frame.BottomTextBar then
-                        frame.BottomTextBar:Hide()
+                        ns.UF_HideBottomTextBar(frame.BottomTextBar)
                     end
 
                     -- Castbar (target)
@@ -1213,7 +1213,7 @@ ReloadFramesBody = function()
                             btb.bg:SetColorTexture(bgc.r, bgc.g, bgc.b, bga)
                         end
                         if btb._applyBTBTextTags then
-                            btb._applyBTBTextTags(settings.btbLeftContent or "none", settings.btbRightContent or "none", settings.btbCenterContent or "none")
+                            btb._applyBTBTextTags(settings)
                         end
                         if btb._applyBTBTextPositions then
                             btb._applyBTBTextPositions(settings)
@@ -1222,7 +1222,7 @@ ReloadFramesBody = function()
                         btb:Show()
                     end
                 elseif frame.BottomTextBar then
-                    frame.BottomTextBar:Hide()
+                    ns.UF_HideBottomTextBar(frame.BottomTextBar)
                 end
 
                 -- Castbar (focus)

@@ -561,6 +561,9 @@ function ns.UF_AttachEngineFrame(frame, unit, polled)
         ns.Engine.Attach(frame, unit, channels)
     end
     ns.UF_SyncBorderColor(frame, unit)
+    if frame._euiTextClassification then
+        ns.Engine.SetChannelOn(frame, "textclassification", true)
+    end
     -- Opt-in heal prediction joins its channel here when the unit has it on.
     if frame.HealthPrediction and ns.UF_HEAL_PRED_UNITS[unit] then
         ns.UF_HealPredApply(frame, unit, GetSettingsForUnit(unit))

@@ -302,6 +302,12 @@ EllesmereUI._UFRecolorAllTexts = function()
     end
 end
 
+function ns.UF_HideBottomTextBar(bar)
+    if not bar:IsShown() then return end
+    if bar._applyBTBTextTags then bar._applyBTBTextTags() end
+    bar:Hide()
+end
+
 -- Bottom text bar frame: below the health+power area, above the castbar.
 local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, overrideWidth)
     local btbH = settings.bottomTextBarHeight or 16
@@ -356,11 +362,12 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
 
     btb._textOverlay = textOvr
 
-    local function ApplyBTBTextTags(lc, rc, cc)
-        ns.SetTextZone(frame, leftFS, lc, "btbLeft", settings)
-        ns.SetTextZone(frame, rightFS, rc, "btbRight", settings)
-        ns.SetTextZone(frame, centerFS, cc, "btbCenter", settings)
-        ns.UF_PaintText(frame, frame._euiUnit or unit)
+    local function ApplyBTBTextTags(s)
+        if s and ns.UF_Blizz() then return end
+        ns.SetTextZone(frame, leftFS, s and s.btbLeftContent, "btbLeft", s)
+        ns.SetTextZone(frame, rightFS, s and s.btbRightContent, "btbRight", s)
+        ns.SetTextZone(frame, centerFS, s and s.btbCenterContent, "btbCenter", s)
+        if s then ns.UF_PaintText(frame, frame._euiUnit or unit) end
     end
 
     -- Power-color override for power-content text. Mirrors the power bar text
@@ -429,11 +436,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         ApplyBTBPowerColors(s)
     end
 
-    ApplyBTBTextTags(
-        settings.btbLeftContent or "none",
-        settings.btbRightContent or "none",
-        settings.btbCenterContent or "none"
-    )
+    ApplyBTBTextTags(settings)
     ApplyBTBTextPositions(settings)
 
     btb._applyBTBTextTags = ApplyBTBTextTags
