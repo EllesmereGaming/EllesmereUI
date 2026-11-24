@@ -453,6 +453,7 @@ local function ApplyPreviewScale(cfg, comp)
     -- key and scale the resolved edge/offset geometry separately; Solid continues
     -- to use the compensated borderSize above.
     out.borderTextureSizeOverride = cfg.borderSize or 1
+    if cfg.borderCornerRadius then out.borderCornerRadius = cfg.borderCornerRadius * comp end
     out.borderTextureScaleOverride = comp
     -- PabShapeBorderSize is keyed by the raw 0-4 level, so it must run BEFORE scaling
     -- (unlike out.borderSize above) -- resolve the level, then scale the result,
@@ -791,6 +792,7 @@ local function ApplyPreviewFx(btn, e)
         end
         local bc = e.borderColor or { r = 0, g = 0, b = 0 }
         PP.UpdateBorder(host, bSize, bc.r or 0, bc.g or 0, bc.b or 0, 1)
+        EllesmereUI.RoundAuraOverlay(host, btn.auraRound)
         host:Show()
     elseif btn.fxBorder then
         btn.fxBorder:Hide()
@@ -1003,6 +1005,9 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
 
             -- Mirrors EllesmereUI_AuraKit.lua's ApplyStyleToRegions, unguarded (plain regions).
             local shapeActive = style.iconShape and style.iconShape ~= "none" and style.shapeMaskPath
+            if shapeActive and btn.auraRound and btn.auraRound.on then
+                EllesmereUI.RoundAuraCorners(btn, btn, btn.icon, btn.cooldown, btn.border, 0)
+            end
             if shapeActive then
                 btn.shapeMask:SetTexture(style.shapeMaskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
                 btn.shapeMask:SetAllPoints(btn)
@@ -1098,6 +1103,9 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                 end
                 btn._cdShapeApplied = cdMaskKey
             end
+            local b = style.border
+            EllesmereUI.PreviewAuraCorners(btn, btn.icon, btn.cooldown, btn.border,
+                not shapeActive and b and b.cornerRadius, b and b.texture, b and b.size)
 
             if slot.kind ~= "placeholder" then
                 btn.textHost:SetAllPoints(btn)

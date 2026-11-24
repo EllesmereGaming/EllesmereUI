@@ -261,6 +261,7 @@ local TBB_DEFAULT_BAR = {
     nameTextR = 1, nameTextG = 1, nameTextB = 1, nameTextA = 0.9,
     showSpark = true,
     iconDisplay = "none",
+    showIconDivider = false,
     iconSize    = 24,
     iconX = 0, iconY = 0,
     iconBorderSize = 0,

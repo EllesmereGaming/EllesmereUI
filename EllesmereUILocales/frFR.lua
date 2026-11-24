@@ -7045,3 +7045,7 @@ L["Choose Languages"] = "Choix des langues"
 -- Show Solo Player Zones (EllesmereUIForeverEssentials_LFGZones.lua)
 L["Show Solo Player Zones"] = "Afficher la zone des joueurs seuls"
 L["Shows the zone of the players listed on their own (not in a group) on their row of the Looking For Group window."] = "Affiche la zone où se trouvent les joueurs inscrits seuls (hors groupe) sur leur ligne de la Recherche de groupe."
+-- Show Waypoints in the World (EllesmereUIForeverEssentials_InGameNavigation.lua)
+L["Show Waypoints in the World"] = "Afficher les points de repère dans le monde"
+L["%s yd"] = "%s m"
+L["Shows a marker and a beam over your tracked map pin or quest, with the quest's name, the distance and the time to get there, and an arrow at the screen edge while it is out of sight."] = "Affiche un repère et un faisceau au-dessus de l'épingle ou de la quête suivie, avec le nom de la quête, la distance et le temps pour y arriver, et une flèche au bord de l'écran tant qu'elle est hors de vue."

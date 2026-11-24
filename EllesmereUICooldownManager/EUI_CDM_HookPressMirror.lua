@@ -156,6 +156,8 @@ do
     -- nil: their icon art fills the frame rect, so a square press is correct.
     local function IconShape(icon)
         local ifc = _ecmeFC and _ecmeFC[icon]
+        local rounded = ifc and ifc.auraRound
+        if rounded and rounded.on then return nil, rounded.mask, rounded end
         if not (ifc and ifc.shapeApplied and ifc.shapeMask) then return nil end
         local shape = ifc.shapeName
         if not shape or shape == "none" or shape == "cropped" then return nil end
@@ -194,7 +196,7 @@ do
         -- cleared between presses, and a cleared shapeMask is emptied + hidden
         -- rather than destroyed -- left attached it would blank the overlay.
         -- A shape swap keeps the same mask object (re-textured), so it stays.
-        local shape, mask = IconShape(icon)
+        local shape, mask, rounded = IconShape(icon)
         if ov._shapeMask and ov._shapeMask ~= mask then
             pcall(ov._tex.RemoveMaskTexture, ov._tex, ov._shapeMask)
             ov._shapeMask = nil
@@ -221,7 +223,23 @@ do
         ov:SetPoint("TOPLEFT", region, "TOPLEFT", 0, 0)
         ov:SetPoint("BOTTOMRIGHT", region, "BOTTOMRIGHT", 0, 0)
         local ringTex = shape and ns.CDM_SHAPE_BORDERS and ns.CDM_SHAPE_BORDERS[shape]
-        if result == "border" and ringTex then
+        if ov.auraRound and ov.auraRound.on and not (result == "border" and rounded) then
+            EllesmereUI.RoundAuraOverlay(ov, nil)
+            EllesmereUI.PP.HideBorder(ov)
+        end
+        if result == "border" and rounded then
+            ov._tex:Hide()
+            if ov._shapeRing then ov._shapeRing:Hide() end
+            if ov._borderEdges then for j = 1, 4 do ov._borderEdges[j]:Hide() end end
+            local PP = EllesmereUI.PP
+            if PP.GetBorders(ov) then
+                PP.UpdateBorder(ov, bsz, cr, cg, cb, 1)
+                PP.ShowBorder(ov)
+            else
+                PP.CreateBorder(ov, cr, cg, cb, 1, bsz)
+            end
+            EllesmereUI.RoundAuraOverlay(ov, rounded)
+        elseif result == "border" and ringTex then
             ov._tex:Hide()
             if ov._borderEdges then for j = 1, 4 do ov._borderEdges[j]:Hide() end end
             local ring = EnsureShapeRing(ov)

@@ -561,7 +561,7 @@ function ns.UpdateTrackedBuffBarTimers()
                         if blzIconTex then
                             local file = blzIconTex:GetTexture()
                             if file then
-                                bar._icon._tex:SetTexture(file)
+                                ns.SetTBBIconTexture(bar._icon, file)
                                 bar._lastIconSID = nil
                                 gotIcon = true
                             end
@@ -571,7 +571,7 @@ function ns.UpdateTrackedBuffBarTimers()
                                 blzChild.auraDataUnit, blzChild.auraInstanceID)
                             -- Instance ids recycle onto other buffs; only trust a match.
                             if ok and ad and ad.icon and CfgWantsSID(cfg, ad.spellId) then
-                                bar._icon._tex:SetTexture(ad.icon)
+                                ns.SetTBBIconTexture(bar._icon, ad.icon)
                                 bar._lastIconSID = nil
                                 gotIcon = true
                             end
@@ -581,7 +581,7 @@ function ns.UpdateTrackedBuffBarTimers()
                             if iconSID and iconSID ~= bar._lastIconSID then
                                 local spInfo = C_Spell.GetSpellInfo(iconSID)
                                 if spInfo and spInfo.iconID then
-                                    bar._icon._tex:SetTexture(spInfo.iconID)
+                                    ns.SetTBBIconTexture(bar._icon, spInfo.iconID)
                                     bar._lastIconSID = iconSID
                                 end
                             end
@@ -728,7 +728,7 @@ function ns.UpdateTrackedBuffBarTimers()
                 -- only on a clean read (font strings need a plain string) and never
                 -- over a bar's custom name.
                 if bar._icon and bar._icon:IsShown() and fbAura.icon then
-                    bar._icon._tex:SetTexture(fbAura.icon)
+                    ns.SetTBBIconTexture(bar._icon, fbAura.icon)
                     bar._lastIconSID = nil
                 end
                 local fbName = fbAura.name
