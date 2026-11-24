@@ -86,11 +86,8 @@ local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLa
     w.icon:SetShown(not placeholder)
     w.plus:SetShown(placeholder)
 
-    -- The name on the icon itself, whatever the label settings say: an emote's
-    -- icon is the same bubble for all of them, so the name is the only thing
-    -- that tells two entries apart without hovering each one. Every layout,
-    -- the fan included -- it sits inside the icon's own square, so it cannot
-    -- crowd a neighbour the way a label under the icon does.
+    -- An emote's name on its icon (every emote wears the same bubble), whatever
+    -- the label settings say; it stays inside the icon's square in every layout.
     local named = not placeholder and slot ~= nil and slot.kind == "emote"
         and name ~= nil
     if named then

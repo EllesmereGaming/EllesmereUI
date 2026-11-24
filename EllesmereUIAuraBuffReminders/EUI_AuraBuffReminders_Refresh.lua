@@ -1015,39 +1015,16 @@ function EABR.FvCenserOwned()
     return owned
 end
 
--- WoW Forever collector: the Camp Benefits campfire buff, the Sleeping Bag's
--- Well-Rested buff (missing or under its full stacks, or inside its cog's Show
--- Below minutes of running out, then with the countdown; while a Cozy Sleeping
--- Bag is in the bags below max level: EABR.FvSleepingBagOwned), the Arcane
--- Censer's Magical Awareness (in dungeons, while a censer is in the bags:
--- EABR.FvCenserOwned), Well Fed (any food
--- buff: the shared Well Fed name, or one of EABR.FOOD_BUFFS), the gathering
--- and Find Treasure trackers, a Mage's armors (EABR.CollectMageArmor), the
--- class buffs (EABR.CollectClassBuffs), the weapon buffs
--- (EABR.CollectForeverWeapons), the user's spell groups
--- (EABR.CollectForeverGroups) and custom spell IDs (each for the classes ticked
--- on it), those a ticked class buff covers standing down outside PvP. All are
--- absence only but the weapon buffs, the Sleeping Bag and Well Fed, which also
--- show their Show Below minutes before running out, with a countdown (FvNeeds
--- arms the one-shot duration refresh for that moment). A custom ID counts as up while any
--- spell of its rank family is (EABR.ForeverFamily). Entries are display-only
--- textures carrying the spell for the tooltip, except the Sleeping Bag, the
--- Arcane Censer, the two trackers, the mage armors, the class buffs, the weapon buffs, the spell
--- groups and the custom spells the character knows, whose click casts the spell
--- or uses the item; presence goes through PlayerHasAuraByID. Hunter target
--- tracking is a visual-only combat reminder; every other reminder here is
--- out of combat. Camp Benefits, the Sleeping Bag, Well Fed, the mage armors,
--- the class buffs and the trackers nothing in PvP either. The one-slot id
--- table, the cached families, the kept minimap answer and the dismiss-key memo
--- keep the pass allocation-free; the weapon pass reads the game's enchant
--- lists, a table per weapon.
--- Item ID, stat bonus, and aura spell ID, strongest first.
+-- Item ID, stat bonus, and aura spell ID, strongest first; an item that gives two
+-- stats is listed under both. Checked against the game's item and spell effect
+-- tables for WoW Forever 1.60.1.71037.
 local intellectConsumables = {
     label = "Intellect", dismissKey = "forever:intellect", iconSpell = 1459,
-    setting = "intellectConsumableByClass", legacySetting = "intellectConsumable", family = "ai",
+    setting = "intellectConsumableByClass", family = "ai",
     items = {
-        { 9179, 25, 11396 }, { 10308, 16, 12176 }, { 4419, 12, 8098 }, { 250354, 10, 1250989 },
-        { 2290, 8, 8097 }, { 250353, 6, 1250988 }, { 955, 4, 8096 }, { 3383, 3, 3166 },
+        { 9179, 25, 11396 }, { 250328, 25, 1250918 }, { 13447, 18, 17535 }, { 10308, 16, 12176 },
+        { 4419, 12, 8098 }, { 250354, 10, 1250989 }, { 2290, 8, 8097 }, { 250353, 6, 1250988 },
+        { 955, 4, 8096 }, { 3383, 3, 3166 },
     },
 }
 local strengthConsumables = {
@@ -1194,6 +1171,13 @@ local function StatConsumableAuraState(items, watchExpiration)
     return strongest, not unknownExpiration and latest or nil
 end
 
+local function ItemsOwned(items)
+    for _, item in ipairs(items) do
+        if CachedGetItemCount(item[1]) > 0 then return true end
+    end
+    return false
+end
+
 local function StatBonusToBeat(stat, restricted, warnSec, showUpgrades, campIntellect, firstAidKit)
     if stat == staminaConsumables and firstAidKit then return end
     local amount = 0
@@ -1277,6 +1261,34 @@ local function AddStatConsumableEntry(missing, stat, itemID, expiration, choices
     missing[#missing + 1] = e
 end
 
+-- WoW Forever collector: the Camp Benefits campfire buff, the Sleeping Bag's
+-- Well-Rested buff (missing or under its full stacks, or inside its cog's Show
+-- Below minutes of running out, then with the countdown; while a Cozy Sleeping
+-- Bag is in the bags below max level: EABR.FvSleepingBagOwned), the Arcane
+-- Censer's Magical Awareness (in dungeons, while a censer is in the bags:
+-- EABR.FvCenserOwned), Well Fed (any food
+-- buff: the shared Well Fed name, or one of EABR.FOOD_BUFFS), the gathering
+-- and Find Treasure trackers, a Mage's armors (EABR.CollectMageArmor), the
+-- class buffs (EABR.CollectClassBuffs), the weapon buffs
+-- (EABR.CollectForeverWeapons), the Scrolls and Elixirs reminder (the ticked
+-- stats of the class, while an item of the stat is in the bags and its buff
+-- is missing or, with Show Stronger Buffs, weaker), the user's spell groups
+-- (EABR.CollectForeverGroups) and custom spell IDs (each for the classes ticked
+-- on it), those a ticked class buff covers standing down outside PvP. All are
+-- absence only but the weapon buffs, the Sleeping Bag and Well Fed, which also
+-- show their Show Below minutes before running out, with a countdown (FvNeeds
+-- arms the one-shot duration refresh for that moment). A custom ID counts as up while any
+-- spell of its rank family is (EABR.ForeverFamily). Entries are display-only
+-- textures carrying the spell for the tooltip, except the Sleeping Bag, the
+-- Arcane Censer, the two trackers, the mage armors, the class buffs, the weapon buffs, the spell
+-- groups and the custom spells the character knows, whose click casts the spell
+-- or uses the item; presence goes through PlayerHasAuraByID. Hunter target
+-- tracking is a visual-only combat reminder; every other reminder here is
+-- out of combat. Camp Benefits, the Sleeping Bag, Well Fed, the mage armors,
+-- the class buffs and the trackers nothing in PvP either. The one-slot id
+-- table, the cached families, the kept minimap answer and the dismiss-key memo
+-- keep the pass allocation-free; the weapon pass reads the game's enchant
+-- lists, a table per weapon.
 function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     local fo = db.profile.forever
     local shows = fo and not InCombat() and EABR.SectionShows(fo.whereToShow, inInstance)
@@ -1303,6 +1315,7 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     if wantCenser and not censerMissing then EABR._fvCenser = nil end
     local censer = censerMissing and EABR.FvCenserOwned() or false
     local statConsumableNeeded = false
+    local statWaitsForItem = false
     local watchStatSpells = false
     local healthBonus, healthExpiration
     local separate = fo and fo.statConsumableSeparateReminders == true
@@ -1314,21 +1327,31 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
         for i, stat in ipairs(statConsumables) do
             local picks = fo[stat.setting]
             local enabled = picks and picks[playerClass]
-            if enabled == nil and stat.legacySetting then enabled = fo[stat.legacySetting] end
             local bonus, expiration
             if enabled == true and not (separate and _dismissedUntilLoad[stat.dismissKey]) then
                 local locked, tracksSpell = ns.FvStatConsumableLocked(stat.family, playerClass)
                 if tracksSpell then watchStatSpells = true end
                 if not locked then
-                    if restricted == nil then restricted = EllesmereUI.AuraKit.AurasRestricted() end
-                    if not restricted and campIntellect == nil and (stat == intellectConsumables or stat == staminaConsumables) then
-                        campIntellect, firstAidKit = FvCampStatBonuses()
+                    -- The bags first (a hash lookup per item): a stat with none of its
+                    -- items owned cannot show, so its buffs are not read; the bag
+                    -- listener stays on to hear one arrive.
+                    local own = ItemsOwned(stat.items)
+                    local ownHealth = stat.health and ItemsOwned(stat.health.items)
+                    if own or ownHealth then
+                        if restricted == nil then restricted = EllesmereUI.AuraKit.AurasRestricted() end
+                        if own and not restricted and campIntellect == nil and (stat == intellectConsumables or stat == staminaConsumables) then
+                            campIntellect, firstAidKit = FvCampStatBonuses()
+                        end
+                        if own then
+                            bonus, expiration = StatBonusToBeat(stat, restricted, warnSec, showUpgrades, campIntellect, firstAidKit)
+                        end
+                        if ownHealth then
+                            healthBonus, healthExpiration = StatBonusToBeat(stat.health, restricted, warnSec, showUpgrades)
+                        end
+                        if bonus ~= nil or (ownHealth and healthBonus ~= nil) then statConsumableNeeded = true end
+                    else
+                        statWaitsForItem = true
                     end
-                    bonus, expiration = StatBonusToBeat(stat, restricted, warnSec, showUpgrades, campIntellect, firstAidKit)
-                    if stat.health then
-                        healthBonus, healthExpiration = StatBonusToBeat(stat.health, restricted, warnSec, showUpgrades)
-                    end
-                    if bonus ~= nil or (stat.health and healthBonus ~= nil) then statConsumableNeeded = true end
                 end
             end
             statBonusesToBeat[i] = bonus
@@ -1336,7 +1359,8 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
         end
     end
     -- A plain boolean: censer is the item ID, and the listener's sync compares by value.
-    local bagListen = shows and (fo.weapon == true or sleepBag or (censer and true) or statConsumableNeeded) or false
+    local bagListen = shows and (fo.weapon == true or sleepBag or (censer and true) or statConsumableNeeded
+        or statWaitsForItem) or false
     EABR.FvSyncSleepBagWatch(wantBag and not sleepBag and not EABR._fvMaxLevel
         and not bagListen or false)
     EABR.FvSyncCenserWatch(censerMissing and not censer and not bagListen or false)

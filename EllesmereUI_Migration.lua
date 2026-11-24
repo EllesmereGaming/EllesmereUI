@@ -148,6 +148,21 @@ function EllesmereUI.RunRegisteredMigrations()
     end
 end
 
+-- A spec's Cooldown Manager data made this session is born in the current
+-- format: it carries every specProfile migration's flag from the start.
+-- Without them the next load would run each conversion of older data on what
+-- the player put in it since (custom buffs on the default Buffs bar, items and
+-- claim markers on buff bars, a Bloodlust preset or Tracking Bar are data
+-- those conversions take out). Returns prof.
+function EllesmereUI.StampSpecProfile(prof)
+    if type(prof) ~= "table" then return prof end
+    local flags = GetFlagTable(prof)
+    for _, spec in ipairs(_migrations) do
+        if spec.scope == "specProfile" then flags[spec.id] = true end
+    end
+    return prof
+end
+
 --------------------------------------------------------------------------------
 --  Registered migrations
 --------------------------------------------------------------------------------

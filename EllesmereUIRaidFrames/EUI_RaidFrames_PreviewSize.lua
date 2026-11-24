@@ -117,7 +117,8 @@ ns._ShowSizePreview = function(tier)
     -- Total bounding box: the tier's group mover footprint via the SAME
     -- ns._RFFootprint the live container sizing and the corner origin use (one
     -- formula, so preview and live can never drift).
-    local totalW, totalH = ns._RFFootprint(bw, bh, unitGrowth, groupGrowth, cs, gs)
+    local gridN = ns._RFGridSize(ov, s)
+    local totalW, totalH = ns._RFFootprint(bw, bh, unitGrowth, groupGrowth, cs, gs, gridN)
 
     -- Tier offset
     local tierOX = ov.offsetX or 0
@@ -163,7 +164,7 @@ ns._ShowSizePreview = function(tier)
     -- origin is what puts slot 0 at the growth corner, so normalizing over a
     -- 2- or 3-group prefix would place the preview on the wrong side of the
     -- box for LEFT/UP growth. The extra slots are simply not drawn.
-    local gSlots, minX, maxY = ns._RFGroupFlow(groupGrowth, groupW, groupH, gs, max(numGroups, MOVER_GROUPS))
+    local gSlots, minX, maxY = ns._RFGroupFlow(groupGrowth, groupW, groupH, gs, max(numGroups, MOVER_GROUPS), nil, gridN)
     -- Center Groups: the tier's full group count centered in the box, as live
     -- (which centers up to the last group holding members, in both modes).
     local shiftX, shiftY = 0, 0

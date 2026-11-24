@@ -581,6 +581,9 @@ local ITEM_TYPE_OVERRIDES = {
 
 -- WoW Forever's special bags (ns.SpecialBags) for the running ClassifyAll pass
 local _classifySpecial
+-- Split mode is on for the running ClassifyAll pass; the rebuild is defined below
+local _splitPass = false
+local QueueSetCategoryRebuild
 
 -- A virtual provider's answer, set by AskVirtual inside securecallfunction
 -- (stays false when the provider errors)
@@ -701,6 +704,7 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot, quality, sepa
             local byID = self._setCatIdxBySetID
             local idx = byID and byID[setID]
             if idx then return idx end
+            if _splitPass then QueueSetCategoryRebuild(self) end
             for i, cat in ipairs(cats) do
                 -- Anchor explicitly: children are isSetGear too, and cats order
                 -- can put them first after the anchor is drag-reordered
@@ -759,7 +763,8 @@ function CategoryManager:ClassifyAll(items, separateReagentBag)
     -- Refill gated on split mode (no children exist when it's off).
     local setCatIdx = self._setCatIdxBySetID or {}
     wipe(setCatIdx)
-    if BP().bagSplitSetGearBySet then
+    _splitPass = BP().bagSplitSetGearBySet and true or false
+    if _splitPass then
         for i, cat in ipairs(cats) do
             if cat.equipSetID then setCatIdx[cat.equipSetID] = i end
         end
@@ -1308,6 +1313,16 @@ end
 -- next GetCategories rebuilds split-mode categories from the current sets.
 function CategoryManager:OnEquipmentSetsChanged()
     self._categories = nil
+    self._setCatsRetried = nil
+end
+
+-- Split mode: do the set categories fold into Item Set Gear's section? The bags
+-- fold them unless separated, the bank keeps them apart unless nested.
+function CategoryManager:FoldSetChildren(bank)
+    local p = BP()
+    if not p.bagSplitSetGearBySet then return false end
+    if bank then return p.bankNestSetGear == true end
+    return p.bagSetSectionsSeparate ~= true
 end
 
 -------------------------------------------------------------------------------
@@ -1358,6 +1373,28 @@ local function VirtualChanged(self)
         self:OnEquipmentSetsChanged()
     end
     QueueRepaint()
+end
+
+-- A set with no category of its own: the list was built before the sets loaded
+-- (Forever login). Rebuild next frame, once until the set list changes again.
+local _setCatsFix
+QueueSetCategoryRebuild = function(mgr)
+    if mgr._setCatsRetried then return end
+    if not _setCatsFix then
+        _setCatsFix = CreateFrame("Frame")
+        _setCatsFix:SetScript("OnUpdate", function(self)
+            self:Hide()
+            local bags = _G.EUI_Bags
+            if bags and bags.InvalidateSetCategories then
+                bags.InvalidateSetCategories()
+            else
+                mgr:OnEquipmentSetsChanged()
+            end
+            mgr._setCatsRetried = true
+            QueueRepaint()
+        end)
+    end
+    _setCatsFix:Show()
 end
 
 local function VirtualBefore(a, b)

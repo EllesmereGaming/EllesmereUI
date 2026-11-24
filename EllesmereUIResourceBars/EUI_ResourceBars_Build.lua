@@ -588,7 +588,8 @@ local function BuildBars()
             if not ApplyBarAnchor(primaryBar, primaryAnchorKey, pp.anchorPosition, offsetX, offsetY, pp.growthDirection, pp.growCentered) then
                 ApplyFreeBarPosition(primaryBar, pp, 0, -54, ow, oh)
             elseif primaryAnchorKey == "mouse" then
-                I.PlaceCursorStandIn(primaryBar, "ERB_Power", pp, 0, -54, ow, oh)
+                I.PlaceCursorStandIn(primaryBar, "ERB_Power", pp, 0, -54, ow, oh,
+                    ppExpandDelta > 0 and ppDirSign * ppExpandDelta * 0.5 or 0)
             end
         elseif pp.unlockPos and pp.unlockPos.point then
             local rp = pp.unlockPos.relPoint or pp.unlockPos.point

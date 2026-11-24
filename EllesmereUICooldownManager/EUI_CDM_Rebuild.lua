@@ -1166,7 +1166,15 @@ function ns.NormalizeRacialAssignments()
                     -- (the custom-bar copy when one exists, see keeperList).
                     kept = true
                 elseif not activePresent and not kept then
-                    -- No active racial anywhere: promote this foreign one.
+                    -- No active racial anywhere: promote this foreign one. Its
+                    -- per-icon settings (the profile's Custom Active State entry)
+                    -- follow the slot when this character's racial has none of
+                    -- its own; an entry it already has is left as it is.
+                    local cas = p.customActiveStates
+                    if cas and type(cas[sid]) == "table" and cas[active] == nil then
+                        cas[active] = EllesmereUI.Lite.DeepCopy(cas[sid])
+                        ns._cdmResGen = (ns._cdmResGen or 0) + 1
+                    end
                     list[i] = active
                     kept = true
                     ns._spellOrderDirty = true

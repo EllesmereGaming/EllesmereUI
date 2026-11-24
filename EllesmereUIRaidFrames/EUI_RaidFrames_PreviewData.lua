@@ -1041,6 +1041,8 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             if border and dc then border[1], border[2], border[3] = dc.r, dc.g, dc.b end
             ns.RFC_ApplyAuraBorder(ddi._borderFrame, ddi._borderFrame, border,
                 (ddi._cooldown or ddi):GetFrameLevel())
+            EllesmereUI.PreviewAuraCorners(ddi, ddi._tex, ddi._cooldown, ddi._borderFrame,
+                border and border.cornerRadius, border and border.texture, border and border.size)
 
             if ddi._cooldown then ddi._cooldown:Hide() end
             if ddi._count then ddi._count:SetText("") end

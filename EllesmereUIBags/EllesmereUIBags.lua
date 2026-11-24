@@ -13,6 +13,8 @@ EUI_Bags:Hide()
 -- Auto-size state: reset on close (next open sizes from its first/active tab);
 -- while open it only grows, and shrinks too with Auto-Size's Shrink on.
 EUI_Bags:HookScript("OnHide", function(self)
+    -- A close ends the layout hold; a hidden UI (Alt-Z) is not a close
+    if ns.Hold and not self:IsShown() then ns.Hold.Release("bags") end
     -- WoW Forever and the Compact display size every open to its content: a hidden UI (Alt-Z) is not a close, keep the size.
     if (EllesmereUI.IS_FOREVER or EUI_Bags.IsCompactMode()) and self:IsShown() then return end
     self._asCols  = nil
@@ -37,15 +39,25 @@ local IsEquippableItem = C_Item.IsEquippableItem
 -- GetItemByID shows the unscaled base item's level (reads red). Prefer bag slot > link > ID; cache by link, cleared on a level-up or a skill change.
 local _canUseCache = {}
 local ITEM_CLASS_RECIPE, ITEM_CLASS_CONSUMABLE = Enum.ItemClass.Recipe, Enum.ItemClass.Consumable
+-- A tooltip line in the game's red (with tolerance: rounding can put red just under r=1).
+local function IsRed(c)
+    return c and c.r > 0.9 and c.g < 0.2 and c.b < 0.2
+end
 -- A scanned tooltip can still be loading: the client fills it in with TOOLTIP_DATA_UPDATE.
 -- Watch each scan for a short window only, re-read just those items, repaint on a change.
 local WATCH_SECONDS = 2
 local _tipItem = {}
 local _watchEnd, _watchTimer, _rescanning = 0, false, false
 local BagsItemUnusable
+-- Hidden while idle: its OnUpdate is the once-a-frame re-read of what updates marked.
 local _tipWatch = CreateFrame("Frame")
+_tipWatch:Hide()
+local _recheckIDs, _recheckAll = {}, false
 local function StopWatch()
     wipe(_tipItem)
+    wipe(_recheckIDs)
+    _recheckAll = false
+    _tipWatch:Hide()
     _tipWatch:UnregisterEvent("TOOLTIP_DATA_UPDATE")
 end
 local function WatchExpire()
@@ -68,27 +80,39 @@ local function Recheck(id, w)
     _rescanning = false
     return new ~= old
 end
-local _recheckIDs = {}
-_tipWatch:SetScript("OnEvent", function(_, _, id)
+-- Updates only mark what to re-read (an update that names no tooltip marks every
+-- watched item); one pass a frame re-reads the marked items.
+local _recheckList = {}
+_tipWatch:SetScript("OnUpdate", function(self)
+    self:Hide()
     if GetTime() > _watchEnd then StopWatch(); return end
-    local changed = false
-    if id then
-        local w = _tipItem[id]
-        if not w then return end
-        changed = Recheck(id, w)
+    if _recheckAll then
+        for wid in pairs(_tipItem) do _recheckList[#_recheckList + 1] = wid end
     else
-        for wid in pairs(_tipItem) do _recheckIDs[#_recheckIDs + 1] = wid end
-        for i = 1, #_recheckIDs do
-            local wid = _recheckIDs[i]
-            local w = _tipItem[wid]
-            if w and Recheck(wid, w) then changed = true end
-        end
-        wipe(_recheckIDs)
+        for wid in pairs(_recheckIDs) do _recheckList[#_recheckList + 1] = wid end
     end
+    _recheckAll = false
+    wipe(_recheckIDs)
+    local changed = false
+    for i = 1, #_recheckList do
+        local wid = _recheckList[i]
+        local w = _tipItem[wid]
+        if w and Recheck(wid, w) then changed = true end
+    end
+    wipe(_recheckList)
     if not next(_tipItem) then StopWatch() end
     if not changed then return end
     if EUI_Bags._tintRetry then EUI_Bags._tintRetry() end
     if EUI_Bank and EUI_Bank._tintRetry then EUI_Bank._tintRetry() end
+end)
+_tipWatch:SetScript("OnEvent", function(self, _, id)
+    if id then
+        if not _tipItem[id] then return end
+        _recheckIDs[id] = true
+    else
+        _recheckAll = true
+    end
+    self:Show()
 end)
 local function WatchTip(tip, item, bagID, slot, itemLink, itemID)
     local id = tip.dataInstanceID
@@ -129,9 +153,8 @@ function BagsItemUnusable(bagID, slot, itemLink, itemID)
                 break
             elseif text and text:sub(1, #ITEM_SPELL_TRIGGER_ONUSE) == ITEM_SPELL_TRIGGER_ONUSE then
                 red = false
-            else
-                local lc = row.leftColor
-                if lc and lc.r > 0.9 and lc.g < 0.2 and lc.b < 0.2 then red = true end
+            elseif IsRed(row.leftColor) then
+                red = true
             end
         end
         unusable = red
@@ -158,17 +181,14 @@ function BagsItemUnusable(bagID, slot, itemLink, itemID)
         if tip and tip.lines then
             WatchTip(tip, item, bagID, slot, itemLink, itemID)
             for _, row in ipairs(tip.lines) do
-                local lc = row.leftColor
-                -- Tolerance, not exact equality: rounding can put red just under r=1.
-                if lc and lc.r > 0.9 and lc.g < 0.2 and lc.b < 0.2
+                if IsRed(row.leftColor)
                    and row.leftText ~= ITEM_SCRAPABLE_NOT
                    and row.leftText ~= CANNOT_UNEQUIP_COMBAT
                    and row.leftText ~= ITEM_DISENCHANT_NOT_DISENCHANTABLE then
                     unusable = true
                     break
                 end
-                local rc = row.rightColor
-                if rc and rc.r > 0.9 and rc.g < 0.2 and rc.b < 0.2 then
+                if IsRed(row.rightColor) then
                     unusable = true
                     break
                 end

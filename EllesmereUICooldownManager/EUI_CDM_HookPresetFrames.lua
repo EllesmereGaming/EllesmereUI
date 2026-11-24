@@ -328,7 +328,15 @@ do
             f._cachedPresetSID = sid
         end
         local want, opted
-        local cas = sid and ns._cdmAnyCustomRangeColor and ns.GetEffectiveCustomActiveState(sid)
+        -- WoW Forever: a frame drawn at another rank of its typed spell
+        -- (_rankSID) keeps its settings under the typed ID; the range below
+        -- is the drawn rank's.
+        local setKey = sid
+        if f._rankSID then
+            local fc = _ecmeFC[f]
+            setKey = (fc and fc.spellID) or sid
+        end
+        local cas = setKey and ns._cdmAnyCustomRangeColor and ns.GetEffectiveCustomActiveState(setKey)
         if cas and cas.outOfRangeColoring then
             opted = true
             local ovr = C_SpellBook.FindSpellOverrideByID(sid)

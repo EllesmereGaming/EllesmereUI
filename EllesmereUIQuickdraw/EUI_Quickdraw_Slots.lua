@@ -523,27 +523,20 @@ do
 end
 
 -------------------------------------------------------------------------------
---  Emotes: one entry per emote the client knows, stored by TOKEN ("DANCE")
---  rather than by the text of its command. The token is the same in every
---  language; the command is not -- "/dance" here is "/danse" on a French
---  client -- so a palette shared between the two would fire nothing on one of
---  them if the typed text were what got saved. The command is looked up from
---  the token when the attributes are written, and fired as macro text from
---  the secure button, the same route as the markers.
---
---  The name is the client's own command without its slash, which is what the
---  player types and recognises, in the client's language. Every emote draws
---  the one glyph (media\micromenu\quickdraw-emote.png), which leaves its lower
---  band empty: the paint writes the name there, because a ring of identical
---  bubbles told apart only by hovering each one is no menu at all.
+--  Emotes: one entry per emote the client knows, stored by TOKEN ("DANCE"),
+--  which is the same in every language, while the command is not ("/dance",
+--  "/danse" on a French client). The command is looked up from the token when
+--  the attributes are written and fired as macro text from the secure button,
+--  the markers' route. An entry is named by its command, slash included, in
+--  the client's language. Every emote draws one glyph
+--  (media\micromenu\quickdraw-emote.png), and the paint writes the name in its
+--  empty lower band.
 -------------------------------------------------------------------------------
 do
     ns.EMOTE_ICON = "Interface\\AddOns\\EllesmereUI\\media\\micromenu\\quickdraw-emote.png"
 
-    -- token -> { token, command, name }, and the same records as a list.
-    -- Built on first use rather than at load: the emote strings are global
-    -- strings, present from login, and a player who never opens an emote
-    -- entry never pays for the walk.
+    -- token -> { token, command, name }, and the same records as a list,
+    -- built on first use (the emote strings are global strings).
     local byToken, list
 
     local function Build()
@@ -556,9 +549,8 @@ do
             -- Several indexes alias one token; the first is the emote's own.
             if type(token) == "string" and type(cmd) == "string"
                and cmd:sub(1, 1) == "/" and not byToken[token] then
-                -- The entry is named by the command it fires, as the player
-                -- would type it: the client's own, in its language (some
-                -- locales keep an English one first, frFR HELLO among them).
+                -- Named by the command it fires (some locales list an English
+                -- command first, frFR HELLO among them).
                 local rec = { token = token, command = cmd, name = cmd }
                 byToken[token] = rec
                 list[#list + 1] = rec

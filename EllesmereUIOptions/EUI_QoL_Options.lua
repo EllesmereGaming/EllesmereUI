@@ -2755,7 +2755,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.hideAlertToastsHousing = nil
                 EllesmereUIDB.announceGroupDeaths = false
                 EllesmereUIDB.groupDeathTextSize = nil
-                EllesmereUIDB.groupDeathRoleIcon = false
+                EllesmereUIDB.groupDeathRoleIcon = nil
                 EllesmereUIDB.groupDeathAlertPos = nil
                 EllesmereUIDB.groupDeathSound = nil      -- legacy boolean (pre-dropdown)
                 EllesmereUIDB.groupDeathSoundKey = nil
@@ -2808,6 +2808,8 @@ initFrame:SetScript("OnEvent", function(self)
                     "potionAlertUseClassColor",
                     "talentAlertEnabled", "talentAlertText", "talentAlertTextSize", "talentAlertColor",
                     "talentAlertUseClassColor",
+                    "legacyAlertEnabled", "legacyAlertText", "legacyAlertTextSize", "legacyAlertColor",
+                    "legacyAlertUseClassColor",
                     -- not repairWarning: the Global Settings reset owns that switch
                     "durWarnThreshold", "durWarnTextSize", "durWarnColor", "durWarnYOffset",
                     "durWarnPos", "durWarnIgnoreThrown",

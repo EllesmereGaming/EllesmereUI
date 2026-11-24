@@ -101,7 +101,7 @@ local GENERAL_DEFS = {
             { key = "opt4", label = "Quel'Danas Rations",         items = {260264} },
             { key = "opt5", label = "Mana Lily Tea",              items = {242297} },
             { key = "opt6", label = "Springrunner Sparkling",     items = {260260} },
-            { key = "opt7", label = "Tranquility Bloom Tea",      items = {1226196} },
+            { key = "opt7", label = "Tranquility Bloom Tea",      items = {242300} },
             { key = "opt8", label = "Sanguithorn Tea",            items = {242299} },
             { key = "opt9", label = "Azeroot Tea",                items = {242301} },
             { key = "opt10", label = "Argentleaf Tea",            items = {242298} },
@@ -1423,7 +1423,9 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                     local insLine = menuFrame:CreateTexture(nil, "OVERLAY", nil, 7)
                     insLine:SetHeight(2); insLine:SetColorTexture(EG.r, EG.g, EG.b, 0.9); insLine:Hide()
 
-                    for ci, cb in ipairs(cbItems) do
+                    local savedOrder = EnsureOrder(GetDB(), #cbItems)
+                    for ci = 1, #cbItems do
+                        local cb = cbItems[savedOrder[ci]]
                         local row = CreateFrame("Button", nil, menuFrame)
                         row:SetHeight(MH); row._baseY = mY; row._cbIndex = ci; row._cb = cb
                         row:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)

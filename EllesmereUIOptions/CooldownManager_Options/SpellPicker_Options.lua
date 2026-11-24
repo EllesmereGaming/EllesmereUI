@@ -70,6 +70,282 @@ local function SetFlyoutItemLocked(si, locked, tip)
     end
 end
 
+-------------------------------------------------------------------------------
+--  WoW Forever: a cooldown icon's per-icon settings follow its slot's own spell.
+--  Every rank of a spell is a spell ID of its own there, and a bar may list any
+--  of them (the picker adds the rank the icon shows). The runtime reads a
+--  cooldown icon's settings by its slot's own spell first (cooldownInfo.spellID,
+--  ResolveSpellSettings' direct hit in EUI_CDM_HookResolve.lua), then by the
+--  ranks it shows, so an entry saved under a rank can hide behind an older one
+--  under the own spell, and ranks split one spell's settings. So the menu shows
+--  the entry the icon reads, and its first write moves that entry to the own
+--  spell, lists the slot under that spell on the bar (the bar's list ID is the
+--  key Replace with Buff and Apply to Bar read) and drops the slot's other
+--  per-rank entries, which the icon no longer reads. Nothing changes at load or
+--  for an icon nobody edits. A slot that another entry of a cooldown bar also
+--  names, a typed, racial or custom-timed spell, the FocusKick bar, an own
+--  spell whose name has not loaded and an icon whose Replace with Buff sits on
+--  another entry than the one it reads stay keyed by the bar's entry, as does Retail.
+-------------------------------------------------------------------------------
+local RankSlot = {}
+
+local function RankSlotID(id)
+    return type(id) == "number" and not (issecretvalue and issecretvalue(id)) and id > 0
+end
+
+-- True when the linked list holds id.
+local function RankSlotLinks(linked, id)
+    if type(linked) ~= "table" then return false end
+    for i = 1, #linked do
+        local l = linked[i]
+        if RankSlotID(l) and l == id then return true end
+    end
+    return false
+end
+
+-- The slot a bar entry stands for: its own spell, its linked spells and, while
+-- the icon is drawn, its live frame (its cache holds the cooldownInfo.spellID
+-- as baseSpellID). Candidates: the bar's live icons, then Blizzard's catalogue
+-- (every cooldown category, unlearned entries included). A slot whose own spell
+-- is the entry wins, then one that links it, then one of its rank name; a live
+-- icon before a catalogue row of the same rung.
+function RankSlot.Find(barKey, spellID)
+    local RankName = ns.CDMRankName
+    local rn = RankName(spellID)
+    local best, bestRung
+    local function Offer(own, linked, frame)
+        if not RankSlotID(own) then return end
+        local rung
+        if own == spellID then
+            rung = 1
+        elseif RankSlotLinks(linked, spellID) then
+            rung = 2
+        elseif rn and RankName(own) == rn then
+            rung = 3
+        end
+        if rung and (not bestRung or rung < bestRung) then
+            best, bestRung = { own, linked, frame }, rung
+        end
+    end
+    local function OfferIcons(list)
+        if type(list) ~= "table" then return end
+        for i = 1, #list do
+            local icon = list[i]
+            local fc = icon and ns._ecmeFC and ns._ecmeFC[icon]
+            local fd = icon and ns._hookFrameData and ns._hookFrameData[icon]
+            if fc and not fc.isHostedBuff and not fc.replacesCd and not icon._isPlaceholderFrame
+               and not (fd and fd._isBuffViewerFrame) and type(icon.cooldownID) == "number" then
+                Offer(fc.baseSpellID, fc.linkedSpellIDs, icon)
+            end
+        end
+    end
+    OfferIcons(ns.cdmBarIcons and ns.cdmBarIcons[barKey])
+    OfferIcons(ns.TalentCondHiddenFrames and ns.TalentCondHiddenFrames(barKey))
+    local gcs = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
+    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    if bestRung ~= 1 and gcs and gci and ns.CDM_ICON_CD_CATS then
+        local cats = {}
+        for c in pairs(ns.CDM_ICON_CD_CATS) do cats[#cats + 1] = c end
+        table.sort(cats)
+        for _, c in ipairs(cats) do
+            local ids = gcs(c, true)
+            for i = 1, (type(ids) == "table" and #ids or 0) do
+                local info = gci(ids[i])
+                if info then Offer(info.spellID, info.linkedSpellIDs, nil) end
+            end
+        end
+    end
+    if best then return best[1], best[2], best[3] end
+    return nil
+end
+
+-- True when the bar list entry e names the slot: its own spell, the bar's
+-- entry, a linked spell, a variant of the own spell or any rank of it.
+function RankSlot.Names(st, e)
+    if not RankSlotID(e) then return false end
+    if e == st.own or e == st.listed or RankSlotLinks(st.linked, e) then return true end
+    if ns.IsVariantOf and ns.IsVariantOf(e, st.own) then return true end
+    return st.rn ~= nil and ns.CDMRankName(e) == st.rn
+end
+
+-- The key of the entry the icon reads now: the own spell (the runtime's direct
+-- hit), else what the runtime resolver returns for the live frame. With no
+-- live frame: the bar's entry, the linked spells in order, then any other rank
+-- (lowest ID first). nil = none; false = the icon reads another spell's entry.
+function RankSlot.ReadKey(st)
+    local store = st.store
+    if type(store[st.own]) == "table" then return st.own end
+    if st.frame then
+        local fc = ns._ecmeFC[st.frame]
+        local res = fc and fc.spellID and ns.ResolveSpellSettings
+            and ns.ResolveSpellSettings(st.frame, fc.spellID, st.sd, st.barKey)
+        if type(res) == "table" then
+            for k, v in pairs(store) do
+                if v == res then return RankSlot.Names(st, k) and k or false end
+            end
+        end
+        return nil
+    end
+    if type(store[st.listed]) == "table" then return st.listed end
+    local linked = st.linked
+    if type(linked) == "table" then
+        for i = 1, #linked do
+            local l = linked[i]
+            if RankSlotID(l) and type(store[l]) == "table" then return l end
+        end
+    end
+    local best
+    for k, v in pairs(store) do
+        if type(v) == "table" and RankSlotID(k) and st.rn ~= nil and ns.CDMRankName(k) == st.rn
+           and (not best or k < best) then
+            best = k
+        end
+    end
+    return best
+end
+
+-- True when the entry e carries a Replace with Buff (raw: never a bar tier's).
+function RankSlot.HasRB(e)
+    return type(e) == "table" and (rawget(e, "replaceBuffID") ~= nil or rawget(e, "replaceBuffCdID") ~= nil)
+end
+
+-- A per-icon menu state when this icon's settings follow its slot's own spell,
+-- else nil (the menu stays keyed by the bar's entry).
+function RankSlot.Open(barKey, sd, store, spellID, slotIndex)
+    if not (EllesmereUI.IS_FOREVER and ns.CDMRankName and store and sd) then return nil end
+    if not RankSlotID(spellID) or barKey == ns.FOCUSKICK_BAR_KEY then return nil end
+    local bdS = ns.barDataByKey and ns.barDataByKey[barKey]
+    if bdS and bdS.isGhostBar then return nil end
+    local list = sd.assignedSpells
+    if type(list) ~= "table" or list[slotIndex] ~= spellID then return nil end
+    if (sd.customSpellIDs and sd.customSpellIDs[spellID])
+       or (ns._myRacialsSet and ns._myRacialsSet[spellID])
+       or (sd.spellDurations and (sd.spellDurations[spellID] or 0) > 0)
+       or (sd.customSpellDurations and sd.customSpellDurations[spellID])
+       or (sd.customSpellGroups and sd.customSpellGroups[spellID])
+       or (sd.hostedBuffSpellIDs and sd.hostedBuffSpellIDs[spellID]) then
+        return nil
+    end
+    local own, linked, frame = RankSlot.Find(barKey, spellID)
+    if not own then return nil end
+    -- The own spell's rank key: nil while its name or icon has not loaded, and
+    -- then no rank can be told apart from another spell: the bar's entry.
+    local rn = ns.CDMRankName(own)
+    if rn == nil then return nil end
+    local st = { own = own, linked = linked, frame = frame, listed = spellID, slot = slotIndex,
+        rn = rn, store = store, sd = sd, barKey = barKey }
+    -- One listing: no other entry of a cooldown bar (Hidden CDs included) names the slot.
+    local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
+    local sk = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+    st.prof = sp and sk and sp[sk]
+    local bsAll = st.prof and st.prof.barSpells
+    if type(bsAll) ~= "table" then return nil end
+    for k, bsd in pairs(bsAll) do
+        local bdK = ns.barDataByKey and ns.barDataByKey[k]
+        local buffFam = (bdK and bdK.barType == "custom_buff")
+            or (ns.IsBarBuffFamily and ns.IsBarBuffFamily(bdK or k))
+        if not buffFam and type(bsd) == "table" and type(bsd.assignedSpells) == "table" then
+            for i, e in ipairs(bsd.assignedSpells) do
+                if not (k == barKey and i == slotIndex) and RankSlot.Names(st, e) then return nil end
+            end
+        end
+    end
+    -- A bar entry that is another slot's own spell names two slots: the bar's entry.
+    if spellID ~= own and RankSlot.OtherOwn(st, spellID) then return nil end
+    st.readKey = RankSlot.ReadKey(st)
+    if st.readKey == false then return nil end
+    -- Replace with Buff is read under the bar's list ID (the route map's Pass
+    -- 3c, and Talent Conditions' replacement branch), every other setting under
+    -- the own spell first: while the icon reads another entry than the bar's,
+    -- a replacement saved on either keeps this icon on the bar's entry, so a first
+    -- write never drops a working replacement or wakes a dormant one.
+    if st.readKey ~= spellID and (RankSlot.HasRB(store[spellID])
+       or (st.readKey and RankSlot.HasRB(store[st.readKey]))) then
+        return nil
+    end
+    -- An entry that is another cooldown slot's own spell stays where it is.
+    if st.readKey and st.readKey ~= own and RankSlot.OtherOwn(st, st.readKey) then return nil end
+    return st
+end
+
+-- True when k is the own spell of another cooldown slot of Blizzard's catalogue
+-- (built once per menu state, on first need): such an entry is never moved or dropped.
+function RankSlot.OtherOwn(st, k)
+    local others = st.others
+    if not others then
+        others = {}
+        st.others = others
+        local gcs = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
+        local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+        if gcs and gci then
+            for c in pairs(ns.CDM_ICON_CD_CATS or {}) do
+                local ids = gcs(c, true)
+                for i = 1, (type(ids) == "table" and #ids or 0) do
+                    local info = gci(ids[i])
+                    local o = info and info.spellID
+                    if RankSlotID(o) and o ~= st.own then others[o] = true end
+                end
+            end
+        end
+    end
+    return others[k] == true
+end
+
+-- Every write through the menu: the first moves the entry the icon reads (st.ss)
+-- to the slot's own spell, lists the slot under that spell on the bar and drops
+-- the slot's other per-rank entries (the bar's old entry and the linked spells);
+-- a later one only puts st.ss back under the own spell if an apply pruned it.
+-- Returns the own spell (the settings key from now on).
+function RankSlot.Commit(st)
+    local store, ss, own = st.store, st.ss, st.own
+    if st.done then
+        if store[own] ~= ss then
+            store[own] = ss
+            ns._cdmResGen = (ns._cdmResGen or 0) + 1
+        end
+        return own
+    end
+    st.done = true
+    local rk = st.readKey
+    if rk and rk ~= own and store[rk] == ss then store[rk] = nil end
+    store[own] = ss
+    local function Drop(k)
+        if RankSlotID(k) and k ~= own and type(store[k]) == "table" and store[k] ~= ss
+           and not RankSlot.OtherOwn(st, k) then
+            store[k] = nil
+        end
+    end
+    Drop(st.listed)
+    local linked = st.linked
+    if type(linked) == "table" then
+        for i = 1, #linked do Drop(linked[i]) end
+    end
+    if st.listed ~= own then
+        local list = st.sd.assignedSpells
+        local idx
+        if type(list) == "table" then
+            if list[st.slot] == st.listed then
+                idx = st.slot
+            else
+                for i = 1, #list do
+                    if list[i] == st.listed then idx = i; break end
+                end
+            end
+        end
+        if idx and ns.ReplaceTrackedSpell then
+            ns.ReplaceTrackedSpell(st.barKey, idx, own)
+            -- An imported entry's protection follows it (EUI_CDM_Reconcile.lua, ImportKeepKey).
+            local keep = st.prof and st.prof._importKeep
+            if keep and (keep[st.listed] or keep[ns.NormalizeToBase(st.listed)]) then keep[own] = true end
+            ns._spellOrderDirty = true
+            if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+            st.listed = own
+        end
+    end
+    ns._cdmResGen = (ns._cdmResGen or 0) + 1
+    return own
+end
+
 local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSelect, removeOnly)
     local env = ns._CDMO_OptEnv
     local FONT_PATH, FitMenuWidth, GetCDMOptOutline, RefreshCDPreview = env.FONT_PATH, env.FitMenuWidth, env.GetCDMOptOutline, env.RefreshCDPreview
@@ -429,9 +705,14 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 local store = ns.GetSpellSettingsStore(isHostedBuff and "buffs" or barKey, true)
                 local bdSel = ns.barDataByKey and ns.barDataByKey[barKey]
                 local famKey = ns.SettingsFamilyKey(isHostedBuff and "buffs" or barKey)
+                -- WoW Forever: this icon's settings follow its slot's own spell
+                -- (RankSlot above): the entry the icon reads, moved on the first write.
+                local slotSt = (not isBuffBar) and (not isHostedBuff)
+                    and RankSlot.Open(barKey, sd, store, spellID, slotIndex) or nil
                 -- Effective-read view: the entry (or a not-yet-persisted fresh table)
                 -- chained to the bar tiers, so the menu shows the values the icon actually renders with; EnsureSS() persists the entry on first WRITE.
-                local ss = store and store[spellID]
+                local ss = slotSt and (slotSt.readKey and store[slotSt.readKey] or {})
+                    or (store and store[spellID])
                 -- An entry saved under another form of this spell (its base or
                 -- its talent override: the spell was added to this bar in
                 -- another form than the one its settings were made on) is the
@@ -449,7 +730,12 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     ss = type(src) == "table" and CopyTable(src) or {}
                 end
                 ns.ChainSettings(ss, (not isHostedBuff) and ns.GetBarTierSettings(sd, barKey) or nil)
+                if slotSt then slotSt.ss = ss end
                 local function EnsureSS()
+                    if slotSt then
+                        RankSlot.Commit(slotSt)
+                        return ss
+                    end
                     -- An entry found under another form of the spell is stored already.
                     if store and not store[spellID] and ns.ResolveVariantValue(store, spellID) ~= ss then
                         store[spellID] = ss
@@ -547,10 +833,15 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         -- Hosted buffs are excluded from Apply-to-Bar: never treat one as a
                         -- bar member (so a bar apply can't clear/overwrite its per-spell settings).
                         local hosted = bsX.hostedBuffSpellIDs
+                        -- A buff bar lists a cd-claimed member by its marker and keeps
+                        -- that member's settings under "c"..cooldownID.
+                        local buffBar = (bdSel and bdSel.barType == "custom_buff") or ns.IsBarBuffFamily(barKey)
                         for _, sid2 in ipairs(bsX.assignedSpells) do
                             if not (hosted and hosted[sid2]) then
-                                local e = st[sid2]
-                                if type(e) == "table" then fn(sid2, e) end
+                                local cdID2 = buffBar and ns.CdClaimMarkerToCdID(sid2)
+                                local key2 = cdID2 and ("c" .. cdID2) or sid2
+                                local e = st[key2]
+                                if type(e) == "table" then fn(key2, e) end
                             end
                         end
                     end
@@ -1324,6 +1615,8 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     local function DoApply(allSpecs)
                         local ctx = s._ctx
                         if not ctx then return end
+                        -- WoW Forever: an apply is a write (RankSlot.Commit): the bar's sweep finds this spell's entry.
+                        if slotSt then RankSlot.Commit(slotSt) end
                         local val = ctx.valueOf and ctx.valueOf()
                         local keys = ctx.keys or {}
                         -- Simulate the write once: drives the rejoin match test, the toggle-off check, and the replace warning below.
@@ -1473,6 +1766,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     b3:SetScript("OnClick", function()
                         local ctx = s._ctx
                         if not (ctx and ctx.write) then return end
+                        if slotSt then RankSlot.Commit(slotSt) end
                         local keys = ctx.keys or {}
                         if AB.SpellHasOwn(keys) then
                             -- Include: drop this spell's own value -> rejoin the bar.
@@ -4767,7 +5061,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         menu:Hide()
                         ShowBuffToCDPicker(rbRow, barKey, nil, function(buffSID, buffCdID)
                             if ns.SetCooldownBuffReplacement then
-                                ns.SetCooldownBuffReplacement(barKey, spellID, buffSID, buffCdID)
+                                -- WoW Forever: under the slot's own spell (RankSlot.Commit).
+                                ns.SetCooldownBuffReplacement(barKey,
+                                    slotSt and RankSlot.Commit(slotSt) or spellID, buffSID, buffCdID)
                             end
                             RefreshCDPreview()
                         end)
@@ -4843,7 +5139,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 -- copy of the spell + its per-spell settings onto the SAME bar in the picked specs; specs that already have it anywhere are skipped. Self-contained row (MakeActionRow helpers are out of scope).
                 if sd.customSpellIDs and sd.customSpellIDs[spellID] then
                     -- Label flips to Remove once the spell lives on other specs.
-                    local otherSpecs = (ns.SpecsWithCustomSpell and ns.SpecsWithCustomSpell(spellID)) or {}
+                    local otherSpecs = (ns.SpecsWithCustomSpell and ns.SpecsWithCustomSpell(spellID, isHostedBuff)) or {}
                     local isRemove = next(otherSpecs) ~= nil
                     local copyRow = CreateFrame("Button", nil, inner)
                     copyRow:SetHeight(ITEM_H)
@@ -4891,7 +5187,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                 foreverActiveKey = curKey,
                                 onConfirm     = function(selectedSpecs)
                                     if ns.RemoveCustomSpellFromSpecs then
-                                        ns.RemoveCustomSpellFromSpecs(spellID, selectedSpecs)
+                                        ns.RemoveCustomSpellFromSpecs(spellID, selectedSpecs, isHostedBuff)
                                     end
                                 end,
                             })
@@ -4907,7 +5203,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                 foreverActiveKey = curKey,
                                 onConfirm     = function(selectedSpecs)
                                     if ns.CopyCustomSpellToSpecs then
-                                        ns.CopyCustomSpellToSpecs(barKey, spellID, selectedSpecs)
+                                        ns.CopyCustomSpellToSpecs(barKey, spellID, selectedSpecs, isHostedBuff)
                                     end
                                 end,
                             })

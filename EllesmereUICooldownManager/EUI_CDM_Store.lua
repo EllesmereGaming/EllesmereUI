@@ -151,7 +151,7 @@ function ns.GetBarSpellData(barKey)
     end
     local prof = sp[specKey]
     if not prof then
-        prof = { barSpells = {} }
+        prof = EllesmereUI.StampSpecProfile({ barSpells = {} })
         sp[specKey] = prof
     end
     if not prof.barSpells then prof.barSpells = {} end
@@ -387,7 +387,7 @@ function ns.GetSpellSettingsStore(barKeyOrBd, create)
     local prof = sp[specKey]
     if not prof then
         if not create then return nil end
-        prof = { barSpells = {} }
+        prof = EllesmereUI.StampSpecProfile({ barSpells = {} })
         sp[specKey] = prof
     end
     local st = ns.GetSpellSettingsStoreForProf(prof, famKey, create)
@@ -488,49 +488,72 @@ function ns.ForEachSavedSettingsBlock(fn)
     return false
 end
 
+-- True when a spec's bar list holds the custom spell. hosted = the Custom Buff ID a
+-- cooldown bar hosts: listed by its hosted marker (by its plain ID with the hosted flag
+-- in data from before the marker), never by the plain ID a custom cooldown spell uses.
+local function BarHoldsCustom(bs, spellID, hosted)
+    local list = type(bs) == "table" and bs.assignedSpells
+    if type(list) ~= "table" then return false end
+    if not hosted then
+        for i = 1, #list do
+            if list[i] == spellID then return true end
+        end
+        return false
+    end
+    local marker = spellID > 0 and ns.HostedBuffMarker(spellID)
+    local flag = bs.hostedBuffSpellIDs and bs.hostedBuffSpellIDs[spellID]
+    for i = 1, #list do
+        local id = list[i]
+        if id == marker or (flag and id == spellID) then return true end
+    end
+    return false
+end
+
 -- One-time copy of a user CUSTOM spell/buff (customSpellIDs-tagged) plus its per-spell settings
 -- onto the SAME bar in other specs of the active profile (bar defs are profile-level, so the bar
 -- exists in every spec). A target spec that already has the spell on ANY bar is skipped whole
 -- (never duplicates within a spec). Custom Active State is NOT copied: it lives in the
 -- profile-level customActiveStates store, already shared across specs. Returns the count copied to.
-function ns.CopyCustomSpellToSpecs(barKey, spellID, specKeys)
+-- hosted: the entry is a Custom Buff ID a cooldown bar hosts (the menu's hosted-buff slot). It
+-- is copied as one: its hosted marker, the hosted flag and its settings from the buff store.
+function ns.CopyCustomSpellToSpecs(barKey, spellID, specKeys, hosted)
     if not barKey or type(spellID) ~= "number" or spellID == 0 then return 0 end
     if type(specKeys) ~= "table" then return 0 end
     local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     if not sp then return 0 end
+    hosted = (hosted and spellID > 0) or false
     local curKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-    local famKey = ns.SettingsFamilyKey(barKey)
+    local famKey = hosted and "spellSettingsBuff" or ns.SettingsFamilyKey(barKey)
     local DeepCopy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
 
     -- Source metadata from the ACTIVE spec (the bar the menu was opened on).
     local srcSd = ns.GetBarSpellData(barKey)
     local dur = srcSd and srcSd.spellDurations and srcSd.spellDurations[spellID]
-    local srcStore = ns.GetSpellSettingsStore(barKey)
+    local srcStore = ns.GetSpellSettingsStore(hosted and "buffs" or barKey)
     local srcSettings = srcStore and srcStore[spellID]
 
     local copied = 0
     for key, on in pairs(specKeys) do
         if on and key ~= curKey and key ~= "0" then
             local prof = sp[key]
-            if not prof then prof = { barSpells = {} }; sp[key] = prof end
+            if not prof then prof = EllesmereUI.StampSpecProfile({ barSpells = {} }); sp[key] = prof end
             if not prof.barSpells then prof.barSpells = {} end
             -- Present anywhere in this spec? Skip the whole spec.
             local exists = false
             for _, bs in pairs(prof.barSpells) do
-                if type(bs) == "table" and type(bs.assignedSpells) == "table" then
-                    for _, id in ipairs(bs.assignedSpells) do
-                        if id == spellID then exists = true; break end
-                    end
-                end
-                if exists then break end
+                if BarHoldsCustom(bs, spellID, hosted) then exists = true; break end
             end
             if not exists then
                 local bs = prof.barSpells[barKey]
                 if not bs then bs = {}; prof.barSpells[barKey] = bs end
                 if not bs.assignedSpells then bs.assignedSpells = {} end
-                bs.assignedSpells[#bs.assignedSpells + 1] = spellID
+                bs.assignedSpells[#bs.assignedSpells + 1] = hosted and ns.HostedBuffMarker(spellID) or spellID
                 if not bs.customSpellIDs then bs.customSpellIDs = {} end
                 bs.customSpellIDs[spellID] = true
+                if hosted then
+                    if not bs.hostedBuffSpellIDs then bs.hostedBuffSpellIDs = {} end
+                    bs.hostedBuffSpellIDs[spellID] = true
+                end
                 if dur and dur > 0 then
                     if not bs.spellDurations then bs.spellDurations = {} end
                     bs.spellDurations[spellID] = dur
@@ -555,7 +578,8 @@ end
 
 -- Set of OTHER specs (this class, active profile) with the spell on ANY bar. Drives the
 -- per-spell menu's Copy/Remove label + the Remove picker's pre-check. Excludes the active spec.
-function ns.SpecsWithCustomSpell(spellID)
+-- hosted: ask for the Custom Buff ID a cooldown bar hosts (BarHoldsCustom).
+function ns.SpecsWithCustomSpell(spellID, hosted)
     local out = {}
     if type(spellID) ~= "number" or spellID == 0 then return out end
     local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
@@ -570,12 +594,7 @@ function ns.SpecsWithCustomSpell(spellID)
                     and EllesmereUI.SpecClassOf(tonumber(key)) == ns._playerClass) then
             local found = false
             for _, bs in pairs(prof.barSpells) do
-                if type(bs) == "table" and type(bs.assignedSpells) == "table" then
-                    for _, id in ipairs(bs.assignedSpells) do
-                        if id == spellID then found = true; break end
-                    end
-                end
-                if found then break end
+                if BarHoldsCustom(bs, spellID, hosted and spellID > 0) then found = true; break end
             end
             if found then out[key] = true end
         end
@@ -586,11 +605,15 @@ end
 -- Inverse of CopyCustomSpellToSpecs: remove the spell + its per-spell settings from the picked
 -- specs (scans every bar). Never touches the active spec or the profile-level customActiveState
 -- (that stays while the spell exists on ANY spec, incl. the current one). Returns the count removed.
-function ns.RemoveCustomSpellFromSpecs(spellID, specKeys)
+-- hosted: remove the Custom Buff ID a cooldown bar hosts (its marker, its hosted flag, its
+-- buff-store settings), and leave a custom cooldown spell of the same ID alone.
+function ns.RemoveCustomSpellFromSpecs(spellID, specKeys, hosted)
     if type(spellID) ~= "number" or spellID == 0 then return 0 end
     if type(specKeys) ~= "table" then return 0 end
     local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     if not sp then return 0 end
+    hosted = (hosted and spellID > 0) or false
+    local marker = hosted and ns.HostedBuffMarker(spellID)
     local curKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
     local removed = 0
     for key, on in pairs(specKeys) do
@@ -601,14 +624,23 @@ function ns.RemoveCustomSpellFromSpecs(spellID, specKeys)
                 for _, bs in pairs(prof.barSpells) do
                     if type(bs) == "table" and type(bs.assignedSpells) == "table" then
                         local hitHere = false
+                        local flag = hosted and bs.hostedBuffSpellIDs and bs.hostedBuffSpellIDs[spellID]
                         for i = #bs.assignedSpells, 1, -1 do
-                            if bs.assignedSpells[i] == spellID then
+                            local id = bs.assignedSpells[i]
+                            local hit
+                            if hosted then
+                                hit = id == marker or (flag and id == spellID)
+                            else
+                                hit = id == spellID
+                            end
+                            if hit then
                                 table.remove(bs.assignedSpells, i)
                                 hitHere = true; didRemove = true
                             end
                         end
                         -- Clean the per-id metadata on the bar it lived on.
                         if hitHere then
+                            if hosted and bs.hostedBuffSpellIDs then bs.hostedBuffSpellIDs[spellID] = nil end
                             if bs.customSpellIDs then bs.customSpellIDs[spellID] = nil end
                             if bs.spellDurations then bs.spellDurations[spellID] = nil end
                             if bs.customSpellDurations then bs.customSpellDurations[spellID] = nil end
@@ -624,7 +656,8 @@ function ns.RemoveCustomSpellFromSpecs(spellID, specKeys)
                 end
                 if didRemove then
                     -- Drop the per-spell settings entry (keyed by spellID, so clearing both family stores is safe -- only one holds it).
-                    if prof.spellSettingsCD then prof.spellSettingsCD[spellID] = nil end
+                    -- A hosted Custom Buff ID keeps its settings in the buff store alone.
+                    if not hosted and prof.spellSettingsCD then prof.spellSettingsCD[spellID] = nil end
                     if prof.spellSettingsBuff then prof.spellSettingsBuff[spellID] = nil end
                     -- Entry deletion (belt: non-active specs by contract).
                     ns._cdmResGen = ns._cdmResGen + 1

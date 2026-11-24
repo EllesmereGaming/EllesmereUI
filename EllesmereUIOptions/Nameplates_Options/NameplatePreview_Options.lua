@@ -1197,7 +1197,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
         -- effective scale (the anchor snap), its frame level, or its shown state. The
         -- 1px edges and the inset are reset by every Update pass, so they are overridden
         -- on every pass.
-        local function paint(f, on, lvlAdd, iconTex)
+        local function paint(f, on, lvlAdd, iconTex, radius)
             local cb = f._pvCustomBorder
             if on then
                 if not cb then
@@ -1232,6 +1232,10 @@ local function BuildNameplatePreview(parent, parentW, mode)
                 EllesmereUI.ApplyBorderStyle(cb, 0)
                 cb:Hide()
             end
+            if iconTex then
+                EllesmereUI.PreviewAuraCorners(f, iconTex, nil, cb,
+                    on and radius, sTex, sSz)
+            end
         end
         previewGlow.iconBorders = function(customOn, showIcon)
             if EllesmereUI._prebuilding then return end
@@ -1256,15 +1260,23 @@ local function BuildNameplatePreview(parent, parentW, mode)
             -- Above the icon, as the live border sits at the icon's level + 3.
             paint(castParts.iconFrame, castOn, 3)
             local auraOn = customOn and DBVal("auraIconCustomBorder") == true
+            local radius = ns.NP_AuraCornerRadius()
+            if radius and not auraOn then
+                -- Replace the square preview edges with a rounded copy of the basic 1px border.
+                sTex, sPath, sSz, sPx = "solid", nil, 1, nil
+                sR, sG, sB, sA = 0, 0, 0, 1
+                sOX, sOY, sSX, sSY = nil, nil, nil, nil
+                auraOn = true
+            end
             -- Under the aura text frame (icon level + 2).
             for i = 1, PV_CONST.DEBUFF_COUNT do
-                paint(debuffs[i], auraOn and (not ib or ib("debuffs")), 1, debuffs[i].icon)
+                paint(debuffs[i], auraOn and (not ib or ib("debuffs")), 1, debuffs[i].icon, radius)
             end
             for i = 1, PV_CONST.BUFF_COUNT do
-                paint(buffs[i], auraOn and (not ib or ib("buffs")), 1, buffs[i].icon)
+                paint(buffs[i], auraOn and (not ib or ib("buffs")), 1, buffs[i].icon, radius)
             end
             for i = 1, PV_CONST.CC_COUNT do
-                paint(ccs[i], auraOn and (not ib or ib("ccs")), 1, ccs[i].icon)
+                paint(ccs[i], auraOn and (not ib or ib("ccs")), 1, ccs[i].icon, radius)
             end
         end
     end

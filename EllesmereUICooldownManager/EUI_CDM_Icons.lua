@@ -27,6 +27,41 @@ local POOL = EllesmereUI._Pool
 local _inCombat = false
 I.inCombatSetters[#I.inCombatSetters + 1] = function(v) _inCombat = v end
 
+-- Layout can give different rows (or matched columns) different icon sizes.
+local function RefitRoundedIconOnScale(fc)
+    local st = fc.auraRound
+    if st and st.on then ns.FitCDMRoundedIcon(fc.roundIcon, fc, st.w, st.h, true) end
+end
+
+function ns.FitCDMRoundedIcon(icon, fc, w, h, fromLayout)
+    local fd = _getFD(icon)
+    local border = (fd and fd.borderFrame) or icon
+    local art = (fd and fd.tex) or icon._tex
+    if not art then return end
+    local cd = (fd and fd.cooldown) or icon._cooldown
+    local previous = fc.auraRound and fc.auraRound.swipeStart
+    local st = EllesmereUI.RoundAuraCorners(border, fc, art, cd, border, fc.roundRadius, w, h)
+    if st then
+        if not fc.roundIcon and (not POOL.Gen or not POOL.Gen(icon)) then
+            fc.roundIcon = icon
+            EllesmereUI.RegisterPxReapply(fc, RefitRoundedIconOnScale)
+        end
+        EllesmereUI.TrackRoundedBorderColor(st, border)
+        EllesmereUI.MaskRoundedIconLayer(st, (fd and fd.bg) or icon._bg)
+        EllesmereUI.MaskRoundedIconLayer(st, icon.OutOfRange)
+        if fromLayout then
+            if previous ~= st.swipeStart and ns.FakeActive_OnIconRestyled then ns.FakeActive_OnIconRestyled(icon) end
+        elseif cd and previous == st.swipeStart then
+            -- A full appearance pass reanchors the swipe even at the same size.
+            EllesmereUI.ApplyRoundedIconSwipe(cd, st)
+        end
+    elseif fc.roundIcon then
+        EllesmereUI.RegisterPxReapply(fc, nil)
+        fc.roundIcon = nil
+    end
+    return st
+end
+
 -------------------------------------------------------------------------------
 --  Apply custom shape to a CDM icon
 -------------------------------------------------------------------------------
@@ -63,6 +98,14 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
     -- Classic WoW UI).
     local blizzArt = ns.CdmBlizzIcons()
     if blizzArt then shape = "none"; zoom = 0 end
+    local radius = barData.borderCornerRadius
+    if radius and (radius <= 0 or blizzArt or barData.onlyShowNumbers or barData.chargesOnly or borderSz <= 0
+        or (shape and shape ~= "none" and shape ~= "cropped")
+        or (barData.borderTexture and barData.borderTexture ~= "solid" and barData.borderTexture ~= "")) then radius = nil end
+    if radius or ifc.roundRadius then
+        ifc.roundRadius = radius
+        if not radius then ns.FitCDMRoundedIcon(icon, ifc) end
+    end
     if shape == "none" or shape == "cropped" or not shape then
         -- Remove shape mask if previously applied
         if ifc.shapeMask then
@@ -135,6 +178,14 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
         -- Restore background
         if bg then
             bg:ClearAllPoints(); bg:SetAllPoints()
+        end
+        if radius and tex then
+            local w, h = icon:GetSize()
+            if issecretvalue(w) or issecretvalue(h) or w <= 0 or h <= 0 then
+                w = barData.iconSize or 36
+                h = shape == "cropped" and w * ns.CdmCropFactor(barData) or w
+            end
+            ns.FitCDMRoundedIcon(icon, ifc, w, h)
         end
         return
     end
@@ -259,16 +310,48 @@ ns.ApplyShapeToCDMIcon = ApplyShapeToCDMIcon
 -- swipe over a CDM icon during a custom active window. The overlay MUST copy the underlying
 -- icon's custom shape or a square icon/swipe is drawn over the shaped icon and the mask looks
 -- broken. Reuses the underlying shapeMask: masking is screen-space and the overlay covers the same region, so one mask serves both. A none/cropped shape clears any mask we added and restores a plain square swipe.
+local roundedOverlays = setmetatable({}, { __mode = "k" })
+local uvZero, uvOne = { x = 0, y = 0 }, { x = 1, y = 1 }
 function ns.ApplyShapeToOverlay(icon, oIcon, oCd, barData)
     if not icon then return end
     local ifc = FC(icon)
     local mask = ifc.shapeMask
     local shape = ifc.shapeApplied and ifc.shapeName or nil
+    local rounded = ifc.auraRound and ifc.auraRound.on and ifc.auraRound
+    local previous = oIcon and roundedOverlays[oIcon]
+    if previous and previous ~= rounded then
+        if previous.layers and previous.layers[oIcon] then
+            pcall(oIcon.RemoveMaskTexture, oIcon, previous.mask)
+            previous.layers[oIcon] = nil
+        end
+        roundedOverlays[oIcon] = nil
+    end
+    if oCd and roundedOverlays[oCd] and not rounded then
+        oCd:ClearAllPoints()
+        oCd:SetAllPoints(oCd:GetParent())
+        oCd:SetTexCoordRange(uvZero, uvOne)
+        roundedOverlays[oCd] = nil
+    end
 
     -- Drop mask refs we added before (the shape may have changed / cleared).
     if mask then
         if oIcon then pcall(oIcon.RemoveMaskTexture, oIcon, mask) end
         if oCd then pcall(oCd.RemoveMaskTexture, oCd, mask) end
+    end
+
+    if rounded then
+        if oIcon then
+            oIcon:ClearAllPoints()
+            oIcon:SetAllPoints(oIcon:GetParent())
+            EllesmereUI.MaskRoundedIconLayer(rounded, oIcon)
+            roundedOverlays[oIcon] = rounded
+        end
+        if oCd then
+            EllesmereUI.ApplyRoundedIconSwipe(oCd, rounded)
+            if oCd.SetUseCircularEdge then oCd:SetUseCircularEdge(false) end
+            roundedOverlays[oCd] = rounded
+        end
+        return
     end
 
     local maskTex = shape and CDM_SHAPES.masks[shape]
@@ -638,8 +721,10 @@ local function RefreshCDMIconAppearance(barKey)
         end
         -- "Hide Text at 0 Stacks" (bar-level): enroll/refresh on the same login + settings-change
         -- pass. Gated on the bar's key plus a next() probe so turning it OFF still reaches the unwatch/restore path; both empty = skipped entirely.
+        -- Sticky: Show Item Count also gates reagent counters there; stays set so Always restores.
+        if barData.showItemCount == false or barData.itemCountOOC then ns._cdmAnyItemCountGate = true end
         if not isBuffFamilyBar and ns.WatchZeroChargeTextIfEnabled
-           and (barData.hideZeroChargeText or ns._cdmAnyHideChargeText
+           and (barData.hideZeroChargeText or ns._cdmAnyHideChargeText or ns._cdmAnyItemCountGate
                 or next(ns._zeroChargeTextWatch or {}) ~= nil) then
             ns.WatchZeroChargeTextIfEnabled(icon)
         end

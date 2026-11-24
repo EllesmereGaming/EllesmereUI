@@ -1409,6 +1409,7 @@ local REFRESH_ADDON_STEPS = {
         if EllesmereUI._applyCombatAlert then EllesmereUI._applyCombatAlert() end
         if EllesmereUI._applyPotionAlert then EllesmereUI._applyPotionAlert() end
         if EllesmereUI._applyTalentAlert then EllesmereUI._applyTalentAlert() end
+        if EllesmereUI._applyLegacyAlert then EllesmereUI._applyLegacyAlert() end
         if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
         if EllesmereUI._applyGroupDeathAlert then EllesmereUI._applyGroupDeathAlert() end
         if EllesmereUI._syncDurWarnEvents then EllesmereUI._syncDurWarnEvents() end
@@ -2131,6 +2132,7 @@ local function SnapshotProfileCDMSpells(profileName, includedFolders, cdmSpecs)
             if type(copy.barSpells) == "table" then copy.barSpells.__ghost_cd = nil end
             copy._barFilterModelV6 = nil
             copy._importGhostMode = nil
+            copy._importKeep = nil
             snap[specKey] = copy
         end
     end
@@ -3432,6 +3434,33 @@ local function BuildImportedCDMSpellBucket(profileName, activeName, incomingSpec
             -- drag-arranged buffDisplayOrder without the flag; stamp it or the first
             -- live reconcile resyncs the imported order to Blizzard order (idempotent).
             EllesmereUI.MigrateCdmBuffOrderUserFlag(specProf)
+            -- Every spell the layout places is held by the Cooldown Manager's automatic
+            -- keep/drop passes until Blizzard tracks it (the set is read and emptied
+            -- there: ImportKeepKey in EUI_CDM_Reconcile.lua), so a layout imported
+            -- before its Blizzard layout is picked keeps its spells. Entries those
+            -- passes never judge are left out.
+            local keep
+            if type(specProf.barSpells) == "table" then
+                for _, bs in pairs(specProf.barSpells) do
+                    local list = type(bs) == "table" and bs.assignedSpells
+                    if type(list) == "table" then
+                        local custom = type(bs.customSpellIDs) == "table" and bs.customSpellIDs
+                        local cdurs = type(bs.customSpellDurations) == "table" and bs.customSpellDurations
+                        local sdurs = type(bs.spellDurations) == "table" and bs.spellDurations
+                        local groups = type(bs.customSpellGroups) == "table" and bs.customSpellGroups
+                        for i = 1, #list do
+                            local id = list[i]
+                            if type(id) == "number" and id > 0
+                               and not (custom and custom[id]) and not (cdurs and cdurs[id])
+                               and not (sdurs and sdurs[id]) and not (groups and groups[id]) then
+                                keep = keep or {}
+                                keep[id] = true
+                            end
+                        end
+                    end
+                end
+            end
+            specProf._importKeep = keep
         end
     end
 end

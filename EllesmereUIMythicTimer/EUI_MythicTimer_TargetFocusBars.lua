@@ -129,7 +129,9 @@ local function BuildBarChrome(which, parent)
     bar.shieldFrame = CreateFrame("Frame", nil, holder)
     bar.shieldFrame:SetPoint("CENTER", holder, "LEFT", 0, 0)
     bar.shieldFrame:SetFrameLevel(holder:GetFrameLevel() + 5)
-    bar.shieldFrame:Hide()
+    -- Shown at alpha 0: the cast colour pass shows the shield by its alpha
+    -- alone (an uninterruptible cast).
+    bar.shieldFrame:SetAlpha(0)
     bar.shield = bar.shieldFrame:CreateTexture(nil, "OVERLAY")
     bar.shield:SetAllPoints()
     bar.shield:SetAtlas("nameplates-InterruptShield")

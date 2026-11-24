@@ -2392,7 +2392,6 @@ L["Reputation and Honor"]       = "Réputation et honneur"
 L["Loot and Money"]             = "Butin et argent"
 L["System Messages"]            = "Messages système"
 L["NPC Speech"]                 = "Paroles de PNJ"
-L["Emotes"]                     = "Emotes"
 L["Idle Fade Strength"]         = "Intensité du fondu à l'inactivité"
 L["Ignore If Class Tracking Is Active"] = "Ignorer si un suivi de classe est actif"
 L["Ignored"]                    = "Ignoré"
@@ -7041,12 +7040,12 @@ L["Unspent Legacy points"] = "Points Legacy non dépensés"
 L["Unspent Legacy Points Alert"] = "Alerte de points Legacy non dépensés"
 L["Unspent Legacy Points Alert Settings"] = "Réglages de l'alerte de points Legacy"
 L["Shows on-screen text while you have Legacy points to spend, until you spend them or open the Legacy window."] = "Affiche un texte à l'écran tant qu'il vous reste des points Legacy à dépenser, jusqu'à ce que vous les dépensiez ou ouvriez la fenêtre Legacy."
--- Search Other Languages (EllesmereUIForeverEssentials_LFGLanguages.lua)
-L["Search Other Languages"] = "Chercher dans d'autres langues"
+-- Choose Languages (EllesmereUIForeverEssentials_LFGLanguages.lua)
 L["Choose Languages"] = "Choix des langues"
-L["Adds Choose Languages to the cog menu of the Looking For Group window, to search in other languages than your game's."] = "Ajoute « Choix des langues » au menu du rouage de la fenêtre Recherche de groupe, pour chercher dans d'autres langues que celle de votre jeu."
-L["Adds Choose Languages to the cog menu of the Looking For Group window: each language you tick or untick there searches again, in the languages ticked (all by default), not only your game's. The refresh button still searches your language only."] = "Ajoute « Choix des langues » au menu du rouage de la fenêtre Recherche de groupe : chaque langue que vous y cochez ou décochez relance la recherche, dans les langues cochées (toutes par défaut), pas seulement celle de votre jeu. Le bouton d'actualisation cherche toujours dans votre langue uniquement."
-
 -- Show Solo Player Zones (EllesmereUIForeverEssentials_LFGZones.lua)
 L["Show Solo Player Zones"] = "Afficher la zone des joueurs seuls"
 L["Shows the zone of the players listed on their own (not in a group) on their row of the Looking For Group window."] = "Affiche la zone où se trouvent les joueurs inscrits seuls (hors groupe) sur leur ligne de la Recherche de groupe."
+-- Show Waypoints in the World (EllesmereUIForeverEssentials_InGameNavigation.lua)
+L["Show Waypoints in the World"] = "Afficher les points de repère dans le monde"
+L["%s yd"] = "%s m"
+L["Shows a marker and a beam over your tracked map pin or quest, with the quest's name, the distance and the time to get there, and an arrow at the screen edge while it is out of sight."] = "Affiche un repère et un faisceau au-dessus de l'épingle ou de la quête suivie, avec le nom de la quête, la distance et le temps pour y arriver, et une flèche au bord de l'écran tant qu'elle est hors de vue."

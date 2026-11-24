@@ -313,6 +313,7 @@ end
 local function UnlockBankSort()
     if not bankSortLocked then return end
     bankSortLocked = false
+    ns.Hold.EndSort("bank")
     sortBtn:EnableMouse(true)
     sortBtn.icon:SetAlpha(0.9)
 end
@@ -329,6 +330,8 @@ sortBtn:SetScript("OnClick", function()
     if bankSortLocked then return end
     PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
     LockBankSort()
+    -- A held layout ends at once (no gaps); no hold until UnlockBankSort
+    if ns.Hold.BeginSort("bank") then EUI_Bank:RefreshBank() end
     -- Bank cleanup is Blizzard's, and it reads the same fill-direction setting
     -- the bags module's MultiBag sort uses. Right-to-left starts at the first
     -- container (our top); clearing it packs items into the last slots instead.
@@ -1504,7 +1507,11 @@ end
 
 -- A slot or row skipped in combat is filled by one refresh at combat end
 -- (RefreshBank returns while the bank is closed).
-local function RetryBankRefresh() EUI_Bank:RefreshBank() end
+local function RetryBankRefresh()
+    -- the skipped slots' items: an item-event pass, it may hold
+    if EUI_Bank:IsVisible() then ns.Hold.events.bank = true end
+    EUI_Bank:RefreshBank()
+end
 local function QueueBankRetry()
     ns.CombatQueue.Defer("bankRetry", RetryBankRefresh)
 end
@@ -1663,9 +1670,12 @@ end
 -- a block in bands (EllesmereUIBags_Compact.lua), its label in the band above
 -- its first column. Returns the layout, its bottom y, and the px width it
 -- gives the grid (nil for the grid's own; see CompactPack's out.contentW).
+-- Filled in further down (RefreshBank's hold helpers); ToCompactLayout reads its keys
+local BankHold = {}
 local ToCompactLayout
 do
     local size, labelW, labelText, labelEntry = {}, {}, {}, {}
+    local planW  -- the planner's label widths while the hold is on, made on first use
     local out
     -- One label entry per pooled label, built once with every field and reused:
     -- it takes its group's header entry's place in the layout, so the header
@@ -1680,12 +1690,21 @@ do
         ns.CompactHideLabels(pool, 1)
         local n = ns.CompactSegmentLayout(layout, size, labelText, labelEntry)
         local bandH = ns.CompactBandHeight(LABEL_SIZE)
+        local holdKeys = BankHold.on and BankHold.keys
+        if holdKeys and not planW then planW = {} end
         local k = 0
         for g = 1, n do
             local text = labelText[g]
             if text then
                 k = k + 1
                 labelW[g] = ns.CompactMeasureLabel(ns.CompactLabel(pool, k, EUI_Bank), text, LABEL_SIZE)
+                if holdKeys then
+                    -- labelEntry[g] is still the group's header here
+                    local key, Hold = holdKeys[labelEntry[g].headerIdx], ns.Hold
+                    -- "Empty Slots (N)" grows while held: room for the view's slot count, plus a digit
+                    planW[g] = key and Hold.PlanW("bank", key, labelW[g], text, LABEL_SIZE,
+                        key == Hold.EMPTY and BankHold.digits + 1 or nil) or labelW[g]
+                end
                 local le = labelEntries[k]
                 if not le then
                     le = { isHeader = true, compact = true, headerIdx = k,
@@ -1695,9 +1714,10 @@ do
                 labelEntry[g] = le
             else
                 labelW[g] = 0
+                if holdKeys then planW[g] = 0 end
             end
         end
-        local _, _, bottomY = ns.CompactPack(size, labelW, n, columns, bandH, -6, out)
+        local _, _, bottomY = ns.CompactPack(size, holdKeys and planW or labelW, n, columns, bandH, -6, out)
         local cellX, cellY = out.cellX, out.cellY
         local li, ci = 0, 0
         for g = 1, n do
@@ -1855,11 +1875,20 @@ end
 -- single trailing bucket rather than landing under Unknown / Other.
 local function BuildBankBuckets(slotList, mode)
     local byKey, list = {}, {}
+    local setCats = mode == "set" and _G.EUI_CategoryManager:GetCategories()
     for _, s in ipairs(slotList) do
         local link = s._cachedInfo and s._cachedInfo.hyperlink
-        local k, label, isOther
+        local k, label, isOther, icon
         if not link then
             k, label, isOther = EXP_KEY_EMPTY, EllesmereUI.L("Empty Slots"), false
+        elseif setCats then
+            -- Nested set gear: one bucket per set, stamped by BuildCategoryBuckets
+            local sc = s._setIdx and setCats[s._setIdx]
+            if sc then
+                k, label, isOther, icon = s._setIdx, sc.name, false, sc.icon
+            else
+                k, label, isOther = "__other__", EllesmereUI.L("Other"), true
+            end
         elseif mode == "type" then
             k, label, isOther = GetSubTypeBucket(link)
         elseif mode == "slot" then
@@ -1870,7 +1899,7 @@ local function BuildBankBuckets(slotList, mode)
         end
         local b = byKey[k]
         if not b then
-            b = { key = k, label = label, isOther = isOther,
+            b = { key = k, label = label, isOther = isOther, icon = icon,
                   isEmpty = (link == nil), slots = {} }
             byKey[k] = b
             list[#list + 1] = b
@@ -1885,7 +1914,7 @@ local function BuildBankBuckets(slotList, mode)
         if a.isOther ~= b.isOther then return b.isOther end
         if a.isEmpty or a.isOther then return a.label < b.label end
         if mode == "type" then return a.label < b.label end
-        if mode == "slot" then return a.key < b.key end
+        if mode == "slot" or mode == "set" then return a.key < b.key end
         return a.key > b.key   -- expansion: newest first
     end)
     return list
@@ -1908,6 +1937,10 @@ local CATEGORY_DETAIL_MODE = {
 }
 
 local function DetailModeForCategory(cat)
+    -- Nested set gear splits by set, the way the bags nest them
+    if cat and cat.isSetGear and not cat.isEquipSet and _G.EUI_CategoryManager:FoldSetChildren(true) then
+        return "set"
+    end
     return CATEGORY_DETAIL_MODE[cat and cat._defaultName or ""]
 end
 
@@ -1926,9 +1959,21 @@ local function BuildCategoryBuckets(slotList)
     end
     CM:ClassifyAll(items)
     local cats = CM:GetCategories()
+    -- Nested set gear: set items go to Item Set Gear, each stamped with its set
+    local anchorIdx
+    if CM:FoldSetChildren(true) then
+        for i, c in ipairs(cats) do
+            if c.isSetGear and not c.isEquipSet then anchorIdx = i; break end
+        end
+    end
     local byCat = {}
     for _, d in ipairs(items) do
         local ci = d.categoryIndex
+        d._slotRef._setIdx = nil
+        if anchorIdx and ci and cats[ci] and cats[ci].isEquipSet then
+            d._slotRef._setIdx = ci
+            ci = anchorIdx
+        end
         if ci then
             local t = byCat[ci]
             if not t then t = {}; byCat[ci] = t end
@@ -2003,8 +2048,9 @@ local function BuildBankCategoryIndex(tabs, passes)
             local mode = DetailModeForCategory(cb.cat)
             if mode then
                 local bs = BuildBankBuckets(cb.slots, mode)
-                -- A single bucket is the whole category; no point offering it.
-                if #bs > 1 then idx.detailByKey[key] = bs end
+                -- A single bucket is the whole category; no point offering it,
+                -- except a set, which the bags list even when it is the only one.
+                if #bs > 1 or mode == "set" then idx.detailByKey[key] = bs end
             end
         end
     end
@@ -2165,6 +2211,101 @@ ns.OnSlotMetrics(function(m)
     if RefreshBankBags then RefreshBankBags() end
 end)
 
+-- Keep Layout While Taking Items Out in OneBank / OneWarbank (EUI_Bags_Hold.lua): held groups are
+-- padded with real empty slots, so planner and renderer see ordinary slots; too few release the hold
+do
+    BankHold.on = false             -- this pass records or holds
+    BankHold.held = false           -- this pass holds
+    BankHold.short = false          -- a held group found too few empty slots
+    BankHold.digits = 1             -- digits of the view's slot count
+    local totals                    -- this pass's item totals
+    local levelBuckets, levelKeys   -- depth -> that level's buckets in held order; their group keys
+    local pads, padN, used, groupOut, restOut  -- pad candidates, how many handed out, which; outputs
+
+    -- tabs: the OneBank / OneWarbank view's tabs, else nil. Off without grouping and
+    -- with a search or sidebar selection (filled slots only: nothing to pad with)
+    function BankHold.Pass(tabs, hasSearch)
+        local hold = ns.Hold
+        BankHold.on, BankHold.held = false, false
+        if not hold.On("bank") then hold.BeginPass("bank"); return end
+        local p = BP()
+        if not tabs or hasSearch or _catSel or not (p.bankNestByExpansion or p.bankGroupByCategory) then
+            hold.Release("bank")
+            return
+        end
+        if not totals then
+            totals = {}
+            pads, used, groupOut, restOut = {}, {}, {}, {}
+            levelBuckets, levelKeys = { [0] = {}, {}, {} }, { [0] = {}, {}, {} }
+            BankHold.keys = {}  -- headerIdx -> group key, this pass
+        end
+        BankHold.on = true
+    end
+
+    -- Start of the grouped layout; returns the root key. slotList: every slot of the view
+    function BankHold.Begin(slotList, empties)
+        wipe(totals)
+        for _, sl in ipairs(slotList) do
+            local info = sl._cachedInfo
+            local id = info and info.itemID
+            if id then totals[id] = (totals[id] or 0) + (info.stackCount or 1) end
+        end
+        BankHold.held = ns.Hold.BeginPass("bank", totals)
+        BankHold.short = false
+        local digits, n = 1, #slotList
+        while n >= 10 do digits, n = digits + 1, n / 10 end
+        BankHold.digits = digits
+        wipe(BankHold.keys); wipe(pads); wipe(used)
+        -- pads: slots with no item info at all (a slot without a link is drawn
+        -- from its info, so it cannot stand in for a gap)
+        padN = 0
+        for _, sl in ipairs(empties) do
+            if sl._cachedInfo == nil then pads[#pads + 1] = sl end
+        end
+        return ""
+    end
+
+    -- One level's buckets in held order and their keys, in the arrays of depth (0-2, kept while
+    -- inner levels run). list: read only, nil for a held split without buckets; cats: categories
+    function BankHold.Level(pk, list, depth, cats)
+        local out, keys = ns.Hold.Buckets("bank", pk, list or ns.Hold.NONE, levelBuckets[depth], "slots",
+            cats and "cat" or "key", cats and "_defaultName")
+        local outKeys = levelKeys[depth]
+        for i = #keys + 1, #outKeys do outKeys[i] = nil end
+        for i, key in ipairs(keys) do outKeys[i] = key end
+        return out, outKeys
+    end
+
+    -- One group's slots: its items, then empty slots up to its held cells
+    function BankHold.Group(key, list)
+        local n = #list
+        local cells = ns.Hold.Cells("bank", key, n)
+        if cells <= n then return list end
+        local out = groupOut
+        wipe(out)
+        for i = 1, n do out[i] = list[i] end
+        for i = n + 1, cells do
+            padN = padN + 1
+            local sl = pads[padN]
+            -- too few: RefreshBank releases the hold and lays out again
+            if not sl then BankHold.short = true; break end
+            out[i], used[sl] = sl, true
+        end
+        return out
+    end
+
+    -- The empty slots no group took, in slot order, at "Empty Slots"' held size
+    function BankHold.Rest(empties)
+        local out = restOut
+        wipe(out)
+        for _, sl in ipairs(empties) do
+            if not used[sl] then out[#out + 1] = sl end
+        end
+        if ns.Hold.Cells("bank", ns.Hold.EMPTY, #out) > #out then BankHold.short = true end
+        return out
+    end
+end
+
 local BuildBankSidebar  -- defined further down
 function EUI_Bank:RefreshBank()
     if not EUI_Bank:IsVisible() then return end
@@ -2275,8 +2416,8 @@ function EUI_Bank:RefreshBank()
     end
 
     -- Header depth: 0 = expansion (or the outermost level in use), 1 = category,
-    -- 2 = the detail split inside a category.
-    local function EmitHeader(label, count, depth)
+    -- 2 = the detail split inside a category. key: the group's hold key; count: items, never pads.
+    local function EmitHeader(label, count, depth, key)
         headerIdx = headerIdx + 1
         local indent = depth * 12
         _layout[#_layout + 1] = {
@@ -2284,10 +2425,12 @@ function EUI_Bank:RefreshBank()
             label = label .. " (" .. count .. ")", name = label,
             x = startX + indent, y = curY, w = gridW - indent,
         }
+        if key then BankHold.keys[headerIdx] = key end
         curY = curY - (depth == 0 and 22 or 18)
     end
 
-    local function EmitSlots(list)
+    local function EmitSlots(list, key)
+        if key then list = BankHold.Group(key, list) end
         for vi, sl in ipairs(list) do
             local col = (vi - 1) % COLUMNS
             local row = math.floor((vi - 1) / COLUMNS)
@@ -2304,9 +2447,24 @@ function EUI_Bank:RefreshBank()
     -- One category, plus its detail split when it has one. A split that yields a
     -- single bucket is collapsed -- "Armor (1) > Chest (1)" is a header for
     -- nothing, and at three levels deep that noise adds up fast.
-    local function LayoutCategoryBucket(cb, depth)
-        EmitHeader(cb.label, #cb.slots, depth)
+    -- key: the category's group key while held; a held split keeps its buckets
+    local function LayoutCategoryBucket(cb, depth, key)
+        EmitHeader(cb.label, #cb.slots, depth, key)
         local mode = DetailModeForCategory(cb.cat)
+        if key then
+            local buckets = mode and BuildBankBuckets(cb.slots, mode)
+            local split = buckets ~= nil and #buckets >= 2
+            if ns.Hold.Mode("bank", key, split) or split then
+                local list, keys = BankHold.Level(key, buckets, depth + 1)
+                for i, b in ipairs(list) do
+                    EmitHeader(b.label, #b.slots, depth + 1, keys[i])
+                    EmitSlots(b.slots, keys[i])
+                end
+            else
+                EmitSlots(cb.slots, key)
+            end
+            return
+        end
         if not mode then
             EmitSlots(cb.slots)
             return
@@ -2323,7 +2481,7 @@ function EUI_Bank:RefreshBank()
     end
 
     -- classified: an already-stamped list to regroup, when the caller has one.
-    local function LayoutCategoryRun(slotList, depth, classified)
+    local function LayoutCategoryRun(slotList, depth, classified, pk)
         local cbs
         if classified then
             cbs = RegroupByCategory(classified, slotList)
@@ -2331,10 +2489,12 @@ function EUI_Bank:RefreshBank()
             cbs = BuildCategoryBuckets(slotList)
         end
         if not cbs then
-            EmitSlots(slotList)
+            EmitSlots(slotList, pk)
             return
         end
-        for _, cb in ipairs(cbs) do LayoutCategoryBucket(cb, depth) end
+        local keys
+        if pk then cbs, keys = BankHold.Level(pk, cbs, depth, true) end
+        for i, cb in ipairs(cbs) do LayoutCategoryBucket(cb, depth, keys and keys[i]) end
     end
 
     -- Grouped layout for OneBank / OneWarbank. Expansion is the outer level when
@@ -2359,23 +2519,31 @@ function EUI_Bank:RefreshBank()
             end
         end
 
+        local hk = BankHold.on and BankHold.Begin(slotList, empties)
         if byExp then
             local classified = byCat and ClassifyOnce(filled) or nil
-            for _, eb in ipairs(BuildBankBuckets(filled, "expansion")) do
-                EmitHeader(eb.label, #eb.slots, 0)
+            local ebs, eks = BuildBankBuckets(filled, "expansion"), nil
+            if hk then ebs, eks = BankHold.Level(hk, ebs, 0) end
+            for i, eb in ipairs(ebs) do
+                local ek = eks and eks[i]
+                EmitHeader(eb.label, #eb.slots, 0, ek)
                 if byCat then
-                    LayoutCategoryRun(eb.slots, 1, classified)
+                    LayoutCategoryRun(eb.slots, 1, classified, ek)
                 else
-                    EmitSlots(eb.slots)
+                    EmitSlots(eb.slots, ek)
                 end
             end
         else
-            LayoutCategoryRun(filled, 0)
+            LayoutCategoryRun(filled, 0, nil, hk)
         end
 
         if #empties > 0 and not BP().bankHideEmptyWhenNested then
-            EmitHeader(EllesmereUI.L("Empty Slots"), #empties, 0)
-            EmitSlots(empties)
+            -- held: the groups' pads may take every empty slot
+            local rest = hk and BankHold.Rest(empties) or empties
+            if #rest > 0 then
+                EmitHeader(EllesmereUI.L("Empty Slots"), #empties, 0, hk and ns.Hold.EMPTY)
+                EmitSlots(rest)
+            end
         end
     end
 
@@ -2512,8 +2680,14 @@ function EUI_Bank:RefreshBank()
             for _, c in ipairs(CM:GetCategories()) do
                 if c._defaultName == _catSel.key then found = c; break end
             end
-            if not found or CM:IsCategoryOff(found, dc) then _catSel = nil end
+            if not found or CM:IsCategoryOff(found, dc) then _catSel = nil
+            elseif found.isEquipSet and CM:FoldSetChildren(true) then _catSel = nil end
         end
+    end
+
+    -- The hold: OneBank and OneWarbank only; an off pass after an on pass ends it
+    if BankHold.on or BP().bankHoldLayout == true then
+        BankHold.Pass(_selectedView == -1 and charTabs or _selectedView == -3 and warbTabs or nil, hasSearch)
     end
 
     if _catSel then
@@ -2879,6 +3053,9 @@ function EUI_Bank:RefreshBank()
     -- Build sidebar
     BuildBankSidebar()
     ns.UpdateResizeGrip(EUI_Bank, EUI_Bank.IsListMode() and _bankListGripCfg or _bankGripCfg)
+
+    -- A held group outgrew its cells or found too few empty slots: lay out once more without the hold
+    if BankHold.held and ns.Hold.ReleaseOutgrown("bank", BankHold.short) then EUI_Bank:RefreshBank() end
 end
 
 -------------------------------------------------------------------------------
@@ -3424,13 +3601,13 @@ function BuildBankSidebar()
             local bs = key and _catIndex.detailByKey[key]
             if not bs or collapsed then return end
             -- Expand only under the selected category, or under a selected group
-            -- that this category belongs to.
+            -- that this category belongs to. Nested sets always show, as in the bags.
             local open = _catSel and (_catSel.key == key
                 or (_catSel.group and _catSel.group == cat.groupName))
-            if not open then return end
+            if not open and DetailModeForCategory(cat) ~= "set" then return end
             for _, b in ipairs(bs) do
-                RenderSidebarEntry(nil, b.label, cat.icon or 134400, #b.slots,
-                    _catSel.key == key and _catSel.detail == b.label,
+                RenderSidebarEntry(nil, b.label, b.icon or cat.icon or 134400, #b.slots,
+                    _catSel and _catSel.key == key and _catSel.detail == b.label,
                     indent, { key = key, detail = b.label }, cat.isAtlas)
             end
         end
@@ -3565,6 +3742,8 @@ local function ScheduleBankRefresh()
     C_Timer.After(0.1, function()
         bankRefreshPending = false
         if EUI_Bank:IsVisible() then
+            -- an item-event pass: it may hold
+            ns.Hold.events.bank = true
             EUI_Bank:RefreshBank()
             if RefreshBankBags then RefreshBankBags() end
         end
@@ -3760,6 +3939,8 @@ end
 EUI_Bank:SetScript("OnHide", function()
     -- The Compact display's grow-only width (RefreshBank)
     EUI_Bank._compactCols, EUI_Bank._compactW = nil, nil
+    -- A close ends the layout hold; every hide (Alt-Z too) closes the bank below
+    ns.Hold.Release("bank")
     if EUI_BankTabConfigFrame then
         EUI_BankTabConfigFrame:Hide()
     end

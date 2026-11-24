@@ -61,6 +61,7 @@ local evt = CreateFrame("Frame")
 
 local frame, header, scroll, child, track, thumb
 local lines, used = {}, 0
+local headLine  -- the quest or recipe title the next objective lines belong to
 local order, zoneOf, seen = {}, {}, {}
 local pending = false
 local stale = false   -- skipped a render while hidden
@@ -197,11 +198,18 @@ local function AcquireLine(kind, id, text, x, y, width, key)
     if l.kind ~= kind or l.gen ~= fontGen then
         l.kind, l.gen = kind, fontGen
         StyleText(l.text, Cfg(SIZE_KEY[kind]) or SIZE_DEF[kind])
-        l:EnableMouse(kind ~= "obj")
         l.lastText = nil
         l.dashW = nil  -- a timer bar's indent, measured in this font
     end
+    l:SetHitRectInsets(0, 0, 0, 0)  -- SpanRows widens quest rows again
     l.id = id
+    -- An objective clicks and hovers as its title.
+    if kind == "obj" then
+        l.head = headLine
+    else
+        l.head = nil
+        headLine = (kind == "quest" or kind == "recipe") and l or nil
+    end
     if l.flash and l.key ~= key then l.flash:Stop() end
     l.key = key
     if l.focus and kind ~= "quest" then l.focus:Hide() end
@@ -228,6 +236,19 @@ local function AcquireLine(kind, id, text, x, y, width, key)
     end
     l:Show()
     return l, l.lastH
+end
+
+-- Widens rows first..used to one click area: x to right, down to bottom (child
+-- y); the title keeps its size for the overlay (ShowOverlay).
+local function SpanRows(first, x, right, bottom)
+    for i = first, used do
+        local l = lines[i]
+        local nextY = i < used and lines[i + 1].lastY or bottom
+        l:SetHitRectInsets(math.min(0, x - l.lastX), math.min(0, l.lastX + l.lastWidth - right),
+            0, math.min(0, l.lastY + l.lastH - nextY))
+    end
+    local head = lines[first]
+    head.spanW, head.spanH = right - x, bottom - head.lastY
 end
 
 -- Update flash: a white band that fades in and out behind the row.
@@ -450,12 +471,19 @@ local function ShowFocusButton(line, questID, complete, size)
     b.glow:SetShown(focused)
 end
 
+-- A quest's item button reaches down past its title: lines starting above
+-- itemBottom stop itemCut short of it. Render sets both per quest.
+local itemBottom, itemCut = 0, 0
+local function LineW(y, w)
+    return y < itemBottom and math.max(TITLE_MIN_W, w - itemCut) or w
+end
+
 local function AddObjectives(questID, y, width, x)
     local gap = Cfg("customObjSpacing") or 1
     local w = width - x
     local l, h
     if C_QuestLog.IsFailed(questID) then
-        l, h = AcquireLine("obj", questID, "- " .. FAILED, x, y, w)
+        l, h = AcquireLine("obj", questID, "- " .. FAILED, x, y, LineW(y, w))
         l.text:SetTextColor(DIM_RED_FONT_COLOR.r, DIM_RED_FONT_COLOR.g, DIM_RED_FONT_COLOR.b, 1)
         return y + h + gap
     end
@@ -463,7 +491,7 @@ local function AddObjectives(questID, y, width, x)
         local logIndex = C_QuestLog.GetLogIndexForQuestID(questID)
         local text = logIndex and GetQuestLogCompletionText(logIndex)
             or C_QuestLog.GetNextWaypointText(questID) or QUEST_WATCH_QUEST_READY
-        l, h = AcquireLine("obj", questID, "- " .. text, x, y, w)
+        l, h = AcquireLine("obj", questID, "- " .. text, x, y, LineW(y, w))
         local r, g, b = EQT.GetCompletedRGB()
         l.text:SetTextColor(r, g, b, 1)
         return y + h + gap
@@ -479,7 +507,7 @@ local function AddObjectives(questID, y, width, x)
             if obj.type == "progressbar" then
                 text = text .. " (" .. math.floor(GetQuestProgressBarPercent(questID) or 0) .. "%)"
             end
-            l, h = AcquireLine("obj", questID, "- " .. text, x, y, w, questID * 100 + i)
+            l, h = AcquireLine("obj", questID, "- " .. text, x, y, LineW(y, w), questID * 100 + i)
             l.text:SetTextColor(ObjectiveRGBA(obj))
             if prev then
                 if prev[i] and prev[i] ~= text then Flash(l) end
@@ -590,7 +618,7 @@ local function AddTimer(questID, y, width, x)
     local ends = timerEnd[questID]
     if not ends then return y end
     local now = GetTime()
-    local l, h = AcquireLine("obj", questID, TimerText(math.max(ends - now, 0)), x, y, width - x)
+    local l, h = AcquireLine("obj", questID, TimerText(math.max(ends - now, 0)), x, y, LineW(y, width - x))
     y = y + h + (Cfg("customObjSpacing") or 1)
     local total = C_QuestLog.GetTimeAllowed(questID)
     l.timerQuest = questID
@@ -683,6 +711,7 @@ local function AddRecipeList(list, isRecraft, y, width, titleX, objX)
         local name = schematic.name or ""
         if isRecraft then name = PROFESSIONS_CRAFTING_FORM_RECRAFTING_HEADER:format(name) end
         local l, h = AcquireLine("recipe", id, name, titleX, y, math.max(TITLE_MIN_W, width - titleX))
+        local first = used
         l.text:SetTextColor(EQT.GetTitleRGB())
         y = y + h + 2
         -- Modifying reagent slots first, as Blizzard lists them.
@@ -697,6 +726,7 @@ local function AddRecipeList(list, isRecraft, y, width, titleX, objX)
                 y = AddReagent(id, slot, y, width, objX)
             end
         end
+        SpanRows(first, titleX, width, y)
         y = y + (Cfg("customQuestSpacing") or 4)
     end
     return y
@@ -765,6 +795,7 @@ local function ItemButton(i)
     local b = items[i]
     if b then return b end
     b = CreateFrame("Button", nil, itemLayer, "SecureActionButtonTemplate")
+    b:SetFrameLevel(itemLayer:GetFrameLevel() + 2)  -- above the quest overlay
     b:RegisterForClicks("AnyUp")
     b:SetAttribute("type", "item")
     b:SetAttribute("useOnKeyDown", false)
@@ -922,6 +953,7 @@ local function Render()
     local width = (Cfg("customWidth") or DEF_WIDTH) - PAD * 2 - BAR_GAP
     child:SetWidth(width)
     used = 0
+    headLine = nil
     local y = 0
     local itemSize = Cfg("customItemButtons") and (Cfg("titleFontSize") or 12) + 12
     if not collapsed.all then
@@ -971,6 +1003,7 @@ local function Render()
                 local top = y
                 local l, h = AcquireLine("quest", questID, QuestTitle(questID), titleX, y,
                     math.max(TITLE_MIN_W, width - titleX - itemW - hookW))
+                local first = used
                 l.text:SetTextColor(TitleRGB(questID, complete))
                 if rowHooks[1] then RunRowHooks(l, questID) end
                 if focusSize > 0 then
@@ -986,9 +1019,12 @@ local function Render()
                 else
                     shut = collapsed[questID]
                 end
+                itemBottom, itemCut = item and top + itemSize or 0, itemW
                 if not shut then y = AddObjectives(questID, y, width, objX) end
                 y = AddTimer(questID, y, width, objX)
+                itemBottom = 0
                 if item then y = math.max(y, top + itemSize + 2) end
+                SpanRows(first, titleX, width, y)
                 y = y + (Cfg("customQuestSpacing") or 4)
             end
         end
@@ -1146,6 +1182,10 @@ local function ToggleCollapsed(key)
 end
 
 function OnLineClick(self, button)
+    if self.kind == "obj" then
+        if self.head then OnLineClick(self.head, button) end
+        return
+    end
     local id = self.id
     if self.kind == "zone" then
         ToggleCollapsed("z:" .. id)
@@ -1242,20 +1282,22 @@ function HideOverlay()
     if overlay and not InCombatLockdown() then overlay:Hide() end
 end
 
--- Covers the part of the line inside the scroll view.
+-- Covers the quest's rows (title to last objective) inside the scroll view.
 local function ShowOverlay(l)
     if InCombatLockdown() then return end
     local recipe = l.kind == "recipe"
     local header
     if recipe then header = RecipeHeader(l.id) else header = BlizzardHeader(l.id) end
     if not header then return end
-    local top, bottom = math.min(l:GetTop(), scroll:GetTop()), math.max(l:GetBottom(), scroll:GetBottom())
+    -- The quest's whole area (SpanRows), short of the row hooks right of the title.
+    local spanH = l.spanH or l:GetHeight()
+    local top, bottom = math.min(l:GetTop(), scroll:GetTop()), math.max(l:GetTop() - spanH, scroll:GetBottom())
     if top <= bottom then return end
     local o = Overlay()
     local s = l:GetEffectiveScale() / o:GetEffectiveScale()
     o:ClearAllPoints()
     o:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", l:GetLeft() * s, top * s)
-    o:SetSize(l:GetWidth() * s, (top - bottom) * s)
+    o:SetSize(math.max((l.spanW or l:GetWidth()) - hookW, l:GetWidth()) * s, (top - bottom) * s)
     -- Plain left click: Open Quest Log only. The untrack modifier: always.
     -- A recipe: every left and right click.
     local map = recipe or Cfg("customClickAction") == "map"
@@ -1304,6 +1346,10 @@ local function AddRewards(questID, owner)
 end
 
 function OnLineEnter(self)
+    if self.kind == "obj" then
+        if self.head then OnLineEnter(self.head) else UpdateHover() end
+        return
+    end
     UpdateHover()
     -- A recipe: only the overlay that takes its clicks to Blizzard's block.
     if self.kind == "recipe" then ShowOverlay(self); return end
@@ -1729,8 +1775,20 @@ end)
 -------------------------------------------------------------------------------
 local function Noop() end
 
+-- The muted tracker builds a block (the overlay's click target) only for quests
+-- that fit its height: a 1px font there lets every watched quest fit.
+local function ShrinkTrackerFont(font)
+    local path, _, flags = font:GetFont()
+    if path then font:SetFont(path, 1, flags or "") end
+end
+
 function EQT.InitCustom()
     EQT.MuteBlizzardTracker()
+    -- Edit Mode's Text Size swaps the font object back in.
+    for _, font in ipairs({ _G.ObjectiveTrackerLineFont, _G.ObjectiveTrackerHeaderFont }) do
+        ShrinkTrackerFont(font)
+        hooksecurefunc(font, "SetFontObject", ShrinkTrackerFont)
+    end
     BuildFrame()
 
     EQT.UpdateVisibility    = UpdateVisibility

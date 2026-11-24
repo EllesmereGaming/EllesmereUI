@@ -90,6 +90,7 @@ local function _ensureTBBChargeHashFill(bar)
     shade:SetTexelSnappingBias(0)
     shade:Hide()
     bar._chargeHashShadeTexture = shade
+    if bar._roundRadius then EllesmereUI.RoundCorners(bar, bar._roundRadius, bar._roundOptions) end
 end
 
 local function _styleTBBChargeHashFill(bar, cfg)

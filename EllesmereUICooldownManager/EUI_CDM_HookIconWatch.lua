@@ -476,6 +476,23 @@ local function ZctSetAlpha(fd, fs, a)
     end
 end
 
+-- Reagent spells (Vanish/Flash Powder): Blizzard puts the reagent count on this
+-- counter, so the bar's Show Item Count (Never / Out of Combat) hides it here.
+local _zctInCombat = false
+do
+    local CI = ns._internals
+    CI.inCombatSetters[#CI.inCombatSetters + 1] = function(v) _zctInCombat = v end
+end
+local function ReagentCountHidden(sid, bd)
+    if not bd or (bd.showItemCount ~= false and not (bd.itemCountOOC and _zctInCombat)) then
+        return false
+    end
+    if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+        sid = C_SpellBook.FindSpellOverrideByID(sid) or sid
+    end
+    return C_Spell.IsConsumableSpell and C_Spell.IsConsumableSpell(sid) or false
+end
+
 local function EvalZeroChargeTextFrame(frame, fd)
     local fs = frame.ChargeCount and frame.ChargeCount.Current
     local fcz = _ecmeFC[frame]
@@ -496,6 +513,10 @@ local function EvalZeroChargeTextFrame(frame, fd)
         return
     end
     local bd = barDataByKey and barDataByKey[bkz]
+    if ReagentCountHidden(sidz, bd) then
+        ZctSetAlpha(fd, fs, 0)
+        return
+    end
     if not (bd and bd.hideZeroChargeText) then
         ns._zeroChargeTextWatch[frame] = nil
         ZctSetAlpha(fd, fs, 1)
@@ -555,6 +576,11 @@ function ns.WatchZeroChargeTextIfEnabled(frame)
         end
     end
     local bd = bkz and barDataByKey and barDataByKey[bkz]
+    if sidz and ReagentCountHidden(sidz, bd) then
+        local fsh = frame.ChargeCount and frame.ChargeCount.Current
+        if fsh then ZctSetAlpha(fd, fsh, 0) end
+        return
+    end
     if bd and bd.hideZeroChargeText and sidz then
         -- Enroll CHARGE SPELLS ONLY: non-charge icons would be pure identity
         -- work per event. Talent swaps re-run this via the appearance pass; the
@@ -565,7 +591,13 @@ function ns.WatchZeroChargeTextIfEnabled(frame)
         end
         local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(liveSid)
         if not (ci and (ci.maxCharges or 0) > 1) then
-            if ns._zeroChargeTextWatch[frame] then EvalZeroChargeTextFrame(frame, fd) end
+            if ns._zeroChargeTextWatch[frame] then
+                EvalZeroChargeTextFrame(frame, fd)
+            else
+                -- Not watched: undo a reagent / Hide Charge Text zero (memoized).
+                local fsn = frame.ChargeCount and frame.ChargeCount.Current
+                if fsn then ZctSetAlpha(fd, fsn, 1) end
+            end
             return
         end
         if not ns._zeroChargeTextEventFrame then

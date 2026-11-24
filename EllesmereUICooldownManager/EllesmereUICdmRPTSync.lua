@@ -317,7 +317,7 @@ local function ApplyRPT(specProfiles, sourceSpecKey, targetSpecKey)
         -- those bars hold "authored content to preserve," and ghost every real
         -- cooldown the spec tracks (only the RPT ids count as assigned) -- which
         -- wipes the spec's entire visible CDM the first time it is played.
-        tgtProf = { barSpells = {}, _barFilterModelV6 = true }
+        tgtProf = EllesmereUI.StampSpecProfile({ barSpells = {}, _barFilterModelV6 = true })
         specProfiles[targetSpecKey] = tgtProf
     end
     if not tgtProf.barSpells then tgtProf.barSpells = {} end

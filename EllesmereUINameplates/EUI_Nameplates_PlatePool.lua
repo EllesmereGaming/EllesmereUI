@@ -707,7 +707,7 @@ function ns.RefreshBorder()
     if ns.GetWrapBorderCastbar() then ns.ApplyBorderWrapToAll() end
     -- Custom Border on Aura Icons: the aura styles carry the custom border, so a border
     -- edit restyles them (fingerprint-gated). One field read while off.
-    if p and p.auraIconCustomBorder and ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
+    if p and (p.auraIconCustomBorder or p.cornerRadiusAuras) and ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
     -- Debuff Coloring's Color Border is drawn from the border's own numbers
     -- (fingerprint-gated, one profile read while off).
     if ns.DebuffColors_RequestRefresh then ns.DebuffColors_RequestRefresh() end

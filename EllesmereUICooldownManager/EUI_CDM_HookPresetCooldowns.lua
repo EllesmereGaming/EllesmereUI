@@ -519,7 +519,10 @@ local function ProcessPresetCooldowns()
                         local fcF = _ecmeFC[f]
                         local bkF = fcF and fcF.barKey
                         local sdF = bkF and ns.GetBarSpellData and ns.GetBarSpellData(bkF)
-                        local forceCount = sdF and sdF.customSpellForceCount and sdF.customSpellForceCount[sid]
+                        -- The setting is saved under the typed ID; sid is the rank the
+                        -- frame reads (WoW Forever: _rankSID, another rank it knows).
+                        local keyF = (f._rankSID and fcF and fcF.spellID) or sid
+                        local forceCount = sdF and sdF.customSpellForceCount and sdF.customSpellForceCount[keyF]
                         if forceCount then
                             -- Render only on ARMED passes: the count moves only
                             -- on edges that arm (gate comment above). An armed

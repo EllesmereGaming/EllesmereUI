@@ -590,6 +590,19 @@ local function LeaveTurnedOff()
     if EUI_Bags._scrollFrame then EUI_Bags._scrollFrame:SetVerticalScroll(0) end
 end
 
+-- Item totals of the gathered items (bags 0-5) for the hold's put-in check
+local holdTotals = {}
+local function HoldBagTotals(tempItems)
+    wipe(holdTotals)
+    for i = 1, #tempItems do
+        local info = tempItems[i].info
+        local id = info.itemID
+        if id then holdTotals[id] = (holdTotals[id] or 0) + (info.stackCount or 1) end
+    end
+    return holdTotals
+end
+local holdWasOn = false  -- the last pass ran the hold: an off pass drops its recording
+
 function EUI_Bags:RefreshInventory()
     if not EUI_Bags:IsVisible() then return end
     ns.ApplySlotMetrics()
@@ -620,6 +633,8 @@ function EUI_Bags:RefreshInventory()
     local regularUsed, regularTotal = 0, 0
     local reagentUsed, reagentTotal = 0, 0
     local special = ns.SpecialBags()
+    -- the option read first: an off pass makes no Hold call
+    local holdOn = BP().bagHoldLayout == true and ns.Hold.On("bags")
 
     for bag = 0, 5 do
         local numSlots = C_Container.GetContainerNumSlots(bag)
@@ -743,6 +758,16 @@ function EUI_Bags:RefreshInventory()
     local swapDetected = DetectAndApplySwaps(tempItems, isAllItems)
     TakeBagSnapshot(tempItems)
 
+    -- Only an item-event pass with no put-in holds
+    local held = false
+    if holdOn then
+        holdWasOn = true
+        held = ns.Hold.BeginPass("bags", HoldBagTotals(tempItems))
+    elseif holdWasOn then
+        holdWasOn = false
+        ns.Hold.BeginPass("bags")
+    end
+
     -- Show blocked-swap tooltip in category/group views (not All Items, not OneBag)
     if swapDetected and not isAllItems and selectedCategoryIndex ~= -1 and selectedCategoryIndex ~= -2 then
         if EUI.ShowWidgetTooltip then
@@ -839,9 +864,10 @@ function EUI_Bags:RefreshInventory()
     do
         local cats = EUI_CategoryManager:GetCategories()
         -- The "Item Set Gear" anchor view (and any group holding it) folds in the
-        -- split-mode set children, which hold the actual items.
-        local function AddSetChildren(anchorIdx)
+        -- split-mode set children; a group keeps them when they are separated too.
+        local function AddSetChildren(anchorIdx, inGroup)
             if not BP().bagSplitSetGearBySet then return end
+            if not inGroup and not EUI_CategoryManager:FoldSetChildren() then return end
             if not (cats[anchorIdx] and cats[anchorIdx].isSetGear and not cats[anchorIdx].isEquipSet) then return end
             for i, c in ipairs(cats) do
                 if c.isEquipSet then filterSet[i] = true end
@@ -852,7 +878,7 @@ function EUI_Bags:RefreshInventory()
             local members = EUI_CategoryManager:GetGroupMembers(selectedGroupName)
             for _, mi in ipairs(members) do
                 filterSet[mi] = true
-                AddSetChildren(mi)
+                AddSetChildren(mi, true)
             end
         elseif selectedCategoryIndex > 0 and not isRecentView and not isPinnedView and not reagentView then
             filterSet = { [selectedCategoryIndex] = true }
@@ -969,7 +995,7 @@ function EUI_Bags:RefreshInventory()
         if selectedCategoryIndex > 0 and not selectedGroupName then
             n = (categoryCounts and categoryCounts[selectedCategoryIndex]) or #tempItems
             -- The anchor view folds in its set children's items; count them too
-            if BP().bagSplitSetGearBySet then
+            if EUI_CategoryManager:FoldSetChildren() then
                 local szCats = EUI_CategoryManager:GetCategories()
                 local selCat = szCats[selectedCategoryIndex]
                 if selCat and selCat.isSetGear and not selCat.isEquipSet and categoryCounts then
@@ -985,7 +1011,7 @@ function EUI_Bags:RefreshInventory()
             S = 0
             if categoryCounts then
                 -- Set children fold into their anchor's section: count them as one
-                local sizeCats = BP().bagSplitSetGearBySet and EUI_CategoryManager:GetCategories() or nil
+                local sizeCats = EUI_CategoryManager:FoldSetChildren() and EUI_CategoryManager:GetCategories() or nil
                 local hasSetChild = false
                 for i, c in pairs(categoryCounts) do
                     if i ~= reagentCatIdx and c and c > 0 then
@@ -1038,7 +1064,10 @@ function EUI_Bags:RefreshInventory()
         local maxCols = math.max(baseCols, math.floor(maxGridW / (SLOT_SIZE + SPACING)))
         if ideal < baseCols then ideal = baseCols end
         if ideal > maxCols then ideal = maxCols end
-        EUI_Bags._asCols = EUI_Bags.AutoSizeNext(ideal, EUI_Bags._asCols)
+        local cols = EUI_Bags.AutoSizeNext(ideal, EUI_Bags._asCols)
+        -- Shrink would reflow the held groups: a held pass keeps the columns
+        if held and EUI_Bags._asCols and cols < EUI_Bags._asCols then cols = EUI_Bags._asCols end
+        EUI_Bags._asCols = cols
     end
 
     local columns = GetColumns()
@@ -1128,6 +1157,9 @@ function EUI_Bags:RefreshInventory()
     end
 
     FinishRefresh(curY, gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount)
+
+    -- A held group outgrew its cells: lay out once more without the hold
+    if held and ns.Hold.ReleaseOutgrown("bags") then EUI_Bags:RefreshInventory() end
 end
 
 -------------------------------------------------------------------------------

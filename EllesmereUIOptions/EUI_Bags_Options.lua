@@ -80,7 +80,7 @@ initFrame:SetScript("OnEvent", function(self)
                           db.profile.bankCompactView = (v == "compact")
                           -- Bags page rows depend on this; rebuild it on next visit
                           EllesmereUI:InvalidateModulePageCache("EllesmereUIBags")
-                          -- Hide Empty Slots When Grouped greys in List View
+                          -- the grouping-dependent toggles grey in List View
                           EllesmereUI:RefreshPage()
                           EllesmereUI:ShowConfirmPopup({
                               title       = "Reload Required",
@@ -113,6 +113,28 @@ initFrame:SetScript("OnEvent", function(self)
                           RefreshBank()
                           EllesmereUI:RefreshPage()
                       end }
+                ); y = y - h
+
+                _, h = W:DualRow(parent, y,
+                    { type="toggle", text="Keep Layout While Taking Items Out",
+                      tooltip="While you take items out of the bank, every category keeps its place and size: its items close up and the freed slots at its end stay empty. Works in OneBank and OneWarbank; off while you search or a sidebar category is selected. Resets when you close the bank, sort, change the view or a setting, or put new items in.",
+                      disabled = function()
+                          return db.profile.bankListView == true
+                              or not (db.profile.bankNestByExpansion or db.profile.bankGroupByCategory)
+                      end,
+                      disabledTooltip = function()
+                          if db.profile.bankListView == true then
+                              return "This option requires the Grid or Compact bank display."
+                          end
+                          return "Turn on Nest by Expansion or Group by Category first."
+                      end,
+                      rawTooltip = true,
+                      getValue=function() return db.profile.bankHoldLayout == true end,
+                      setValue=function(v)
+                          db.profile.bankHoldLayout = v and true or false
+                          RefreshBank()
+                      end },
+                    EllesmereUI.BlankRowCfg()
                 ); y = y - h
 
                 _, h = W:SectionHeader(parent, "SIDEBAR", y); y = y - h
@@ -283,7 +305,8 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Bag Style | Default Selected Bag | Window Scale | Frame Strata |
             -- Slot Size | Slot Spacing | Auto-Size to Fit (not in List) |
-            -- Background Color | Background Opacity | Slot Background, two per row
+            -- Background Color | Background Opacity | Slot Background |
+            -- Keep Layout While Taking Items Out (not in List), two per row
             local layoutSlots = {
                 { type="dropdown", text="Bag Style",
                   values = { grid="Grid", list="List", compact="Compact" },
@@ -408,6 +431,16 @@ initFrame:SetScript("OnEvent", function(self)
                     -- the picker fires every frame while dragging: retint, don't re-lay out
                     BagsNS.RetintSlotBackgrounds()
                 end }
+            -- The List display keeps no category places to hold
+            if not bagList then
+                layoutSlots[#layoutSlots + 1] = { type="toggle", text="Keep Layout While Taking Items Out",
+                  tooltip="While you take items out (sell, use, delete, move to the bank), every category keeps its place and size: its items close up and the freed slots at its end stay empty. Resets when you close the bags, open or close a vendor, bank, guild bank, the mailbox's Send Mail tab, trade or the auction house, search, sort, change the view or a setting, or when new items come in (loot, buying, crafting, opening containers, swapping gear).",
+                  getValue=function() return db.profile.bagHoldLayout == true end,
+                  setValue=function(v)
+                      db.profile.bagHoldLayout = v and true or false
+                      if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                  end }
+            end
             -- Each slot's half of its row, by the slot's label: the inline cogs hang on them
             local slotRgn = {}
             for i = 1, #layoutSlots, 2 do
@@ -641,8 +674,9 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
 
-            -- Hide 'Add Category' Tab | Split Set Gear by Set
-            _, h = W:DualRow(parent, y,
+            -- Hide 'Add Category' Tab | Split Set Gear by Set (+ inline cog: set sections)
+            local splitRow
+            splitRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Hide 'Add Category' Tab",
                   tooltip="Hides the Add Category button at the bottom of the bag sidebar.",
                   getValue=function() return db.profile.bagHideAddCategory or false end,
@@ -663,8 +697,35 @@ initFrame:SetScript("OnEvent", function(self)
                       end
                       if _G.EUI_Bags and _G.EUI_Bags.UpdateSetEventRegistration then _G.EUI_Bags.UpdateSetEventRegistration() end
                       if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                      EllesmereUI:RefreshPage()  -- the Set Sections cog follows it
                   end }
             ); y = y - h
+
+            -- Inline cog on Split Set Gear by Set: each set as its own section, per window
+            EllesmereUI.BuildInlineCog(splitRow._rightRegion, {
+                chain = false,
+                disabled = function() return db.profile.bagSplitSetGearBySet ~= true end,
+                disabledTooltip = "Split Set Gear by Set",
+                title = "Set Sections",
+                rows = {
+                    { type="toggle", label="Separate Sets in Bags",
+                      tooltip="Show each set as its own section in the bags. Off: the sets share the Item Set Gear section.",
+                      get=function() return db.profile.bagSetSectionsSeparate == true end,
+                      set=function(v)
+                          db.profile.bagSetSectionsSeparate = v and true or false
+                          if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                      end },
+                    -- Stored as its opposite so the saved default stays off
+                    { type="toggle", label=EllesmereUI.IS_FOREVER and "Separate Sets in Bank" or "Separate Sets in Bank & Warbank",
+                      tooltip="Show each set as its own section in the bank. Off: the sets share the Item Set Gear section.",
+                      get=function() return db.profile.bankNestSetGear ~= true end,
+                      set=function(v)
+                          db.profile.bankNestSetGear = not v
+                          local bank = _G.EUI_BankFrame
+                          if bank and bank.RefreshBank then bank:RefreshBank() end
+                      end },
+                },
+            })
 
             -- Category Title Size (also on the Fonts page) | Hide Sidebar Icons When Collapsed
             _, h = W:DualRow(parent, y,

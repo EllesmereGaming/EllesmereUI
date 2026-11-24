@@ -428,12 +428,15 @@ local function PAB_ApplyDmFx(button, d, style, arming)
     if bSize > 0 and host and PP then
         local bc = e.borderColor or { r = 0, g = 0, b = 0 }
         if style.iconShape and style.iconShape ~= "none" and style.shapeBorderPath and d.shapeMask then
+            PP.HideBorder(host)
             PP:ApplyMaskedShapeBorder(host, d.shapeMask, style.shapeBorderPath, PabShapeBorderSize(bSize), bc.r or 0, bc.g or 0, bc.b or 0, 1)
         else
             PP:HideMaskedShapeBorder(host)
             PP.CreateBorder(host, 0, 0, 0, 1, 1)
             PP.UpdateBorder(host, bSize, bc.r or 0, bc.g or 0, bc.b or 0, 1)
+            PP.ShowBorder(host)
         end
+        EllesmereUI.RoundAuraOverlay(host, d.auraRound)
         host:Show()
     elseif host then
         host:Hide()

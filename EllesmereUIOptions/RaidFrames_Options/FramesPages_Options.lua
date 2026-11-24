@@ -423,27 +423,50 @@ local function BuildMainPage(pageName, parent, yOffset)
     local _, h, hdr
     local row
 
-    -- Both Group Growth menus grey out the grid flow while groups are merged,
-    -- where it would render as Right (ReadGroupGrowth).
+    -- Both Group Growth menus grey out the grid flows while groups are merged,
+    -- where they would render as Right (ReadGroupGrowth).
     local function GridFlowOff(v)
-        if v == "DOWNRIGHT" and SVal("mergeGroups", false) then
+        if ns._RFIsGridFlow(v) and SVal("mergeGroups", false) then
             return EllesmereUI.DisabledTooltip("Merge Groups", "disabled")
         end
     end
 
-    -- Center Groups (base and per-tier): the grid flow never centers
+    -- Center Groups (base and per-tier): the grid flows never center
     -- (ns._RFGroupCentered), read through the runtime's own self-heal, which
-    -- renders it as Right in merged mode. Locked in combat: the layout pass
+    -- renders them as Right in merged mode. Locked in combat: the layout pass
     -- bails there and would not pick the change up afterwards.
     local CENTER_TIP = "Keeps the shown groups centered on the raid frame area along the group growth direction, so fewer groups sit in the middle instead of starting at one edge."
     local CENTER_OFF_TIP = "This option is not available with the Down and then Right group growth."
+    local CENTER_OFF_TIP_RD = "This option is not available with the Right and then Down group growth."
+    local function EffectiveGroupGrowth(gg)
+        local _, eg = ns._RFEffectiveGrowth("DOWN", gg, SVal("mergeGroups", false))
+        return eg
+    end
+    local function IsEffectiveGrid(gg)
+        return ns._RFIsGridFlow(EffectiveGroupGrowth(gg))
+    end
     local function CenterBlocked(gg)
         if InCombatLockdown() then return true end
-        local _, eg = ns._RFEffectiveGrowth("DOWN", gg, SVal("mergeGroups", false))
-        return eg == "DOWNRIGHT"
+        return IsEffectiveGrid(gg)
     end
-    local function CenterBlockedTip()
-        return InCombatLockdown() and "Unavailable in combat" or CENTER_OFF_TIP
+    -- getGG returns the Group Growth the toggle belongs to (base or tier).
+    local function CenterBlockedTip(getGG)
+        return function()
+            if InCombatLockdown() then return "Unavailable in combat" end
+            return EffectiveGroupGrowth(getGG()) == "RIGHTDOWN" and CENTER_OFF_TIP_RD or CENTER_OFF_TIP
+        end
+    end
+
+    -- Groups Before Wrap (base and per-tier): only the grid flows wrap. Locked
+    -- in combat like Center Groups.
+    local GRID_TIP = "How many groups fill a column (Down and then Right) or a row (Right and then Down) before the next one starts."
+    local GRID_OFF_TIP = "This option is only available with the Down and then Right or Right and then Down group growth."
+    local function GridSizeBlocked(gg)
+        if InCombatLockdown() then return true end
+        return not IsEffectiveGrid(gg)
+    end
+    local function GridSizeBlockedTip()
+        return InCombatLockdown() and "Unavailable in combat" or GRID_OFF_TIP
     end
 
     parent._showRowDivider = true
@@ -642,6 +665,11 @@ local function BuildMainPage(pageName, parent, yOffset)
                         end
                         return ovs[tier]
                     end
+                    local function TierGroupGrowth()
+                        local ovs = db.profile.raidSizeOverrides
+                        return ovs and ovs[tier] and ovs[tier].groupGrowth
+                            or db.profile.groupGrowth or "RIGHT"
+                    end
                     local function TierGrowthChanged()
                         -- ReloadAndUpdate reloads the live frames (including the growth-corner anchor) AND re-shows the active size preview, so the two never diverge.
                         ReloadAndUpdate()
@@ -711,12 +739,21 @@ local function BuildMainPage(pageName, parent, yOffset)
                                   EnsureTierOv().groupGrowthCentered = v
                                   TierGrowthChanged()
                               end,
-                              disabled=function()
+                              disabled=function() return CenterBlocked(TierGroupGrowth()) end,
+                              disabledTooltip=CenterBlockedTip(TierGroupGrowth), rawTooltip=true },
+                            { type="slider", label="Groups Before Wrap", min=1, max=7, step=1,
+                              tooltip=GRID_TIP,
+                              get=function()
                                   local ovs = db.profile.raidSizeOverrides
-                                  return CenterBlocked(ovs and ovs[tier] and ovs[tier].groupGrowth
-                                      or db.profile.groupGrowth or "RIGHT")
+                                  return ns._RFGridSize(ovs and ovs[tier])
                               end,
-                              disabledTooltip=CenterBlockedTip, rawTooltip=true },
+                              set=function(v)
+                                  if InCombatLockdown() then return end
+                                  EnsureTierOv().groupGridSize = v
+                                  TierGrowthChanged()
+                              end,
+                              disabled=function() return GridSizeBlocked(TierGroupGrowth()) end,
+                              disabledTooltip=GridSizeBlockedTip, rawTooltip=true },
                             { type="dropdown", label="Unit Growth",
                               values=growthValues, order=allGrowthOrder,
                               get=function()
@@ -1231,7 +1268,17 @@ local function BuildMainPage(pageName, parent, yOffset)
               ReloadAndUpdate()
           end,
           disabled=function() return CenterBlocked(SVal("groupGrowth", "RIGHT")) end,
-          disabledTooltip=CenterBlockedTip, rawTooltip=true },
+          disabledTooltip=CenterBlockedTip(function() return SVal("groupGrowth", "RIGHT") end),
+          rawTooltip=true },
+        { type="slider", label="Groups Before Wrap", min=1, max=7, step=1, tooltip=GRID_TIP,
+          get=function() return ns._RFGridSize(nil, db.profile) end,
+          set=function(v)
+              if InCombatLockdown() then return end
+              db.profile.groupGridSize = v
+              ReloadAndUpdate()
+          end,
+          disabled=function() return GridSizeBlocked(SVal("groupGrowth", "RIGHT")) end,
+          disabledTooltip=GridSizeBlockedTip, rawTooltip=true },
     } })
 
     -- Row 4: Sort By (custom dropdown with drag-to-reorder roles) | Self Position

@@ -62,7 +62,7 @@ local function MakeGhostSet(opts)
     -- _TryOverrideAnchor runtime math (extent is inert in unlock).
     local function GhostSnapBase(childKey, link)
         local childBar = UM.GetBarFrame(childKey)
-        local tgt = UM.GetBarFrame(link.target)
+        local tgt = UM.GetAnchorTargetFrame(link.target)
         if not childBar or not tgt or not tgt:GetLeft() then return nil end
         local uiS = UIParent:GetEffectiveScale()
         local tS = tgt:GetEffectiveScale()

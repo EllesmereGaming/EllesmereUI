@@ -237,6 +237,15 @@ end
 ReloadUI()
 ```
 
+A repopulate replaces a spec's arrangement, also one your EUI profile string
+just imported: every Blizzard spell the string placed leaves its bar (custom
+bars and Hidden CDs included) and comes back where the active Blizzard layout
+puts it, and the import's protection of the spells it placed (they are kept
+until Blizzard tracks them) ends. So request it only for specs whose EUI
+arrangement should come from the Blizzard layout. For a spec your EUI string
+already arranges, leave it out: import and activate the Blizzard layout first,
+then import the EUI string.
+
 ### `EllesmereUI.GetCDMRepopulateStatus([specID])` -> `status, time, layoutID`
 
 How a repopulate you queued with `EllesmereUI.RequestCDMRepopulate` went, for

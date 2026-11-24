@@ -197,6 +197,16 @@ local function BuildDisplayLayout(parent, y, ctx)
     -- border size control. The stock styles keep every plate square, and so
     -- does Wrap Around Castbar (the plates stand rounding down while it is on).
     do
+        local rows = EllesmereUI.RoundedCornerRows({
+            { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+              get = function() return DBVal("cornerRadius") or 0 end,
+              set = function(v) DB().cornerRadius = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end },
+        }, function() return DBVal("cornerMask") end,
+           function(v) DB().cornerMask = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end)
+        rows[#rows + 1] = { type = "toggle", label = "Apply Radius to Auras",
+            tooltip = "Uses the nameplate corner radius for aura icons with a solid border.",
+            get = function() return DBVal("cornerRadiusAuras") == true end,
+            set = function(v) DB().cornerRadiusAuras = v; ns.NPC_ReloadAll(); UpdatePreview() end }
         EllesmereUI.BuildInlineCog(borderStyleRow._rightRegion, {
             title = "Corner Radius", tip = "Corner Radius",
             disabled = function()
@@ -210,12 +220,7 @@ local function BuildDisplayLayout(parent, y, ctx)
                 return "This option requires the Solid, Glow or Shadow border style."
             end,
             requireState = "disabled",
-            rows = EllesmereUI.RoundedJoinRow(EllesmereUI.RoundedCornerRows({
-                { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
-                  get = function() return DBVal("cornerRadius") or 0 end,
-                  set = function(v) DB().cornerRadius = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end },
-            }, function() return DBVal("cornerMask") end,
-               function(v) DB().cornerMask = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end),
+            rows = EllesmereUI.RoundedJoinRow(rows,
                 "Join Cast Bar", "While a cast shows, rounds the health bar and the cast bar under it as one shape.",
                 function() return DBVal("cornerJoinCast") end,
                 function(v) DB().cornerJoinCast = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end),
