@@ -800,19 +800,28 @@ function ns.NP_HitboxEdges(db, cast)
     return half, -math.max(half, reach)
 end
 
+-- Clickable Cast Bar (off by default): the frame grows to reach the cast bar and each plate's
+-- hit test is set to its click bounds frame. Blizzard's own unit frame fills the shared frame
+-- and lays itself out from its bottom edge, so its plates sit lower while this is on.
+function ns.NP_ClickableCastBar(db)
+    return (db or p or defaults).clickableCastBar == true
+end
+
 -- The frame's height: clicks are clamped to the frame and it grows from its centre, so it is
 -- twice the farther edge. The click bounds below trim it to the edges.
 function ns.NP_HitboxHeight(db)
-    local top, bottom = ns.NP_HitboxEdges(db, true)
+    local top, bottom = ns.NP_HitboxEdges(db, ns.NP_ClickableCastBar(db))
     return 2 * math.max(top, -bottom)
 end
 
 -- Click bounds frame per Blizzard nameplate (our table, weak on the frame), kept on its own
 -- nameplate like the stacking bounds. The nameplate's hit test fills it: an enemy's reaches
 -- down to its cast bar, a friendly's is the centred box. The client takes new hit-test points
--- out of combat or on the tick a unit is assigned (OnNamePlateAdded, SetUnit).
+-- out of combat or on the tick a unit is assigned (OnNamePlateAdded, SetUnit). With Clickable
+-- Cast Bar off this does nothing.
 ns._npHitBounds = setmetatable({}, { __mode = "k" })
 function ns.NP_ApplyHitBounds(np, enemy)
+    if not ns.NP_ClickableCastBar() then return end
     if not (np and np.SetAllHitTestPoints) then return end
     if np.CanChangeHitTestPoints and not np:CanChangeHitTestPoints() then return end
     local hb = ns._npHitBounds[np]
@@ -826,6 +835,21 @@ function ns.NP_ApplyHitBounds(np, enemy)
     hb:SetPoint("TOP", np, "CENTER", 0, top)
     hb:SetSize(GetHealthBarWidth() * ((db.hitboxScaleX or 100) / 100), top - bottom)
     np:SetAllHitTestPoints(hb)
+    hb._on = true
+end
+
+-- Clickable Cast Bar switched off: give each nameplate we set back Blizzard's own hit-test
+-- points, which it would otherwise get again only when its unit changes.
+local function NP_ReleaseHitBounds()
+    for np, hb in pairs(ns._npHitBounds) do
+        if hb._on and not (np.CanChangeHitTestPoints and not np:CanChangeHitTestPoints()) then
+            hb._on = nil
+            local uf = np.UnitFrame
+            if uf and uf.UpdateHitTestArea and NamePlateSetupOptions then
+                uf:UpdateHitTestArea(NamePlateSetupOptions)
+            end
+        end
+    end
 end
 
 function ns.RefreshHitboxSize()
@@ -835,17 +859,28 @@ function ns.RefreshHitboxSize()
     local db = p or defaults
     local sx = (db.hitboxScaleX or 100) / 100
     C_NamePlate.SetNamePlateSize(GetHealthBarWidth() * sx, ns.NP_HitboxHeight(db))
-    -- Insets apply to the hit-test points; 0 leaves the click bounds as they are.
+    local cast = ns.NP_ClickableCastBar(db)
+    -- Insets apply to the hit-test points. With Clickable Cast Bar on, 0 leaves our click
+    -- bounds as they are. Off, the frame grows from its CENTER, so a taller size enlarges the
+    -- hitbox evenly above and below the unit, and -10000 insets let the hit rect fill the
+    -- full (centered) frame: an inset is applied to the hit rect Blizzard's own unit frame
+    -- sets inside the frame, which moves with Blizzard's nameplate size and style, so only an
+    -- inset that reaches the frame's edges gives a click area of a known size.
     if C_NamePlateManager and C_NamePlateManager.SetNamePlateHitTestInsets
        and Enum and Enum.NamePlateType then
-        C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Enemy, 0, 0, 0, 0)
-        C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Friendly, 0, 0, 0, 0)
+        local inset = cast and 0 or -10000
+        C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Enemy, inset, inset, inset, inset)
+        C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Friendly, inset, inset, inset, inset)
         -- Friendly Click Through owns the friendly insets while it is on.
         if ns.UpdateFriendlyClickThrough then ns.UpdateFriendlyClickThrough() end
     end
-    for _, np in ipairs(C_NamePlate.GetNamePlates()) do
-        local u = np.namePlateUnitToken
-        ns.NP_ApplyHitBounds(np, u and UnitCanAttack("player", u))
+    if cast then
+        for _, np in ipairs(C_NamePlate.GetNamePlates()) do
+            local u = np.namePlateUnitToken
+            ns.NP_ApplyHitBounds(np, u and UnitCanAttack("player", u))
+        end
+    else
+        NP_ReleaseHitBounds()
     end
     -- Content hangs from the frame's centre (GetHitboxYShift is 0): the frame grows centred,
     -- so the bar stays put. A plate takes the shift as it is spawned, so the live ones are
@@ -861,7 +896,8 @@ function ns.RefreshHitboxSize()
 end
 
 -- Hitbox visualizer: translucent overlay matching each enemy nameplate's clickable bounds (its
--- click bounds frame), so the Hitbox Size sliders can be dialled in visually.
+-- click bounds frame with Clickable Cast Bar on, else the frame), so the Hitbox Size sliders
+-- can be dialled in visually.
 -- Runtime-only (resets on reload), created lazily so it costs nothing when off. On ns (cap).
 function ns._ApplyHitboxOverlay(plate)
     local np = plate and plate.nameplate
@@ -889,7 +925,8 @@ function ns._ApplyHitboxOverlay(plate)
         ov:SetParent(np)
         ov:SetFrameLevel(np:GetFrameLevel() + 10)
         ov:ClearAllPoints()
-        ov:SetAllPoints(ns._npHitBounds[np] or np)
+        local hb = ns._npHitBounds[np]
+        ov:SetAllPoints(hb and hb._on and hb or np)
         ov:Show()
     elseif plate.hitboxOverlay then
         plate.hitboxOverlay:Hide()
