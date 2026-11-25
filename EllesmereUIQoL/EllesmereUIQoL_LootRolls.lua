@@ -178,8 +178,21 @@ end
 -- The list runs once Blizzard's popups are closed (Suppress, when it is
 -- turned on), and after it is turned off until a reload gives them back. A
 -- client that cannot close them keeps its popups and no list, never both.
+-- WoW Forever's Gamepad interface style has its own roll frame, which the
+-- closed route does not reach and a controller drives: the list stays out
+-- of its way (never closes the route under it, takes no new rolls), and
+-- comes back when the style is left, as the route may already be closed.
+local function PadUI()
+    return EllesmereUI.PadGamepadUI()
+end
+
 local function Active()
     return suppressed
+end
+
+-- Showing rolls now: it stands in for Blizzard's popups (its mover too).
+local function InUse()
+    return suppressed and not PadUI()
 end
 
 -------------------------------------------------------------------------------
@@ -193,6 +206,11 @@ end
 
 local function Font(fs, size)
     EllesmereUI.ApplyModuleFont(fs, nil, size, "extras")
+end
+
+-- For text with other players' names, which can be in any script.
+local function FontFamily(fs, size)
+    EllesmereUI.ApplyModuleFontFamily(fs, nil, size, "extras")
 end
 
 local function QualityColor(quality)
@@ -301,9 +319,14 @@ end
 
 -- The roll list's own popup, apart from the item tooltip.
 local rollTip
+local tipFace, tipFlags  -- the tooltip text's own font, its lines resized in it
 local function RollTip()
     if not rollTip then
-        rollTip = CreateFrame("GameTooltip", "EllesmereUILootRollsTip", UIParent, "GameTooltipTemplate")
+        -- SharedTooltipTemplate: GameTooltipTemplate would join Blizzard's
+        -- tooltip data registry and taint it.
+        rollTip = CreateFrame("GameTooltip", "EllesmereUILootRollsTip", UIParent, "SharedTooltipTemplate")
+        local base = _G.GameTooltipText
+        if base then tipFace, _, tipFlags = base:GetFont() end
     end
     return rollTip
 end
@@ -342,11 +365,10 @@ local function Settle(tt)
     end
 end
 
--- A popup line's text at the Roll List Size, in the tooltip's own face.
+-- A popup line's text at the Roll List Size, in the tooltip's own face. A
+-- font family, as the lines hold other players' names.
 local function SizeLine(fs, size)
-    if not fs then return end
-    local face, _, flags = fs:GetFont()
-    if face then fs:SetFont(face, size, flags) end
+    if fs and tipFace then EllesmereUI.SetFontFamily(fs, tipFace, size, tipFlags, true) end
 end
 
 local function ShowRollList(d, owner)
@@ -449,12 +471,19 @@ local function IconLeave(icon) RowLeave(icon.row) end
 
 -- A roll button is part of the row: on it, a finished roll still holds.
 local function RollButtonEnter(b)
+    b.row.onButton = true
     HoldLinger(b.row)
     ButtonEnter(b)
 end
 local function RollButtonLeave(b)
+    b.row.onButton = nil
     ButtonLeave()
     ResumeLinger(b.row)
+end
+
+-- The mouse is on the row, its icon or one of its buttons.
+local function Hovered(r)
+    return r.hoverOwner ~= nil or r.onButton == true
 end
 
 local function IconClick(icon)
@@ -596,7 +625,7 @@ local function StyleRow(r)
 
     -- The winner at the bar's left, center or right: one anchor point each (a
     -- text spanning the bar does not redraw on a justify change alone).
-    Font(r.result, Get("winnerSize"))
+    FontFamily(r.result, Get("winnerSize"))
     local wpos = Get("winnerPos")
     r.result:ClearAllPoints()
     if wpos == "center" then
@@ -1028,7 +1057,7 @@ local function Release(r)
     if r.wait then r.wait:Cancel() end
     if r.hoverOwner then HideTips() end
     r:Hide()
-    r.data, r.endTime, r.linger, r.wait, r.lingerLeft, r.hoverOwner = nil, nil, nil, nil, nil, nil
+    r.data, r.endTime, r.linger, r.wait, r.lingerLeft, r.hoverOwner, r.onButton = nil, nil, nil, nil, nil, nil, nil
     pool[#pool + 1] = r
 end
 
@@ -1064,7 +1093,7 @@ local function Finish(r)
     Fill(r)
     if r.linger then return end
     local delay = Get("resultDelay")
-    if r.hoverOwner then
+    if Hovered(r) then
         r.lingerLeft = math.max(r.lingerLeft or 0, delay)
     else
         StartLinger(r, delay)
@@ -1088,7 +1117,7 @@ local function Close(r, kind)
             r.wait = nil
             if r.data ~= d or d.done then return end
             -- Hovered: it goes a moment after the mouse leaves.
-            if r.hoverOwner then r.lingerLeft = 1 else RemoveRow(r) end
+            if Hovered(r) then r.lingerLeft = 1 else RemoveRow(r) end
         end)
     end
 end
@@ -1122,7 +1151,8 @@ local function PairItem(encounterID, id)
     if not (id and C_LootHistory.GetSortedDropsForEncounter) then return end
     local free = {}
     for _, drop in ipairs(C_LootHistory.GetSortedDropsForEncounter(encounterID) or {}) do
-        local listID = Plain(drop.lootListID, "number")
+        -- WoW Forever names the field lootListKey.
+        local listID = Plain(drop.lootListID or drop.lootListKey, "number")
         local dropLink = listID and Plain(drop.itemHyperlink, "string")
         if dropLink and not dropRows[encounterID .. ":" .. listID] and not Finished(drop)
             and ItemID(dropLink) == id then
@@ -1201,20 +1231,26 @@ end
 
 local function OnEvent(_, event, a1, a2)
     if event == "START_LOOT_ROLL" then
-        AddRoll(a1, a2)
+        -- The style can change mid-session: its own frame has the roll.
+        if not PadUI() then AddRoll(a1, a2) end
     elseif event == "CANCEL_LOOT_ROLL" then
         Rolled(a1)
     elseif event == "CANCEL_ALL_LOOT_ROLLS" then
         ClearRows()
     elseif event == "LOOT_HISTORY_UPDATE_DROP" then
         OnDrop(a1, a2)
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        -- Rolls already open (a reload or reconnect mid-roll) send no
+        -- START_LOOT_ROLL.
+        if PadUI() or type(GetActiveLootRollIDs) ~= "function" then return end
+        for _, rollID in ipairs(GetActiveLootRollIDs() or {}) do AddRoll(rollID) end
     end
 end
 
 -- The on-screen preview, switched by the Loot page's eye: the sample items in
 -- the real frame, after any live rolls.
 local function ShowSamples(on)
-    sampling = (on and Active()) and true or false
+    sampling = (on and InUse()) and true or false
     if sampling then
         CreateAnchor()
         for i, d in ipairs(SampleData()) do
@@ -1336,7 +1372,10 @@ end
 local confirmHooked = false
 local function Apply()
     if not db then return end
-    if Get("enabled") then Suppress() end
+    if Get("enabled") and not PadUI() then Suppress() end
+    -- Once the route is closed the events stay, under the Gamepad style too
+    -- (OnEvent leaves new rolls to its frame): rolls must reach the list
+    -- again when the style is left.
     if Active() then
         CreateAnchor()
         if not events then
@@ -1346,8 +1385,13 @@ local function Apply()
         events:RegisterEvent("START_LOOT_ROLL")
         events:RegisterEvent("CANCEL_LOOT_ROLL")
         events:RegisterEvent("CANCEL_ALL_LOOT_ROLLS")
+        events:RegisterEvent("PLAYER_ENTERING_WORLD")
         if Tracking() and HISTORY then
             events:RegisterEvent("LOOT_HISTORY_UPDATE_DROP")
+            -- Results just turned on: the rolls already up find their drops.
+            for _, r in ipairs(rows) do
+                if r.data and not r.data.dropKey then FindDrop(r) end
+            end
         else
             events:UnregisterEvent("LOOT_HISTORY_UPDATE_DROP")
         end
@@ -1399,7 +1443,7 @@ local function RegisterUnlock()
             order = 645,
             -- The mover is the first row; the list grows from it.
             noAnchorTarget = true,
-            isHidden = function() return not Get("enabled") end,
+            isHidden = function() return not InUse() end,
             getFrame = function()
                 CreateAnchor()
                 return anchor
@@ -1444,6 +1488,7 @@ EllesmereUI._LootRolls = {
     Apply = Apply,
     ApplyStyle = ApplyStyle,
     Suppressed = function() return suppressed end,
+    InUse = InUse,
     CreateSettingsPreview = CreateSettingsPreview,
     RefreshPreview = function() RefreshPreview() end,
     ShowSamples = ShowSamples,

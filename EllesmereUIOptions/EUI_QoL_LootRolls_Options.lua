@@ -212,7 +212,8 @@ _G._EUI_BuildLootPage = function(pageName, parent, yOffset)
     local enableRow
     enableRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Enable Loot Roll Frame",
-          tooltip = "Shows group loot rolls as one compact list in place of Blizzard's roll popups. Turning it off takes a reload.",
+          tooltip = "Shows group loot rolls as one compact list in place of Blizzard's roll popups. Turning it off takes a reload."
+              .. (EllesmereUI.IS_FOREVER and " It stands down under the Gamepad interface style, which has its own roll frame." or ""),
           getValue = function() return not off() end,
           setValue = function(v)
               local p = LR.Cfg()

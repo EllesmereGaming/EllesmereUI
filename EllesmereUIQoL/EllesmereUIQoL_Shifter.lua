@@ -1084,12 +1084,12 @@ end
 local LOOT_WINDOWS = {
     { name = "BonusRollFrame",     key = "EUI_BonusRoll",   label = "Bonus Roll",   order = 640, defW = 330, defH = 120, defY = 240 },
     -- The Loot Rolls list replaces Blizzard's roll popups, so its own mover
-    -- stands in for this one while it is on (replaced). The saved spot stays
+    -- stands in for this one while it is in use (replaced). The saved spot stays
     -- and is back in use once Loot Rolls is turned off.
     { name = "GroupLootContainer", key = "EUI_GroupLoot",   label = "Group Loot",   order = 641, defW = 300, defH = 80,  defY = 340,
       replaced = function()
           local LR = EllesmereUI._LootRolls
-          return LR and LR.Get("enabled") or false
+          return LR and LR.InUse() or false
       end },
     { name = "AlertFrame",         key = "EUI_AlertToasts", label = "Alert Toasts", order = 642, defW = 300, defH = 100, defY = 160, fixedSize = true },
     { name = "UIWidgetBelowMinimapContainerFrame", key = "EUI_CaptureBars", label = "Capture Bars", order = 644,
