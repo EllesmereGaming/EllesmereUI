@@ -244,16 +244,8 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 -- the aura Border Size of Unit Frames, Raid & Party Frames and Player Aura Bars, and Apply Radius to
                 -- Auras in the nameplate Corner Radius cog (both clients). No module prefix: the card spans five modules.
                 title = "Rounded Icons",
-                desc  = "A Corner Radius cog on Border Size rounds your icons, their border and cooldown swipe: auras on Unit Frames, Raid & Party Frames and Player Aura Bars, and the Cooldown Manager's icons and Tracking Bars. On nameplates, Apply Radius to Auras uses the plate's own Corner Radius. Solid borders only, off by default.",
+                desc  = "A Corner Radius cog on Border Size rounds your icons, their border and cooldown swipe: auras on Unit Frames, Raid & Party Frames, Player Aura Bars and nameplates, and the Cooldown Manager. Solid borders only, off by default.",
                 nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "ICON DISPLAY", highlight = "Border Size" },
-            },
-            {
-                -- The Keep Layout While Taking Items Out row of LAYOUT on the Bags page (Grid and Compact; the bank's
-                -- twin sits in GROUPING on the Bank page; both clients).
-                module = "Bags",
-                title  = "Keep Layout While Taking Items Out",
-                desc   = "The bags and the bank can keep every category in place while you sell, use or move items out, so nothing jumps under the cursor. Off by default.",
-                nav    = { module = "EllesmereUIBags", page = "Bags", section = "LAYOUT", highlight = "Keep Layout While Taking Items Out" },
             },
             {
                 -- The Show Waypoints in the World row of WORLD MAP on the Forever Essentials General page (WoW Forever only).
@@ -350,6 +342,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
         },
         fixes = {
             { module = "Bags", text = "With Split Set Gear by Set on, each equipment set's category no longer goes missing from the bags and the bank after logging in." },
+            { module = "Bags", text = "With the new Keep Layout While Taking Items Out option (off by default), the bags and the bank keep every category in place while you sell, use or move items out." },
             { module = "Chat", retail = true, text = "New profiles start with Friends, Copy Chat, M+ Portals and Chat Menu on the sidebar." },
             { module = "Chat", forever = true, text = "New profiles start with Friends, Copy Chat, Durability and Chat Menu on the sidebar." },
             { module = "Cooldown Manager", text = "Show Item Count set to Never or Out of Combat now also hides a spell's reagent count, such as Vanish's Flash Powder." },
@@ -357,6 +350,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Cooldown Manager", text = "Custom auras on a buff bar now follow the bar's Cooldown Swipe setting." },
             { module = "Cooldown Manager", retail = true, text = "Potions added by Custom Spell ID on a buff bar now become the potion's preset and keep their place in the bar's order." },
             { module = "Cooldown Manager", forever = true, text = "Icons of spells whose buff shares the spell's ID, such as Death Wish or Bloodthirst, no longer stay grey while the spell is ready." },
+            { module = "Cooldown Manager", forever = true, text = "An Arcane Blast Tracking Bar no longer refills on every cast, and it now shows its stack count." },
             { module = "Damage Meters", text = "Pet spells in the breakdown show the pet's name, as in Blizzard's meter." },
             { module = "Damage Meters", text = "A window resized before it was ever moved now stays where it is after a reload." },
             { module = "Forever Essentials", forever = true, text = "The Loot Feed now shows coin from opened junkboxes and quest rewards as a Money row and counts it toward Gold per Hour." },
