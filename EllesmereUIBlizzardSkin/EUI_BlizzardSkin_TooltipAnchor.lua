@@ -69,6 +69,20 @@ local function TooltipIsGlobalLike(tooltip)
     return type(tooltip) == "table" and tooltip.LIKE_GLOBAL_GAMETOOLTIP == true
 end
 
+local tooltipFadeHooked = false
+local function EnsureTooltipFadeHook()
+    if tooltipFadeHooked or not GameTooltip.FadeOut then return end
+    tooltipFadeHooked = true
+    hooksecurefunc(GameTooltip, "FadeOut", function(self)
+        if self ~= GameTooltip then return end
+        if EllesmereUI._handleTooltipFadeOut and EllesmereUI._handleTooltipFadeOut(self) then return end
+        if EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor and EllesmereUIDB.customTooltips ~= false then
+            self:Hide()
+        end
+    end)
+end
+EllesmereUI._ensureTooltipFadeHook = EnsureTooltipFadeHook
+
 do
     -- Selected position = where the tooltip sits relative to the cursor, so the tooltip corner touching the cursor is the opposite one.
     local POINT_FOR_POS = {
@@ -165,16 +179,9 @@ do
             if cursorFrame then cursorFrame:Hide() end
         end)
         hooksecurefunc("GameTooltip_SetDefaultAnchor", ApplyCursorAnchor)
-        -- World-unit tooltips fade out (~1-2s) on mouse-off instead of hiding instantly like
-        -- unitframe/item/buff/CDM tips; while riding the cursor that lingering fade trails the pointer, so collapse it to an instant hide -- only while the cursor anchor is on.
-        if GameTooltip.FadeOut then
-            hooksecurefunc(GameTooltip, "FadeOut", function(self)
-                if self ~= GameTooltip then return end
-                if EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor and EllesmereUIDB.customTooltips ~= false then
-                    self:Hide()
-                end
-            end)
-        end
+        -- World-cursor tooltips use FadeOut on mouse-off. Anchor mode collapses
+        -- that fade unless the configurable disappearance handler takes it over.
+        EnsureTooltipFadeHook()
     end
 
     EllesmereUI._applyTooltipCursorAnchor = function()
