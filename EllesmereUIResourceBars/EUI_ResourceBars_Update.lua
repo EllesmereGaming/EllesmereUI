@@ -73,6 +73,43 @@ I.UpdateGCDBarSetters[#I.UpdateGCDBarSetters + 1] = function(v) UpdateGCDBar = v
 -- Health and power text: the global Number Format for valueType (power follows
 -- only the Unit Style). On ns for the options preview and the druid mana bar.
 ns.AbbreviateValue = EllesmereUI.AbbreviateValue
+
+-- Custom text: a catalog per bar whose pieces read the update's (cur, max, percent),
+-- secret or not. On ns for the options popup and preview.
+do
+    local TT, unpack = EllesmereUI.TextTags, unpack
+    local function Num(v) return format("%d", v) end
+    local function Abr(kind, max)
+        if max then return function(_, mx) return ns.AbbreviateValue(mx, kind) end end
+        return function(cur) return ns.AbbreviateValue(cur, kind) end
+    end
+    local function Max(_, mx) return Num(mx) end
+    local function Pct(_, _, pct) return Num(pct) end
+    -- The unit schema with the bar's own help examples (the shared ones name unbound tags).
+    local function Schema(examples)
+        local s = {}
+        for k, v in pairs(TT.UNIT) do s[k] = v end
+        s.examples = examples
+        return s
+    end
+    ns.ERB_HealthTags = TT.Bind(Schema({ "[hp:pct]%", "[hp:abr] / [hp:max:abr]", "[hp:abr] | [hp:pct]%" }), {
+        ["hp"] = Num, ["hp:abr"] = Abr("health"), ["hp:max"] = Max,
+        ["hp:max:abr"] = Abr("maxHealth", true), ["hp:pct"] = Pct,
+    })
+    ns.ERB_PowerTags = TT.Bind(Schema({ "[pp:pct]%", "[pp:abr] / [pp:max:abr]", "[pp:abr] | [pp:pct]%" }), {
+        ["pp"] = Num, ["pp:abr"] = Abr("power"), ["pp:max"] = Max,
+        ["pp:max:abr"] = Abr("power", true), ["pp:pct"] = Pct,
+    })
+    local args = {}
+    -- The template filled in, "" while it is empty.
+    function ns.ERB_CustomText(cat, template, cur, mx, pct)
+        local parsed = TT.Parse(cat, template)
+        if not parsed then return "" end
+        local keys, map = parsed.keys, cat.map
+        for i = 1, #keys do args[i] = map[keys[i]](cur, mx, pct) end
+        return format(parsed.fmt, unpack(args, 1, #keys))
+    end
+end
 -- The power text memo names no Number Format input, so a format change drops it.
 EllesmereUI.RegisterNumberFormatCallback(function()
     I.UpdateHealthBar()
@@ -202,6 +239,8 @@ local function UpdateHealthBar()
             txt = pctStr
         elseif fmt == "perhpnum" then
             txt = pctStr .. "% | " .. curStr
+        elseif fmt == "custom" then
+            txt = ns.ERB_CustomText(ns.ERB_HealthTags, hp.textCustomFormat, cur, mx, pctRaw)
         else
             txt = pctStr .. "%"
         end
@@ -505,6 +544,8 @@ local function UpdatePrimaryBar()
                 txt = ns.AbbreviateValue(cur, "power") .. " / " .. ns.AbbreviateValue(mx, "power")
             elseif fmt == "perpp" then
                 txt = percentText
+            elseif fmt == "custom" then
+                txt = ns.ERB_CustomText(ns.ERB_PowerTags, pp.textCustomFormat, cur, mx, pctRaw)
             else
                 txt = ns.AbbreviateValue(cur, "power")
             end
