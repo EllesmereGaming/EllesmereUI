@@ -1847,7 +1847,13 @@ ns.ApplyCastFillOpacity = function(castbar, settings)
             castbar._fillOp = nil
             if bgTex then
                 bgTex:ClearAllPoints()
-                bgTex:SetAllPoints(bgHost)
+                if castbar._blizzCast then
+                    -- Stock styles: the background spans the bar, not the icon slot.
+                    bgTex:SetPoint("TOPLEFT", castbar, "TOPLEFT", -1, 1)
+                    bgTex:SetPoint("BOTTOMRIGHT", castbar, "BOTTOMRIGHT", 1, -1)
+                else
+                    bgTex:SetAllPoints(bgHost)
+                end
             end
             -- Mid-cast restore: the tint's active/idle state comes from our own
             -- flag, never from reading the widget back (see _castTintOn).
@@ -1861,13 +1867,14 @@ ns.ApplyCastFillOpacity = function(castbar, settings)
     castbar._fillOp = op / 100
     local tex = castbar:GetStatusBarTexture()
     if bgTex and tex then
+        local edge = castbar._blizzCast and castbar or bgHost
         bgTex:ClearAllPoints()
         if castbar.GetReverseFill and castbar:GetReverseFill() then
-            bgTex:SetPoint("TOPLEFT", bgHost, "TOPLEFT", 0, 0)
+            bgTex:SetPoint("TOPLEFT", edge, "TOPLEFT", 0, 0)
             bgTex:SetPoint("BOTTOMRIGHT", tex, "BOTTOMLEFT", 0, 0)
         else
             bgTex:SetPoint("TOPLEFT", tex, "TOPRIGHT", 0, 0)
-            bgTex:SetPoint("BOTTOMRIGHT", bgHost, "BOTTOMRIGHT", 0, 0)
+            bgTex:SetPoint("BOTTOMRIGHT", edge, "BOTTOMRIGHT", 0, 0)
         end
     end
     -- Mid-cast application: retune the tint if it is currently active.

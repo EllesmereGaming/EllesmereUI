@@ -1677,7 +1677,8 @@ function ns.UF_BlizzCastIcon(cb)
     local hostH = cb._icoSide or host:GetHeight()
     if issecretvalue(hostH) or not hostH or hostH <= 0 then return end
     local box = cb._blizzTextBox
-    local side = hostH + ((box and box:IsShown()) and 13 or 0)
+    -- Bar + box height whether the spell name shows or not (stock kit only).
+    local side = hostH + ((cb._blizzCast and box) and 13 or 0)
     local inWidth, onRight = cb._icoInWidth, cb._icoOnRight
     local offX, offY = cb._icoOffX or 0, cb._icoOffY or 0
     ico:ClearAllPoints()
@@ -1762,12 +1763,12 @@ function ns.UF_ApplyBlizzCastbar(cb)
     end
     if host and host._bgTex then
         -- A bar texture, not frame chrome: the retail background under
-        -- Blizzard Style, WoW Forever included.
+        -- Blizzard Style, WoW Forever included. On the bar, not the icon slot.
         local bgAtlas = ns.UF_BlizzAtlas(ns.UF_CAST_BLIZZ.bg)
         if bgAtlas then EllesmereUI.StockAtlas(host._bgTex, bgAtlas) end
         host._bgTex:ClearAllPoints()
-        host._bgTex:SetPoint("TOPLEFT", host, "TOPLEFT", -1, 1)
-        host._bgTex:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", 1, -1)
+        host._bgTex:SetPoint("TOPLEFT", cb, "TOPLEFT", -1, 1)
+        host._bgTex:SetPoint("BOTTOMRIGHT", cb, "BOTTOMRIGHT", 1, -1)
     end
     PP.HideBorder(cb)
     if not cb._blizzFrame then
