@@ -99,6 +99,8 @@ local function BuildDisplayBars(parent, y, ctx)
                 ns.LayoutCastIcon(plate, v)
                 plate.castSpark:SetHeight(v)
             end
+            -- The click area reaches the cast bar's bottom edge.
+            if ns.ApplyNamePlateClickArea then ns.ApplyNamePlateClickArea() end
             UpdatePreview()
           end },
         { type="toggle", text="Spell Icon",
@@ -326,6 +328,7 @@ local function BuildDisplayBars(parent, y, ctx)
           setValue=function(v)
             DB().castBarOffsetY = v
             ns.NP_RelayoutCastBars()
+            if ns.ApplyNamePlateClickArea then ns.ApplyNamePlateClickArea() end
             UpdatePreview()
           end });  y = y - h
     do

@@ -97,7 +97,7 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             DB().hitboxScaleY = v
             ns.RefreshHitboxSize()
           end,
-          tooltip="Increases the clickable hitbox height of enemy nameplates. 100% = matches bar height. Increase to make nameplates easier to click." });  y = y - h
+          tooltip="Increases the clickable hitbox height of enemy nameplates. 100% = matches bar height. The hitbox always reaches down to the cast bar. Increase to make nameplates easier to click." });  y = y - h
 
     -- Eyeball toggle on Hitbox Size X: translucent overlay on real enemy nameplates marking the clickable area, for visual slider tuning; runtime-only, auto-hides when the panel closes. None in the search pre-build: it indexes nothing, and the row is a stand-in there.
     if not EllesmereUI._prebuilding then
