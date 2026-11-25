@@ -81,9 +81,14 @@ local TIP_GROW = { rightUp = "Right and Up", rightDown = "Right and Down",
 local TIP_GROW_ORDER = { "rightUp", "rightDown", "leftUp", "leftDown" }
 local WINNER_POS = { left = "Left", center = "Center", right = "Right" }
 local WINNER_POS_ORDER = { "left", "center", "right" }
--- WoW Forever has no transmog roll.
-local ROLL_ORDER_TEXT = EllesmereUI.IS_FOREVER and "Need first, then Greed and Pass"
-    or "Need first, then Greed, Transmog and Pass"
+-- Whole sentences per client, so each is one translation key (WoW Forever has no transmog
+-- roll, and its gamepad style has its own roll frame).
+local TIP_ROLL_LIST = EllesmereUI.IS_FOREVER
+    and "Hovering a roll's bar lists everyone who can roll, what they picked and what they rolled, Need first, then Greed and Pass, with those yet to pick last. Hover the icon for the item."
+    or "Hovering a roll's bar lists everyone who can roll, what they picked and what they rolled, Need first, then Greed, Transmog and Pass, with those yet to pick last. Hover the icon for the item."
+local TIP_ENABLE = EllesmereUI.IS_FOREVER
+    and "Shows group loot rolls as one compact list in place of Blizzard's roll popups. Turning it off takes a reload. It stands down under the Gamepad interface style, which has its own roll frame."
+    or "Shows group loot rolls as one compact list in place of Blizzard's roll popups. Turning it off takes a reload."
 
 _G._EUI_BuildLootPage = function(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
@@ -212,8 +217,7 @@ _G._EUI_BuildLootPage = function(pageName, parent, yOffset)
     local enableRow
     enableRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Enable Loot Roll Frame",
-          tooltip = "Shows group loot rolls as one compact list in place of Blizzard's roll popups. Turning it off takes a reload."
-              .. (EllesmereUI.IS_FOREVER and " It stands down under the Gamepad interface style, which has its own roll frame." or ""),
+          tooltip = TIP_ENABLE,
           getValue = function() return not off() end,
           setValue = function(v)
               local p = LR.Cfg()
@@ -327,8 +331,7 @@ _G._EUI_BuildLootPage = function(pageName, parent, yOffset)
         Bind({ type = "toggle", text = "Show Winner",
                tooltip = "When a roll ends, shows who won it and their roll on its bar." }, "showWinner", Reapply),
         Bind({ type = "toggle", text = "Show Roll List",
-               tooltip = "Hovering a roll's bar lists everyone who can roll, what they picked and what they rolled, "
-                   .. ROLL_ORDER_TEXT .. ", with those yet to pick last. Hover the icon for the item." },
+               tooltip = TIP_ROLL_LIST },
                "showRollList", Reapply)
     );  y = y - h
     EllesmereUI.BuildInlineCog(row._leftRegion, CogOpts("Winner Settings", {

@@ -46,16 +46,17 @@ EllesmereUI.FONT_FILES = {
 -- usable in ruRU instead of being swapped for the system glyph font. Verified per file
 -- against its cmap table -- every other face (Poppins, Exo, Gotham Narrow Ultra, Changa,
 -- Cinzel, Future X Black, Homespun, HWT Artz, KMT Ninja Naruto, Barlow Condensed) has ZERO
--- Cyrillic and would render boxes, except Avant Garde: it carries the alphabet in another
--- open face's letters and is left to the system glyph font on ruRU. Re-check coverage before
--- adding a face; a wrong entry ships unreadable text. Expressway CAPS: cmap checked, 66/66
--- Russian letters (Yo pair included), its Russian lowercase drawn as lowercase.
+-- Cyrillic and would render boxes. Re-check coverage before adding a face; a wrong entry
+-- ships unreadable text. Expressway CAPS: cmap checked, 66/66 Russian letters (Yo pair
+-- included), its Russian lowercase drawn as lowercase. Avant Garde: 66/66, its Cyrillic
+-- letters drawn in another open face's design; every face that was on this list keeps it.
 -- Deliberately NOT extended to FONT_BLIZZARD: the Cyrillic-capable Blizzard face is
 -- FRIZQT___CYR (already the fallback), and the plain ones vary by installed client locale.
 EllesmereUI.FONT_CYRILLIC = {
     ["Expressway"]       = true,
     ["Expressway Bold"]  = true,
     ["Expressway CAPS"]  = true,
+    ["Avant Garde"]      = true,
     ["Arial Bold"]       = true,
     ["Arial Narrow"]     = true,
     ["Fira Sans Medium"] = true,

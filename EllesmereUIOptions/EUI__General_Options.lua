@@ -236,6 +236,21 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        -- An extension of 9.9.3, released a day after it: no fixes or thank-you line of its
+        -- own, and 9.9.3's card opens with this one (`openNext`, read only while it is newest).
+        version = "9.9.4",
+        openNext = true,
+        heroes = {
+            {
+                -- The Enable Loot Roll Frame row of LOOT ROLLS on Quality of Life's Loot page (both clients).
+                module = "Quality of Life",
+                title  = "Loot Roll Frame",
+                desc   = "Group loot rolls show as one compact, movable list in place of Blizzard's popups: roll from the list, and see how many picked each choice, who won, and everyone's rolls on hover. Off by default.",
+                nav    = { module = "EllesmereUIQoL", page = "Loot", section = "LOOT ROLLS", highlight = "Enable Loot Roll Frame" },
+            },
+        },
+    },
+    {
         version = "9.9.3",
         thanks = true,
         heroes = {
@@ -1301,143 +1316,6 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Unit Frames", forever = true, text = "On the WoW Forever look, the animated rest icon sits above the portrait as on Blizzard's frame, and the frame art glows gold while you are resting." },
             { module = "Unit Frames", forever = true, text = "Channeled spells show their name on cast bars instead of the word Channeling." },
             { module = "Localization", text = "Brazilian Portuguese, Korean, Russian, Spanish and Traditional Chinese translations updated for the 9.8.4 options and patch notes." },
-        },
-    },
-    {
-        version = "9.8.4",
-        thanks = true,
-        features = {
-            {
-                -- The RAID BUFFS section of the Auras, Buffs & Consumables page; the buff is a box of its
-                -- grid, named by the client (WoW Forever only).
-                module  = "AuraBuff Reminders",
-                forever = true,
-                title   = "Divine Spirit",
-                desc    = "Raid Buffs now reminds priests who have Divine Spirit to keep it on the group, on by default",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "RAID BUFFS" } or nil,
-            },
-            {
-                -- The Sleeping Bag row of WOW FOREVER on the Auras, Buffs & Consumables page (WoW Forever
-                -- only).
-                module  = "AuraBuff Reminders",
-                forever = true,
-                title   = "Sleeping Bag",
-                desc    = "A reminder to use your Cozy Sleeping Bag while Well-Rested is missing or under 3 stacks, below max level; off by default",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "WOW FOREVER", highlight = "Sleeping Bag" } or nil,
-            },
-            {
-                -- The Show Pinned Items row of CATEGORIES on the Bags page; Pins per Character is in its
-                -- cog (both clients).
-                module = "Bags",
-                title  = "Pins per Character",
-                desc   = "Each character keeps its own pinned items, starting from your current pins; turn Pins per Character off to share them again",
-                nav    = { module = "EllesmereUIBags", page = "Bags", section = "CATEGORIES", highlight = "Show Pinned Items" },
-            },
-            {
-                -- The DataBars page; Show Other Characters is in a Travel block's settings (both clients).
-                module = "Data Bars",
-                title  = "Other Characters' Hearthstones",
-                desc   = "The Travel block's tooltip can list your other characters' hearthstones: where each is bound and when it is ready",
-                nav    = { module = "EllesmereUIDataBars", page = "DataBars" },
-            },
-            {
-                -- The Loot Rolls row of SOURCES on Forever Essentials' Loot page (WoW Forever only).
-                module  = "Forever Essentials",
-                forever = true,
-                title   = "Loot Rolls",
-                desc    = "The Loot Feed can show who won each group loot roll and with what roll, and adds your roll to items you win; off by default",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIForeverEssentials", page = "Loot", section = "SOURCES", highlight = "Loot Rolls" } or nil,
-            },
-            {
-                -- The Class Colored Role Icons row of APPLICANT LIST on the Premade Search page (retail
-                -- only: WoW Forever has no premade group list).
-                module = "Group Finder",
-                retail = true,
-                title  = "Class Colored Role Icons",
-                desc   = "Applicants' role icons can take their class color instead of the role's, off by default",
-                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIGroupFinder", page = "Premade Search", section = "APPLICANT LIST", highlight = "Class Colored Role Icons" } or nil,
-            },
-            {
-                -- The Show Group Notes row of DISPLAY on the Premade Search page (retail only).
-                module = "Group Finder",
-                retail = true,
-                title  = "Group Notes",
-                desc   = "Each group's note can show on a line under it in the results list, off by default",
-                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIGroupFinder", page = "Premade Search", section = "DISPLAY", highlight = "Show Group Notes" } or nil,
-            },
-            {
-                -- The Row Highlight row of RESULTS LIST on the Premade Search page (this release named it
-                -- Status Effect): its dropdown is the style, its cog holds the statuses and the colors (retail only).
-                module = "Group Finder",
-                retail = true,
-                title  = "Status Effect",
-                desc   = "Groups you applied to can be tinted in their status color instead of underlined, with a color of your choice for each status",
-                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIGroupFinder", page = "Premade Search", section = "RESULTS LIST", highlight = "Row Highlight" } or nil,
-            },
-            {
-                -- The Enemy Players Use Enemy Color row of ENEMY COLORS on the Nameplates Colors page (both
-                -- clients).
-                module = "Nameplates",
-                title  = "Enemy Players Use Enemy Color",
-                desc   = "Enemy players' health bars can take the Enemies color instead of their class color, off by default",
-                nav    = { module = "EllesmereUINameplates", page = "Colors", section = "ENEMY COLORS", highlight = "Enemy Players Use Enemy Color" },
-            },
-            {
-                -- CORE POSITIONS on the Nameplates Display page; the toggle is in the Quest Objective Text
-                -- section of a slot's cog (both clients).
-                module = "Nameplates",
-                title  = "Quest Objective Type Icon",
-                desc   = "Quest Objective Text can show a sword for kill objectives or a bag for item objectives beside the count, off by default",
-                nav    = { module = "EllesmereUINameplates", page = "Display", section = "CORE POSITIONS" },
-            },
-            {
-                -- The Portrait Mode row of PORTRAIT on the Main Frames page with the Player frame selected;
-                -- the toggle is in its cog (both clients).
-                module = "Unit Frames",
-                title  = "3D Portrait Below Border",
-                desc   = "A 3D portrait in a detached shape can sit inside the shape's border instead of over it (Portrait Mode cog)",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "PORTRAIT", highlight = "Portrait Mode",
-                           preSelect = function() if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end; EllesmereUI._pendingUnitSelect = "player" end },
-            },
-        },
-        fixes = {
-            { module = "Action Bars", text = "Cast Actions on Key Down now applies to key presses only: a mouse click on an action button acts when the mouse is released, as on Blizzard's bars, so dragging a button no longer uses it." },
-            { module = "Action Bars", text = "A bar paged by a form, stance or modifier in its Paging settings shows the right page right after a /reload or login." },
-            { module = "Action Bars", text = "Each bar can now hide its spell charges, stack counts or item counts from Text > Charge Numbers on the Bar Display page." },
-            { module = "Action Bars", text = "Paging Options on the Bar Display page now turns modifier paging and target paging on separately for each bar." },
-            { module = "Action Bars", forever = true, text = "A Skyriding Paging setting saved before that option was hidden no longer turns off Press and Hold Casting on Action Bar 1." },
-            { module = "Bags", text = "Other addons can now add their own categories to your bags and bank; they show after your own." },
-            { module = "Blizzard Skins+", forever = true, text = "Friends show their ruleset (Normal, PvP, Roleplay) after their zone on the friends list and in the friend tooltip, with their region when it is not yours." },
-            { module = "Blizzard Skins+", forever = true, text = "Friends in your own region no longer get a region icon on the friends list." },
-            { module = "Cooldown Manager", text = "Spells on Hidden CDs no longer show their tooltip when you hover something near your Cooldowns or Utility bar, such as the target frame." },
-            { module = "Data Bars", text = "The Gold block's tooltip lists each character under its own realm or ruleset instead of putting everyone under the current one." },
-            { module = "Forever Essentials", forever = true, text = "The Active Stance icon now follows a Hunter aspect or Paladin aura you switch in combat instead of catching up after the fight." },
-            { module = "General", text = "With Apply to All Game Text on, the combat text over your character keeps the Combat Text Font, so it matches the numbers over enemies." },
-            { module = "General", text = "Checkbox dropdowns show their checkboxes, and dropdown lists such as the Buff Manager's Extra Spells their icons, as soon as the list opens instead of staying blank until the pointer moves over them." },
-            { module = "General", text = "Buttons, checkboxes, popups, cards and switches in the settings have rounded corners like the dropdowns, with crisp 1 px outlines at every Window Scale." },
-            { module = "General", retail = true, text = "With Apply to All Game Text on, the Questing button in Premade Groups now uses your font like the other category buttons." },
-            { module = "General", retail = true, text = "The M+ Portals menu on the Minimap and the Chat sidebar now closes when you click anywhere outside it." },
-            { module = "General", forever = true, text = "The Profiles page's Assign to Spec now reads Assign to Class, and its popup asks for classes instead of specs." },
-            { module = "Group Finder", retail = true, text = "Groups with a friend or guildmate in them now show their name in blue, as on Blizzard's list." },
-            { module = "Group Finder", retail = true, text = "The sign-up timer now counts down from 5:00 instead of counting up." },
-            { module = "Group Finder", retail = true, text = "Your Class is now a separate filter on the Dungeons and Raids tabs." },
-            { module = "Group Finder", retail = true, text = "With the Group Finder window skin off, the results list, filter bar and dungeon squares now use Blizzard's look." },
-            { module = "Group Finder", retail = true, text = "With Raider.IO, hovering an applicant in the applicant list shows their Raider.IO lines, and holding Shift shows their full profile beside the window." },
-            { module = "Group Finder", retail = true, text = "The settings page shows sample groups and applicants at its top, updating as you change your settings, and every Group Finder option now lives there: the window's cog opens it." },
-            { module = "Minimap", text = "The clock, zone text and FPS readout now draw above other addons' minimap icons instead of under them." },
-            { module = "Minimap", text = "Clicking the tracking button while its menu is open now closes the menu instead of reopening it." },
-            { module = "Minimap", forever = true, text = "Closing the tracking menu with the mouse under the Gamepad interface style no longer raises a blocked action error." },
-            { module = "Nameplates", text = "Friendly NPC names in Name Only mode now show their raid marker, and Friendly NPC Settings can turn it off." },
-            { module = "Nameplates", text = "With Simple Coloring When Not In M+ on, neutral enemies you fight take the All Enemies color outside dungeons, as hostile enemies do." },
-            { module = "Quest Tracker", forever = true, text = "The Custom Quest Tracker now shows your tracked profession recipes and their reagents under a Professions header." },
-            { module = "Raid & Party Frames", text = "With debuff Tooltips set to Shown on Modifier, debuffs placed outside a frame no longer leave an empty area that takes clicks for that member." },
-            { module = "Raid & Party Frames", retail = true, text = "A spell ID typed into a Buff Manager indicator's Custom Spell ID, or into a filter with Add Spell ID, now tracks that exact spell alone instead of every version of the buff; Presets and Search Spells picks and the preset filters work as before, and IDs added before this update are unchanged until typed again." },
-            { module = "Resource Bars", forever = true, text = "The Call Totem Bar no longer leaves its place mid-fight when you change form, mount or level up in combat." },
-            { module = "Unit Frames", text = "The raid marker on the target and focus frames now follows a change of target when Show Raid Marker was turned on without a reload." },
-            { module = "Unit Frames", text = "3D portraits on unit frames and party frames fade with the rest of the interface when the whole UI is faded out, instead of staying on screen." },
-            { module = "Unit Frames", forever = true, text = "A druid's buffs and debuffs shown below the player frame now sit below the Mana + Form Power bar in Cat and Bear Form instead of hiding behind it." },
-            { module = "Unit Frames", forever = true, text = "Player Aura Bars and raid frame filters that hold Food or Drink now show every rank of food and drink, not only the first." },
-            { module = "Localization", text = "German, Korean, Russian, Spanish and Traditional Chinese translations updated for the 9.8.3 options and patch notes, with shorter Russian labels where they ran over." },
         },
     },
 }

@@ -14192,4 +14192,3 @@ L["Your name for the primary talents (Shift + Left Click activates them). Leave 
 L["Your name for the secondary talents (Shift + Right Click activates them). Leave it empty to show the talent tree with the most points."] = "为次要天赋自定义名称（Shift + 右键激活）。留空则显示点数最多的天赋树。"
 L["legacy points"] = "传承点数"
 L["|cffFFFFFFShift + Right Click:|r"] = "|cffFFFFFFShift + 右键：|r"
-L["Click the talent this reminder is for."] = "点击此提醒对应的天赋。"
