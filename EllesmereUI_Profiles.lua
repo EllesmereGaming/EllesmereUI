@@ -2205,7 +2205,7 @@ do
     -- Tooltips, Menus & Popups tab
     add({
         "customTooltips", "tooltipFontScale", "tooltipPlayerTitles",
-        "tooltipItemLevel", "tooltipMythicScore", "tooltipShowMount",
+        "tooltipItemLevel", "tooltipItemLevelItems", "tooltipMythicScore", "tooltipShowMount",
         "tooltipShowGuildRank", "tooltipShowTarget", "tooltipShowMode",
         "tooltipShowModifier", "tooltipGrowthDirection",
         "tooltipLevelColor", "tooltipClassLineColor", "tooltipFactionColor",
@@ -2220,6 +2220,9 @@ do
         "tooltipRoundedCorners",
         "showSpellID", "spellIDModifier", "showIconID", "showItemID",
         "showItemMaxStacks", "itemStackModifier",
+        "tooltipItemLevelItemsModifier", "tooltipItemLevelItemsColor",
+        "tooltipItemLevelItemsCompare", "tooltipItemLevelItemsBags",
+        "tooltipItemLevelItemsPosition",
         "reskinPopupsMenus", "reskinGameMenu", "reskinQueuePopup",
         "showQueueTimer", "queueTimerTextColor", "queueTimerTextSize",
         "queueTimerBarHeight", "queueTimerTextOffsetY",
