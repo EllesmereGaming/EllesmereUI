@@ -357,6 +357,12 @@ function ns.UpdateTrackedBuffBarTimers()
                 local sb = bar._bar
                 -- Name, icon, auto fill color and stacks: on edges only (TBBContentDue).
                 local content = TBBContentDue(bar, blzChild, cfg, wasShown, now)
+                -- WoW Forever: a buff whose bar Blizzard draws against a wrong duration
+                -- and without stacks (EUI_CDM_ForeverLinkedAura.lua): its full duration.
+                if content then
+                    local linked = ns.CDM_LinkedAuraBarFull
+                    bar._linkedFull = linked and linked(blzChild) or nil
+                end
 
                 -- Stacks (gated)
                 if _anyStacks and content then UpdateStacks(bar, blzChild, cfg) end
@@ -382,6 +388,15 @@ function ns.UpdateTrackedBuffBarTimers()
                             else
                                 sb:SetValue(bar._stackCount or 0)
                             end
+                        end
+                    elseif bar._linkedFull then
+                        -- Blizzard's time left over the full duration, not over the
+                        -- refreshed aura's duration (its time left: a full bar).
+                        sb:SetMinMaxValues(0, bar._linkedFull)
+                        if smooth then
+                            sb:SetValue(blizzBar:GetValue(), smooth)
+                        else
+                            sb:SetValue(blizzBar:GetValue())
                         end
                     elseif smooth then
                         sb:SetMinMaxValues(blizzBar:GetMinMaxValues())

@@ -78,6 +78,22 @@ local function UpdateStacks(bar, blzChild, cfg)
         end
         return
     end
+    -- WoW Forever linked-aura bar (EUI_CDM_ForeverLinkedAura.lua): Blizzard blanks
+    -- its stack text before it finds the aura, so the count comes from the aura
+    -- data, blank below 2 as Blizzard's; a secret count passes through.
+    if bar._linkedFull and blzChild then
+        local apps = ReadStackApplications(blzChild)
+        bar._stackCount = apps or 0
+        if bar._stacksText then
+            if apps and (issecretvalue(apps) or apps >= 2) and not bar._stacksHidden then
+                bar._stacksText:SetText(apps)
+                bar._stacksText:Show()
+            else
+                bar._stacksText:Hide()
+            end
+        end
+        return
+    end
     -- Read stacks from blzChild.Icon.Applications FontString.
     if blzChild and blzChild.Icon and blzChild.Icon.Applications then
         -- NEVER compare the text (it may be secret); SetText takes it natively.
