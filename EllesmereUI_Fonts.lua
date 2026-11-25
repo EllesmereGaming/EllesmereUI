@@ -86,21 +86,10 @@ EllesmereUI.FONT_ORDER = {
 }
 -- Display name overrides for the font dropdown (key = FONT_ORDER name). The key is what
 -- settings save and what LSM lists, and FONT_FILES keeps each file name (some settings save
--- the path): the label alone names the face the file holds, with the name it replaced.
-EllesmereUI.FONT_DISPLAY_NAMES = {
-    ["Expressway"]          = "Roboto ExtraBold (previously Expressway)",
-    ["Expressway Bold"]     = "Roboto Black (previously Expressway Bold)",
-    ["Expressway CAPS"]     = "Roboto CAPS (previously Expressway CAPS)",
-    ["Avant Garde"]         = "Adventor (previously Avant Garde)",
-    ["Arial Bold"]          = "Arimo Bold (previously Arial Bold)",
-    ["Arial Narrow"]        = "Liberation Narrow (previously Arial Narrow)",
-    ["Future X Black"]      = "Gantari Black (previously Future X Black)",
-    ["Gotham Narrow Ultra"] = "Blinker ExtraBold (previously Gotham Narrow Ultra)",
-    ["Gotham Narrow"]       = "TikTok Sans (previously Gotham Narrow)",
-    ["HWT Artz"]            = "Anek CAPS (previously HWT Artz)",
-    ["KMT Kimberley"]       = "Tektur (previously KMT Kimberley)",
-    ["KMT Ninja Naruto"]    = "Sedgwick Ave (previously KMT Ninja Naruto)",
-}
+-- the path). Every list shows the saved name, the bundled fonts' replacements included (owner
+-- 2026-11-24: keep the names in game too); media/fonts/licenses/README.txt names the font
+-- each file holds. A label that differs from its key goes here.
+EllesmereUI.FONT_DISPLAY_NAMES = {}
 -- The label a font list shows for a FONT_ORDER name.
 function EllesmereUI.FontDisplayName(name)
     return EllesmereUI.FONT_DISPLAY_NAMES[name] or name

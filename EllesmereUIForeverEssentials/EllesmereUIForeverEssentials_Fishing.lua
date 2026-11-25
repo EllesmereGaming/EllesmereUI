@@ -276,7 +276,8 @@ local function BindCast()
     end
     ClearOverrideBindings(castButton)
     local key = F.Get("key")
-    -- Mouse-wheel input has no release event. Fire the secure action on down.
+    -- A wheel notch has no release, so a wheel key acts on its press; an armed
+    -- double-click keeps the release until Disarm puts the key's phase back.
     castButton:SetAttribute("useOnKeyDown", not clickArmed and IsWheelKey(key))
     if key then SetOverrideBindingClick(castButton, true, key, BUTTON_NAME) end
 end
@@ -328,13 +329,15 @@ end
 local function BuildButton()
     if castButton then return end
     castButton = CreateFrame("Button", BUTTON_NAME, UIParent, "SecureActionButtonTemplate")
-    -- Keyboard keys act on release; mouse-wheel bindings must act on press
-    -- because a wheel tick has no release event. Register both click phases.
+    -- Acts on the release of a keyboard key and on the press of a wheel key (a
+    -- notch has no release; useOnKeyDown follows the key), and the double-click's
+    -- second right-click casts as it comes up (arming holds useOnKeyDown false).
     castButton:RegisterForClicks("AnyUp", "AnyDown")
     castButton:SetAttribute("useOnKeyDown", IsWheelKey(F.Get("key")))
     castButton:Hide()
-    -- Before the secure action, select pole, lure, or fishing spell.
-    -- Start a fishing session on the same phase as the actual cast.
+    -- The press sets what the click does (pole, lure or cast), out of combat; in
+    -- combat it does what was set last. The session starts in the phase the
+    -- click acts on.
     castButton:SetScript("PreClick", function(self, _, down)
         if InCombatLockdown() then return end
         if down then
@@ -415,7 +418,7 @@ ev:SetScript("OnEvent", function(_, event, _, arg2, arg3)
         if event == "PLAYER_REGEN_DISABLED" then
             ClearOverrideBindings(clickOwner)
             clickArmed = false
-            if castButton then castButton:SetAttribute("useOnKeyDown", IsWheelKey(F.Get("key"))) end
+            castButton:SetAttribute("useOnKeyDown", IsWheelKey(F.Get("key")))
         end
         lineOut = false
         EndSession()

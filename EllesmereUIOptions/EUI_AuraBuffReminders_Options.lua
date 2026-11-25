@@ -2994,7 +2994,8 @@ initFrame:SetScript("OnEvent", function(self)
         local spec, class = e.p, e.c
         if spec ~= nil then
             if type(spec) ~= "number" or spec ~= math.floor(spec) then return end
-            class = select(6, GetSpecializationInfoByID(spec))
+            class = nil
+            if GetSpecializationInfoByID then class = select(6, GetSpecializationInfoByID(spec)) end
             if not class then return end
         elseif class ~= nil then
             if type(class) ~= "string" or not (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[class]) then return end
@@ -3478,8 +3479,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- Card order: your current spec first, then every spec in class
             -- and spec order, then the class cards, then the one for every class.
             local _, playerClass = UnitClass("player")
-            local specIdx = GetSpecialization and GetSpecialization()
-            local playerSpec = specIdx and GetSpecializationInfo(specIdx) or nil
+            local specIdx = C_SpecializationInfo.GetSpecialization()
+            local playerSpec = specIdx and C_SpecializationInfo.GetSpecializationInfo(specIdx) or nil
             local ordered = {}
             local function Take(key)
                 local g = key and groups[key]
@@ -3512,7 +3513,10 @@ initFrame:SetScript("OnEvent", function(self)
             for _, g in ipairs(ordered) do
                 local display, specIcon, class = nil, nil, g.class
                 if g.specID then
-                    local _, specName, _, icon, _, classFile, className = GetSpecializationInfoByID(g.specID)
+                    local _, specName, icon, classFile, className
+                    if GetSpecializationInfoByID then
+                        _, specName, _, icon, _, classFile, className = GetSpecializationInfoByID(g.specID)
+                    end
                     specIcon, class = icon, classFile or class
                     display = (specName and className) and (specName .. " " .. className) or tostring(g.specID)
                 elseif class then
@@ -3582,8 +3586,8 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Your current spec (reminders are kept per spec): nil before the
             -- character has a spec, when the reminder holds for the whole class.
-            local specIdx = GetSpecialization and GetSpecialization()
-            local curSpec = specIdx and GetSpecializationInfo(specIdx) or nil
+            local specIdx = C_SpecializationInfo.GetSpecialization()
+            local curSpec = specIdx and C_SpecializationInfo.GetSpecializationInfo(specIdx) or nil
             local _, playerClass = UnitClass("player")
 
             -- An existing reminder of the same talent for this spec takes the

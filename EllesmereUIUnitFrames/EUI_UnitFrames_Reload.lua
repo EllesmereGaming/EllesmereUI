@@ -1649,9 +1649,10 @@ ReloadFramesBody = function()
 
             if frame.unifiedBorder then
                 frame.unifiedBorder:ClearAllPoints()
-                -- Mini frames (ToT/Focus Target/Pet) may override ONLY the border
-                -- size per frame (settings.borderSizeOverride); color and texture
-                -- still inherit from the donor. nil = inherit the donor size.
+                -- Mini frames (ToT/Focus Target/Pet) may override the border size
+                -- (settings.borderSizeOverride) and its Width / Height Offset
+                -- (ns.UF_BorderOffsets) per frame; color and texture still inherit
+                -- from the donor. nil = inherit the donor's.
                 -- Boss frames paint from ns.UF_BossBorderSettings: the donor's
                 -- border until the boss Border Style leaves Inherit.
                 -- ns.UF_FrameBorderPad mirrors this apply for size matching: change the two together.

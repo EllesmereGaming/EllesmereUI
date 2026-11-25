@@ -3179,11 +3179,15 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end
         RefreshLabel()
 
+        local OnWheel  -- set below; on the button only while listening
+
         -- Stops capturing: disables keyboard + wheel so the page scrolls
-        -- normally again.
+        -- normally again. A wheel script takes the wheel by itself (Blizzard's
+        -- own key binding capture turns it on and off this way), so it goes too.
         local function StopListening()
             listening = false
             kbBtn:EnableKeyboard(false)
+            kbBtn:SetScript("OnMouseWheel", nil)
             kbBtn:EnableMouseWheel(false)
             RefreshLabel()
         end
@@ -3203,6 +3207,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     listening = true
                     kbLbl:SetText(EllesmereUI.L("Press a key, click, or scroll..."))
                     kbBtn:EnableKeyboard(true)
+                    kbBtn:SetScript("OnMouseWheel", OnWheel)
                     kbBtn:EnableMouseWheel(true)
                 elseif button == "RightButton" then
                     if SetKey(onKeyClear) then RefreshLabel() end
@@ -3234,14 +3239,15 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end)
 
         -- Scroll-wheel binding only via this capture button (never Quickbind);
-        -- wheel is enabled only while listening. MOUSEWHEELUP/DOWN bind through
-        -- the keybind path (SetBindingClick), same as keyboard keys.
-        kbBtn:SetScript("OnMouseWheel", function(self, delta)
+        -- wheel is taken only while listening (OnClick sets this handler,
+        -- StopListening clears it). MOUSEWHEELUP/DOWN bind through the keybind
+        -- path (SetBindingClick), same as keyboard keys.
+        OnWheel = function(self, delta)
             if not listening then return end
             local mods = ns.CC_GetModifierPrefix()
             local wheel = delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN"
             if SetKey(onKeySet, mods .. wheel) then StopListening() end
-        end)
+        end
 
         kbBtn:SetScript("OnEnter", function(self)
             kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)

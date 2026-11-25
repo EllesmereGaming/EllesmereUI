@@ -11,9 +11,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- SetValue, never a compare or arithmetic). It is laid out on each cast
 -- start from the bar's live texture, orientation and reverse fill, so
 -- texture swaps, fill direction and shape masks need no hooks. The cast is
--- matched by castGUID: instants cast during it, and their failures, leave it
--- alone. Any end event (SUCCEEDED included) with no cast left running also
--- clears it, so a missed or mismatched end event cannot leave it drawn.
+-- matched by castGUID: its own end event clears it; any other end event
+-- (SUCCEEDED included: an instant or a failed press during it) clears it only
+-- once UnitCastingInfo reports no cast running, the rule of Blizzard's own
+-- player frame. A cast whose end event never arrives stays drawn until the
+-- next end event, the next cast start or the bar hiding.
 --
 -- Hosts ("uf" Unit Frames player power bar, "erb" Resource Bars power bar)
 -- Attach their StatusBar while their option is on and the bar can show, and
@@ -198,9 +200,10 @@ local function OnEvent(_, event, _, guid, spellID)
     end
     local cur = castGUID
     if cur == nil then return end
-    -- Player cast GUIDs are never secret; if one is, end on any stop.
-    -- Another cast's event: keep the segment while a cast is still running.
-    if not (issecretvalue(guid) or issecretvalue(cur)) and guid ~= cur
+    -- The stored cast's own end clears it. Another cast's end event (an instant
+    -- or a failed press during it) keeps the segment while a cast is still
+    -- running; a secret GUID is never compared and takes the same test.
+    if (issecretvalue(guid) or issecretvalue(cur) or guid ~= cur)
        and type((UnitCastingInfo("player"))) ~= "nil" then
         return
     end
