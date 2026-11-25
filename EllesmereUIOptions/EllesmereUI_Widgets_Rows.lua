@@ -163,7 +163,8 @@ end
 -- tooltip, disabled + disabledTip (string, or fn returning one), mouse (armed clicks bind mouse chords),
 -- plainMouse (with mouse: an armed bare left/right click binds too, so unbind
 -- is a right-click from rest), canArm (returns false to refuse arming).
--- opts.wheel enables wheel chord capture while armed and hovered.
+-- wheel (while armed, a wheel tick over the button binds MOUSEWHEELUP / MOUSEWHEELDOWN with its
+-- modifiers; the wheel is taken only while armed, so the page scrolls over the button at rest).
 -- Returns btn, refresh.
 function EllesmereUI.BuildKeybindButton(parent, opts)
     local btn = CreateFrame("Button", nil, parent)
@@ -187,10 +188,13 @@ function EllesmereUI.BuildKeybindButton(parent, opts)
     -- Controller buttons: padArmed while they are captured; padHeld is the button
     -- whose press ended capture, kept captured until its release.
     local padArmed, padWired, padHeld = false, false, nil
+    local OnWheel  -- opts.wheel: set below, on the button only while armed
     local function Stop()
         listening = false
         btn:EnableKeyboard(false)
-        btn:EnableMouseWheel(false)
+        -- Setting a wheel script takes the wheel by itself (Blizzard's own key
+        -- binding capture turns it on and off this way), so clear it as well.
+        if OnWheel then btn:SetScript("OnMouseWheel", nil); btn:EnableMouseWheel(false) end
         if padArmed and not padHeld then padArmed = false; btn:EnableGamePadButton(false) end
         -- OnLeave keeps the hover look while armed; drop it once capture ends.
         if not btn:IsMouseOver() then
@@ -204,7 +208,10 @@ function EllesmereUI.BuildKeybindButton(parent, opts)
         for mod in key:gmatch("(%u+)%-") do
             parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
         end
-        parts[#parts + 1] = key:match("[^%-]+$") or key
+        local base = key:match("[^%-]+$") or key
+        if base == "MOUSEWHEELUP" then base = EllesmereUI.L("Wheel Up")
+        elseif base == "MOUSEWHEELDOWN" then base = EllesmereUI.L("Wheel Down") end
+        parts[#parts + 1] = base
         return table.concat(parts, " + ")
     end
     local function Refresh()
@@ -240,7 +247,7 @@ function EllesmereUI.BuildKeybindButton(parent, opts)
         if button ~= "LeftButton" or listening then return end
         if opts.canArm and not opts.canArm() then return end
         listening = true
-        self:EnableMouseWheel(opts.wheel and true or false)
+        if OnWheel then self:SetScript("OnMouseWheel", OnWheel); self:EnableMouseWheel(true) end
         lbl:SetText(EllesmereUI.L("Press a key..."))
         self:EnableKeyboard(true)
         -- Controller in use: its buttons are captured too, only while armed (Stop turns it off).
@@ -303,12 +310,13 @@ function EllesmereUI.BuildKeybindButton(parent, opts)
         if key == "ESCAPE" then Stop(); Refresh(); return end
         Commit(CreateKeyChordStringUsingMetaKeyState(key))
     end)
-    btn:EnableMouseWheel(false)
-    btn:SetScript("OnMouseWheel", opts.wheel and function(_, delta)
-        if InCombatLockdown() or not listening or delta == 0 then return end
-        if disabled and disabled() then return end
-        Commit(CreateKeyChordStringUsingMetaKeyState(delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN"))
-    end or nil)
+    if opts.wheel then
+        OnWheel = function(_, delta)
+            if InCombatLockdown() or not listening or delta == 0 then return end
+            if disabled and disabled() then return end
+            Commit(CreateKeyChordStringUsingMetaKeyState(delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN"))
+        end
+    end
     btn:SetScript("OnEnter", function(self)
         if disabled and disabled() then
             local tip = opts.disabledTip

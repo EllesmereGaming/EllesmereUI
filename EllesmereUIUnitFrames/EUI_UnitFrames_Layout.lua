@@ -49,16 +49,14 @@ end
 local GetMiniDonorSettings = ns.GetMiniDonorSettings
 
 -- Width / Height Offset a frame border draws with (b = its border source). ToT / Focus Target /
--- Pet: own override, else the donor's at the donor's size; another size takes texture defaults.
+-- Pet: their own offset once moved, else the donor's at any Border Size (owner pick 2026-11-24:
+-- a mini frame at another size keeps the main frames' offsets, as before PR #3619).
 local MINI_BORDER_KEYS = { pet = true, targettarget = true, focustarget = true }
 function ns.UF_BorderOffsets(key, s, b)
     if not MINI_BORDER_KEYS[key] then return b.borderTextureOffset, b.borderTextureOffsetY end
     local ox, oy = s.borderOffsetOverride, s.borderOffsetYOverride
-    local sz = s.borderSizeOverride
-    if not sz or sz == (b.borderSize or 1) then
-        if ox == nil then ox = b.borderTextureOffset end
-        if oy == nil then oy = b.borderTextureOffsetY end
-    end
+    if ox == nil then ox = b.borderTextureOffset end
+    if oy == nil then oy = b.borderTextureOffsetY end
     return ox, oy
 end
 

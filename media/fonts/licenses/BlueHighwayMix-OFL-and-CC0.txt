@@ -1,8 +1,27 @@
-Copyright 2017 The Sedgwick Ave Project Authors (https://github.com/googlefonts/sedgwickave)
+Expressway.TTF, Expressway Bold.ttf and Expressway CAPS.ttf hold outlines of two open fonts:
+  - Blue Highway Bold, by Raymond Larabie (Typodermic), dedicated to the public domain under
+    the Creative Commons CC0 1.0 Universal dedication. The font's own statement:
+      "This font has been released under a no rights reserved Creative Commons Zero license.
+      [...] To the extent possible under law, Raymond Larabie has waived all copyright and
+      related or neighboring rights to this font. This work is published from Japan."
+      https://creativecommons.org/publicdomain/zero/1.0/
+    The unchanged font is at https://typodermicfonts.com
+  - Roboto (ExtraBold for Expressway.TTF and Expressway CAPS.ttf, Black for Expressway
+    Bold.ttf, semi-condensed width): the characters Blue Highway does not have, the Cyrillic
+    letters among them, under the SIL Open Font License 1.1, which asks for a font that holds
+    its outlines to be passed on under that license as a whole.
+So each file as a whole is passed on under the SIL Open Font License 1.1, which follows.
+The changes made to both fonts are listed in README.txt beside this file.
+
+==============================================================================
+Roboto: SIL Open Font License 1.1
+==============================================================================
+
+Copyright 2011 The Roboto Project Authors (https://github.com/googlefonts/roboto-classic)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
-http://scripts.sil.org/OFL
+https://openfontlicense.org
 
 
 -----------------------------------------------------------

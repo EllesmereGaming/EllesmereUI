@@ -284,49 +284,12 @@ local SHOWN_TIPS = {
     LootHistoryExtraTooltip = true,
 }
 
--- Owner frames by verdict: true when another addon built the owner's window.
-local foreignOwner = setmetatable({}, { __mode = "k" })
-
--- A named frame whose global another addon wrote (EUI's own are fine).
-local function ForeignName(frame)
-    local ok, name = pcall(frame.GetName, frame)
-    if not ok or type(name) ~= "string" or _G[name] ~= frame then return false end
-    local secure, by = issecurevariable(name)
-    return not secure and not (type(by) == "string" and by:find("^EllesmereUI"))
-end
-
--- True when the tooltip shows for another addon's window: its content is
--- theirs to style, so it stays as they built it.
-local function OwnedByOtherAddon(tooltip)
-    local ok, owner = pcall(tooltip.GetOwner, tooltip)
-    if not ok or type(owner) ~= "table" then return false end
-    -- a comparison tooltip follows the tooltip it compares against
-    local okN, ownerName = pcall(owner.GetName, owner)
-    if owner ~= tooltip and okN and SHOWN_TIPS[ownerName or ""] and owner.GetOwner then
-        ok, owner = pcall(owner.GetOwner, owner)
-        if not ok or type(owner) ~= "table" then return false end
-    end
-    local cached = foreignOwner[owner]
-    if cached ~= nil then return cached end
-    local foreign, f = false, owner
-    for _ = 1, 20 do
-        if type(f) ~= "table" or not f.GetParent then break end
-        if f.GetName and ForeignName(f) then foreign = true; break end
-        local okP, p = pcall(f.GetParent, f)
-        if not okP then break end
-        f = p
-    end
-    foreignOwner[owner] = foreign
-    return foreign
-end
-
 local function SimplifyStatsHook(tooltip)
     local shortenOn, colors = F.Get("shorten"), F.Get("colors")
     if not (shortenOn or colors) then return end
     if not tooltip or not tooltip.GetName then return end
     local ok, name = pcall(tooltip.GetName, tooltip)
     if not ok or not name or not SHOWN_TIPS[name] then return end
-    if OwnedByOtherAddon(tooltip) then return end
     if not statRules then BuildStatRules() end
     local equip = ITEM_SPELL_TRIGGER_ONEQUIP
     if type(equip) ~= "string" then return end
@@ -372,12 +335,17 @@ end
 TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, SimplifyStatsHook)
 
 -- Trainer recipes are spell tooltips carrying the crafted item's lines; other
--- spell tooltips stay out (a "30 Mana" cost reads like a stat line).
+-- spell tooltips stay out (a "30 Mana" cost reads like a stat line). The one
+-- trainer window also serves class and pet trainers, whose spells stay out too.
+local TRADESKILLS = Enum.TrainerType and Enum.TrainerType.Tradeskills
 TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Spell, function(tooltip)
     if not (F.Get("shorten") or F.Get("colors")) then return end
     if not (tooltip and tooltip.GetPrimaryTooltipInfo) then return end
     local ok, info = pcall(tooltip.GetPrimaryTooltipInfo, tooltip)
-    if ok and type(info) == "table" and info.getterName == "GetTrainerService" then
+    if not (ok and type(info) == "table" and info.getterName == "GetTrainerService") then return end
+    -- A trainer service shows only while a trainer window is open: ask its kind now.
+    if TRADESKILLS and C_Trainer and C_Trainer.GetTrainerType
+       and C_Trainer.GetTrainerType() == TRADESKILLS then
         SimplifyStatsHook(tooltip)
     end
 end)

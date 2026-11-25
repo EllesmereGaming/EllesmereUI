@@ -890,7 +890,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
                 SetFish("key", v)
                 EllesmereUI:RefreshPage()  -- the cog's disabled state
             end,
-            tooltip = "Left-click, then press a key or scroll up/down over this button.\nRight-click to unbind.",
+            tooltip = "Left-click, then press a key or scroll.\nRight-click to unbind.",
         })
         EllesmereUI.PanelPP.Point(kbBtn, "RIGHT", rgn, "RIGHT", -20, 0)
         EllesmereUI.RegisterWidgetRefresh(refresh)

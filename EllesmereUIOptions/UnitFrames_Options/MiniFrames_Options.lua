@@ -304,12 +304,23 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
               tooltip="Show the main frames' hover highlight border on this frame. Turn off so this frame never recolors on mouseover. No effect when Highlight is off in the main frames' Hover Borders.",
               getValue=function() return settingsTable.showHighlightBorder ~= false end,
               setValue=function(v) settingsTable.showHighlightBorder = v end });  y = y - h
-        -- Width / Height Offset under the donor's textured style (ns.UF_BorderOffsets).
-        -- A pick is always stored: nil would fall back to the donor's offset.
+        -- Width / Height Offset under the donor's textured style (ns.UF_BorderOffsets: an
+        -- unset offset follows the main frames' at any size). A pick equal to what following
+        -- shows (the donor's offset, else the texture's default) stores nothing, so the frame
+        -- follows the main frames again; any other pick is stored.
         local donorTex = GetMiniDonorSettings(unitKey).borderTexture or "solid"
         if donorTex ~= "solid" and donorTex ~= "" then
             local function Donor() return GetMiniDonorSettings(unitKey) end
             local function Size() return settingsTable.borderSizeOverride or Donor().borderSize or 1 end
+            local function DonorSolid()
+                local t = Donor().borderTexture or "solid"
+                return t == "solid" or t == ""
+            end
+            -- atDefault: the helper found the pick equal to the texture's default for the size.
+            local function Pick(pick, atDefault, donorVal)
+                if donorVal == nil then return (not atDefault) and pick or nil end
+                return pick ~= math.floor(donorVal + 0.5) and pick or nil
+            end
             local pickX, pickY
             local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
                 addonKey = "unitframes",
@@ -319,13 +330,20 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                 getSizeKey = Size,
                 getPx = function() return Donor().borderSizePx end,
                 getX = function() return (ns.UF_BorderOffsets(unitKey, settingsTable, Donor())) end,
-                setX = function() settingsTable.borderOffsetOverride = pickX end,
+                setX = function(v)
+                    settingsTable.borderOffsetOverride = Pick(pickX, v == nil, Donor().borderTextureOffset)
+                end,
                 getY = function()
                     local _, oy = ns.UF_BorderOffsets(unitKey, settingsTable, Donor())
                     return oy
                 end,
-                setY = function() settingsTable.borderOffsetYOverride = pickY end,
+                setY = function(v)
+                    settingsTable.borderOffsetYOverride = Pick(pickY, v == nil, Donor().borderTextureOffsetY)
+                end,
                 apply = ReloadAndUpdate,
+                -- Built only for a textured donor; a cached page whose donor went Solid since greys out.
+                disabled = DonorSolid,
+                disabledTooltip = "This option requires a textured Border Style on the Main Frames.",
             })
             local setL, setR = ocfgL.setValue, ocfgR.setValue
             ocfgL.setValue = function(v) pickX = math.floor(v + 0.5); setL(v) end

@@ -151,7 +151,7 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         Toggle("items", "Items", "Items you loot or receive.", Reapply),
-        Toggle("money", "Money", "Money you loot.", Reapply)
+        Toggle("money", "Money", "Money you loot or receive.", Reapply)
     );  y = y - h
 
     _, h = W:DualRow(parent, y,
