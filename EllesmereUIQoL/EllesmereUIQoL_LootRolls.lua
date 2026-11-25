@@ -1239,11 +1239,6 @@ local function OnEvent(_, event, a1, a2)
         ClearRows()
     elseif event == "LOOT_HISTORY_UPDATE_DROP" then
         OnDrop(a1, a2)
-    elseif event == "PLAYER_ENTERING_WORLD" then
-        -- Rolls already open (a reload or reconnect mid-roll) send no
-        -- START_LOOT_ROLL.
-        if PadUI() or type(GetActiveLootRollIDs) ~= "function" then return end
-        for _, rollID in ipairs(GetActiveLootRollIDs() or {}) do AddRoll(rollID) end
     end
 end
 
@@ -1385,7 +1380,6 @@ local function Apply()
         events:RegisterEvent("START_LOOT_ROLL")
         events:RegisterEvent("CANCEL_LOOT_ROLL")
         events:RegisterEvent("CANCEL_ALL_LOOT_ROLLS")
-        events:RegisterEvent("PLAYER_ENTERING_WORLD")
         if Tracking() and HISTORY then
             events:RegisterEvent("LOOT_HISTORY_UPDATE_DROP")
             -- Results just turned on: the rolls already up find their drops.
