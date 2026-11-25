@@ -493,6 +493,19 @@ function ns.PT_AlongPitch(s, on)
         + PixelSnap(PT_Gap(s))
 end
 
+-- The frames are centered on their owner across the side, so a size difference of an odd pixel
+-- count would seat them half a pixel off the grid (a blurred fill edge past the border). Returns
+-- the X and Y offsets with that half pixel taken up, from the sizes the layout sets (ow, oh: the
+-- owner's; a header button can still report its old size while a pass runs).
+local function PT_OnGrid(side, x, y, ow, oh, w, h)
+    if side == "below" or side == "above" then
+        local d = (ow - w) / 2
+        return x + PixelSnap(d) - d, y
+    end
+    local d = (oh - h) / 2
+    return x, y + PixelSnap(d) - d
+end
+
 -- One target frame on its side of owner o: off from the owner's edge, then the offsets.
 local function PT_Place(frame, o, side, off, x, y)
     frame:ClearAllPoints()
@@ -562,10 +575,13 @@ ns._PT_Layout = function()
             reserve = w ~= PT.w or x ~= PT.x or (not across and pw ~= PT.pw)
         end
     end
+    -- The owner's size is an input of the placement too (PT_OnGrid).
+    local owner = pw ~= PT.pw or ph ~= PT.ph
     PT.pw, PT.ph, PT.horiz = pw, ph, horiz
-    if not (reserve or resized) and off == PT.off and x == PT.x and y == PT.y then return end
+    if not (reserve or resized or owner) and off == PT.off and x == PT.x and y == PT.y then return end
     PT.w, PT.h, PT.side, PT.gap, PT.off, PT.across, PT.x, PT.y = w, h, side, gap, off, across, x, y
     local sizeVisuals = ns._FB.SizeVisuals
+    x, y = PT_OnGrid(side, x, y, pw, ph, w, h)
     for _, frame in ipairs(ns._partyTargetFrames) do
         if resized then
             frame:SetSize(w, h)
@@ -1054,7 +1070,8 @@ function ns.PT_ShowPreview(spec, s, parent, skip)
             local o = ns._partyPvFrames[i]
             if o and o:IsShown() and i ~= skip then
                 n = n + 1
-                PT_Place(PT_PvFrame(n, parent, s, spec), o, spec.side, spec.off, spec.x, spec.y)
+                local x, y = PT_OnGrid(spec.side, spec.x, spec.y, o:GetWidth(), o:GetHeight(), spec.w, spec.h)
+                PT_Place(PT_PvFrame(n, parent, s, spec), o, spec.side, spec.off, x, y)
             end
         end
     end

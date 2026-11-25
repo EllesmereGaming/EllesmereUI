@@ -19,10 +19,18 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  aura (a recast while it is up adds a stack, its duration runs on), for the
 --  aura's full duration.
 --
+--  Tracked bars (TBB) mirror the entry's bar item instead, whose OnUpdate
+--  keeps the countdown right but runs the fill against the aura's duration,
+--  which a recast refreshes to the time left (a full bar on every recast),
+--  and whose stack text was blanked as the icon's. TBB asks
+--  CDM_LinkedAuraBarFull on its content edges and then fills against the full
+--  duration and reads the count from the aura data.
+--
 --  Hand-over to Blizzard: a refresh in which Blizzard armed the cooldown
 --  itself (its fix landed) is left alone. To retire it for good, drop this
---  file, its TOC line and the call at the end of CollectAndReanchor
---  (EUI_CDM_HookReanchor.lua).
+--  file, its TOC line, the call at the end of CollectAndReanchor
+--  (EUI_CDM_HookReanchor.lua) and the _linkedFull lanes in
+--  EUI_CDM_BuffBarTick.lua and UpdateStacks (EUI_CDM_BuffBarPresets.lua).
 -------------------------------------------------------------------------------
 local _, ns = ...
 if EllesmereUI.IS_FOREVER ~= true then return end
@@ -143,6 +151,13 @@ local function OnCast(_, _, _, _, spellID)
     for frame in pairs(hooked) do
         if frame:IsShown() and EntryOf(frame.cooldownID) == entry then Draw(frame, entry) end
     end
+end
+
+-- A tracked bar's Blizzard item: the entry's full aura duration, or nil for a
+-- bar that is no entry's.
+function ns.CDM_LinkedAuraBarFull(blzChild)
+    local spell = blzChild and EntryOf(blzChild.cooldownID)
+    return spell and ENTRIES[spell] or nil
 end
 
 local castFrame = ns.TakeShell()

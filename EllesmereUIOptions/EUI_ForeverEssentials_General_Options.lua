@@ -884,13 +884,13 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         if not EllesmereUI._prebuilding then
         local refresh
         kbBtn, refresh = EllesmereUI.BuildKeybindButton(rgn, {
-            w = 140, h = 30, font = 13,
+            w = 140, h = 30, font = 13, wheel = true,
             get = function() return FI.Get("key") end,
             set = function(v)
                 SetFish("key", v)
                 EllesmereUI:RefreshPage()  -- the cog's disabled state
             end,
-            tooltip = "Left-click to set a keybind.\nRight-click to unbind.",
+            tooltip = "Left-click, then press a key or scroll.\nRight-click to unbind.",
         })
         EllesmereUI.PanelPP.Point(kbBtn, "RIGHT", rgn, "RIGHT", -20, 0)
         EllesmereUI.RegisterWidgetRefresh(refresh)

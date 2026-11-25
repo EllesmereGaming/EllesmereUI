@@ -100,8 +100,9 @@ function ns.UpdatePowerSeam(power, s, stock, preview)
     seam:SetFrameLevel(math.max(power:GetFrameLevel() + 1,
         border and math.min(border:GetFrameLevel() + 1, owner:GetFrameLevel() + 11) or 0))
     local key, size = b.borderTexture, sizeOverride or b.borderSize or 1
-    local px
-    if not sizeOverride then px = EllesmereUI.BorderPx(b.borderSizePx, size, key) end
+    -- The exact size rides along while the step is the source's own (BorderPx checks),
+    -- as the frame border's does.
+    local px = EllesmereUI.BorderPx(b.borderSizePx, size, key)
     seam._key, seam._step, seam._px, seam._path = key, size, px, path
     seam._above = (s.powerPosition == "above")
     local c = b.borderColor
@@ -187,8 +188,9 @@ function ns.UpdatePortraitSeparator(frame, portrait, s, side, attached, stock, p
     seam:SetFrameLevel(math.max(frame:GetFrameLevel() + (preview and 4 or 9),
         border and border:GetFrameLevel() + 1 or 0))
     seam._key, seam._step = b.borderTexture, size
-    seam._px = nil
-    if not sizeOverride then seam._px = EllesmereUI.BorderPx(b.borderSizePx, size, seam._key) end
+    -- The exact size rides along while the step is the donor's own (BorderPx checks), as the
+    -- frame border's does (PR #3619): an override at the donor's step keeps it.
+    seam._px = EllesmereUI.BorderPx(b.borderSizePx, size, seam._key)
     seam._right = side == "right"
     local c = b.borderColor
     seam._tex:SetVertexColor(c and c.r or 0, c and c.g or 0, c and c.b or 0, b.borderAlpha or 1)

@@ -20,6 +20,11 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 -------------------------------------------------------------------------------
 local _, module = ...
 local BUTTON_NAME = "EllesmereUIFishingCastButton"
+-- Wheel chords have no release event, including modified wheel bindings.
+local function IsWheelKey(key)
+    local base = key and key:match("[^%-]+$")
+    return base == "MOUSEWHEELDOWN" or base == "MOUSEWHEELUP"
+end
 
 -- Settings live in EllesmereUIDB.fishing; unset keys read these. key: the
 -- Fishing Key (nil: none); held: [set] = { [cvar] = the value before };
@@ -271,6 +276,9 @@ local function BindCast()
     end
     ClearOverrideBindings(castButton)
     local key = F.Get("key")
+    -- A wheel notch has no release, so a wheel key acts on its press; an armed
+    -- double-click keeps the release until Disarm puts the key's phase back.
+    castButton:SetAttribute("useOnKeyDown", not clickArmed and IsWheelKey(key))
     if key then SetOverrideBindingClick(castButton, true, key, BUTTON_NAME) end
 end
 
@@ -286,6 +294,7 @@ local function Disarm()
     if clickArmed and not InCombatLockdown() then
         ClearOverrideBindings(clickOwner)
         clickArmed = false
+        castButton:SetAttribute("useOnKeyDown", IsWheelKey(F.Get("key")))
         UpdateCastButton()  -- back to what the key does
     end
 end
@@ -320,19 +329,24 @@ end
 local function BuildButton()
     if castButton then return end
     castButton = CreateFrame("Button", BUTTON_NAME, UIParent, "SecureActionButtonTemplate")
-    -- Acts on the release: the session starts just before a cast, and the
-    -- double-click's second right-click casts as it comes up.
+    -- Acts on the release of a keyboard key and on the press of a wheel key (a
+    -- notch has no release; useOnKeyDown follows the key), and the double-click's
+    -- second right-click casts as it comes up (arming holds useOnKeyDown false).
     castButton:RegisterForClicks("AnyUp", "AnyDown")
-    castButton:SetAttribute("useOnKeyDown", false)
+    castButton:SetAttribute("useOnKeyDown", IsWheelKey(F.Get("key")))
     castButton:Hide()
-    -- The key's press sets what its release does (pole, lure or cast), out of
-    -- combat; in combat the release does what was set last.
+    -- The press sets what the click does (pole, lure or cast), out of combat; in
+    -- combat it does what was set last. The session starts in the phase the
+    -- click acts on.
     castButton:SetScript("PreClick", function(self, _, down)
         if InCombatLockdown() then return end
         if down then
             -- An armed double-click keeps reading its own Apply Lure, not the key's.
             UpdateCastButton(clickArmed)
-        elseif self:GetAttribute("type") == "spell" then
+        end
+        local onDown = self:GetAttribute("useOnKeyDown")
+        if ((onDown and down) or (not onDown and not down))
+           and self:GetAttribute("type") == "spell" then
             StartSession()
         end
     end)
@@ -359,6 +373,7 @@ local function OnWorldMouseDown(_, button)
         return
     end
     UpdateCastButton(true)
+    castButton:SetAttribute("useOnKeyDown", false)
     SetOverrideBindingClick(clickOwner, true, "BUTTON2", BUTTON_NAME)
     clickArmed = true
     armedAt = GetTime()
@@ -403,6 +418,7 @@ ev:SetScript("OnEvent", function(_, event, _, arg2, arg3)
         if event == "PLAYER_REGEN_DISABLED" then
             ClearOverrideBindings(clickOwner)
             clickArmed = false
+            castButton:SetAttribute("useOnKeyDown", IsWheelKey(F.Get("key")))
         end
         lineOut = false
         EndSession()

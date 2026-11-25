@@ -1937,14 +1937,14 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
     return pvFrame, sectionH, PV_SCALE
 end
 
--- Which frames a condition group can apply on: raid (raid, battleground),
--- party (dungeon, arena, solo, party). Keybind, Dark Mode and, on WoW Forever,
--- Gamepad Mode and Secondary Spec hold wherever the player is, so a group with
--- any of them reaches both; neither when it has no condition.
+-- Which frames a condition group can apply on: raid (raid, battleground, raid
+-- group), party (dungeon, arena, solo, party). Keybind, Dark Mode and, on WoW
+-- Forever, Gamepad Mode and Secondary Spec hold wherever the player is, so a
+-- group with any of them reaches both; neither when it has no condition.
 function ns.BM_CondSides(g)
     local c = g and g.conds or {}
     if c.keybind or c.darkmode or c.gamepad or c.secondaryspec then return true, true end
-    return (c.raid or c.battleground) and true or false,
+    return (c.raid or c.battleground or c.raidgroup) and true or false,
         (c.dungeon or c.arena or c.solo or c.party) and true or false
 end
 

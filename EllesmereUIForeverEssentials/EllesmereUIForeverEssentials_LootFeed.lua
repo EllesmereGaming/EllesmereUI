@@ -786,8 +786,9 @@ local function ShortMoney(copper)
 end
 
 -------------------------------------------------------------------------------
---  Gold per Hour Tracker: looted coin plus the value of looted items, since
---  the first loot of the session (a reload starts a new one). One pinned row
+--  Gold per Hour Tracker: coin looted or received (junkboxes and quest
+--  rewards print one "Received" line) plus the value of looted items, since
+--  the first gain of the session (a reload starts a new one). One pinned row
 --  shows the hourly rate, the total and the session's length; Ctrl + Click on
 --  its Reset Session button clears it.
 -------------------------------------------------------------------------------
@@ -968,7 +969,7 @@ end
 local rollLinks, wins = {}, {}
 
 -- looted: a real loot line (not a preview sample). earned: one the tracker
--- counts (looted or won, not bought or a quest reward), even when item rows
+-- counts (looted or won, not bought or a quest reward item), even when item rows
 -- are off or the item is below Minimum Quality.
 local function ShowItem(link, count, retried, looted, earned)
     local name, _, quality, itemLevel, _, _, _, _, _, icon, sellPrice, classID, _, bindType = C_Item.GetItemInfo(link)
@@ -1191,6 +1192,13 @@ local function OnMoney(text)
     if Get("money") then ShowMoney(copper) end
 end
 
+-- Coin from opened containers and quest rewards arrives as one system line
+-- ("Received %s."), so both show as Money rows and both count as a gain.
+local function OnSystem(text)
+    local coins = Match("ERR_QUEST_REWARD_MONEY_S", text)
+    if coins then OnMoney(coins) end
+end
+
 local function OnFaction(text)
     local faction, amount = Match("FACTION_STANDING_INCREASED", text)
     if faction then return ShowReputation(faction, tonumber(amount)) end
@@ -1207,6 +1215,7 @@ end
 local CHAT_EVENTS = {
     CHAT_MSG_LOOT = { setting = "items", handler = OnLoot, tracked = true },
     CHAT_MSG_MONEY = { setting = "money", handler = OnMoney, tracked = true },
+    CHAT_MSG_SYSTEM = { setting = "money", handler = OnSystem, tracked = true },
     CHAT_MSG_COMBAT_FACTION_CHANGE = { setting = "reputation", handler = OnFaction },
     CHAT_MSG_SKILL = { setting = "skills", handler = OnSkill },
 }
