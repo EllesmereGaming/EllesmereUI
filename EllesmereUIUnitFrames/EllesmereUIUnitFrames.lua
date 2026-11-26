@@ -192,6 +192,7 @@ ns.UF_ClassificationBorderDefaults = {
     borderRareColor = { r = 0.75, g = 0.78, b = 0.82 },
     borderEliteColor = { r = 1, g = 0.82, b = 0.25 },
 }
+ns.UF_BorderGradientDefault = { r = 0.20, g = 0.20, b = 0.80 }
 
 local db
 local defaults = {
@@ -490,6 +491,9 @@ local defaults = {
             foreverComboLocation = (EllesmereUI.IS_FOREVER == true) and "target" or nil,
             borderSize = 1,
             borderClassColored = false,
+            borderGradientEnabled = false,
+            borderGradientDir = "HORIZONTAL",
+            borderGradientColor = ns.UF_BorderGradientDefault,
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
             borderPowerSeam = false,  -- Border Options cog "Power Bar Seam" (opt-in)
@@ -731,6 +735,9 @@ local defaults = {
             powerBarOpacity = 100,
             borderSize = 1,
             borderClassColored = false,
+            borderGradientEnabled = false,
+            borderGradientDir = "HORIZONTAL",
+            borderGradientColor = ns.UF_BorderGradientDefault,
             borderRareColored = false,
             borderEliteColored = false,
             borderExcludeFriendly = false,
@@ -1214,6 +1221,9 @@ local defaults = {
             textSize = 12,
             borderSize = 1,
             borderClassColored = false,
+            borderGradientEnabled = false,
+            borderGradientDir = "HORIZONTAL",
+            borderGradientColor = ns.UF_BorderGradientDefault,
             borderRareColored = false,
             borderEliteColored = false,
             borderExcludeFriendly = false,

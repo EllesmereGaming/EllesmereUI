@@ -601,7 +601,11 @@ local function UpdateBordersForScale(frame, unit)
         local bc = settings.borderColor or { r = 0, g = 0, b = 0 }
         local textureKey = settings.borderTexture or "solid"
         EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, borderSize, bc.r, bc.g, bc.b, settings.borderAlpha or 1, textureKey, settings.borderTextureOffset, settings.borderTextureOffsetY, settings.borderTextureShiftX, settings.borderTextureShiftY, "unitframes", borderSize, nil,
-            EllesmereUI.BorderPx(settings.borderSizePx, borderSize, textureKey))
+            EllesmereUI.BorderPx(settings.borderSizePx, borderSize, textureKey),
+            ns.UF_KeepBorderGradient(settings, unit, frame))
+        if settings.borderGradientEnabled then
+            ns.UF_ApplyBorderGradient(frame.unifiedBorder, settings, unit, frame)
+        end
     end
 
     -- 2) Gather layout info.

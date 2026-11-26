@@ -1666,7 +1666,11 @@ ReloadFramesBody = function()
                 local box, boy = ns.UF_BorderOffsets(UnitToSettingsKey(unit), settings, bsrc)
                 PP.Point(frame.unifiedBorder, "TOPLEFT", frame, "TOPLEFT", 0, 0)
                 PP.Point(frame.unifiedBorder, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
-                EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, bs, bc.r, bc.g, bc.b, bsrc.borderAlpha or 1, btex, box, boy, bsrc.borderTextureShiftX, bsrc.borderTextureShiftY, "unitframes", bs, nil, bpx)
+                EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, bs, bc.r, bc.g, bc.b, bsrc.borderAlpha or 1, btex, box, boy, bsrc.borderTextureShiftX, bsrc.borderTextureShiftY, "unitframes", bs, nil, bpx,
+                    ns.UF_KeepBorderGradient(bsrc, unit, frame))
+                if bsrc.borderGradientEnabled then
+                    ns.UF_ApplyBorderGradient(frame.unifiedBorder, bsrc, unit, frame)
+                end
             end
             -- Boss Hover/Target border: the border was just restyled to its normal
             -- color above, so re-apply the hover/target recolor (both default off,
@@ -1866,8 +1870,8 @@ ReloadFramesBody = function()
             local src = isBoss and ns.UF_BossBorderSettings()
                 or (isMini and GetMiniDonorSettings(unit)) or GetSettingsForUnit(unit)
             local us = GetSettingsForUnit(unit)
-            if frame._euiWantedBorderColorChannel
-                or (src and (src.borderClassColored or ns.UF_ClassificationBorderEnabled(src, unit))) then
+            if frame._euiBorderColorSource or (src and (src.borderClassColored or ns.UF_ClassificationBorderEnabled(src, unit)
+                or (src.borderGradientEnabled and ns.UF_BorderGradientUnit(unit)))) then
                 ns.UF_SyncBorderColor(frame, unit, src)
             end
             local radius = (not frame._blizzArtFrame and src and src.cornerRadius) or 0

@@ -569,6 +569,21 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
     -- Sync icon: Border (right region - border slider)
     if not EllesmereUI._prebuilding then
         local rgn = sharedScaleBorderRow._rightRegion
+        local function CopyBorderGradient(dst)
+            local src = SDB()
+            local r, g, b = ns.UF_BorderGradientRGB(src)
+            dst.borderGradientEnabled = src.borderGradientEnabled == true
+            dst.borderGradientDir = src.borderGradientDir or "HORIZONTAL"
+            dst.borderGradientColor = { r = r, g = g, b = b }
+        end
+        local function BorderGradientMatches(dst)
+            local src = SDB()
+            if (dst.borderGradientEnabled == true) ~= (src.borderGradientEnabled == true)
+                or (dst.borderGradientDir or "HORIZONTAL") ~= (src.borderGradientDir or "HORIZONTAL") then return false end
+            local r, g, b = ns.UF_BorderGradientRGB(src)
+            local dr, dg, db = ns.UF_BorderGradientRGB(dst)
+            return r == dr and g == dg and b == db
+        end
         EllesmereUI.BuildSyncIcon({
             region  = rgn,
             tooltip = "Apply Border to all Frames",
@@ -609,6 +624,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                         end
                         if bc then UNIT_DB_MAP[key]().borderColor = { r=bc.r, g=bc.g, b=bc.b } end
                         CopyBorderColorModes(UNIT_DB_MAP[key](), key)
+                        CopyBorderGradient(UNIT_DB_MAP[key]())
                         if ba then UNIT_DB_MAP[key]().borderAlpha = ba end
                         UNIT_DB_MAP[key]().borderTexture = bt
                         UNIT_DB_MAP[key]().borderTextureOffset = ox
@@ -631,6 +647,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                     if (UNIT_DB_MAP[key]().borderSize or 1) ~= bs then return false end
                     if (UNIT_DB_MAP[key]().borderTexture or "solid") ~= bt then return false end
                     if not BorderColorModesMatch(UNIT_DB_MAP[key](), key) then return false end
+                    if not BorderGradientMatches(UNIT_DB_MAP[key]()) then return false end
                     if EllesmereUI.BorderPx(UNIT_DB_MAP[key]().borderSizePx, bs, bt) ~= bpx then return false end
                     if (UNIT_DB_MAP[key]().cornerRadius or 0) ~= cr then return false end
                     if (UNIT_DB_MAP[key]().cornerMask or 15) ~= (cm or 15) then return false end
@@ -678,6 +695,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                         end
                         if bc then UNIT_DB_MAP[key]().borderColor = { r=bc.r, g=bc.g, b=bc.b } end
                         CopyBorderColorModes(UNIT_DB_MAP[key](), key)
+                        CopyBorderGradient(UNIT_DB_MAP[key]())
                         if ba then UNIT_DB_MAP[key]().borderAlpha = ba end
                         UNIT_DB_MAP[key]().borderTexture = bt
                         UNIT_DB_MAP[key]().borderTextureOffset = ox
@@ -699,6 +717,11 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
         local unit = optState.selectedUnit
         local eliteRare = (unit == "target" or unit == "focus")
 
+        local gradientUnit = ns.UF_BorderGradientUnit(unit)
+        local function GradientAvailable()
+            return ns.UF_BorderGradientPainter(UNIT_DB_MAP[unit]())
+        end
+        local gradientStyleTip = "Gradients are available for Solid, Glow, Shadow, Blizzard, Lightspark Border, Pixels and Pixels Textured."
         -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
         -- border size control. Target and Focus add their Elite / Rare border
         -- colors to it (Border Settings), which apply to every border style.
@@ -713,7 +736,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
             function() return SGet("cornerJoinPower") end, function(v) SSet("cornerJoinPower", v) end,
             function() local pos = SGet("powerPosition") or "below"; return pos == "detached_top" or pos == "detached_bottom" end,
             "Detached Power Bar")
-        if eliteRare then
+        if eliteRare or gradientUnit then
             -- The corner rows grey out on their own here, so the overrides stay
             -- reachable under a textured style.
             for _, row in ipairs(rows) do
@@ -721,6 +744,8 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                 row.disabled = function() return NotRounded() or (own ~= nil and own()) end
                 row.disabledTooltip = function() if NotRounded() then return ROUNDED_TIP end return ownTip end
             end
+        end
+        if eliteRare then
             local GetSettings = UNIT_DB_MAP[unit]
             local function SetOverride(key, value)
                 GetSettings()[key] = value
@@ -788,11 +813,33 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                 get = function() return GetSettings().borderExcludeFriendly == true end,
                 set = function(v) SetOverride("borderExcludeFriendly", v) end }
         end
+        if gradientUnit then
+            local profile, settings = db.profile, SDB()
+            local function SetGradientOption(key, value)
+                if optState.selectedUnit ~= unit or db.profile ~= profile or SDB() ~= settings
+                    or not GradientAvailable() then return end
+                SSet(key, value)
+                EllesmereUI:RefreshPage()
+            end
+            local function GradientUnavailable() return not GradientAvailable() end
+            rows[#rows + 1] = { type = "toggle", label = "Enable Gradient",
+                tooltip = "Blends from your Custom or Class color to the Gradient End Color.",
+                disabled = GradientUnavailable, disabledTooltip = gradientStyleTip, rawTooltip = true,
+                get = function() return settings.borderGradientEnabled end,
+                set = function(v) SetGradientOption("borderGradientEnabled", v) end }
+            rows[#rows + 1] = { type = "dropdown", label = "Gradient Direction",
+                values = { HORIZONTAL = "Horizontal", VERTICAL = "Vertical" },
+                order = { "HORIZONTAL", "VERTICAL" },
+                disabled = GradientUnavailable, disabledTooltip = gradientStyleTip, rawTooltip = true,
+                get = function() return settings.borderGradientDir or "HORIZONTAL" end,
+                set = function(v) SetGradientOption("borderGradientDir", v) end }
+        end
+        local title = (eliteRare or gradientUnit) and "Border Settings" or "Corner Radius"
         EllesmereUI.BuildInlineCog(rgn, {
-            title = eliteRare and "Border Settings" or "Corner Radius",
-            tip = eliteRare and "Border Settings" or "Corner Radius",
-            disabled = (not eliteRare) and NotRounded or nil,
-            disabledTooltip = (not eliteRare) and ROUNDED_TIP or nil,
+            title = title,
+            tip = title,
+            disabled = (not eliteRare and not gradientUnit) and NotRounded or nil,
+            disabledTooltip = (not eliteRare and not gradientUnit) and ROUNDED_TIP or nil,
             rows = rows,
         })
 
@@ -815,7 +862,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
             ReloadAndUpdate()
             return color
         end
-        EllesmereUI.BuildInlineSwatches(rgn, {
+        local swatches = {
             { tooltip = "Custom Color", hasAlpha = true,
               getValue = function()
                   local c = SGet("borderColor")
@@ -854,6 +901,53 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                   if not IsClassColored() then SetColorMode(true) end
               end,
               refreshAlpha = function() return IsClassColored() and 1 or 0.3 end },
+        }
+        if ns.UF_BorderGradientUnit(unit) then
+            local GetGradientSettings = UNIT_DB_MAP[unit]
+            local function GradientEnabled(settings)
+                return settings.borderGradientEnabled and ns.UF_BorderGradientPainter(settings)
+            end
+            local function WriteGradientColor(settings, r, g, b)
+                local color = { r=r, g=g, b=b }
+                settings.borderGradientColor = color
+                ReloadAndUpdate()
+                EllesmereUI:RefreshPage()
+                return color
+            end
+            table.insert(swatches, 1, {
+                tooltip = unit == "player" and "Gradient End Color"
+                    or "Gradient End Color. Active Elite/Rare overrides use their own end color.",
+                disabled = function() return not GradientEnabled(GetGradientSettings()) end,
+                disabledTooltip = function() return GradientAvailable() and "Enable Gradient" or gradientStyleTip end,
+                rawTooltip = true,
+                getValue = function() return ns.UF_BorderGradientRGB(GetGradientSettings()) end,
+                setValue = function(r, g, b)
+                    local settings = GetGradientSettings()
+                    if optState.selectedUnit == unit and GradientEnabled(settings) then
+                        WriteGradientColor(settings, r, g, b)
+                    end
+                end,
+                bindPicker = function()
+                    local profile, settings = db.profile, GetGradientSettings()
+                    local oldColor = settings.borderGradientColor
+                    local lastColor
+                    return function(r, g, b)
+                        if optState.selectedUnit ~= unit or db.profile ~= profile
+                            or GetGradientSettings() ~= settings or not GradientEnabled(settings) then return false end
+                        lastColor = WriteGradientColor(settings, r, g, b)
+                    end, function()
+                        if profile[unit] ~= settings or settings.borderGradientColor ~= lastColor then return false end
+                        settings.borderGradientColor = oldColor
+                        if db.profile ~= profile then return false end
+                        ReloadAndUpdate()
+                        EllesmereUI:RefreshPage()
+                    end
+                end,
+            })
+        end
+        EllesmereUI.BuildInlineSwatches(rgn, swatches, {
+            disabled = function() return EllesmereUI.BlizzStyle.Get("unitframes") end,
+            disabledTooltip = function() return EllesmereUI.BlizzStyle.Label("unitframes") end,
         })
     end
 
