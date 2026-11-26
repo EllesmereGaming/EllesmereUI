@@ -625,7 +625,8 @@ do
             and EllesmereUI._tooltipSuppressedByMode(tooltip) then return false end
 
         ResetPending()
-        tooltip:Show() -- cancels Blizzard's built-in fade
+        local ok = pcall(tooltip.Show, tooltip)
+        if not ok then return false end
         tooltip:SetAlpha(1)
         hidePending = true
         local generation = hideGeneration
