@@ -594,6 +594,14 @@ if EllesmereUI.IS_FOREVER then
             break
         end
     end
+    -- Soulstone's 30 min cooldown is on the stone, not on a spell the warlock knows.
+    CDM_ITEM_PRESETS[#CDM_ITEM_PRESETS + 1] = {
+        key        = "soulstone",
+        name       = "Soulstone",
+        icon       = (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(5232)) or 134400,
+        itemID     = 5232,
+        altItemIDs = { 16896, 16895, 16893, 16892 },
+    }
 end
 
 -- WoW Forever has no Pandemic Glow: its auras carry no time over on a refresh, so

@@ -876,6 +876,9 @@ function ns.EnumerateCDMSettingsCatalog(wantSet)
     return result
 end
 
+-- WoW Forever: Soulstone Resurrection ranks, whose cooldown is on the stone (the Soulstone item preset).
+local FOREVER_ITEM_CD_SPELLS = EllesmereUI.IS_FOREVER and { [20707] = true, [20762] = true, [20763] = true, [20764] = true, [20765] = true } or {}
+
 -- True when the picker's spell list for a CD/utility bar holds spellID (or a
 -- variant of it): a cooldown in Blizzard's Essential/Utility viewers or its
 -- settings catalog, talented or not (GetCDMSpellsForBar's own sources). Added
@@ -884,7 +887,7 @@ end
 -- left out, as the list leaves it out: it has no Blizzard frame, so EUI draws
 -- its own and those settings work. Built per call (Add Custom Spell only).
 function ns.IsCDMTrackedCooldown(spellID)
-    if not _IsUsableSID(spellID) then return false end
+    if not _IsUsableSID(spellID) or FOREVER_ITEM_CD_SPELLS[spellID] then return false end
     local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     local set = {}
     local function Add(cdID, sid)
@@ -930,13 +933,17 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
         end
     end
 
+    local function OnThisBar(sid)
+        return ResolveVariantValue(ourPool, sid) == true
+            or (ourNames ~= nil and ourNames[RankName(sid) or false] == true)
+    end
     -- Picker only enumerates pool members, so every result is Blizzard-tracked.
     local entries = EnumerateCDMViewerSpells(isBuffType)
 
     local spells = {}
     for _, e in ipairs(entries) do
         local sid = e.sid
-        local name = C_Spell.GetSpellName(sid)
+        local name = not (FOREVER_ITEM_CD_SPELLS[sid] and not isBuffType and not OnThisBar(sid)) and C_Spell.GetSpellName(sid)
         local tex  = C_Spell.GetSpellTexture(sid)
         if name then
             local isOnThisBar = (ResolveVariantValue(ourPool, sid) == true)
@@ -969,7 +976,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                 StoreVariantValue(seenSid, e.sid, true, false)
             end
             for _, ce in ipairs(catalog) do
-                if not seenCd[ce.cdID]
+                if not seenCd[ce.cdID] and not (FOREVER_ITEM_CD_SPELLS[ce.sid] and not OnThisBar(ce.sid))
                    and not ResolveVariantValue(seenSid, ce.sid) then
                     local name = C_Spell.GetSpellName(ce.sid)
                     local tex  = C_Spell.GetSpellTexture(ce.sid)
