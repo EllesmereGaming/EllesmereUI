@@ -842,7 +842,8 @@ local function ApplyPreviewData(f, index, roles, classTokens)
         EllesmereUI.ApplyBorderStyle(f._border, bs, bc.r, bc.g, bc.b, s.borderAlpha or 1,
             s.borderTexture or "solid", s.borderTextureOffset, s.borderTextureOffsetY,
             s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs, nil,
-            EllesmereUI.BorderPx(s.borderSizePx, bs, s.borderTexture or "solid"))
+            EllesmereUI.BorderPx(s.borderSizePx, bs, s.borderTexture or "solid"),
+            s.borderGradientEnabled and ns.RF_BorderGradientPainter(s))
         if f._ApplyBorderColor then f._ApplyBorderColor() end
     end
     -- Rounded corners, as on the live cells (stock styles stay square).
