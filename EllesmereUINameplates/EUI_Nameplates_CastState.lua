@@ -455,11 +455,14 @@ local function SetupAuraCVars()
             local np = C_NamePlate.GetNamePlateForUnit(addedUnit)
             if not np then return end
             ns.NP_HideBehindCameraIcon(np.UnitFrame)
-            if UnitCanAttack("player", addedUnit) then
+            local enemy = UnitCanAttack("player", addedUnit)
+            if enemy then
                 ns.HideBlizzardFrame(np, addedUnit)
             else
                 ns.NP_ReclaimBlizzardFrame(np.UnitFrame)
             end
+            -- After Blizzard's own hit-test points, on the tick the unit is assigned.
+            ns.NP_ApplyHitBounds(np, enemy)
         end)
     end
     ns.ApplyNamePlateClickArea = ApplyNamePlateClickArea
