@@ -1656,8 +1656,9 @@ ReloadFramesBody = function()
                 -- Boss frames paint from ns.UF_BossBorderSettings: the donor's
                 -- border until the boss Border Style leaves Inherit.
                 -- ns.UF_FrameBorderPad mirrors this apply for size matching: change the two together.
+                local boss = unit:match("^boss%d$")
                 local bsrc = donorSettings
-                if unit:match("^boss%d$") then bsrc = ns.UF_BossBorderSettings() end
+                if boss then bsrc = ns.UF_BossBorderSettings() end
                 local bs = settings.borderSizeOverride or bsrc.borderSize or 1
                 local bc = bsrc.borderColor or { r = 0, g = 0, b = 0 }
                 local btex = bsrc.borderTexture or "solid"
@@ -1668,7 +1669,7 @@ ReloadFramesBody = function()
                 PP.Point(frame.unifiedBorder, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
                 EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, bs, bc.r, bc.g, bc.b, bsrc.borderAlpha or 1, btex, box, boy, bsrc.borderTextureShiftX, bsrc.borderTextureShiftY, "unitframes", bs, nil, bpx,
                     ns.UF_KeepBorderGradient(bsrc, unit, frame))
-                if bsrc.borderGradientEnabled then
+                if not boss and bsrc.borderGradientEnabled then
                     ns.UF_ApplyBorderGradient(frame.unifiedBorder, bsrc, unit, frame)
                 end
             end
@@ -1871,7 +1872,7 @@ ReloadFramesBody = function()
                 or (isMini and GetMiniDonorSettings(unit)) or GetSettingsForUnit(unit)
             local us = GetSettingsForUnit(unit)
             if frame._euiBorderColorSource or (src and (src.borderClassColored or ns.UF_ClassificationBorderEnabled(src, unit)
-                or (src.borderGradientEnabled and ns.UF_BorderGradientUnit(unit)))) then
+                or ns.UF_KeepBorderGradient(src, unit))) then
                 ns.UF_SyncBorderColor(frame, unit, src)
             end
             local radius = (not frame._blizzArtFrame and src and src.cornerRadius) or 0

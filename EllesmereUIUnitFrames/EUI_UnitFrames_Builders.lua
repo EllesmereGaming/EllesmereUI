@@ -90,9 +90,16 @@ function ns.UF_BorderGradientRGB(settings)
     return color.r, color.g, color.b
 end
 
+local function GradientPainter(settings, unitKey)
+    if settings.borderGradientEnabled and (ns.UF_BorderGradientUnit(unitKey)
+        or unitKey == "boss" or (unitKey and unitKey:match("^boss%d$"))) then
+        return ns.UF_BorderGradientPainter(settings), settings
+    end
+end
+
 local function ActiveGradientPainter(border, settings, unitKey)
-    if not settings.borderGradientEnabled or not ns.UF_BorderGradientUnit(unitKey) or not border:IsShown() then return end
-    return ns.UF_BorderGradientPainter(settings)
+    local paint, gradient = GradientPainter(settings, unitKey)
+    if paint and border:IsShown() and not ns.UF_Blizz() then return paint, gradient end
 end
 
 local function PaintGradient(paint, border, settings, r, g, b, a, endR, endG, endB)
@@ -102,11 +109,11 @@ local function PaintGradient(paint, border, settings, r, g, b, a, endR, endG, en
     return paint(border, r, g, b, endR, endG, endB, a, direction)
 end
 
-local function BorderTint(paint, border, settings, unit, previewKey, overrideR, overrideG, overrideB)
+local function BorderTint(paint, gradientSettings, border, settings, unit, previewKey, overrideR, overrideG, overrideB)
     local a = settings.borderAlpha or 1
     if not paint and overrideR then return overrideR, overrideG, overrideB, a end
     local r, g, b = BaseBorderRGB(settings, unit, previewKey)
-    local gradient = paint and PaintGradient(paint, border, settings, r, g, b, a, overrideR, overrideG, overrideB)
+    local gradient = paint and PaintGradient(paint, border, gradientSettings, r, g, b, a, overrideR, overrideG, overrideB)
     if overrideR then return overrideR, overrideG, overrideB, a, gradient end
     return r, g, b, a, gradient
 end
@@ -127,17 +134,17 @@ end
 local function PaintNormalBorder(frame, settings, unit)
     local border = frame.unifiedBorder
     local unitKey = frame._euiBaseUnit
-    local paint = ActiveGradientPainter(border, settings, unitKey)
-    ns.UF_TintFrameBorder(frame, border, BorderTint(paint, border, settings, unit, nil,
+    local paint, gradient = ActiveGradientPainter(border, settings, unitKey)
+    ns.UF_TintFrameBorder(frame, border, BorderTint(paint, gradient, border, settings, unit, nil,
         ns.UF_ClassificationBorderColor(settings, unit, unitKey)))
 end
 
 function ns.UF_PaintBorderPreview(frame, border, settings, unitKey)
     if ns.UF_Blizz() then return end
-    local paint = ActiveGradientPainter(border, settings, unitKey)
+    local paint, gradient = ActiveGradientPainter(border, settings, unitKey)
     local r, g, b = ns.UF_ClassificationBorderColor(settings, unitKey, unitKey)
     if paint or r or settings.borderClassColored then
-        ns.UF_TintFrameBorder(frame, border, BorderTint(paint, border, settings, unitKey, unitKey, r, g, b))
+        ns.UF_TintFrameBorder(frame, border, BorderTint(paint, gradient, border, settings, unitKey, unitKey, r, g, b))
     end
 end
 
@@ -150,7 +157,7 @@ ns.ApplyBossBorderState = function(self)
     if not self.unifiedBorder then return end
     local s = db.profile.boss
     if not s then return end
-    local r, g, b, a
+    local r, g, b, a, gradient
     if self._hovered and s.bossHoverBorderEnabled then
         local c = s.bossHoverBorderColor or { r = 1, g = 1, b = 1 }
         r, g, b, a = c.r, c.g, c.b, s.bossHoverBorderAlpha or 1
@@ -162,33 +169,33 @@ ns.ApplyBossBorderState = function(self)
         -- (the donor's while inheriting, never the unused boss copy).
         local bossPreview = ns._bossPreviewActive and self._euiUnit == "player"
         local settings = ns.UF_BossBorderSettings()
-        r, g, b = BaseBorderRGB(settings, self._euiUnit, bossPreview and "boss")
-        a = settings.borderAlpha or 1
+        local paint, gradientSettings = ActiveGradientPainter(self.unifiedBorder, settings, "boss")
+        r, g, b, a, gradient = BorderTint(paint, gradientSettings, self.unifiedBorder, settings, self._euiUnit, bossPreview and "boss")
     end
-    ns.UF_TintFrameBorder(self, self.unifiedBorder, r, g, b, a)
+    ns.UF_TintFrameBorder(self, self.unifiedBorder, r, g, b, a, gradient)
 end
 
 local function FrameBorderEnter(self)
     if not self.unifiedBorder then return end
     if self._blizzArtFrame then return end  -- Blizzard Style: no EUI border to recolor
-    local unit = self._euiUnit or "player"
-    if unit:match("^boss%d$") then
+    local unitKey = self._euiBaseUnit or "player"
+    if unitKey:match("^boss%d$") then
         self._hovered = true
         ns.ApplyBossBorderState(self)
         return
     end
-    local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget")
-    local settings = isMini and GetMiniDonorSettings(unit) or GetSettingsForUnit(unit)
+    local isMini = unitKey == "pet" or unitKey == "targettarget" or unitKey == "focustarget"
+    local settings = isMini and GetMiniDonorSettings(unitKey) or GetSettingsForUnit(unitKey)
     -- Highlight defaults ON (nil == enabled); only an explicit false disables it.
     if settings.highlightEnabled == false then return end
     -- Per-mini-frame opt-out: with "Show Highlight Border" off, a mini frame never
     -- recolors on hover even when the donor (main frame) highlight is enabled. (When the
     -- donor highlight is off we already returned above, so this has no effect then.)
-    if isMini and GetSettingsForUnit(unit).showHighlightBorder == false then return end
+    if isMini and GetSettingsForUnit(unitKey).showHighlightBorder == false then return end
     local hc = settings.highlightColor or { r = 1, g = 1, b = 1 }
     local ha = settings.highlightAlpha or 1
     if self._euiBorderColorSource
-        or ActiveGradientPainter(self.unifiedBorder, settings, self._euiBaseUnit) then
+        or ActiveGradientPainter(self.unifiedBorder, settings, unitKey) then
         self._euiBorderColorHover = true
     end
     ns.UF_TintFrameBorder(self, self.unifiedBorder, hc.r, hc.g, hc.b, ha)
@@ -196,33 +203,35 @@ local function FrameBorderEnter(self)
 end
 
 function ns.UF_ApplyBorderGradient(border, settings, unitKey, frame)
-    local paint = ActiveGradientPainter(border, settings, unitKey)
-    if not paint or ns.UF_Blizz() then return end
+    local paint, gradientSettings = ActiveGradientPainter(border, settings, unitKey)
+    if not paint then return end
+    if frame and unitKey:match("^boss%d$") then ns.ApplyBossBorderState(frame); return end
     if frame and frame._euiBorderColorHover and FrameBorderEnter(frame) then return end
-    local unit = frame._euiUnit or unitKey
-    local r, g, b, a, gradient = BorderTint(paint, border, settings, unit, nil,
+    local unit = frame and frame._euiUnit or unitKey
+    local r, g, b, a, gradient = BorderTint(paint, gradientSettings, border, settings, unit, nil,
         ns.UF_ClassificationBorderColor(settings, unit, unitKey))
     if not gradient then EllesmereUI.SetBorderStyleColor(border, r, g, b, a) end
 end
 
 function ns.UF_KeepBorderGradient(settings, unitKey, frame)
-    return settings.borderGradientEnabled and ns.UF_BorderGradientUnit(unitKey) and ns.UF_BorderGradientPainter(settings)
+    local paint = GradientPainter(settings, unitKey)
+    return paint
         and not ns.UF_Blizz() and not (frame and frame._euiBorderColorHover)
 end
 
 local function FrameBorderLeave(self)
     if not self.unifiedBorder then return end
     if self._blizzArtFrame then return end  -- Blizzard Style: no EUI border to recolor
-    local unit = self._euiUnit or "player"
-    if unit:match("^boss%d$") then
+    local unitKey = self._euiBaseUnit or "player"
+    if unitKey:match("^boss%d$") then
         self._hovered = false
         ns.ApplyBossBorderState(self)
         return
     end
-    local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget")
-    local settings = isMini and GetMiniDonorSettings(unit) or GetSettingsForUnit(unit)
+    local isMini = unitKey == "pet" or unitKey == "targettarget" or unitKey == "focustarget"
+    local settings = isMini and GetMiniDonorSettings(unitKey) or GetSettingsForUnit(unitKey)
     if self._euiBorderColorHover then self._euiBorderColorHover = nil end
-    PaintNormalBorder(self, settings, unit)
+    PaintNormalBorder(self, settings, self._euiUnit or unitKey)
 end
 -- The detached portrait's click overlay replays these on hover (Portrait.lua).
 I.FrameBorderEnter, I.FrameBorderLeave = FrameBorderEnter, FrameBorderLeave

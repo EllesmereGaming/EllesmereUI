@@ -1384,6 +1384,9 @@ local defaults = {
             borderCustom = false,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
+            borderGradientEnabled = false,
+            borderGradientDir = "HORIZONTAL",
+            borderGradientColor = ns.UF_BorderGradientDefault,
             borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             -- Boss Hover / Target border recolor (mirrors Raid Frames "Hover
