@@ -532,7 +532,7 @@ do
         local bc = container._bdColor
         local bd = _ppBorderData[frame]
         -- A geometry snap leaves a secret tint on the textures.
-        if bc and not (bd and bd.colDirty) then
+        if bc and not container._borderGradient and not (bd and bd.colDirty) then
             t:SetVertexColor(bc[1], bc[2], bc[3], bc[4])
             b:SetVertexColor(bc[1], bc[2], bc[3], bc[4])
             l:SetVertexColor(bc[1], bc[2], bc[3], bc[4])
@@ -692,6 +692,7 @@ do
             bd.borderColor = col
         end
         c._bdColor = col
+        c._borderGradient = nil
         c._hideTop, c._hideBottom, c._hideLeft, c._hideRight = nil, nil, nil, nil
         c._snapEdge = nil
         if c._pendingSnap then
@@ -841,7 +842,7 @@ do
         if secret then
             bd.colDirty = true
         elseif col then
-            if not bd.colDirty
+            if not bd.colDirty and not bd.container._borderGradient
                and col[1] == r and col[2] == g and col[3] == b and col[4] == a then
                 return   -- unchanged; the four texture writes below are redundant
             end
@@ -854,10 +855,47 @@ do
         if col then bd.container._bdColor = col end
 
         local c = bd.container
+        local wasGradient = c._borderGradient
+        c._borderGradient = nil
         if c._top then c._top:SetVertexColor(r, g, b, a) end
         if c._bottom then c._bottom:SetVertexColor(r, g, b, a) end
         if c._left then c._left:SetVertexColor(r, g, b, a) end
         if c._right then c._right:SetVertexColor(r, g, b, a) end
+        if wasGradient and EllesmereUI.SyncRoundedSolidTint then
+            EllesmereUI.SyncRoundedSolidTint(frame, c)
+        end
+    end
+
+    function PP.SetBorderGradient(frame, r, g, b, endR, endG, endB, alpha, direction)
+        local c = PP.GetBorders(frame)
+        if not (c and c:IsShown()) then return end
+        direction = direction or "HORIZONTAL"
+        local gradient = c._borderGradientColors
+        if c._borderGradient then
+            local start, finish = gradient.start, gradient.finish
+            if gradient.direction == direction and start.r == r and start.g == g and start.b == b and start.a == alpha
+                and finish.r == endR and finish.g == endG and finish.b == endB then return true end
+        elseif not gradient then
+            gradient = { start = CreateColor(1, 1, 1), finish = CreateColor(1, 1, 1) }
+            c._borderGradientColors = gradient
+        end
+        gradient.start:SetRGBA(r, g, b, alpha)
+        gradient.finish:SetRGBA(endR, endG, endB, alpha)
+        gradient.direction = direction
+        gradient.revision = (gradient.revision or 0) + 1
+        c._borderGradient = gradient
+        local side1, side2, startEdge, endEdge = c._top, c._bottom, c._left, c._right
+        if gradient.direction == "VERTICAL" then
+            side1, side2, startEdge, endEdge = c._left, c._right, c._bottom, c._top
+        end
+        side1:SetVertexColor(1, 1, 1, 1)
+        side2:SetVertexColor(1, 1, 1, 1)
+        side1:SetGradient(gradient.direction, gradient.start, gradient.finish)
+        side2:SetGradient(gradient.direction, gradient.start, gradient.finish)
+        startEdge:SetVertexColor(r, g, b, alpha)
+        endEdge:SetVertexColor(endR, endG, endB, alpha)
+        if EllesmereUI.SyncRoundedSolidTint then EllesmereUI.SyncRoundedSolidTint(frame, c) end
+        return true
     end
 
     function PP.UpdateBorder(frame, borderSize, r, g, b, a)
@@ -1687,7 +1725,133 @@ do
         return bdFrame
     end
 
-    function EllesmereUI.ApplyBorderStyle(borderFrame, size, r, g, b, a, textureKey, offsetOverride, offsetYOverride, shiftX, shiftY, addonKey, sizeKey, normalizeScale, edgePx)
+    local backdropCorners = { "TopLeftCorner", "TopRightCorner", "BottomLeftCorner", "BottomRightCorner" }
+    local backdropEdges = { "TopEdge", "BottomEdge", "LeftEdge", "RightEdge" }
+    local backdropGradientStart, backdropGradientEnd
+    local function PaintBorderGradientSpan(piece, direction, colors, t1, t2)
+        if not backdropGradientStart then
+            backdropGradientStart, backdropGradientEnd = CreateColor(1, 1, 1), CreateColor(1, 1, 1)
+        end
+        t1, t2 = math.max(0, math.min(1, t1)), math.max(0, math.min(1, t2))
+        local r, g, b, a = colors.r, colors.g, colors.b, colors.a
+        local dr, dg, db = colors.endR - r, colors.endG - g, colors.endB - b
+        backdropGradientStart:SetRGBA(r + dr * t1, g + dg * t1, b + db * t1, a)
+        backdropGradientEnd:SetRGBA(r + dr * t2, g + dg * t2, b + db * t2, a)
+        piece:SetVertexColor(1, 1, 1, 1)
+        piece:SetGradient(direction, backdropGradientStart, backdropGradientEnd)
+    end
+    EllesmereUI.PaintBorderGradientSpan = PaintBorderGradientSpan
+
+    local function PaintBackdropPiece(piece, origin, span, colors)
+        if not piece then return end
+        local first, last
+        if colors.direction == "VERTICAL" then
+            first, last = piece:GetBottom(), piece:GetTop()
+        else
+            first, last = piece:GetLeft(), piece:GetRight()
+        end
+        if issecretvalue and (issecretvalue(first) or issecretvalue(last)) then return end
+        if not (first and last) then return end
+        PaintBorderGradientSpan(piece, colors.direction, colors, (first - origin) / span, (last - origin) / span)
+        return true
+    end
+
+    -- Sample the same ramp across all eight pieces to meet at the joins.
+    function EllesmereUI.PaintBackdropBorderGradient(bd, corners, edges)
+        local colors = bd._euiBackdropGradient
+        if not colors or not bd:IsVisible() then return false end
+        local vertical = colors.direction == "VERTICAL"
+        local origin, span
+        if colors.gridW then
+            local owner = bd:GetParent()
+            local left, top = owner:GetLeft(), owner:GetTop()
+            if issecretvalue and (issecretvalue(left) or issecretvalue(top)) then return false end
+            if not (left and top) then return false end
+            left, top = left - colors.gridX, top + colors.gridY
+            origin = vertical and top - colors.gridH or left
+            span = vertical and colors.gridH or colors.gridW
+        else
+            local _, width, height = ReadBorderSize(bd)
+            span = vertical and height or width
+            if not span or span <= 0 then return false end
+            if vertical then origin = bd:GetBottom() else origin = bd:GetLeft() end
+            if (issecretvalue and issecretvalue(origin)) or not origin then return false end
+        end
+        local painted = true
+        for i = 1, 4 do
+            if not PaintBackdropPiece(corners and corners[i] or bd[backdropCorners[i]], origin, span, colors) then painted = false end
+            if not PaintBackdropPiece(edges and edges[i] or bd[backdropEdges[i]], origin, span, colors) then painted = false end
+        end
+        return painted
+    end
+
+    local function CancelBackdropGradientPaint(bd)
+        if bd._euiBackdropGradientPending then
+            bd._euiBackdropGradientPending = nil
+            bd:SetScript("OnShow", nil)
+        end
+    end
+
+    local function ClearBackdropGradient(bd)
+        bd._euiBackdropGradient = nil
+        CancelBackdropGradientPaint(bd)
+    end
+
+    local function PaintVisibleBackdropGradient(bd)
+        if not bd:IsVisible() then return end
+        CancelBackdropGradientPaint(bd)
+        local colors = bd._euiBackdropGradient
+        if not colors then return end
+        local backdropPainted = EllesmereUI.PaintBackdropBorderGradient(bd)
+        local syncRounded = EllesmereUI.SyncRoundedGlowGradient
+        local roundedPainted = not syncRounded or syncRounded(bd:GetParent(), bd)
+        colors.painted = backdropPainted and roundedPainted
+    end
+
+    local function RepaintBackdropGradient(bd)
+        if bd:IsVisible() then
+            PaintVisibleBackdropGradient(bd)
+        elseif not bd._euiBackdropGradientPending then
+            bd._euiBackdropGradientPending = true
+            bd:SetScript("OnShow", PaintVisibleBackdropGradient)
+        end
+    end
+
+    function EllesmereUI.SetBackdropBorderGradient(border, r, g, b, endR, endG, endB, a, direction, gridX, gridY, gridW, gridH)
+        local bd = BdFrameFor(border)
+        if not (bd and bd:IsShown()) then return end
+        direction = direction or "HORIZONTAL"
+        if gridW and not (gridX and gridY and gridW > 0 and gridH and gridH > 0) then return end
+        local colors = bd._euiBackdropGradientColors
+        if bd._euiBackdropGradient then
+            if (colors.painted or bd._euiBackdropGradientPending) and colors.direction == direction
+                and colors.r == r and colors.g == g and colors.b == b and colors.a == a
+                and colors.gridX == gridX and colors.gridY == gridY and colors.gridW == gridW and colors.gridH == gridH
+                and colors.endR == endR and colors.endG == endG and colors.endB == endB then return true end
+        elseif not colors then
+            colors = {}
+            bd._euiBackdropGradientColors = colors
+        end
+        colors.r, colors.g, colors.b, colors.a = r, g, b, a
+        colors.endR, colors.endG, colors.endB = endR, endG, endB
+        colors.direction = direction
+        colors.gridX, colors.gridY, colors.gridW, colors.gridH = gridX, gridY, gridW, gridH
+        bd._euiBackdropGradient = colors
+        RepaintBackdropGradient(bd)
+        return true
+    end
+
+    local gradientBackdrops = {
+        glow = true, shadow = true, blizz = true, lightspark = true,
+        pixels = true, ["pixels-textured"] = true,
+    }
+
+    function EllesmereUI.GetBorderGradientPainter(style)
+        if not style or style == "solid" then return EllesmereUI.PP.SetBorderGradient end
+        if gradientBackdrops[style] then return EllesmereUI.SetBackdropBorderGradient end
+    end
+
+    function EllesmereUI.ApplyBorderStyle(borderFrame, size, r, g, b, a, textureKey, offsetOverride, offsetYOverride, shiftX, shiftY, addonKey, sizeKey, normalizeScale, edgePx, keepGradient)
         local PP = EllesmereUI.PP
         if not PP or not borderFrame then return end
         a = a or 1
@@ -1700,13 +1864,21 @@ do
 
         if isSolid then
             local bdFrame = BdFrameFor(borderFrame)
-            if bdFrame then bdFrame:Hide() end
+            if bdFrame then
+                if bdFrame._euiBackdropGradient then ClearBackdropGradient(bdFrame) end
+                bdFrame:Hide()
+            end
             if bdFrame and bdFrame._pxEdge then bdFrame._pxEdge = nil; _px.borders[borderFrame] = nil end
             local sz = edgePx or size
             -- PP system
             if sz > 0 then
-                if PP.GetBorders(borderFrame) then
-                    PP.UpdateBorder(borderFrame, sz, r, g, b, a)
+                local cont = PP.GetBorders(borderFrame)
+                if cont then
+                    if keepGradient and cont._borderGradient and cont:IsShown() then
+                        PP.SetBorderSize(borderFrame, sz)
+                    else
+                        PP.UpdateBorder(borderFrame, sz, r, g, b, a)
+                    end
                     PP.ShowBorder(borderFrame)
                     -- No SetAlpha "restore" after textured-mode zeroing: on Textures SetAlpha
                     -- writes the SAME state as SetVertexColor's 4th arg, so the color write above
@@ -1724,7 +1896,10 @@ do
             local texPath = EllesmereUI.ResolveBorderTexture(textureKey)
             if not texPath or size <= 0 then
                 local bdFrame = BdFrameFor(borderFrame)
-                if bdFrame then bdFrame:Hide() end
+                if bdFrame then
+                    if bdFrame._euiBackdropGradient then ClearBackdropGradient(bdFrame) end
+                    bdFrame:Hide()
+                end
                 -- A hidden border must not come back from the UI-scale re-apply.
                 if bdFrame and bdFrame._pxEdge then bdFrame._pxEdge = nil; _px.borders[borderFrame] = nil end
                 if PP.GetBorders(borderFrame) then PP.HideBorder(borderFrame) end
@@ -1758,6 +1933,7 @@ do
                     local usable, w = ReadBorderSize(self)
                     if not usable or not w then return end
                     self:OnBackdropSizeChanged()
+                    if self._euiBackdropGradient then RepaintBackdropGradient(self) end
                 end)
                 _bdBorderData[borderFrame] = bdFrame
             end
@@ -1833,9 +2009,24 @@ do
             -- -3.5 at -3 and +3.5 at +4, one pixel more on the right/top than the left/bottom).
             offsetX, offsetY = PP.SnapForES(offsetX, ses), PP.SnapForES(offsetY, ses)
             sx, sy = PP.SnapForES(sx, ses), PP.SnapForES(sy, ses)
-            bdFrame:ClearAllPoints()
-            bdFrame:SetPoint("TOPLEFT", borderFrame, "TOPLEFT", -offsetX + sx, offsetY + sy)
-            bdFrame:SetPoint("BOTTOMRIGHT", borderFrame, "BOTTOMRIGHT", offsetX + sx, -offsetY + sy)
+            local bdKey = texPath .. "@" .. edgeSize
+            local gradient = bdFrame._euiBackdropGradient
+            local preserveGradient = keepGradient and gradient and bdFrame:IsShown() and bdFrame._euiBdKey == bdKey
+                and bdFrame._euiGradientOffsetX == offsetX and bdFrame._euiGradientOffsetY == offsetY
+                and bdFrame._euiGradientShiftX == sx and bdFrame._euiGradientShiftY == sy
+            if not preserveGradient then
+                if gradient then ClearBackdropGradient(bdFrame) end
+                bdFrame:ClearAllPoints()
+                bdFrame:SetPoint("TOPLEFT", borderFrame, "TOPLEFT", -offsetX + sx, offsetY + sy)
+                bdFrame:SetPoint("BOTTOMRIGHT", borderFrame, "BOTTOMRIGHT", offsetX + sx, -offsetY + sy)
+            end
+            if keepGradient then
+                bdFrame._euiGradientOffsetX, bdFrame._euiGradientOffsetY = offsetX, offsetY
+                bdFrame._euiGradientShiftX, bdFrame._euiGradientShiftY = sx, sy
+            elseif bdFrame._euiGradientOffsetX then
+                bdFrame._euiGradientOffsetX, bdFrame._euiGradientOffsetY = nil, nil
+                bdFrame._euiGradientShiftX, bdFrame._euiGradientShiftY = nil, nil
+            end
             -- Edge fill (SetBorderEdgeFill): on an owner that moves by sub-pixels the Pixels
             -- line covers the owner's edge pixel only with its soft fade; hard strips under it.
             local fill = bdFrame._edgeFill
@@ -1891,7 +2082,6 @@ do
             -- owner-width guard can pass while this anchored rect resolves secret, so the guard
             -- must sit here. Unchanged style (tooltips re-skin every Show) skips the template; a
             -- real style change under a secret size keeps the last-good backdrop and retries next apply (the color write below is vertex-only and always safe).
-            local bdKey = texPath .. "@" .. edgeSize
             if bdFrame._euiBdKey ~= bdKey then
                 local bdUsable, bdW = ReadBorderSize(bdFrame)
                 if not bdUsable or not bdW then
@@ -1905,7 +2095,7 @@ do
                     bdFrame._euiBdKey = bdKey
                 end
             end
-            bdFrame:SetBackdropBorderColor(r, g, b, a)
+            if not preserveGradient then bdFrame:SetBackdropBorderColor(r, g, b, a) end
             bdFrame:Show()
             borderFrame:Show()
             if fill then EllesmereUI.SyncBorderEdgeFill(borderFrame) end
@@ -2041,7 +2231,9 @@ do
                     _px.borders[bf] = nil
                 else
                     local lvl = bd:GetFrameLevel()
-                    local cr, cg, cb, ca = bd:GetBackdropBorderColor()
+                    local gradient = bd._euiBackdropGradient
+                    local cr, cg, cb, ca
+                    if not gradient then cr, cg, cb, ca = bd:GetBackdropBorderColor() end
                     local wasShown = bf:IsShown()
                     EllesmereUI.ApplyBorderStyle(bf, bd._pxSize, bd._pxR, bd._pxG, bd._pxB, bd._pxA,
                         bd._pxTex, bd._pxOffX, bd._pxOffY, bd._pxShX, bd._pxShY,
@@ -2049,7 +2241,10 @@ do
                     -- The apply shows its owner: one its owner hid stays hidden (IsShown: a Show denied in combat needs no Hide).
                     if not wasShown and bf:IsShown() then bf:Hide() end
                     bd:SetFrameLevel(lvl)
-                    if (issecretvalue and issecretvalue(cr)) or cr then
+                    if gradient then
+                        bd._euiBackdropGradient = gradient
+                        RepaintBackdropGradient(bd)
+                    elseif (issecretvalue and issecretvalue(cr)) or cr then
                         bd:SetBackdropBorderColor(cr, cg, cb, ca)
                     end
                 end
@@ -2233,6 +2428,7 @@ do
         end
         local bdFrame = BdFrameFor(borderFrame)
         if bdFrame and bdFrame:IsShown() then
+            if bdFrame._euiBackdropGradient then ClearBackdropGradient(bdFrame) end
             bdFrame:SetBackdropBorderColor(r, g, b, a)
         end
     end
