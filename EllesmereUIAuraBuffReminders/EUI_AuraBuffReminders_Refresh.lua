@@ -641,7 +641,6 @@ end
 
 -- Demonic Sacrifice: the click summons the chosen demon (Auto: the one out, else the Imp), then sacrifices it.
 function EABR.CollectDemonicSacrifice(missing, fo, auraLock)
-    if not Known(EABR.DEMONIC_SACRIFICE) then return end
     local chosen = EABR.SACRIFICE_BUFFS[fo.sacrificeDemon] and fo.sacrificeDemon
     local wanted = EABR.SACRIFICE_BUFFS[chosen or "all"]
     if auraLock and not EABR.FvRanksReadable(wanted) then return end
@@ -1415,6 +1414,7 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     if not anyShows then
         EABR.FvSyncConsumableItemEvents(false, false)
         EABR.SyncForeverFoodWatch(false)
+        EABR.FvSyncPetEvent(false)
         return
     end
     local open = not inPvP
@@ -1592,7 +1592,10 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     if selfShows and fo.mageArmor and open and GetPlayerClass() == "MAGE" then
         EABR.CollectMageArmor(missing, auraLock, ids)
     end
-    if selfShows and fo.demonicSacrifice and open and GetPlayerClass() == "WARLOCK" then
+    local watchPet = selfShows and fo.demonicSacrifice and open and GetPlayerClass() == "WARLOCK"
+        and Known(EABR.DEMONIC_SACRIFICE) or false
+    EABR.FvSyncPetEvent(watchPet)
+    if watchPet then
         EABR.CollectDemonicSacrifice(missing, fo, auraLock)
     end
     -- The ticked class buffs, outside PvP; the custom spells and spell groups
@@ -1866,7 +1869,7 @@ function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
 end
 
 -- WoW Forever: what a pass that shows nothing stands down (the Raid Buffs group
--- watch and the minimap, target, weapon and bag events); the next pass that can show
+-- watch and the minimap, target, weapon, pet and bag events); the next pass that can show
 -- re-arms them.
 function EABR.FvStandDown(keepSleepProgress)
     EABR.SyncForeverFoodWatch(false)
@@ -1874,6 +1877,7 @@ function EABR.FvStandDown(keepSleepProgress)
     EABR.FvSyncTrackingEvent(false)
     EABR.FvSyncHunterTrackingEvents(false)
     EABR.FvSyncWeaponEvents(false)
+    EABR.FvSyncPetEvent(false)
     EABR.FvSyncConsumableItemEvents(false, false)
     EABR.FvSyncBagEvent(false)
     EABR.FvSyncSleepBagWatch(false)
