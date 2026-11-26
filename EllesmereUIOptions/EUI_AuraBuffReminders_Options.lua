@@ -2265,7 +2265,7 @@ initFrame:SetScript("OnEvent", function(self)
             fedRow, h = W:DualRow(parent, y,
                 -- The client's own name for the buff (19705, EABR.WELL_FED), so it reads localized.
                 { type="toggle", text=_G._EABR_SpellName(19705, "Well Fed"),
-                  tooltip="Reminds you when you have no Well Fed buff.",
+                  tooltip="Reminds you when you have no Well Fed buff.\nClick the icon to eat the food you last ate, else the highest-level food you can eat.",
                   getValue=function() local f = FDB(); return f and f.wellFed == true end,
                   setValue=function(v)
                       local f = FDB(); if not f then return end; f.wellFed = v
