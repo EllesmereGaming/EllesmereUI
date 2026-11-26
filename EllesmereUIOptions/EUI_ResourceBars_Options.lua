@@ -10,6 +10,28 @@ if not ns then return end  -- module disabled: no options page
 local abs = math.abs
 
 local PAGE_DISPLAY   = "Class, Power and Health Bars"
+
+-- Health/Power Text values with a Custom entry: it opens the template popup (preview
+-- in color(c)), then setValue("custom"). Popup writes need the format accessor.
+function ns.ERB_CustomTextValues(values, cat, cfg, color, setValue)
+    local TT = EllesmereUI.TextTags
+    return TT.MenuValues(values, function()
+        local c = cfg(); if not c then return end
+        TT.EditPopup({
+            cat = cat, color = color(c), onSave = function() setValue("custom") end,
+            get = function() return c.textCustomFormat end,
+            set = function(txt) c.textCustomFormat = txt end,
+        })
+    end, { selected = function() local c = cfg(); return c and c.textFormat == "custom" end })
+end
+function ns.ERB_AddCustomFormatAccessor(rgn, label, cfg, apply)
+    local c = cfg()
+    if not c or EllesmereUI._prebuilding then return end
+    if c.textFormat ~= "custom" and type(c.textCustomFormat) ~= "string" then return end
+    EllesmereUI.TextTags.AddFormatAccessor(rgn, label,
+        function() local t = cfg(); return t and t.textCustomFormat end,
+        function(v) local t = cfg(); if t then t.textCustomFormat = v; apply() end end)
+end
 local PAGE_CASTBAR   = "Cast Bar"
 local PAGE_GCD       = "GCD Bar"
 local PAGE_SWING     = "Swing Timer"   -- WoW Forever only (C_SwingTimer)
@@ -583,6 +605,8 @@ initFrame:SetScript("OnEvent", function(self)
             elseif fmt == "curmaxhp" then txt = curStr .. " / " .. ns.AbbreviateValue(mx, "maxHealth")
             elseif fmt == "perhpnosign" then txt = pctStr
             elseif fmt == "perhpnum" then txt = pctStr .. "% | " .. curStr
+            elseif fmt == "custom" then
+                txt = ns.ERB_CustomText(ns.ERB_HealthTags, c.textCustomFormat, math.floor(mx * pct / 100), mx, pct)
             else txt = pctStr .. "%" end
         else
             local percentText = tostring(pct) .. ((c.showPercent == false) and "" or "%")
@@ -594,6 +618,8 @@ initFrame:SetScript("OnEvent", function(self)
             elseif fmt == "curpp" then txt = curStr
             elseif fmt == "curmaxpp" then txt = curStr .. " / " .. ns.AbbreviateValue(mx, "power")
             elseif fmt == "perpp" then txt = percentText
+            elseif fmt == "custom" then
+                txt = ns.ERB_CustomText(ns.ERB_PowerTags, c.textCustomFormat, math.floor(mx * pct / 100), mx, pct)
             else txt = curStr end
         end
         SetPVFont(text, FONT_PATH, c.textSize or 11)

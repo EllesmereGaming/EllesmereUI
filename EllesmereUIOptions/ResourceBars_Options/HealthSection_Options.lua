@@ -790,18 +790,27 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
         return "This option requires a Health Text format other than None"
     end
 
+    local function SetHealthText(v)
+        local c = cfg(); if not c then return end
+        c.textFormat = v; RefreshHealth(); EllesmereUI:RefreshPage()
+    end
     local healthTextSizeRow
     healthTextSizeRow, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Health Text",
           disabled = healthOff,
           disabledTooltip = "Health Bar",
-          values = { none = "None", perhp = "Health %", perhpnosign = "Health % (No Sign)", curhpshort = "Health #", curmaxhp = "Health # / Max #", perhpnum = "Health % | #", both = "Health # | %" },
-          order = { "none", "---", "perhp", "perhpnosign", "curhpshort", "curmaxhp", "perhpnum", "both" },
+          values = ns.ERB_CustomTextValues(
+              { none = "None", perhp = "Health %", perhpnosign = "Health % (No Sign)", curhpshort = "Health #", curmaxhp = "Health # / Max #", perhpnum = "Health % | #", both = "Health # | %" },
+              ns.ERB_HealthTags, cfg,
+              function(c)
+                  local _, cls = UnitClass("player")
+                  if c.textCustomColored == false and cls then return EllesmereUI.GetClassColor(cls) end
+                  return { r = c.textFillR or 1, g = c.textFillG or 1, b = c.textFillB or 1 }
+              end,
+              SetHealthText),
+          order = { "none", "---", "custom", "---", "perhp", "perhpnosign", "curhpshort", "curmaxhp", "perhpnum", "both" },
           getValue = function() local c = cfg(); return c and c.textFormat or "none" end,
-          setValue = function(v)
-              local c = cfg(); if not c then return end
-              c.textFormat = v; RefreshHealth(); EllesmereUI:RefreshPage()
-          end },
+          setValue = SetHealthText },
         { type = "multiSwatch", text = "Text Color",
           disabled = healthTextDis,
           disabledTooltip = healthTextDisTip,
@@ -853,6 +862,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
           } }
     );  y = y - h
     -- Health Text inline cog: anchor + x/y offsets
+    ns.ERB_AddCustomFormatAccessor(healthTextSizeRow._leftRegion, "Health Text", cfg, RefreshHealth)
     do
         local rgn = healthTextSizeRow._leftRegion
         local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
