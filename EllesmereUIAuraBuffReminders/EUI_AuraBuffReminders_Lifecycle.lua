@@ -935,6 +935,15 @@ if EABR.FOREVER then
             mainFrame:UnregisterEvent("PLAYER_EQUIPMENT_CHANGED")
         end
     end
+    function EABR.FvSyncPetEvent(want)
+        if want == (EABR._fvPetEv or false) then return end
+        EABR._fvPetEv = want
+        if want then
+            mainFrame:RegisterUnitEvent("UNIT_PET", "player")
+        else
+            mainFrame:UnregisterEvent("UNIT_PET")
+        end
+    end
     function EABR.FvSyncBagEvent(want)
         if want == (EABR._fvBagEv or false) then return end
         EABR._fvBagEv = want

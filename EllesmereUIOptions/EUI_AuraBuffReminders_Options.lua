@@ -2101,6 +2101,18 @@ initFrame:SetScript("OnEvent", function(self)
                     "Reminds you when a weapon has no poison or imbue.\nClick the icon to apply one.", "weaponImbue")
                 imbueIdx = #selfSlots
             end
+            local sacrificeIdx
+            if class == "WARLOCK" then
+                selfSlots[#selfSlots + 1] = { type="toggle", text=_G._EABR_SpellName(18788, "Demonic Sacrifice"),
+                    tooltip="With the Demonic Sacrifice talent, reminds you when its buff is missing.\nClick the icon to summon the demon, then again to sacrifice it.",
+                    getValue=function() local f = FDB(); return f and f.demonicSacrifice == true end,
+                    setValue=function(v)
+                        local f = FDB(); if not f then return end; f.demonicSacrifice = v
+                        RefreshAll()
+                        EllesmereUI:RefreshPage()
+                    end }
+                sacrificeIdx = #selfSlots
+            end
             selfSlots[#selfSlots + 1] = { type="toggle", text="Gathering Tracking",
                 tooltip="Reminds you when no gathering tracking is on.",
                 getValue=function() local f = FDB(); return f and f.gather == true end,
@@ -2139,6 +2151,22 @@ initFrame:SetScript("OnEvent", function(self)
                 local rows = { HandRow(rogue and "Main Hand Poison" or "Main Hand Imbue", "mhImbue", imbueValues, imbueOrder) }
                 if offHand then rows[2] = HandRow(rogue and "Off Hand Poison" or "Off Hand Imbue", "ohImbue", imbueValues, imbueOrder) end
                 BuildWeaponCog(selfRegions[imbueIdx], imbueLabel, "weaponImbue", rows)
+            end
+            if sacrificeIdx then
+                local title = _G._EABR_SpellName(18788, "Demonic Sacrifice")
+                EllesmereUI.BuildInlineCog(selfRegions[sacrificeIdx], {
+                    title = title,
+                    disabled = function() local f = FDB(); return not (f and f.demonicSacrifice == true) end,
+                    disabledTooltip = title,
+                    rows = {
+                        { type="dropdown", label="Demon", ddWidth=200,
+                          tooltip="Auto: any sacrifice buff counts, and the demon that is out is sacrificed (else the Imp is summoned).",
+                          values={ auto = "Auto", imp = "Imp", voidwalker = "Voidwalker", succubus = "Succubus", felhunter = "Felhunter" },
+                          order={ "auto", "imp", "voidwalker", "succubus", "felhunter" },
+                          get=function() local f = FDB(); return f and f.sacrificeDemon or "auto" end,
+                          set=function(v) local f = FDB(); if f then f.sacrificeDemon = v ~= "auto" and v or nil; RefreshAll() end end },
+                    },
+                })
             end
 
             -- Class Buffs: one checkbox per buff of the class (ticked: its own

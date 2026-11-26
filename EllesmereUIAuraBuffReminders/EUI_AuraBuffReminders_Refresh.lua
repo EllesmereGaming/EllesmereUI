@@ -639,6 +639,32 @@ function EABR.CollectMageArmor(missing, auraLock, ids)
     end
 end
 
+-- Demonic Sacrifice: the click summons the chosen demon (Auto: the one out, else the Imp), then sacrifices it.
+function EABR.CollectDemonicSacrifice(missing, fo, auraLock)
+    local chosen = EABR.SACRIFICE_BUFFS[fo.sacrificeDemon] and fo.sacrificeDemon
+    local wanted = EABR.SACRIFICE_BUFFS[chosen or "all"]
+    if auraLock and not EABR.FvRanksReadable(wanted) then return end
+    if PlayerHasAuraByID(wanted) then return end
+    local petFamily
+    if UnitExists("pet") and not UnitIsDead("pet") then
+        local _, family = UnitCreatureFamily("pet")
+        if not isSecret(family) then petFamily = family end
+    end
+    local demons = EABR.SACRIFICE_DEMONS
+    local target = demons[1]
+    for _, d in ipairs(demons) do
+        if (chosen and d.key == chosen) or (not chosen and d.family == petFamily) then
+            target = d
+            break
+        end
+    end
+    if petFamily == target.family then
+        EABR.FvSpellEntry(missing, EABR.DEMONIC_SACRIFICE, "forever:demonicsacrifice")
+    elseif Known(target.summon) then
+        EABR.FvSpellEntry(missing, target.summon, "forever:demonicsacrifice")
+    end
+end
+
 -- Whether a class buff is ticked: the user's pick, else its default (each
 -- class's always-on buffs ticked; Thorns, Righteous Fury and Shadowform not).
 local function ClassBuffOn(buff, picks)
@@ -1388,6 +1414,7 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     if not anyShows then
         EABR.FvSyncConsumableItemEvents(false, false)
         EABR.SyncForeverFoodWatch(false)
+        EABR.FvSyncPetEvent(false)
         return
     end
     local open = not inPvP
@@ -1564,6 +1591,12 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     end
     if selfShows and fo.mageArmor and open and GetPlayerClass() == "MAGE" then
         EABR.CollectMageArmor(missing, auraLock, ids)
+    end
+    local watchPet = selfShows and fo.demonicSacrifice and open and GetPlayerClass() == "WARLOCK"
+        and Known(EABR.DEMONIC_SACRIFICE) or false
+    EABR.FvSyncPetEvent(watchPet)
+    if watchPet then
+        EABR.CollectDemonicSacrifice(missing, fo, auraLock)
     end
     -- The ticked class buffs, outside PvP; the custom spells and spell groups
     -- they cover stand down there (EABR.FvClassTracked).
@@ -1836,7 +1869,7 @@ function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
 end
 
 -- WoW Forever: what a pass that shows nothing stands down (the Raid Buffs group
--- watch and the minimap, target, weapon and bag events); the next pass that can show
+-- watch and the minimap, target, weapon, pet and bag events); the next pass that can show
 -- re-arms them.
 function EABR.FvStandDown(keepSleepProgress)
     EABR.SyncForeverFoodWatch(false)
@@ -1844,6 +1877,7 @@ function EABR.FvStandDown(keepSleepProgress)
     EABR.FvSyncTrackingEvent(false)
     EABR.FvSyncHunterTrackingEvents(false)
     EABR.FvSyncWeaponEvents(false)
+    EABR.FvSyncPetEvent(false)
     EABR.FvSyncConsumableItemEvents(false, false)
     EABR.FvSyncBagEvent(false)
     EABR.FvSyncSleepBagWatch(false)
