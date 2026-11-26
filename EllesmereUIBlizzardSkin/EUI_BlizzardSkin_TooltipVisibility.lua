@@ -619,6 +619,7 @@ do
 
     local function HandleFadeOut(tooltip)
         if tooltip ~= GameTooltip or not Enabled() then return false end
+        if not tooltip:IsShown() then return false end
         if not TooltipUsable(tooltip) then return false end
         if EllesmereUI._tooltipSuppressedByMode
             and EllesmereUI._tooltipSuppressedByMode(tooltip) then return false end
