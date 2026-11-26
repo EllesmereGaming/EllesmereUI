@@ -159,8 +159,11 @@ local function PAB_ApplyExtraText(button, d, style)
             d.duration:SetPoint(dp, button, drp, style.durationX or 0, style.durationY or 0)
             d.pabDurAnchor = aKey
         end
-        local c = style.durationColor
-        d.duration:SetTextColor(c and c.r or 1, c and c.g or 1, c and c.b or 1)
+        -- With Color Below on, the registered curve owns the text color.
+        if not style.durationColorCurve then
+            local c = style.durationColor
+            d.duration:SetTextColor(c and c.r or 1, c and c.g or 1, c and c.b or 1)
+        end
         -- "Show S for Seconds" rebind: duration opts land once at creation;
         -- re-register when the style's formatter choice changed. The nil
         -- gate skips the creation-time applyExtra pass (the creation block
@@ -168,11 +171,12 @@ local function PAB_ApplyExtraText(button, d, style)
         -- BmRebindDurationCurve rule: a denied registration under the
         -- secret-aura button restriction must leave the stamp unchanged so
         -- the next restyle retries.
-        local wantFmt = (style.durationShowSeconds and "s" or "b") .. tostring(style.durationPrecisionThreshold or 0)
+        local AK = EllesmereUI.AuraKit
+        local wantFmt = AK.DurationFmtStamp(style)
         if d.durationFmtS ~= nil and d.durationFmtS ~= wantFmt then
-            local AK = EllesmereUI.AuraKit
             local durationOpts = AK.BuildDurationTextOpts(
-                AK.GetDurationFormatter(style.durationShowSeconds, style.durationPrecisionThreshold),
+                AK.GetDurationFormatter(style.durationShowSeconds, style.durationPrecisionThreshold,
+                    style.durationDecimalThreshold),
                 style.durationColorCurve, style.durationUpdateInterval)
             local ok, full = AK.SetDurationTextSafe(button, d.duration, durationOpts)
             if ok and (full or not style.durationColorCurve) then
@@ -280,6 +284,23 @@ local function ResolveFontFlag(mode)
         return (EllesmereUI.SlugFlag("THICKOUTLINE, SLUG")) or "THICKOUTLINE"
     end
     return (EllesmereUI.GetIconTextOutlineFlag("unitFrames")) or "OUTLINE"
+end
+
+-- Color Below: Step curve, below color from 0, normal color from the
+-- threshold up. Cached by its inputs; the key feeds the rebind stamp.
+local colorBelowCurveCache = {}
+local function DurationColorBelowCurve(threshold, wr, wg, wb, nr, ng, nb)
+    if not (C_CurveUtil and C_CurveUtil.CreateColorCurve and Enum.LuaCurveType) then return nil end
+    local key = string.format("%d|%.3f,%.3f,%.3f|%.3f,%.3f,%.3f", threshold, wr, wg, wb, nr, ng, nb)
+    local curve = colorBelowCurveCache[key]
+    if not curve then
+        curve = C_CurveUtil.CreateColorCurve()
+        curve:SetType(Enum.LuaCurveType.Step)
+        curve:AddPoint(0, CreateColor(wr, wg, wb))
+        curve:AddPoint(threshold, CreateColor(nr, ng, nb))
+        colorBelowCurveCache[key] = curve
+    end
+    return curve, key
 end
 
 local function BuildStyle(isBuff, cfg)
@@ -409,6 +430,10 @@ local function BuildStyle(isBuff, cfg)
         -- formatter at creation, PAB_ApplyExtraText rebinds live.
         durationShowSeconds = cfg.durationShowSeconds == true,
         durationPrecisionThreshold = tonumber(cfg.durationPrecisionThreshold),
+        -- Decimals Below (seconds, nil = off); faster redraw only while on.
+        durationDecimalThreshold = tonumber(cfg.durationDecimalThreshold),
+        durationUpdateInterval = tonumber(cfg.durationDecimalThreshold)
+            and EllesmereUI.AuraKit.DECIMAL_UPDATE_INTERVAL or nil,
         -- Show Tooltips (per-bar, default on): AK's noTooltips path kills
         -- hover on this style's buttons; the flip-back handles re-enables.
         noTooltips = (cfg.showTooltips == false) or nil,
@@ -441,6 +466,21 @@ local function BuildStyle(isBuff, cfg)
         -- Weapon enchant buttons mirror this style: the stock purple ring.
         blizzEnchant = ns.PAB_Blizz() or nil,
     }
+
+    -- Color Below (seconds, nil = off). durationColorBelow* also feed the preview.
+    local belowAt = tonumber(cfg.durationColorBelowThreshold)
+    if belowAt and belowAt > 0 then
+        local wr, wg, wb = cfg.durationColorBelowR or 1, cfg.durationColorBelowG or 0.25, cfg.durationColorBelowB or 0.25
+        local nc = style.durationColor
+        local curve, key = DurationColorBelowCurve(belowAt, wr, wg, wb,
+            nc and nc.r or 1, nc and nc.g or 1, nc and nc.b or 1)
+        if curve then
+            style.durationColorCurve = curve
+            style.durationColorKey = key
+            style.durationColorBelowThreshold = belowAt
+            style.durationColorBelow = { r = wr, g = wg, b = wb }
+        end
+    end
 
     -- Custom icon shape (Square/Circle/Hexagon/etc, same media set as Action Bars
     -- and Unit Frames' detached portraits). ns.PORTRAIT_MASKS/BORDERS/MASK_INSETS are
