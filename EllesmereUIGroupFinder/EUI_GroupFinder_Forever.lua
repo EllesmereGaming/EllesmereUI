@@ -3041,9 +3041,15 @@ do
     local native = setmetatable({}, { __mode = "k" })  -- button: its picture's shape as blizzard draws it
     local want = setmetatable({}, { __mode = "k" })    -- button: the height we gave it
 
-    -- the taller picture keeps blizzard's look: its sides cropped, centred
+    local set = setmetatable({}, { __mode = "k" })     -- picture: the coords our crop last set
+
+    -- the taller picture keeps blizzard's look: its sides cropped, centred.
+    -- coords still showing our own crop (an atlas set again unchanged) aren't blizzard's
     local function Grab(ic)
         local ulx, uly, _, lly, urx = ic:GetTexCoord()
+        local o = set[ic]
+        if o and math.abs(o[1] - ulx) < 1e-4 and math.abs(o[2] - urx) < 1e-4
+            and math.abs(o[3] - uly) < 1e-4 and math.abs(o[4] - lly) < 1e-4 then return end
         coords[ic] = { ulx, urx, uly, lly }
     end
 
@@ -3051,16 +3057,19 @@ do
 
     -- the picture's height from the height we gave the button: read back right
     -- after setting it, the old height can come out and the crop with it
-    local function Crop(b)
+    local function Crop(b, bh)
         local ic, bb = b.Icon, base[b]
         local w = ic and ic:GetWidth() or 0
         -- the picture's shape from the cover's height, which never changes; measured only without one
         local na = (bb and bb.ih > 0 and w / bb.ih) or native[b]
         local c = ic and na and coords[ic]
-        local h = want[b] and (want[b] - ICON_INSET) or (ic and ic:GetHeight()) or 0
+        bh = bh or want[b]
+        local h = bh and (bh - ICON_INSET) or (ic and ic:GetHeight()) or 0
         if not (c and w > 0 and h > 0) then return end
         local cut = (c[2] - c[1]) * (1 - math.min(1, (w / h) / na)) / 2
-        ic:SetTexCoord(c[1] + cut, c[2] - cut, c[3], c[4])
+        local l, r = c[1] + cut, c[2] - cut
+        ic:SetTexCoord(l, r, c[3], c[4])
+        set[ic] = { l, r, c[3], c[4] }
     end
 
     local function Apply(b)
@@ -3074,6 +3083,8 @@ do
         local ic = b.Icon
         local w, h = ic and ic:GetWidth() or 0, ic and ic:GetHeight() or 0
         if w > 0 and h > 1 then native[b] = w / h end
+        -- a button blizzard made on this open had no width when we fitted: fit them now
+        if not want[b] then FitCategories(b:GetParent()) return end
         Apply(b)
     end
 
@@ -3106,6 +3117,8 @@ do
         end
         -- blizzard's layout sizes the button back to its art on show
         if b.Layout then hooksecurefunc(b, "Layout", AfterLayout) end
+        -- whatever sizes it (blizzard, us, a late layout), the crop follows the size it ends at
+        b:HookScript("OnSizeChanged", function(self, _, h) Crop(self, h) end)
         return bb
     end
 
