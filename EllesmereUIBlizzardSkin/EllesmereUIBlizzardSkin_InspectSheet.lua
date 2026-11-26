@@ -524,7 +524,9 @@ local function ApplyTabVisibility(showLabels)
     -- Hide/show avg ilvl + M+ score
     local frame = InspectFrame
     if frame then
-        if GetFFD(frame).avgIlvlText then GetFFD(frame).avgIlvlText:SetShown(showLabels) end
+        if GetFFD(frame).avgIlvlText then
+            GetFFD(frame).avgIlvlText:SetShown(showLabels and ns.InspectShowAvgIlvl())
+        end
         if GetFFD(frame).mPlusScoreText then GetFFD(frame).mPlusScoreText:SetShown(showLabels) end
     end
 end
@@ -589,11 +591,20 @@ local function UpdateInspectHeader(frame)
         mpFS:SetFont(fontPath, 12, "")
         mpFS:SetTextColor(0.8, 0.8, 0.8, 1)
         mpFS:SetJustifyH("CENTER")
-        mpFS:SetPoint("TOP", GetFFD(frame).avgIlvlText, "BOTTOM", 0, -2)
         GetFFD(frame).mPlusScoreText = mpFS
     end
 
-    local avg = CalculateAverageItemLevel()
+    -- Show Average Item Level off: the M+ line moves up into its slot.
+    local avgOn = ns.InspectShowAvgIlvl()
+    local mpFS = GetFFD(frame).mPlusScoreText
+    mpFS:ClearAllPoints()
+    if avgOn then
+        mpFS:SetPoint("TOP", GetFFD(frame).avgIlvlText, "BOTTOM", 0, -2)
+    else
+        mpFS:SetPoint("TOP", GetFFD(frame).avgIlvlText, "TOP", 0, 0)
+    end
+
+    local avg = avgOn and CalculateAverageItemLevel()
     if avg and avg > 0 then
         GetFFD(frame).avgIlvlText:SetFormattedText("%.2f", avg)
         GetFFD(frame).avgIlvlText:Show()
@@ -1737,6 +1748,18 @@ do
 end
 
 -- Function to refresh item level visibility when toggle changes
+-- The Show Average Item Level toggle (also run on each INSPECT_READY).
+function EllesmereUI._refreshInspectAverageItemLevelVisibility()
+    local frame = InspectFrame
+    if not (frame and frame:IsShown() and GetFFD(frame).avgIlvlText) then return end
+    UpdateInspectHeader(frame)
+    -- The header pass shows its lines; off the Character tab they stay hidden.
+    if (frame.selectedTab or 1) ~= 1 then
+        GetFFD(frame).avgIlvlText:Hide()
+        GetFFD(frame).mPlusScoreText:Hide()
+    end
+end
+
 function EllesmereUI._refreshInspectItemLevelVisibility()
     if not InspectFrame or not InspectPaperDollItemsFrame then return end
 
