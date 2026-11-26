@@ -393,13 +393,12 @@ EllesmereUI._WHATSNEW_PATCHES = {
         thanks = true,
         features = {
             {
-                -- The Scrolls and Elixirs slot of WOW FOREVER on the Auras, Buffs & Consumables page (beside Arcane
-                -- Censer for a warrior or rogue, else a row of its own; WoW Forever only).
+                -- The Scrolls and Elixirs slot of CONSUMABLES on the Auras, Buffs & Consumables page (WoW Forever only).
                 module  = "AuraBuff Reminders",
                 forever = true,
                 title   = "Scrolls and Elixirs",
                 desc    = "A reminder for each stat you tick, per class, when its scroll or elixir buff is missing and you carry one; click it to use the best one for your level",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "WOW FOREVER", highlight = "Scrolls and Elixirs" } or nil,
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "CONSUMABLES", highlight = "Scrolls and Elixirs" } or nil,
             },
             {
                 -- A submenu of Blizzard's Looking For Group window cog menu: no options row (WoW Forever only).
@@ -510,13 +509,13 @@ EllesmereUI._WHATSNEW_PATCHES = {
         },
         features = {
             {
-                -- Target Tracking is a hunter item of the Class Buffs dropdown in WOW FOREVER on the Auras, Buffs &
+                -- Target Tracking is a hunter item of the Class Buffs dropdown in SELF BUFFS on the Auras, Buffs &
                 -- Consumables page (WoW Forever only).
                 module  = "AuraBuff Reminders",
                 forever = true,
                 title   = "Hunter Target Tracking",
                 desc    = "In combat, a hunter is reminded to switch to the tracking that matches their target's creature type; off by default, in the Class Buffs dropdown",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "WOW FOREVER", highlight = "Class Buffs" } or nil,
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "SELF BUFFS", highlight = "Class Buffs" } or nil,
             },
             {
                 -- The Class Colored Names checkbox dropdown of EXTRAS on the Chat page (both clients).
@@ -581,13 +580,13 @@ EllesmereUI._WHATSNEW_PATCHES = {
         thanks = true,
         features = {
             {
-                -- Show Sleep Timer is a row of the Sleeping Bag cog in WOW FOREVER on the Auras, Buffs & Consumables
+                -- Show Sleep Timer is a row of the Sleeping Bag cog in CONSUMABLES on the Auras, Buffs & Consumables
                 -- page (WoW Forever only).
                 module  = "AuraBuff Reminders",
                 forever = true,
                 title   = "Sleeping Bag Sleep Timer",
                 desc    = "While you lie in your sleeping bag, the reminder counts down to three Well-Rested stacks and shows your stack count; on by default, in the Sleeping Bag cog",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "WOW FOREVER", highlight = "Sleeping Bag" } or nil,
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "CONSUMABLES", highlight = "Sleeping Bag" } or nil,
             },
             {
                 -- The Loadout Manager tab: one card per spec group plus the shared card (WoW Forever only).
@@ -663,12 +662,12 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIActionBars", page = "Bar Animations", section = "BAR INTERACTIONS", highlight = "Show Swing Timer on Attacks" } or nil,
             },
             {
-                -- The Arcane Censer row of WOW FOREVER on the Auras, Buffs & Consumables page (WoW Forever only).
+                -- The Arcane Censer row of CONSUMABLES on the Auras, Buffs & Consumables page (WoW Forever only).
                 module  = "AuraBuff Reminders",
                 forever = true,
                 title   = "Arcane Censer Reminder",
                 desc    = "In dungeons, reminds you to use your Arcane Censer while Magical Awareness is missing; click the icon to use it, off by default",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "WOW FOREVER", highlight = "Arcane Censer" } or nil,
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "CONSUMABLES", highlight = "Arcane Censer" } or nil,
             },
             {
                 -- The Talent Reminders tab: Export | Delete on each spec's card, Export All over the cards and
@@ -1115,13 +1114,13 @@ EllesmereUI._WHATSNEW_PATCHES = {
         thanks = true,
         features = {
             {
-                -- The Sleeping Bag row of WOW FOREVER on the Auras, Buffs & Consumables page; Show Below is in its
+                -- The Sleeping Bag row of CONSUMABLES on the Auras, Buffs & Consumables page; Show Below is in its
                 -- cog and in Well Fed's (WoW Forever only).
                 module  = "AuraBuff Reminders",
                 forever = true,
                 title   = "Show Below (Minutes)",
                 desc    = "The Sleeping Bag and Well Fed reminders can also show a set number of minutes before their buff runs out, with a countdown; in each reminder's cog, off by default",
-                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "WOW FOREVER", highlight = "Sleeping Bag" } or nil,
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "CONSUMABLES", highlight = "Sleeping Bag" } or nil,
             },
             {
                 -- The Flag/Hide Owned Items toggle of MERCHANT OPTIONS in the Merchant card of Window Skins (both

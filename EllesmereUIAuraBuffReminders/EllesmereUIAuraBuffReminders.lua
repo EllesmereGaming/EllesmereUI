@@ -12,10 +12,11 @@ EllesmereUI._ModuleNS[ADDON_NAME] = select(2, ...)  -- LOD options files read th
 local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 
 -- WoW Forever runs a reduced module: the Raid Buffs section over that client's
--- own buffs (EABR.CollectForeverRaidBuffs) and one Forever-only section (the
--- Camp Benefits campfire buff, the Sleeping Bag's Well-Rested buff, the Arcane
--- Censer's Magical Awareness, gathering tracking, Find Treasure and custom
--- spell IDs) collected by
+-- own buffs (EABR.CollectForeverRaidBuffs) and two Forever-only sections, Self
+-- Buffs (class buffs, weapon imbues, gathering tracking, Find Treasure, custom
+-- spell IDs and spell groups) and Consumables (the Camp Benefits campfire buff,
+-- the Sleeping Bag's Well-Rested buff, the Arcane Censer's Magical Awareness,
+-- Well Fed, scrolls and elixirs, weapon stones and oils), both collected by
 -- EABR.CollectForever, with every other retail collector, its events and its
 -- options sections off. Both values live on EABR, where every split file reads
 -- them; retail reads FOREVER as false at each gate and nothing else changes

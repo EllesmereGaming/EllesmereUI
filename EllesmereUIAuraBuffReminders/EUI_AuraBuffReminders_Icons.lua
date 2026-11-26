@@ -1804,7 +1804,7 @@ do
         e.groupHave = nil
         e.groupTotal = nil
         e.requestKey = nil; e.requestName = nil
-        e.foreverGroup = nil
+        e.foreverGroup = nil; e.fvSelf = nil
         e.spellRank = nil
         e.foreverFood = nil
         e.hunterTrackingStatus = nil
