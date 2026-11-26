@@ -487,7 +487,9 @@ end
 function ns.UFO_FrameBorderGradientControls(rgn, unitKey, own, getBorder, readOnly, onChange)
     local db = ns._UFO_OptEnv.db
     local dress = PoolGen(rgn)
-    local Gradient = getBorder
+    local function Gradient()
+        return ns.UF_BorderGradientSettings(getBorder(), unitKey)
+    end
     local function BlockedReason()
         local reason = readOnly()
         if reason then return reason end

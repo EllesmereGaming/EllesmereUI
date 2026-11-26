@@ -1669,7 +1669,7 @@ ReloadFramesBody = function()
                 PP.Point(frame.unifiedBorder, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
                 EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, bs, bc.r, bc.g, bc.b, bsrc.borderAlpha or 1, btex, box, boy, bsrc.borderTextureShiftX, bsrc.borderTextureShiftY, "unitframes", bs, nil, bpx,
                     ns.UF_KeepBorderGradient(bsrc, unit, frame))
-                if not boss and bsrc.borderGradientEnabled then
+                if not boss then
                     ns.UF_ApplyBorderGradient(frame.unifiedBorder, bsrc, unit, frame)
                 end
             end

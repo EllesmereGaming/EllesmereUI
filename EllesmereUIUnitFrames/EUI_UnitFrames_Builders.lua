@@ -76,8 +76,16 @@ local function BaseBorderRGB(settings, unit, previewKey)
     return 0, 0, 0
 end
 
+local miniGradientUnits = { targettarget = true, focustarget = true, pet = true }
+
 function ns.UF_BorderGradientUnit(unitKey)
     return unitKey == "player" or unitKey == "target" or unitKey == "focus"
+end
+
+function ns.UF_BorderGradientSettings(settings, unitKey)
+    local own = miniGradientUnits[unitKey] and db.profile[unitKey]
+    if own and own.borderGradientOverride then return own end
+    return settings
 end
 
 function ns.UF_BorderGradientPainter(settings)
@@ -91,10 +99,8 @@ function ns.UF_BorderGradientRGB(settings)
 end
 
 local function GradientPainter(settings, unitKey)
-    if settings.borderGradientEnabled and (ns.UF_BorderGradientUnit(unitKey)
-        or unitKey == "boss" or (unitKey and unitKey:match("^boss%d$"))) then
-        return ns.UF_BorderGradientPainter(settings), settings
-    end
+    local gradient = ns.UF_BorderGradientSettings(settings, unitKey)
+    if gradient.borderGradientEnabled then return ns.UF_BorderGradientPainter(settings), gradient end
 end
 
 local function ActiveGradientPainter(border, settings, unitKey)
@@ -184,7 +190,7 @@ local function FrameBorderEnter(self)
         ns.ApplyBossBorderState(self)
         return
     end
-    local isMini = unitKey == "pet" or unitKey == "targettarget" or unitKey == "focustarget"
+    local isMini = miniGradientUnits[unitKey]
     local settings = isMini and GetMiniDonorSettings(unitKey) or GetSettingsForUnit(unitKey)
     -- Highlight defaults ON (nil == enabled); only an explicit false disables it.
     if settings.highlightEnabled == false then return end
@@ -228,8 +234,7 @@ local function FrameBorderLeave(self)
         ns.ApplyBossBorderState(self)
         return
     end
-    local isMini = unitKey == "pet" or unitKey == "targettarget" or unitKey == "focustarget"
-    local settings = isMini and GetMiniDonorSettings(unitKey) or GetSettingsForUnit(unitKey)
+    local settings = miniGradientUnits[unitKey] and GetMiniDonorSettings(unitKey) or GetSettingsForUnit(unitKey)
     if self._euiBorderColorHover then self._euiBorderColorHover = nil end
     PaintNormalBorder(self, settings, self._euiUnit or unitKey)
 end
