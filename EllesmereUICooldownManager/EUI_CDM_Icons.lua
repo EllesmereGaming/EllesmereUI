@@ -1186,8 +1186,8 @@ local function RefreshCDMIconAppearance(barKey)
             local cse, csGlow = ns.CdStateOf(csSs, icon)
             -- The hide effects run as their base mode plus flags (ns.CD_STATE_HIDE: Shift Icons, Hidden Until Usable, Hidden Outside Form/Stance), so the branches below stay as-is.
             local m = cse and ns.CD_STATE_HIDE[cse]
-            local cseShift, cseUsable, cseForm
-            if m then cse, cseShift, cseUsable, cseForm = m.base, m.shift, m.usable, m.form end
+            local cseShift, cseUsable, cseForm, csePower
+            if m then cse, cseShift, cseUsable, cseForm, csePower = m.base, m.shift, m.usable, m.form, m.power end
             -- Stance Bar (EllesmereUICdmStanceBar.lua): one more hide reason. Alone,
             -- it runs as Hidden (On CD) with the cooldown never read.
             local stance = ns.CdmStanceBarOf(csSs, icon)
@@ -1214,15 +1214,16 @@ local function RefreshCDMIconAppearance(barKey)
                     onCD = realCD
                 end
                 if cseUsable then
-                    if not onCD then onCD = ns.CdmSpellNotUsable(csLive) end
-                    -- Proc edges change only usability: SPELL_UPDATE_USABLE watch.
-                    ns.WatchCdUsable(icon)
+                    if not onCD then onCD = ns.CdmSpellNotUsable(csLive, csePower) end
+                    -- Proc edges change only usability: SPELL_UPDATE_USABLE watch
+                    -- (and the power edge for Hidden Until Castable).
+                    ns.WatchCdUsable(icon, nil, nil, true, csePower)
                 end
                 local sHide, sShift = false, false
                 if stance then
                     sHide, sShift = ns.CdmStanceBarHidden(stance)
                     -- Page changes re-arm through the stance bar watch.
-                    ns.WatchCdUsable(icon, cseForm, true, cseUsable)
+                    ns.WatchCdUsable(icon, cseForm, true, cseUsable, csePower)
                 end
                 if sHide then
                     icon:SetAlpha(0)

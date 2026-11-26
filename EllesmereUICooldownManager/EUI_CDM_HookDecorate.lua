@@ -1304,8 +1304,8 @@ local function DecorateFrame(frame, barData)
                 -- (ns.CD_STATE_HIDE: Shift Icons, Hidden Until Usable, Hidden
                 -- Outside Form/Stance), so every comparison below is unchanged.
                 local m = cse and ns.CD_STATE_HIDE[cse]
-                local cseShift, cseUsable, cseForm
-                if m then cse, cseShift, cseUsable, cseForm = m.base, m.shift, m.usable, m.form end
+                local cseShift, cseUsable, cseForm, csePower
+                if m then cse, cseShift, cseUsable, cseForm, csePower = m.base, m.shift, m.usable, m.form, m.power end
                 -- Stance Bar (EllesmereUICdmStanceBar.lua): one more hide reason. Alone,
                 -- it runs as Hidden (On CD) with the cooldown never read.
                 local stance = ns.CdmStanceBarOf(ss2, frame)
@@ -1352,12 +1352,12 @@ local function DecorateFrame(frame, barData)
                 if cse == "hiddenOnCD" or cse == "hiddenReady" or cse == "lowerAlphaOnCD" then
                     ArmCdStateEval(frame, fd, cse, cseShift,
                         (ss2 and ss2.cdStateLowerAlpha) or 0.5,
-                        ss2 and ss2.chargeHideUntilSpent, cseUsable, cseForm, stance, stanceOnly)
+                        ss2 and ss2.chargeHideUntilSpent, cseUsable, cseForm, stance, stanceOnly, csePower)
                     -- Proc, form and stance bar edges never fire this hook: the watch
                     -- re-arms on SPELL_UPDATE_USABLE / UPDATE_SHAPESHIFT_FORM /
                     -- UPDATE_BONUS_ACTIONBAR.
                     if cseUsable or cseForm or stance then
-                        ns.WatchCdUsable(frame, cseForm, stance ~= nil, cseUsable)
+                        ns.WatchCdUsable(frame, cseForm, stance ~= nil, cseUsable, csePower)
                     end
                     -- Hidden (CD Ready) on a charge spell also needs the refill-to-max
                     -- edge, which this hook never fires. Registered once per spell
