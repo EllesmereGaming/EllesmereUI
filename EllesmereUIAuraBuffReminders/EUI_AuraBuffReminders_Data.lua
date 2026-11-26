@@ -77,7 +77,7 @@ if EABR.FOREVER then
         { key="ai",     class="MAGE",    name="Arcane Intellect",      castSpell=1459, dismissKey="raidbuff:ai",
           fam=EllesmereUI.FOREVER_BUFF_FAMILIES.ai, benefit="intellect" },
         { key="spirit", class="PRIEST",  name="Divine Spirit",         castSpell=14752, dismissKey="raidbuff:spirit",
-          fam=EllesmereUI.FOREVER_BUFF_FAMILIES.spirit, talent=true },
+          fam=EllesmereUI.FOREVER_BUFF_FAMILIES.spirit, benefit="spirit", talent=true },
     }
 end
 
