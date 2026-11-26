@@ -561,6 +561,7 @@ do
         -- The tooltip's owner/layout may have become restricted since leave.
         if not TooltipUsable(GameTooltip) then
             hidePending = false
+            pcall(GameTooltip.Hide, GameTooltip)
             return
         end
         if not Enabled() then
@@ -594,7 +595,10 @@ do
                 if fadeGeneration ~= hideGeneration or not hidePending then return end
                 hidePending = false
                 fadeNeedsStop = false
-                if not TooltipUsable(GameTooltip) then return end
+                if not TooltipUsable(GameTooltip) then
+                    pcall(GameTooltip.Hide, GameTooltip)
+                    return
+                end
                 if GameTooltip:IsShown() then GameTooltip:Hide() end
             end)
         end
