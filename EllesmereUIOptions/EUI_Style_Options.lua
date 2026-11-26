@@ -393,6 +393,41 @@ Register("friends",      "EllesmereUIFriends",         "Friends List",
     FriendsProfile, "useBlizzardStyle", "useClassicStyle", "FR_Style")
 end
 
+-- Blizzard Skins+ window skins: the profile's window look (windowSkinLook).
+-- A pick sets the look's own windows (EllesmereUI.SwapWindowSkinStyle) on
+-- the same reload as the module picks. ApplyAll swaps it itself.
+local InferredStockStyle
+do
+    local function Prof() return EllesmereUI.GetActiveProfileData() end
+    local windows = {
+        key = "windows", folder = "EllesmereUIBlizzardSkin", display = "Blizzard Skins+",
+        firstInstall = false,
+        profile = Prof,
+        get = function()
+            local look = EllesmereUI.ProfileWindowSkinLook
+                and EllesmereUI.ProfileWindowSkinLook(Prof(), EllesmereUIDB and EllesmereUIDB.fonts)
+            return look or "eui"
+        end,
+        set = function(styleKey)
+            local swap = EllesmereUI.SwapWindowSkinStyle
+            if not swap then return end
+            swap(styleKey, false, InferredStockStyle())
+            local prof = Prof()
+            if prof then prof.windowSkinLook = styleKey end
+        end,
+        -- The look the windows installed with this session.
+        active = function()
+            local slots = EllesmereUIDB and EllesmereUIDB.windowSkinStyleSlots
+            local look = type(slots) == "table" and slots.active
+            if look == "classic" then return "classic" end
+            if look == "blizzard" or look == "forever" then return "blizzard" end
+            return "eui"
+        end,
+    }
+    MODULES[#MODULES + 1] = windows
+    BY_KEY.windows = windows
+end
+
 -------------------------------------------------------------------------------
 --  Per-style slots. Every setting a style's defaults write (the onEnable
 --  seeds above) is kept once per style: switching a module from style A to
@@ -700,11 +735,11 @@ end
 -- names the look a font or window record from before the slots belongs to.
 -- WoW Forever counts as Blizzard Style (it shares that look's font slot, and
 -- such records predate its own window slot).
-local function InferredStockStyle()
+function InferredStockStyle()
     local b, c = 0, 0
     for i = 1, #MODULES do
         local m = MODULES[i]
-        if NS(m.folder) ~= nil then
+        if m.key ~= "windows" and NS(m.folder) ~= nil then
             local k = BaseKey(m.get())
             if k == "blizzard" then b = b + 1 elseif k == "classic" then c = c + 1 end
         end
@@ -819,18 +854,17 @@ local function ApplyWholeUIFont(styleKey, legacy)
     db.fontStockSeeded = nil
     EllesmereUI.InvalidateFontCache()
 end
--- The same two callers also swap the Blizz UI Enhanced window skins through
--- their own per-style slots (EllesmereUI.SwapWindowSkinStyle: first visit
--- to a stock style = every window at Blizz Default, the character sheet's
--- with the EllesmereUI features it keeps there). A style picks only these
--- defaults: each window's own card decides how it renders. A disabled Blizz
--- UI Enhanced module has no swapper and is left
--- alone. The look is the active PROFILE's (profile-root windowSkinLook), so
--- the account's windows swap back to each profile's look on a profile switch
--- (EllesmereUI.ReconcileWindowSkinLook). WoW Forever has a window slot of
--- its own, whose first visit skins every window as the EllesmereUI look's
--- does but the micro menu and the bag bar (Blizz Default); a window look
--- recorded before that slot existed stays as it is.
+-- The same two callers also swap the Blizz UI Enhanced window skins
+-- (EllesmereUI.SwapWindowSkinStyle): every swap sets the look's own windows,
+-- never earlier picks. The EllesmereUI look skins every window; Blizzard
+-- Style, Classic WoW UI and WoW Forever put every one at Blizz Default (the
+-- character sheet keeps its EllesmereUI features there). Each window's own
+-- card can change it afterwards. A disabled Blizz UI Enhanced module has no
+-- swapper and is left alone. The look is the active PROFILE's (profile-root
+-- windowSkinLook), so the account's windows swap to each profile's look on
+-- a profile switch (EllesmereUI.ReconcileWindowSkinLook), which restores
+-- them as that look was left instead of resetting them. The Blizzard
+-- Skins+ row in the module dropdowns moves the same look.
 local function WholeUIWindowsPending(styleKey)
     local swap = EllesmereUI.SwapWindowSkinStyle
     return swap ~= nil and swap(styleKey, true, InferredStockStyle())
