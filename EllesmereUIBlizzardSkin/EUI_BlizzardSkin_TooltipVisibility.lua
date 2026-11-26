@@ -544,12 +544,11 @@ do
             hideTimer = nil
         end
         hidePending = false
-        -- Defer stopping a restricted animation until the next usable build.
-        if not TooltipUsable(GameTooltip) then return end
         if fadeNeedsStop then
             fadeGroup:Stop()
             fadeNeedsStop = false
         end
+        if not TooltipUsable(GameTooltip) then return end
         if GameTooltip:IsShown() then
             GameTooltip:SetAlpha(1)
         end
