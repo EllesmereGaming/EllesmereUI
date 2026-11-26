@@ -62,6 +62,10 @@ local AVOID = {
     "MISS", "DODGE", "PARRY", "EVADE", "IMMUNE", "DEFLECT", "REFLECT", "RESIST", "BLOCK", "ABSORB",
 }
 local avoidLabel = {}
+-- Avoids that can be partial (data = damage taken, arg3 = amount avoided);
+-- Build fills partialFmt with "-%s" plus Blizzard's trailer.
+local PARTIAL = { ABSORB = "ABSORB_TRAILER", BLOCK = "BLOCK_TRAILER", RESIST = "RESIST_TRAILER" }
+local partialFmt = {}
 local ENERGIZE = { ENERGIZE = true, PERIODIC_ENERGIZE = true }
 
 -- Fountain arc: quarter circle of radius 1, x toward the side, y along the scroll
@@ -221,6 +225,11 @@ local function Build()
         local label = _G["COMBAT_TEXT_" .. t]
         avoidLabel[t], avoidLabel["SPELL_" .. t] = label, label
     end
+    for t, key in pairs(PARTIAL) do
+        local trailer = _G[key]
+        local fmt = "-%s " .. (type(trailer) == "string" and trailer or "(%s)")
+        partialFmt[t], partialFmt["SPELL_" .. t] = fmt, fmt
+    end
     ev = CreateFrame("Frame")
     ApplyPos()
     RegisterMover()
@@ -274,7 +283,7 @@ local function ClearLane(lane, h)
 end
 
 -- Round-robin pool: a burst past POOL_SIZE restarts the oldest message.
--- `label` is an optional, never secret, second format argument.
+-- `label` is an optional second format argument (C-side only, may be secret).
 local function Emit(fmt, value, c, crit, label)
     nextIdx = nextIdx % POOL_SIZE + 1
     local fs = pool[nextIdx]
@@ -362,6 +371,16 @@ local function OnEvent(_, event, arg1, arg2)
             local _, arg3 = C_CombatText.GetCurrentEventInfo()
             Emit("+%s", FormatAmount(arg3), S.healColor, crit)
             return
+        end
+        -- A partial absorb/block/resist is damage taken (Soul Link, shields)
+        if partialFmt[arg1] then
+            local data, arg3 = C_CombatText.GetCurrentEventInfo()
+            if (IsSecret(arg3) or arg3 ~= nil) and not IsZeroValue(data) then
+                if S.damage then
+                    Emit(partialFmt[arg1], FormatAmount(data), S.damageColor, false, arg3)
+                end
+                return
+            end
         end
         local label = S.avoid and avoidLabel[arg1]
         if label then
