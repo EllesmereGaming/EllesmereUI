@@ -805,21 +805,25 @@ local function FvAvailable(buff, low)
     for i = first, last, step do
         if CachedGetItemCount(items[i]) > 0 then return nil, items[i] end
     end
+    if buff.create then return nil, nil, EABR.FvHighest(buff.create) end
 end
 
 local function FvPick(choice, isImbue, class, wcat, low)
     if choice == "off" then return nil end
     local auto = choice == nil or choice == "auto"
     local list = EABR.FV_WEAPON_BUFFS
+    local creatable, createID
     for i = 1, #list do
         local buff = list[i]
         if (auto or choice == buff.key) and (buff.imbue == true) == isImbue
            and (not buff.class or buff.class == class)
            and (not buff.weapon or buff.weapon == wcat) then
-            local spellID, itemID = FvAvailable(buff, low)
-            if spellID or itemID or not auto then return buff, spellID, itemID end
+            local spellID, itemID, create = FvAvailable(buff, low)
+            if spellID or itemID or not auto then return buff, spellID or create, itemID end
+            if create and not creatable then creatable, createID = buff, create end
         end
     end
+    if creatable then return creatable, createID end
 end
 
 local function FvNeeds(left, warnSec)
@@ -856,7 +860,7 @@ end
 
 local function FvWeaponEntry(missing, hand, label, dismissKey, buff, spellID, itemID, hideNoItem, left)
     if buff.spells and not spellID then return end
-    if buff.items and not itemID and hideNoItem then return end
+    if buff.items and not itemID and not spellID and hideNoItem then return end
     local e = AcquireEntry()
     if spellID then
         e.mode = "spell"; e.spellID = spellID
