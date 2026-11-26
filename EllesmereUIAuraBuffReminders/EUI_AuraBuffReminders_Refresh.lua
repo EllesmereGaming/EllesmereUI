@@ -1676,6 +1676,26 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     end
 end
 
+-- Self Buffs ahead of Consumables from missing[first] on, each keeping its own order.
+do
+    local items = {}
+    function EABR.FvSelfFirst(missing, first)
+        local w, n = first, 0
+        for i = first, #missing do
+            local e = missing[i]
+            if e.fvSelf then
+                missing[w] = e; w = w + 1
+            else
+                n = n + 1; items[n] = e
+            end
+        end
+        for i = 1, n do
+            missing[w] = items[i]; w = w + 1
+            items[i] = nil
+        end
+    end
+end
+
 -------------------------------------------------------------------------------
 --  WoW Forever Raid Buffs: the retail section's two views over that client's
 --  buffs (RAID_BUFFS). A member has a buff while an aura of its family is up
@@ -2051,7 +2071,9 @@ local function Refresh()
     if EABR.FOREVER then
         if remindersOn then
             EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
+            local first = #missing + 1
             EABR.CollectForever(missing, inInstance, inPvP, playerClass)
+            EABR.FvSelfFirst(missing, first)
         else
             EABR.FvStandDown()
         end
