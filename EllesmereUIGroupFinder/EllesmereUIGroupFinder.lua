@@ -201,18 +201,21 @@ function GF:OnEnable()
         return
     end
 
+    -- forever's looking for group window is its own load-on-demand addon
+    local blizz = EllesmereUI.IS_FOREVER and "Blizzard_GroupFinder_VanillaStyle" or "Blizzard_GroupFinder"
     if ns.Apps_Enable then ns.Apps_Enable() end
     local function Start()
         if ns.Search_OnEnable then ns.Search_OnEnable() end
+        if ns.Forever_OnEnable then ns.Forever_OnEnable() end
     end
-    if C_AddOns.IsAddOnLoaded("Blizzard_GroupFinder") and PVEFrame then
+    if C_AddOns.IsAddOnLoaded(blizz) and (PVEFrame or EllesmereUI.IS_FOREVER) then
         Start()
         return
     end
     local f = CreateFrame("Frame")
     f:RegisterEvent("ADDON_LOADED")
     f:SetScript("OnEvent", function(self, _, name)
-        if name == "Blizzard_GroupFinder" then
+        if name == blizz then
             self:UnregisterEvent("ADDON_LOADED")
             Start()
         end

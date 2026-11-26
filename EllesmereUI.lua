@@ -835,7 +835,6 @@ end
 -- than sit in them disabled. Extend the set whenever a TOC gets that line.
 EllesmereUI.FOREVER_HIDDEN_ADDONS = {
     EllesmereUIMythicTimer = true, EllesmereUIFriends = true,
-    EllesmereUIGroupFinder = true,
     -- Not an addon: the Dragon Riding profile pseudo-folder (its file returns at
     -- load on Forever), listed so the profile import/export checklists drop it.
     EllesmereUIDragonRiding = true,

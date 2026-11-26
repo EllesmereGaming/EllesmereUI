@@ -5,6 +5,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 if EllesmereUI.HELD_BACK_ADDONS[ADDON_NAME] then return end -- held back (EllesmereUIGroupFinder.lua)
+if EllesmereUI.IS_FOREVER then return end -- retail premade groups only, forever has its own file
 local FOLDER = ADDON_NAME
 local CM = EllesmereUI
 

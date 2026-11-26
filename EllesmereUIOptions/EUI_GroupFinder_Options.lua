@@ -15,7 +15,7 @@ initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
 
-    local AddAppsSections, AddListSections
+    local AddAppsSections, AddListSections, AddForeverSections
 
     -----------------------------------------------------------------------
     -- applications settings (greyed while the module's off)
@@ -59,7 +59,8 @@ initFrame:SetScript("OnEvent", function(self)
             { type = "toggle", text = "Enable Group Finder",
               disabled = function() return PGFLoaded() and not ns.Enabled() end,
               disabledTooltip = "Premade Groups Filter", requireState = "disabled",
-              tooltip = "Premade Groups search filters, group list and the M+ applications bar in the Dungeons & Raids window. Requires a reload.",
+              tooltip = EUI.IS_FOREVER and "Group list and search filters in the Looking For Group window. Requires a reload."
+                  or "Premade Groups search filters, group list and the M+ applications bar in the Dungeons & Raids window. Requires a reload.",
               getValue = function() return ns.Enabled() end,
               setValue = function(v)
                   v = v and true or false
@@ -76,7 +77,8 @@ initFrame:SetScript("OnEvent", function(self)
                       onCancel    = function() EUI:RefreshPage() end,
                   })
               end },
-            { type = "slider", text = "Background", min = 0, max = 100, step = 5,
+            -- the window look and the signup options are retail's (forever has no sign ups)
+            EUI.IS_FOREVER and EUI.BlankRowCfg() or { type = "slider", text = "Background", min = 0, max = 100, step = 5,
               tooltip = "How opaque the Dungeons & Raids window background is. The swatch sets its tint.",
               getValue = BgOpacity,
               setValue = function(v)
@@ -85,7 +87,7 @@ initFrame:SetScript("OnEvent", function(self)
                   -- the swatch greys out at 0
                   if was ~= (v == 0) then EUI:RefreshPage() end
               end });  y = y - h
-        if not EUI._prebuilding then
+        if not EUI._prebuilding and not EUI.IS_FOREVER then
             EUI.BuildInlineSwatches(bgRow._rightRegion, {
                 { tooltip = "The tint over the background. Its opacity sets how strong the tint is.",
                   hasAlpha = true,
@@ -101,67 +103,69 @@ initFrame:SetScript("OnEvent", function(self)
                   end },
             })
         end
-        -- both account-wide
-        local noteRow
-        noteRow, h = W:DualRow(parent, y,
-            -- one dropdown over the account-wide quickSignup switch and this
-            -- profile's click count
-            { type = "dropdown", text = "Quick Signup",
-              tooltip = "How many clicks sign you up to a group. Hold Shift to keep the note box open.",
-              values = { disabled = "Disabled", single = "Single-click", double = "Double-click", triple = "Triple-click" },
-              order = { "disabled", "single", "double", "triple" },
-              getValue = function()
-                  if not QuickOn() then return "disabled" end
-                  return ns.OwnListGet("signupClicks")
-              end,
-              setValue = function(v)
-                  if v == "disabled" then
-                      EllesmereUIDB.quickSignup = false
-                  else
-                      EllesmereUIDB.quickSignup = true
-                      ns.SetOwnListValue("signupClicks", v)
-                  end
-                  if EUI._applyQuickSignup then EUI._applyQuickSignup() end
-              end },
-            { type = "toggle", text = "Persistent Signup Note",
-              tooltip = "Keeps a saved signup note you can copy into the Sign Up dialog with the Copy button.",
-              getValue = function() return EllesmereUIDB and EllesmereUIDB.persistSignupNote or false end,
-              setValue = function(v)
-                  EllesmereUIDB.persistSignupNote = v
-                  if EUI._applyPersistSignupNote then EUI._applyPersistSignupNote() end
-                  EUI:RefreshPage()
-              end });  y = y - h
-        do
-            EUI.BuildInlineCog(noteRow._rightRegion, {
-                gap = 9, tip = "Edit the saved signup note.",
-                disabled = function() return not (EllesmereUIDB and EllesmereUIDB.persistSignupNote) end,
-                disabledTooltip = "Persistent Signup Note",
-                show = function()
-                    EUI:ShowInputPopup({
-                        title = "Signup Note",
-                        message = "Saved between reloads and relogs. In Group Finder, choose Copy, press Ctrl+C, then Ctrl+V.",
-                        placeholder = "Enter signup note...",
-                        initialText = EUI.GetPersistentSignupNote(),
-                        maxLetters = 63,
-                        inputHeight = 70,
-                        multiline = true,
-                        showCount = true,
-                        allowEmpty = true,
-                        confirmText = "Save",
-                        onConfirm = function(note) EUI.SetPersistentSignupNote(note or "") end,
-                    })
-                end,
-            })
+        if not EUI.IS_FOREVER then
+            -- both account-wide
+            local noteRow
+            noteRow, h = W:DualRow(parent, y,
+                -- one dropdown over the account-wide quickSignup switch and this
+                -- profile's click count
+                { type = "dropdown", text = "Quick Signup",
+                  tooltip = "How many clicks sign you up to a group. Hold Shift to keep the note box open.",
+                  values = { disabled = "Disabled", single = "Single-click", double = "Double-click", triple = "Triple-click" },
+                  order = { "disabled", "single", "double", "triple" },
+                  getValue = function()
+                      if not QuickOn() then return "disabled" end
+                      return ns.OwnListGet("signupClicks")
+                  end,
+                  setValue = function(v)
+                      if v == "disabled" then
+                          EllesmereUIDB.quickSignup = false
+                      else
+                          EllesmereUIDB.quickSignup = true
+                          ns.SetOwnListValue("signupClicks", v)
+                      end
+                      if EUI._applyQuickSignup then EUI._applyQuickSignup() end
+                  end },
+                { type = "toggle", text = "Persistent Signup Note",
+                  tooltip = "Keeps a saved signup note you can copy into the Sign Up dialog with the Copy button.",
+                  getValue = function() return EllesmereUIDB and EllesmereUIDB.persistSignupNote or false end,
+                  setValue = function(v)
+                      EllesmereUIDB.persistSignupNote = v
+                      if EUI._applyPersistSignupNote then EUI._applyPersistSignupNote() end
+                      EUI:RefreshPage()
+                  end });  y = y - h
+            do
+                EUI.BuildInlineCog(noteRow._rightRegion, {
+                    gap = 9, tip = "Edit the saved signup note.",
+                    disabled = function() return not (EllesmereUIDB and EllesmereUIDB.persistSignupNote) end,
+                    disabledTooltip = "Persistent Signup Note",
+                    show = function()
+                        EUI:ShowInputPopup({
+                            title = "Signup Note",
+                            message = "Saved between reloads and relogs. In Group Finder, choose Copy, press Ctrl+C, then Ctrl+V.",
+                            placeholder = "Enter signup note...",
+                            initialText = EUI.GetPersistentSignupNote(),
+                            maxLetters = 63,
+                            inputHeight = 70,
+                            multiline = true,
+                            showCount = true,
+                            allowEmpty = true,
+                            confirmText = "Save",
+                            onConfirm = function(note) EUI.SetPersistentSignupNote(note or "") end,
+                        })
+                    end,
+                })
+            end
+            _, h = W:DualRow(parent, y,
+                { type = "toggle", text = "Cancel Oldest Application",
+                  tooltip = "At the application limit, clicking a group cancels your oldest pending application so you can sign up.",
+                  getValue = function() return ns.Cfg().cancelOldest == true end,
+                  setValue = function(v) ns.Cfg().cancelOldest = v and true or false end },
+                { type = "toggle", text = "Cancel Mismatched Applications",
+                  tooltip = "Cancels a pending application that no longer matches your filters, on your next click in the list.",
+                  getValue = function() return ns.Cfg().autoCancelMismatch == true end,
+                  setValue = function(v) ns.Cfg().autoCancelMismatch = v and true or nil end });  y = y - h
         end
-        _, h = W:DualRow(parent, y,
-            { type = "toggle", text = "Cancel Oldest Application",
-              tooltip = "At the application limit, clicking a group cancels your oldest pending application so you can sign up.",
-              getValue = function() return ns.Cfg().cancelOldest == true end,
-              setValue = function(v) ns.Cfg().cancelOldest = v and true or false end },
-            { type = "toggle", text = "Cancel Mismatched Applications",
-              tooltip = "Cancels a pending application that no longer matches your filters, on your next click in the list.",
-              getValue = function() return ns.Cfg().autoCancelMismatch == true end,
-              setValue = function(v) ns.Cfg().autoCancelMismatch = v and true or nil end });  y = y - h
         if PGFLoaded() then
             _, h = W:DualRow(parent, y,
                 { type = "label", text = EUI.COLOR_CODES.ERROR
@@ -169,7 +173,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EUI.BlankRowCfg());  y = y - h
         end
 
-        y = AddListSections(parent, y)
+        if EUI.IS_FOREVER then y = AddForeverSections(parent, y) else y = AddListSections(parent, y) end
 
         _, h = W:Spacer(parent, y, 20); y = y - h
         parent:SetHeight(math.abs(y - yOffset))
@@ -187,6 +191,128 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:Spacer(parent, y, 20); y = y - h
         parent:SetHeight(math.abs(y - yOffset))
         return math.abs(y - yOffset)
+    end
+
+    -- forever's group list: the retail settings that fit it (no sign ups, specs or ratings there)
+    function AddForeverSections(parent, y)
+        local W = EUI.Widgets
+        local _, h
+        local function Shown(key)
+            local v = ns.Cfg()[key]
+            if v == nil then v = ns.DEFAULTS[key] end
+            return v and true or false
+        end
+        local function SetShown(key, v)
+            ns.Cfg()[key] = v and true or false
+            if ns.Redecorate then ns.Redecorate() end
+        end
+        _, h = W:SectionHeader(parent, "RESULTS LIST", y); y = y - h
+        _, h = W:DualRow(parent, y,
+            { type = "slider", text = "Leader Text Size", min = 8, max = 20, step = 1,
+              tooltip = "The group leader's name, the first line.",
+              getValue = function() return ns.OwnListSize("titleSize") end,
+              setValue = function(v) ns.SetOwnListSize("titleSize", v) end },
+            { type = "slider", text = "Label Text Size", min = 8, max = 20, step = 1,
+              tooltip = "The leader's level and zone text size. The zone line shows once rows are tall enough.",
+              getValue = function() return ns.OwnListSize("lineSize") end,
+              setValue = function(v) ns.SetOwnListSize("lineSize", v) end })
+        y = y - h
+        _, h = W:DualRow(parent, y,
+            { type = "slider", text = "Activity Text Size", min = 8, max = 20, step = 1,
+              tooltip = "The dungeon, raid or activity name text size.",
+              getValue = function() return ns.OwnListSize("nameSize") end,
+              setValue = function(v) ns.SetOwnListSize("nameSize", v) end },
+            { type = "slider", text = "Row Height", min = 28, max = 64, step = 1,
+              tooltip = "How tall each row is.",
+              getValue = function() return ns.OwnListRowHeight() end,
+              setValue = function(v) ns.SetOwnListRowHeight(v) end })
+        y = y - h
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Members in Tooltip",
+              tooltip = "Group tooltips add a line per member with name, level, role and zone.",
+              getValue = function() return Shown("classTooltip") end,
+              setValue = function(v) SetShown("classTooltip", v) end },
+            EUI.BlankRowCfg())
+        y = y - h
+
+        _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
+        local function Ours() return ns.OwnListGet("roleIcons") == "ellesmere" end
+        local function Circle() return not Ours() or ns.OwnListGet("iconShape") ~= "square" end
+        _, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Role Icon Style",
+              tooltip = "Blizzard's class circles and role icons, or EllesmereUI's class-colored icons with a border.",
+              values = { blizzard = "Blizzard", ellesmere = "EllesmereUI" }, order = { "blizzard", "ellesmere" },
+              getValue = function() return ns.OwnListGet("roleIcons") end,
+              setValue = function(v) ns.SetOwnListValue("roleIcons", v); EUI:RefreshPage(true) end },
+            { type = "slider", text = "Role Icon Size", min = 100, max = 160, step = 5,
+              tooltip = "Size of the member and role icons in the group list.",
+              getValue = function() return tonumber(ns.Cfg().iconSize) or ns.DEFAULTS.iconSize end,
+              setValue = function(v)
+                  ns.Cfg().iconSize = v
+                  if ns.Redecorate then ns.Redecorate() end
+              end })
+        y = y - h
+        _, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Icon Shape",
+              tooltip = "The member and role icon shape.",
+              values = { circle = "Circle", square = "Square" }, order = { "circle", "square" },
+              disabled = function() return not Ours() end, disabledTooltip = "Role Icon Style: EllesmereUI",
+              getValue = function() return ns.OwnListGet("iconShape") end,
+              setValue = function(v) ns.SetOwnListValue("iconShape", v); EUI:RefreshPage(true) end },
+            { type = "dropdown", text = "Missing Role Icons",
+              tooltip = "When there is a missing role, add an icon to show you which one.",
+              values = { none = "None", blizzard = "Blizzard", ellesmere = "EllesmereUI" }, order = { "none", "blizzard", "ellesmere" },
+              getValue = function() return ns.OwnListGet("missingIcons") end,
+              setValue = function(v) ns.SetOwnListValue("missingIcons", v) end })
+        y = y - h
+        local texValues, texOrder = EUI.GetBorderTextureDropdown()
+        local borderRow
+        borderRow, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Border Style",
+              tooltip = "The border around square icons.",
+              values = texValues, order = texOrder,
+              disabled = Circle, disabledTooltip = "Icon Shape: Square",
+              getValue = function() return ns.OwnListGet("borderTexture") end,
+              setValue = function(v)
+                  -- a new style starts on its own color
+                  ns.SetOwnListValue("borderColor", nil)
+                  ns.SetOwnListValue("borderTexture", v)
+                  EUI:RefreshPage(true)
+              end },
+            { type = "slider", text = "Border Size", min = 0, max = 4, step = 1,
+              tooltip = "In pixels. 0 for no border. Round icons get a ring.",
+              disabled = function() return not Ours() end, disabledTooltip = "Role Icon Style: EllesmereUI",
+              getValue = function() return tonumber(ns.OwnListGet("borderSize")) or 0 end,
+              setValue = function(v) ns.SetOwnListValue("borderSize", v) end })
+        y = y - h
+        do
+            -- border color swatch
+            local rgn = borderRow and borderRow._rightRegion
+            if rgn then
+                local swatch, update = EUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
+                    function()
+                        local r, g, b = ns.OwnListBorderColor()
+                        return r, g, b, 1
+                    end,
+                    function(r, g, b)
+                        ns.SetOwnListValue("borderColor", { r = r, g = g, b = b })
+                    end, false, 20)
+                swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
+                rgn._lastInline = swatch
+                EUI.RegisterWidgetRefresh(update)
+            end
+        end
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Show Group Leader",
+              tooltip = "Puts a small crown above the group leader's icon.",
+              getValue = function() return Shown("leaderCrown") end,
+              setValue = function(v) SetShown("leaderCrown", v) end },
+            { type = "toggle", text = "Dungeon Names",
+              tooltip = "Each dungeon square shows the dungeon's short name (e.g. BRD for Blackrock Depths).",
+              getValue = function() return Shown("dungeonAbbr") end,
+              setValue = function(v) SetShown("dungeonAbbr", v) end })
+        y = y - h
+        return y
     end
 
     -- results list, display, the applicant list
@@ -633,8 +759,10 @@ initFrame:SetScript("OnEvent", function(self)
 
     EUI:RegisterModule(ADDON_NAME, {
         title       = "Group Finder",
-        description = "Premade Groups search filters, group list, applicant list and application tools in the Dungeons & Raids window.",
-        pages       = { PAGE_SEARCH, PAGE_APPS },
+        description = EUI.IS_FOREVER and "Group list and search filters in the Looking For Group window."
+            or "Premade Groups search filters, group list, applicant list and application tools in the Dungeons & Raids window.",
+        -- no applications on forever
+        pages       = EUI.IS_FOREVER and { PAGE_SEARCH } or { PAGE_SEARCH, PAGE_APPS },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_APPS then return BuildAppsPage(parent, yOffset) end
             return BuildSearchPage(pageName, parent, yOffset)
@@ -654,7 +782,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EUI._applyQuickSignup then EUI._applyQuickSignup() end
             if EUI._applyPersistSignupNote then EUI._applyPersistSignupNote() end
             if ns.ResetOwnList then ns.ResetOwnList() end
-            if ns.Enabled() then
+            if ns.Enabled() and not EUI.IS_FOREVER then
                 ns.Search_Layout()
                 ns.ApplyApplications()
             end
