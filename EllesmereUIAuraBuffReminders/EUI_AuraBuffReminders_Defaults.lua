@@ -267,7 +267,7 @@ function EABR.SpecialSoundField(key)
 end
 
 -- Resolves the configured sound key for a reminder from its dismissKey.
-function EABR.ResolveReminderSound(dk)
+function EABR.ResolveReminderSound(dk, fvSelf)
     local prefix, key = dk:match("^(%a+):(.+)$")
     if not prefix then return nil end
     local p = db.profile
@@ -282,7 +282,9 @@ function EABR.ResolveReminderSound(dk)
         return co.sectionSound
     elseif prefix == "forever" then
         local fo = p.forever
-        return fo and fo.sectionSound
+        if not fo then return nil end
+        if fvSelf then return fo.selfSound end
+        return fo.sectionSound
     end
     return nil
 end
@@ -297,7 +299,7 @@ function EABR.HandleAppearSounds(missing)
         if dk and not missing[i].hunterTrackingStatus and not _dismissedUntilLoad[dk] then
             cur[dk] = true
             if primed and not prev[dk] then
-                local skey = EABR.ResolveReminderSound(dk)
+                local skey = EABR.ResolveReminderSound(dk, missing[i].fvSelf)
                 if skey and skey ~= "none" then
                     local paths = EllesmereUI._groupDeathSoundPaths
                     local path = paths and paths[skey]

@@ -429,6 +429,7 @@ local defaults = {
     stackingFriendly = false,
     hitboxScaleX = 100,
     hitboxScaleY = 100,
+    clickableCastBar = false, -- click area reaches the cast bar (Blizzard's own plates sit lower)
     nameplateYOffset = 0,
     enemyNameTextSize = 11,
     enemyNameTextReactionColor = false,

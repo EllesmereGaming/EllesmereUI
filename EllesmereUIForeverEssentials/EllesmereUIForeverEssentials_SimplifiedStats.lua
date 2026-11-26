@@ -334,6 +334,22 @@ end
 
 TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, SimplifyStatsHook)
 
+-- Trainer recipes are spell tooltips carrying the crafted item's lines; other
+-- spell tooltips stay out (a "30 Mana" cost reads like a stat line). The one
+-- trainer window also serves class and pet trainers, whose spells stay out too.
+local TRADESKILLS = Enum.TrainerType and Enum.TrainerType.Tradeskills
+TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Spell, function(tooltip)
+    if not (F.Get("shorten") or F.Get("colors")) then return end
+    if not (tooltip and tooltip.GetPrimaryTooltipInfo) then return end
+    local ok, info = pcall(tooltip.GetPrimaryTooltipInfo, tooltip)
+    if not (ok and type(info) == "table" and info.getterName == "GetTrainerService") then return end
+    -- A trainer service shows only while a trainer window is open: ask its kind now.
+    if TRADESKILLS and C_Trainer and C_Trainer.GetTrainerType
+       and C_Trainer.GetTrainerType() == TRADESKILLS then
+        SimplifyStatsHook(tooltip)
+    end
+end)
+
 -- The comparison tooltips' stat change lines ("If you replace this item...")
 -- are added after the item post-call ran; rerun the pass once they are in.
 -- Already rewritten lines no longer match, so the rerun leaves them alone.

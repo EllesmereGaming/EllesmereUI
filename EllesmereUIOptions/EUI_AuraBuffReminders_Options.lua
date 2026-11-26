@@ -15,17 +15,17 @@ local PAGE_LOADOUTS  = "Loadout Manager"
 local PAGE_UNLOCK    = "Unlock Mode"
 
 -- WoW Forever: the page keeps CORE, DISPLAY and RAID BUFFS (that client's
--- locations and its own buffs) and swaps every other retail section for the one
--- Forever section (Camp Benefits + custom spell IDs); the Talent Reminders
--- page does not exist there.
+-- locations and its own buffs) and swaps every other retail section for the two
+-- Forever sections, SELF BUFFS and CONSUMABLES; the Talent Reminders page does
+-- not exist there.
 local FOREVER = EllesmereUI.IS_FOREVER == true
--- The Mage Armors and Class Buffs slots are the WOW FOREVER rows that are
+-- The Mage Armors and Class Buffs slots are the SELF BUFFS rows that are
 -- class-only. Class never changes mid-session, so unlike the Beacon M+ row no
 -- watcher is needed.
 local MAGE = FOREVER and select(2, UnitClass("player")) == "MAGE"
 
 local SECTION_CORE         = "CORE"
-local SECTION_FOREVER      = "WOW FOREVER"
+local SECTION_SELF_BUFFS   = "SELF BUFFS"
 local SECTION_DISPLAY      = "DISPLAY"
 local SECTION_RAID_BUFFS   = "RAID BUFFS"
 local SECTION_AURAS        = "AURAS"
@@ -698,6 +698,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
     local function CWarlockWhere() local c = CDB(); if not c then return nil end; c.warlockWhereToShow = c.warlockWhereToShow or {}; return c.warlockWhereToShow end
     local function FWhere() local f = FDB(); if not f then return nil end; f.whereToShow = f.whereToShow or {}; return f.whereToShow end
+    local function FSelfWhere() local f = FDB(); if not f then return nil end; f.selfWhereToShow = f.selfWhereToShow or {}; return f.selfWhereToShow end
     local function RShowWhen() local r = RDB(); if not r then return nil end; r.showWhen = r.showWhen or {}; return r.showWhen end
 
     -- Shared reminder-sound catalogue (built + LSM-populated by the QoL
@@ -1066,9 +1067,7 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  WoW Forever Scrolls and Elixirs: the row label, the checkbox dropdown of
     --  the stats this class is reminded of (per class, forever.<stat>ConsumableByClass)
-    --  and its cog. A class with neither Mage Armors nor Class Buffs has it beside
-    --  the Arcane Censer, every other class on a row of its own before the custom
-    --  spells, so Add Custom Spell | New Spell Group stay a pair.
+    --  and its cog, beside Weapon Stones and Oils in CONSUMABLES.
     ---------------------------------------------------------------------------
     local STAT_KEYS = { "intellect", "strength", "agility", "stamina", "spirit", "protection" }
     local function ScrollsSlot()
@@ -2003,157 +2002,144 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         -----------------------------------------------------------------------
-        --  WOW FOREVER section: on that client the rest of the page.
-        --  Camp Benefits | Sleeping Bag, Well Fed | Gathering Tracking,
-        --  Find Treasure | Weapon Buffs, Mage Armors or Class Buffs | Arcane
-        --  Censer (the Arcane Censer alone for a class with neither), then the
-        --  spell-ID entry
-        --  that adds a custom reminder followed by one slot per tracked spell;
-        --  the retail sections below never build.
+        --  WoW Forever sections: on that client the rest of the page.
+        --  SELF BUFFS: Mage Armors or Class Buffs | Weapon Imbues, Gathering
+        --  Tracking | Find Treasure, then the custom spells and spell groups.
+        --  CONSUMABLES: Camp Benefits | Sleeping Bag, Well Fed | Arcane Censer,
+        --  Scrolls and Elixirs | Weapon Stones and Oils. The retail sections
+        --  below never build.
         -----------------------------------------------------------------------
         if FOREVER then
-            _, h = W:SectionHeader(parent, SECTION_FOREVER, y);  y = y - h
+            local class = select(2, UnitClass("player"))
+            local classBuffs = not MAGE and _G._EABR_FvClassBuffs and _G._EABR_FvClassBuffs()[class]
+            local rogue = class == "ROGUE"
+            local offHand = not CanDualWield or CanDualWield()
 
-            -- Where to Show | Reminder Sound
+            local function WeaponChoices(isImbue)
+                local values, order = { auto = "Auto", off = "Off" }, { "auto", "off" }
+                for _, b in ipairs(_G._EABR_FV_WEAPON_BUFFS or {}) do
+                    if (b.imbue == true) == isImbue and (not b.class or b.class == class) then
+                        values[b.key] = b.name or _G._EABR_SpellName(b.spells[#b.spells], b.key)
+                        order[#order + 1] = b.key
+                    end
+                end
+                return values, order
+            end
+            local function HandRow(label, field, values, order)
+                return { type="dropdown", label=label, values=values, order=order, ddWidth=200,
+                  get=function()
+                      local f = FDB(); local t = f and f.weaponHands and f.weaponHands[class]
+                      return t and t[field] or "auto"
+                  end,
+                  set=function(v)
+                      local f = FDB(); if not f then return end
+                      f.weaponHands = f.weaponHands or {}
+                      local t = f.weaponHands[class]
+                      if not t then t = {}; f.weaponHands[class] = t end
+                      t[field] = v ~= "auto" and v or nil
+                      RefreshAll()
+                  end }
+            end
+            local function BuildWeaponCog(rgn, title, enabledField, rows)
+                rows[#rows + 1] = { type="dropdown", label="Rank to Use", ddWidth=200,
+                  values={ high = "Highest Owned", low = "Lowest Owned" }, order={ "high", "low" },
+                  get=function() local f = FDB(); return f and f.weaponLowRank and "low" or "high" end,
+                  set=function(v) local f = FDB(); if f then f.weaponLowRank = v == "low"; RefreshAll() end end }
+                rows[#rows + 1] = { type="toggle", label="Hide When None in Bags",
+                  tooltip="Hides a reminder when you have none of its item in your bags.\nOff: a chosen item still shows, greyed out. Auto only ever picks items you have.",
+                  get=function() local f = FDB(); return not f or f.weaponHideNoItem ~= false end,
+                  set=function(v) local f = FDB(); if f then f.weaponHideNoItem = v; RefreshAll() end end }
+                rows[#rows + 1] = { type="slider", label="Show Below (Minutes)", min=0, max=10, step=1,
+                  tooltip="Show a reminder before a poison, imbue, stone or oil runs out.\n0 = only once it has run out.\n1-10 = when it has less than this many minutes left.",
+                  get=function() local f = FDB(); return f and f.weaponShowBelow or 1 end,
+                  set=function(v) local f = FDB(); if f then f.weaponShowBelow = v; RefreshAll() end end }
+                EllesmereUI.BuildInlineCog(rgn, {
+                    title = title,
+                    disabled = function() local f = FDB(); return not (f and f[enabledField] == true) end,
+                    disabledTooltip = title,
+                    minWidth = 320,
+                    rows = rows,
+                })
+            end
+            local function WeaponToggle(text, tooltip, field)
+                return { type="toggle", text=text, tooltip=tooltip,
+                  getValue=function() local f = FDB(); return f and f[field] == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f[field] = v
+                      RefreshAll()
+                      EllesmereUI:RefreshPage()
+                  end }
+            end
+            local imbueValues, imbueOrder = WeaponChoices(true)
+            local imbueLabel = rogue and "Poisons" or "Weapon Imbues"
+
+            _, h = W:SectionHeader(parent, SECTION_SELF_BUFFS, y);  y = y - h
             _, h = SectionControlRow(parent, y, {
-                whereStore = FWhere, whereItems = FOREVER_SECTION_WHERE_ITEMS,
-                whereTooltip = "Pick which content the WoW Forever reminders appear in.\nRested areas (cities and inns) always stay hidden.",
-                soundSec = FDB, soundField = "sectionSound",
+                whereStore = FSelfWhere, whereItems = FOREVER_SECTION_WHERE_ITEMS,
+                whereTooltip = "Pick which content your own buffs and imbues remind you in.\nRested areas (cities and inns) always stay hidden.",
+                soundSec = FDB, soundField = "selfSound",
                 onChange = RefreshAll,
             });  y = y - h
 
-            -- Camp Benefits | Sleeping Bag
-            local campRow
-            campRow, h = W:DualRow(parent, y,
-                { type="toggle", text="Camp Benefits",
-                  tooltip="Reminds you when the Camp Benefits campfire buff is missing.",
-                  getValue=function() local f = FDB(); return not f or f.camp ~= false end,
+            local selfSlots, classIdx, imbueIdx = {}, nil, nil
+            if MAGE then
+                selfSlots[1] = { type="toggle", text="Mage Armors",
+                  tooltip="Reminds you when no Frost Armor, Ice Armor or Mage Armor is up.\nThe icon is the one you last had on; click it to cast it.",
+                  getValue=function() local f = FDB(); return f and f.mageArmor == true end,
                   setValue=function(v)
-                      local f = FDB(); if not f then return end; f.camp = v
+                      local f = FDB(); if not f then return end; f.mageArmor = v
                       RefreshAll()
-                  end },
-                { type="toggle", text="Sleeping Bag",
-                  tooltip="Reminds you when your Well-Rested buff is missing or under 3 stacks.\nOnly while a Cozy Sleeping Bag is in your bags and you are below max level.\nClick the icon to use it.",
-                  getValue=function() local f = FDB(); return f and f.sleepingBag == true end,
-                  setValue=function(v)
-                      local f = FDB(); if not f then return end; f.sleepingBag = v
-                      RefreshAll()
-                      EllesmereUI:RefreshPage()
                   end }
-            );  y = y - h
-
-            -- Well Fed | Gathering Tracking (+ class tracking cog)
-            local gatherRow
-            gatherRow, h = W:DualRow(parent, y,
-                -- The client's own name for the buff (19705, EABR.WELL_FED), so it reads localized.
-                { type="toggle", text=_G._EABR_SpellName(19705, "Well Fed"),
-                  tooltip="Reminds you when you have no Well Fed buff.",
-                  getValue=function() local f = FDB(); return f and f.wellFed == true end,
-                  setValue=function(v)
-                      local f = FDB(); if not f then return end; f.wellFed = v
-                      RefreshAll()
-                      EllesmereUI:RefreshPage()
-                  end },
-                { type="toggle", text="Gathering Tracking",
-                  tooltip="Reminds you when no gathering tracking is on.",
-                  getValue=function() local f = FDB(); return f and f.gather == true end,
-                  setValue=function(v)
-                      local f = FDB(); if not f then return end; f.gather = v
-                      RefreshAll()
-                      EllesmereUI:RefreshPage()
-                  end }
-            );  y = y - h
-
-            do
-                EllesmereUI.BuildInlineCog(campRow._rightRegion, {
-                    title = "Sleeping Bag",
-                    disabled = function() local f = FDB(); return not (f and f.sleepingBag) end,
-                    disabledTooltip = "Sleeping Bag",
-                    rows = {
-                        { type="slider", label="Show Below (Minutes)", min=0, max=10, step=1,
-                          tooltip="Also reminds you this many minutes before Well-Rested runs out. 0 = off.",
-                          get=function() local f = FDB(); return f and f.sleepingBagShowBelow or 0 end,
-                          set=function(v) local f = FDB(); if f then f.sleepingBagShowBelow = v > 0 and v or nil; RefreshAll() end end },
-                        { type="toggle", label="Show Sleep Timer",
-                          tooltip="Counts down to three Well-Rested stacks while you sleep in the bag.",
-                          get=function() local f = FDB(); return not f or f.sleepingBagShowProgress ~= false end,
-                          set=function(v) local f = FDB(); if f then f.sleepingBagShowProgress = v and true or false; RefreshAll() end end },
-                    },
-                })
-                EllesmereUI.BuildInlineCog(gatherRow._leftRegion, {
-                    title = _G._EABR_SpellName(19705, "Well Fed"),
-                    disabled = function() local f = FDB(); return not (f and f.wellFed) end,
-                    disabledTooltip = _G._EABR_SpellName(19705, "Well Fed"),
-                    rows = {
-                        { type="slider", label="Show Below (Minutes)", min=0, max=10, step=1,
-                          tooltip="Also reminds you this many minutes before Well Fed runs out. 0 = off.",
-                          get=function() local f = FDB(); return f and f.wellFedShowBelow or 0 end,
-                          set=function(v) local f = FDB(); if f then f.wellFedShowBelow = v > 0 and v or nil; RefreshAll() end end },
-                    },
-                })
-                EllesmereUI.BuildInlineCog(gatherRow._rightRegion, {
-                    title = "Gathering Tracking",
-                    disabled = function() local f = FDB(); return not (f and f.gather == true) end,
-                    disabledTooltip = "Gathering Tracking",
-                    rows = {
-                        { type="toggle", label="Ignore If Class Tracking Is Active",
-                          get=function() local f = FDB(); return not f or f.gatherClassTrack ~= false end,
-                          set=function(v) local f = FDB(); if f then f.gatherClassTrack = v; RefreshAll() end end },
-                    },
-                })
+                classIdx = 1
+            elseif classBuffs then
+                selfSlots[1] = { type="label", text="Class Buffs",
+                  tooltip="Reminds you when one of your class's own buffs is missing.\nClick the icon to cast it.\nA custom spell or spell group for a ticked buff pauses meanwhile." }
+                classIdx = 1
             end
-
-            local class = select(2, UnitClass("player"))
-            local classBuffs = not MAGE and _G._EABR_FvClassBuffs and _G._EABR_FvClassBuffs()[class]
-            local weaponRow
-            weaponRow, h = W:DualRow(parent, y,
-                { type="toggle", text=_G._EABR_SpellName(2481, "Find Treasure"),
-                  tooltip="Reminds Dwarves when Find Treasure is off.",
-                  getValue=function() local f = FDB(); return f and f.treasure == true end,
-                  setValue=function(v)
-                      local f = FDB(); if not f then return end; f.treasure = v
-                      RefreshAll()
-                  end },
-                { type="toggle", text="Weapon Buffs",
-                  tooltip="Reminds you when a weapon has no poison, imbue, stone or oil.\nClick the icon to apply one from your bags.",
-                  getValue=function() local f = FDB(); return f and f.weapon == true end,
-                  setValue=function(v)
-                      local f = FDB(); if not f then return end; f.weapon = v
-                      RefreshAll()
-                      EllesmereUI:RefreshPage()
-                  end }
-            );  y = y - h
-
-            -- Mage Armors or Class Buffs | Arcane Censer; a class with neither
-            -- has the Arcane Censer alone on the row.
-            local censerCfg = { type="toggle", text="Arcane Censer",
-                tooltip="Reminds you in dungeons when Magical Awareness is missing.\nOnly while an Arcane Censer is in your bags.\nClick the icon to use it.",
-                getValue=function() local f = FDB(); return f and f.arcaneCenser == true end,
+            if #imbueOrder > 2 then
+                selfSlots[#selfSlots + 1] = WeaponToggle(imbueLabel,
+                    "Reminds you when a weapon has no poison or imbue.\nClick the icon to apply one.", "weaponImbue")
+                imbueIdx = #selfSlots
+            end
+            selfSlots[#selfSlots + 1] = { type="toggle", text="Gathering Tracking",
+                tooltip="Reminds you when no gathering tracking is on.",
+                getValue=function() local f = FDB(); return f and f.gather == true end,
                 setValue=function(v)
-                    local f = FDB(); if not f then return end; f.arcaneCenser = v
+                    local f = FDB(); if not f then return end; f.gather = v
+                    RefreshAll()
+                    EllesmereUI:RefreshPage()
+                end }
+            local gatherIdx = #selfSlots
+            selfSlots[#selfSlots + 1] = { type="toggle", text=_G._EABR_SpellName(2481, "Find Treasure"),
+                tooltip="Reminds Dwarves when Find Treasure is off.",
+                getValue=function() local f = FDB(); return f and f.treasure == true end,
+                setValue=function(v)
+                    local f = FDB(); if not f then return end; f.treasure = v
                     RefreshAll()
                 end }
-            local classRow
-            if MAGE or classBuffs then
-                classRow, h = W:DualRow(parent, y,
-                    MAGE and { type="toggle", text="Mage Armors",
-                      tooltip="Reminds you when no Frost Armor, Ice Armor or Mage Armor is up.\nThe icon is the one you last had on; click it to cast it.",
-                      getValue=function() local f = FDB(); return f and f.mageArmor == true end,
-                      setValue=function(v)
-                          local f = FDB(); if not f then return end; f.mageArmor = v
-                          RefreshAll()
-                      end }
-                    or { type="label", text="Class Buffs",
-                      tooltip="Reminds you when one of your class's own buffs is missing.\nClick the icon to cast it.\nA custom spell or spell group for a ticked buff pauses meanwhile." },
-                    censerCfg
-                )
-            else
-                local scrolls = ScrollsSlot()
-                local censerRow
-                censerRow, h = W:DualRow(parent, y, censerCfg, scrolls)
-                DressScrollsSlot(censerRow._rightRegion, class, scrolls)
+            local selfRegions = {}
+            for i = 1, #selfSlots, 2 do
+                local row
+                row, h = W:DualRow(parent, y, selfSlots[i], selfSlots[i + 1] or EllesmereUI.BlankRowCfg())
+                selfRegions[i], selfRegions[i + 1] = row._leftRegion, row._rightRegion
+                y = y - h
             end
-            y = y - h
+
+            EllesmereUI.BuildInlineCog(selfRegions[gatherIdx], {
+                title = "Gathering Tracking",
+                disabled = function() local f = FDB(); return not (f and f.gather == true) end,
+                disabledTooltip = "Gathering Tracking",
+                rows = {
+                    { type="toggle", label="Ignore If Class Tracking Is Active",
+                      get=function() local f = FDB(); return not f or f.gatherClassTrack ~= false end,
+                      set=function(v) local f = FDB(); if f then f.gatherClassTrack = v; RefreshAll() end end },
+                },
+            })
+            if imbueIdx then
+                local rows = { HandRow(rogue and "Main Hand Poison" or "Main Hand Imbue", "mhImbue", imbueValues, imbueOrder) }
+                if offHand then rows[2] = HandRow(rogue and "Off Hand Poison" or "Off Hand Imbue", "ohImbue", imbueValues, imbueOrder) end
+                BuildWeaponCog(selfRegions[imbueIdx], imbueLabel, "weaponImbue", rows)
+            end
 
             -- Class Buffs: one checkbox per buff of the class (ticked: its own
             -- default until picked, EABR.FvClassBuffOn)
@@ -2183,7 +2169,7 @@ initFrame:SetScript("OnEvent", function(self)
                         tooltip = "In combat, shows the tracking that matches your hostile target's creature type." }
                 end
                 local isOn = _G._EABR_FvClassBuffOn
-                local rgn = classRow._leftRegion
+                local rgn = selfRegions[classIdx]
                 local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                     rgn, 170, rgn:GetFrameLevel() + 2, items,
                     function(key)
@@ -2207,76 +2193,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
             end
 
-            do
-                local function Choices(isImbue)
-                    local values, order = { auto = "Auto", off = "Off" }, { "auto", "off" }
-                    for _, b in ipairs(_G._EABR_FV_WEAPON_BUFFS or {}) do
-                        if (b.imbue == true) == isImbue and (not b.class or b.class == class) then
-                            values[b.key] = b.name or _G._EABR_SpellName(b.spells[#b.spells], b.key)
-                            order[#order + 1] = b.key
-                        end
-                    end
-                    return values, order
-                end
-                local function HandRow(label, field, values, order)
-                    return { type="dropdown", label=label, values=values, order=order, ddWidth=200,
-                      get=function()
-                          local f = FDB(); local t = f and f.weaponHands and f.weaponHands[class]
-                          return t and t[field] or "auto"
-                      end,
-                      set=function(v)
-                          local f = FDB(); if not f then return end
-                          f.weaponHands = f.weaponHands or {}
-                          local t = f.weaponHands[class]
-                          if not t then t = {}; f.weaponHands[class] = t end
-                          t[field] = v ~= "auto" and v or nil
-                          RefreshAll()
-                      end }
-                end
-                local imbueValues, imbueOrder = Choices(true)
-                local tempValues, tempOrder = Choices(false)
-                local hasImbues = #imbueOrder > 2
-                local rogue = class == "ROGUE"
-                local offHand = not CanDualWield or CanDualWield()
-                local rows = {}
-                if hasImbues then rows[#rows + 1] = HandRow(rogue and "Main Hand Poison" or "Main Hand Imbue", "mhImbue", imbueValues, imbueOrder) end
-                rows[#rows + 1] = HandRow("Main Hand Stone or Oil", "mhTemp", tempValues, tempOrder)
-                if offHand then
-                    if hasImbues then rows[#rows + 1] = HandRow(rogue and "Off Hand Poison" or "Off Hand Imbue", "ohImbue", imbueValues, imbueOrder) end
-                    rows[#rows + 1] = HandRow("Off Hand Stone or Oil", "ohTemp", tempValues, tempOrder)
-                end
-                rows[#rows + 1] = { type="dropdown", label="Rank to Use", ddWidth=200,
-                  values={ high = "Highest Owned", low = "Lowest Owned" }, order={ "high", "low" },
-                  get=function() local f = FDB(); return f and f.weaponLowRank and "low" or "high" end,
-                  set=function(v) local f = FDB(); if f then f.weaponLowRank = v == "low"; RefreshAll() end end }
-                rows[#rows + 1] = { type="toggle", label="Hide When None in Bags",
-                  tooltip="Hides a reminder when you have none of its item in your bags.\nOff: a chosen item still shows, greyed out. Auto only ever picks items you have.",
-                  get=function() local f = FDB(); return not f or f.weaponHideNoItem ~= false end,
-                  set=function(v) local f = FDB(); if f then f.weaponHideNoItem = v; RefreshAll() end end }
-                rows[#rows + 1] = { type="slider", label="Show Below (Minutes)", min=0, max=10, step=1,
-                  tooltip="Show a reminder before a poison, imbue, stone or oil runs out.\n0 = only once it has run out.\n1-10 = when it has less than this many minutes left.",
-                  get=function() local f = FDB(); return f and f.weaponShowBelow or 1 end,
-                  set=function(v) local f = FDB(); if f then f.weaponShowBelow = v; RefreshAll() end end }
-                EllesmereUI.BuildInlineCog(weaponRow._rightRegion, {
-                    title = "Weapon Buffs",
-                    disabled = function() local f = FDB(); return not (f and f.weapon == true) end,
-                    disabledTooltip = "Weapon Buffs",
-                    minWidth = 320,
-                    rows = rows,
-                })
-            end
-
-            -- Scrolls and Elixirs on a row of its own (beside the Arcane Censer
-            -- above for a class with neither Mage Armors nor Class Buffs)
-            if classRow then
-                local scrolls = ScrollsSlot()
-                local scrollsRow
-                scrollsRow, h = W:DualRow(parent, y, scrolls, EllesmereUI.BlankRowCfg())
-                DressScrollsSlot(scrollsRow._leftRegion, class, scrolls)
-                y = y - h
-            end
-
-            -- Add Custom Spell, paired with the tracked spells
             y = BuildForeverCustomRows(parent, y,
                 { type="input", text="Add Custom Spell", inputStyle="popup", placeholder="Spell ID", inputWidth=110,
                   tooltip="Type a spell ID and press Enter to be reminded whenever that buff is missing.\nUnknown IDs are ignored.",
@@ -2288,6 +2204,95 @@ initFrame:SetScript("OnEvent", function(self)
                       AddSpellIDToList(f.customIDs, text)
                   end })
             y = BuildForeverGroupSections(parent, y)
+
+            _, h = W:Spacer(parent, y, 20);  y = y - h
+            _, h = W:SectionHeader(parent, SECTION_CONSUMABLES, y);  y = y - h
+            _, h = SectionControlRow(parent, y, {
+                whereStore = FWhere, whereItems = FOREVER_SECTION_WHERE_ITEMS,
+                whereTooltip = "Pick which content the consumable and world buff reminders appear in.\nRested areas (cities and inns) always stay hidden.",
+                soundSec = FDB, soundField = "sectionSound",
+                onChange = RefreshAll,
+            });  y = y - h
+
+            local campRow
+            campRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Camp Benefits",
+                  tooltip="Reminds you when the Camp Benefits campfire buff is missing.",
+                  getValue=function() local f = FDB(); return not f or f.camp ~= false end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.camp = v
+                      RefreshAll()
+                  end },
+                { type="toggle", text="Sleeping Bag",
+                  tooltip="Reminds you when your Well-Rested buff is missing or under 3 stacks.\nOnly while a Cozy Sleeping Bag is in your bags and you are below max level.\nClick the icon to use it.",
+                  getValue=function() local f = FDB(); return f and f.sleepingBag == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.sleepingBag = v
+                      RefreshAll()
+                      EllesmereUI:RefreshPage()
+                  end }
+            );  y = y - h
+
+            local fedRow
+            fedRow, h = W:DualRow(parent, y,
+                -- The client's own name for the buff (19705, EABR.WELL_FED), so it reads localized.
+                { type="toggle", text=_G._EABR_SpellName(19705, "Well Fed"),
+                  tooltip="Reminds you when you have no Well Fed buff.",
+                  getValue=function() local f = FDB(); return f and f.wellFed == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.wellFed = v
+                      RefreshAll()
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="toggle", text="Arcane Censer",
+                  tooltip="Reminds you in dungeons when Magical Awareness is missing.\nOnly while an Arcane Censer is in your bags.\nClick the icon to use it.",
+                  getValue=function() local f = FDB(); return f and f.arcaneCenser == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.arcaneCenser = v
+                      RefreshAll()
+                  end }
+            );  y = y - h
+
+            local scrolls = ScrollsSlot()
+            local stonesRow
+            stonesRow, h = W:DualRow(parent, y, scrolls,
+                WeaponToggle("Weapon Stones and Oils",
+                    "Reminds you when a weapon has no stone or oil.\nClick the icon to apply one from your bags.", "weapon"))
+            y = y - h
+            DressScrollsSlot(stonesRow._leftRegion, class, scrolls)
+
+            EllesmereUI.BuildInlineCog(campRow._rightRegion, {
+                title = "Sleeping Bag",
+                disabled = function() local f = FDB(); return not (f and f.sleepingBag) end,
+                disabledTooltip = "Sleeping Bag",
+                rows = {
+                    { type="slider", label="Show Below (Minutes)", min=0, max=10, step=1,
+                      tooltip="Also reminds you this many minutes before Well-Rested runs out. 0 = off.",
+                      get=function() local f = FDB(); return f and f.sleepingBagShowBelow or 0 end,
+                      set=function(v) local f = FDB(); if f then f.sleepingBagShowBelow = v > 0 and v or nil; RefreshAll() end end },
+                    { type="toggle", label="Show Sleep Timer",
+                      tooltip="Counts down to three Well-Rested stacks while you sleep in the bag.",
+                      get=function() local f = FDB(); return not f or f.sleepingBagShowProgress ~= false end,
+                      set=function(v) local f = FDB(); if f then f.sleepingBagShowProgress = v and true or false; RefreshAll() end end },
+                },
+            })
+            EllesmereUI.BuildInlineCog(fedRow._leftRegion, {
+                title = _G._EABR_SpellName(19705, "Well Fed"),
+                disabled = function() local f = FDB(); return not (f and f.wellFed) end,
+                disabledTooltip = _G._EABR_SpellName(19705, "Well Fed"),
+                rows = {
+                    { type="slider", label="Show Below (Minutes)", min=0, max=10, step=1,
+                      tooltip="Also reminds you this many minutes before Well Fed runs out. 0 = off.",
+                      get=function() local f = FDB(); return f and f.wellFedShowBelow or 0 end,
+                      set=function(v) local f = FDB(); if f then f.wellFedShowBelow = v > 0 and v or nil; RefreshAll() end end },
+                },
+            })
+            do
+                local tempValues, tempOrder = WeaponChoices(false)
+                local rows = { HandRow("Main Hand Stone or Oil", "mhTemp", tempValues, tempOrder) }
+                if offHand then rows[2] = HandRow("Off Hand Stone or Oil", "ohTemp", tempValues, tempOrder) end
+                BuildWeaponCog(stonesRow._rightRegion, "Weapon Stones and Oils", "weapon", rows)
+            end
 
             -- No preview header here, so no click-to-scroll mappings to wire.
             return math.abs(y)
@@ -2994,7 +2999,8 @@ initFrame:SetScript("OnEvent", function(self)
         local spec, class = e.p, e.c
         if spec ~= nil then
             if type(spec) ~= "number" or spec ~= math.floor(spec) then return end
-            class = select(6, GetSpecializationInfoByID(spec))
+            class = nil
+            if GetSpecializationInfoByID then class = select(6, GetSpecializationInfoByID(spec)) end
             if not class then return end
         elseif class ~= nil then
             if type(class) ~= "string" or not (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[class]) then return end
@@ -3478,8 +3484,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- Card order: your current spec first, then every spec in class
             -- and spec order, then the class cards, then the one for every class.
             local _, playerClass = UnitClass("player")
-            local specIdx = GetSpecialization and GetSpecialization()
-            local playerSpec = specIdx and GetSpecializationInfo(specIdx) or nil
+            local specIdx = C_SpecializationInfo.GetSpecialization()
+            local playerSpec = specIdx and C_SpecializationInfo.GetSpecializationInfo(specIdx) or nil
             local ordered = {}
             local function Take(key)
                 local g = key and groups[key]
@@ -3512,7 +3518,10 @@ initFrame:SetScript("OnEvent", function(self)
             for _, g in ipairs(ordered) do
                 local display, specIcon, class = nil, nil, g.class
                 if g.specID then
-                    local _, specName, _, icon, _, classFile, className = GetSpecializationInfoByID(g.specID)
+                    local _, specName, icon, classFile, className
+                    if GetSpecializationInfoByID then
+                        _, specName, _, icon, _, classFile, className = GetSpecializationInfoByID(g.specID)
+                    end
                     specIcon, class = icon, classFile or class
                     display = (specName and className) and (specName .. " " .. className) or tostring(g.specID)
                 elseif class then
@@ -3582,8 +3591,8 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Your current spec (reminders are kept per spec): nil before the
             -- character has a spec, when the reminder holds for the whole class.
-            local specIdx = GetSpecialization and GetSpecialization()
-            local curSpec = specIdx and GetSpecializationInfo(specIdx) or nil
+            local specIdx = C_SpecializationInfo.GetSpecialization()
+            local curSpec = specIdx and C_SpecializationInfo.GetSpecializationInfo(specIdx) or nil
             local _, playerClass = UnitClass("player")
 
             -- An existing reminder of the same talent for this spec takes the

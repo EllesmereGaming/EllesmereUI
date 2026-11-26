@@ -651,6 +651,12 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
     local shown = math.min(#patches, MAX_PATCHES)
     local newestKey = patches[1].version or 1
     if whatsNewOpen[newestKey] == nil then whatsNewOpen[newestKey] = true end
+    -- A newest patch released right after the one before it can open that one too
+    -- (`openNext` on the newest block); it has no effect once a newer patch ships.
+    if patches[1].openNext and patches[2] then
+        local nextKey = patches[2].version or 2
+        if whatsNewOpen[nextKey] == nil then whatsNewOpen[nextKey] = true end
+    end
     for pi = 1, shown do
         local patch = patches[pi]
         -- Header counts: hero cards (a launch-video banner is no feature), listings, fix lines.

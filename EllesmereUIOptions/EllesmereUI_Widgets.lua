@@ -1317,9 +1317,15 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
             else
                 item._highlight:SetAlpha((item._key == cur and not off) and DD_ITEM_SEL_A or 0)
                 item._label:SetAlpha(1)
+                -- A disabled row dims its icon too (alpha only, its color stays).
+                if item._icoTex then item._icoTex:SetAlpha(off and 0.25 or 1) end
                 if item._isAction then
-                    local EG = EllesmereUI.ELLESMERE_GREEN
-                    item._label:SetTextColor(EG.r, EG.g, EG.b, 0.8)
+                    if off then
+                        item._label:SetTextColor(TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, 0.18)
+                    else
+                        local EG = EllesmereUI.ELLESMERE_GREEN
+                        item._label:SetTextColor(EG.r, EG.g, EG.b, 0.8)
+                    end
                 elseif item._lblColor then
                     local lc = item._lblColor
                     item._label:SetTextColor(lc[1], lc[2], lc[3], off and 0.18 or lc[4])

@@ -46,16 +46,17 @@ EllesmereUI.FONT_FILES = {
 -- usable in ruRU instead of being swapped for the system glyph font. Verified per file
 -- against its cmap table -- every other face (Poppins, Exo, Gotham Narrow Ultra, Changa,
 -- Cinzel, Future X Black, Homespun, HWT Artz, KMT Ninja Naruto, Barlow Condensed) has ZERO
--- Cyrillic and would render boxes, except Avant Garde: it carries the alphabet in another
--- open face's letters and is left to the system glyph font on ruRU. Re-check coverage before
--- adding a face; a wrong entry ships unreadable text. Expressway CAPS: cmap checked, 66/66
--- Russian letters (Yo pair included), its Russian lowercase drawn as lowercase.
+-- Cyrillic and would render boxes. Re-check coverage before adding a face; a wrong entry
+-- ships unreadable text. Expressway CAPS: cmap checked, 66/66 Russian letters (Yo pair
+-- included), its Russian lowercase drawn as lowercase. Avant Garde: 66/66, its Cyrillic
+-- letters drawn in another open face's design; every face that was on this list keeps it.
 -- Deliberately NOT extended to FONT_BLIZZARD: the Cyrillic-capable Blizzard face is
 -- FRIZQT___CYR (already the fallback), and the plain ones vary by installed client locale.
 EllesmereUI.FONT_CYRILLIC = {
     ["Expressway"]       = true,
     ["Expressway Bold"]  = true,
     ["Expressway CAPS"]  = true,
+    ["Avant Garde"]      = true,
     ["Arial Bold"]       = true,
     ["Arial Narrow"]     = true,
     ["Fira Sans Medium"] = true,
@@ -86,21 +87,10 @@ EllesmereUI.FONT_ORDER = {
 }
 -- Display name overrides for the font dropdown (key = FONT_ORDER name). The key is what
 -- settings save and what LSM lists, and FONT_FILES keeps each file name (some settings save
--- the path): the label alone names the face the file holds, with the name it replaced.
-EllesmereUI.FONT_DISPLAY_NAMES = {
-    ["Expressway"]          = "Roboto ExtraBold (previously Expressway)",
-    ["Expressway Bold"]     = "Roboto Black (previously Expressway Bold)",
-    ["Expressway CAPS"]     = "Roboto CAPS (previously Expressway CAPS)",
-    ["Avant Garde"]         = "Adventor (previously Avant Garde)",
-    ["Arial Bold"]          = "Arimo Bold (previously Arial Bold)",
-    ["Arial Narrow"]        = "Liberation Narrow (previously Arial Narrow)",
-    ["Future X Black"]      = "Gantari Black (previously Future X Black)",
-    ["Gotham Narrow Ultra"] = "Blinker ExtraBold (previously Gotham Narrow Ultra)",
-    ["Gotham Narrow"]       = "TikTok Sans (previously Gotham Narrow)",
-    ["HWT Artz"]            = "Anek CAPS (previously HWT Artz)",
-    ["KMT Kimberley"]       = "Tektur (previously KMT Kimberley)",
-    ["KMT Ninja Naruto"]    = "Sedgwick Ave (previously KMT Ninja Naruto)",
-}
+-- the path). Every list shows the saved name, the bundled fonts' replacements included (owner
+-- 2026-11-24: keep the names in game too); media/fonts/licenses/README.txt names the font
+-- each file holds. A label that differs from its key goes here.
+EllesmereUI.FONT_DISPLAY_NAMES = {}
 -- The label a font list shows for a FONT_ORDER name.
 function EllesmereUI.FontDisplayName(name)
     return EllesmereUI.FONT_DISPLAY_NAMES[name] or name

@@ -68,8 +68,10 @@ end
 EllesmereUI.CONDITIONS = {
     { id = "keybind",      label = "Keybind (out of combat)" },
     { id = "party",        label = "Party (in a group, not a raid)" },
+    -- The group, wherever it is (open world, a dungeon run as a raid); "raid" is the zone.
+    { id = "raidgroup",    label = "Raid Group" },
     { id = "dungeon",      label = "Dungeon" },
-    { id = "raid",         label = "Raid" },
+    { id = "raid",         label = "Raid (instance)" },
     { id = "arena",        label = "Arena" },
     { id = "battleground", label = "Battleground" },
     { id = "solo",         label = "Solo (not in a group)" },
@@ -170,6 +172,19 @@ local function PartyGroup(groups)
     return nil
 end
 
+-- Tier 5 too: the first group that checks Raid Group, while the player is in a
+-- raid group, in or out of an instance (Party's mirror; never both at once).
+-- Inside a dungeon it outranks Dungeon (a dungeon run as a raid, such as a
+-- 10-player one), but never Raid (instance), Arena or Battleground: a
+-- battleground's group is a raid too. nil for every profile with no such group.
+local function RaidGroupGroup(groups)
+    if not IsInRaid() then return nil end
+    for _, g in ipairs(groups) do
+        if g.conds and g.conds.raidgroup then return g end
+    end
+    return nil
+end
+
 --- The currently-ACTIVE conditional group per the ladder, or nil.
 function EllesmereUI.Conditions_ActiveGroup()
     local groups = EllesmereUI.Conditions_GetGroups()
@@ -203,14 +218,19 @@ function EllesmereUI.Conditions_ActiveGroup()
     local _, instanceType = IsInInstance()
     local cond = instanceType and INSTANCE_COND[instanceType]
     if cond then
+        -- A raid group in a dungeon: Raid Group first.
+        if cond == "dungeon" then
+            local rg = RaidGroupGroup(groups)
+            if rg then return rg end
+        end
         for _, g in ipairs(groups) do
             if g.conds and g.conds[cond] then return g end
         end
-        -- In an instance: party can still apply, solo never does.
-        return PartyGroup(groups)
+        -- In an instance: Party or Raid Group can still apply, solo never does.
+        return PartyGroup(groups) or RaidGroupGroup(groups)
     end
-    -- Tier 5: party.
-    local pg = PartyGroup(groups)
+    -- Tier 5: party or raid group.
+    local pg = PartyGroup(groups) or RaidGroupGroup(groups)
     if pg then return pg end
     -- Tier 6: solo.
     if not IsInGroup() then

@@ -1179,10 +1179,17 @@ local function CreateCastBar(frame, unit, settings)
         EllesmereUI.FitCastName(self.Text, self._fitStr, self._nameSize or 11)
     end
 
+    -- Full bar width, masked to the fill: the art keeps its size and is cut
+    -- like the fill's, not squeezed into the filled width.
     local castTintLayer = castbar:CreateTexture(nil, "ARTWORK", nil, 1)
-    castTintLayer:SetPoint("TOPLEFT", castbar:GetStatusBarTexture(), "TOPLEFT")
-    castTintLayer:SetPoint("BOTTOMRIGHT", castbar:GetStatusBarTexture(), "BOTTOMRIGHT")
+    castTintLayer:SetAllPoints(castbar)
     castTintLayer:SetTexture("Interface\\Buttons\\WHITE8X8")
+    local tintMask = castbar:CreateMaskTexture()
+    tintMask:SetPoint("TOPLEFT", castbar:GetStatusBarTexture(), "TOPLEFT")
+    tintMask:SetPoint("BOTTOMRIGHT", castbar:GetStatusBarTexture(), "BOTTOMRIGHT")
+    tintMask:SetTexture("Interface\\Buttons\\WHITE8X8", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    PP.DisablePixelSnap(tintMask)
+    castTintLayer:AddMaskTexture(tintMask)
     local c = GetCastbarColor()
     castTintLayer:SetVertexColor(c.r, c.g, c.b)
     castTintLayer:SetAlpha(0)

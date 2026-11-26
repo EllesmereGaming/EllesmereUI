@@ -1083,7 +1083,14 @@ end
 -------------------------------------------------------------------------------
 local LOOT_WINDOWS = {
     { name = "BonusRollFrame",     key = "EUI_BonusRoll",   label = "Bonus Roll",   order = 640, defW = 330, defH = 120, defY = 240 },
-    { name = "GroupLootContainer", key = "EUI_GroupLoot",   label = "Group Loot",   order = 641, defW = 300, defH = 80,  defY = 340 },
+    -- The Loot Rolls list replaces Blizzard's roll popups, so its own mover
+    -- stands in for this one while it is in use (replaced). The saved spot stays
+    -- and is back in use once Loot Rolls is turned off.
+    { name = "GroupLootContainer", key = "EUI_GroupLoot",   label = "Group Loot",   order = 641, defW = 300, defH = 80,  defY = 340,
+      replaced = function()
+          local LR = EllesmereUI._LootRolls
+          return LR and LR.InUse() or false
+      end },
     { name = "AlertFrame",         key = "EUI_AlertToasts", label = "Alert Toasts", order = 642, defW = 300, defH = 100, defY = 160, fixedSize = true },
     { name = "UIWidgetBelowMinimapContainerFrame", key = "EUI_CaptureBars", label = "Capture Bars", order = 644,
       defW = 230, defH = 60, defPos = { "TOPRIGHT", "TOPRIGHT", -20, -260 }, fixedSize = true, anchor = "TOP",
@@ -1227,6 +1234,7 @@ local function RegisterLootUnlockElements()
             subtitle = info.subtitle or "Disable Loot unlock mode overlays in Shifter once done positioning",
             isHidden = function()
                 if not LootEnabled(info) or not _G[info.name] then return true end
+                if info.replaced and info.replaced() then return true end
                 -- "Hide Unlock Mode Overlays": the movers stay out of unlock
                 -- mode but saved positions keep applying (the placer claim
                 -- never depends on the movers existing).

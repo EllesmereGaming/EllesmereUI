@@ -303,7 +303,7 @@ function EABR.CollectForeverGroups(missing, groups, coveredIDs, coveredNames)
                 end
                 entry.label = type(group.name) == "string" and group.name
                     or ShortLabel(castName)
-                entry.cat = "forever"; entry.dismissKey = dismissKey
+                entry.cat = "forever"; entry.dismissKey = dismissKey; entry.fvSelf = true
                 missing[#missing+1] = entry
             end
         end
@@ -386,7 +386,7 @@ function EABR.CollectHunterTracking(missing)
     end
     local e = AcquireEntry()
     e.mode = "texture"; e.spellID = spellID
-    e.cat = "forever"; e.dismissKey = "forever:huntertracking"
+    e.cat = "forever"; e.dismissKey = "forever:huntertracking"; e.fvSelf = true
     e.hunterTrackingStatus = restricted
     e.hunterTargetTypeID = creatureTypeID
     e.hunterMatchMask = restricted and mask or 0
@@ -400,7 +400,7 @@ function EABR.FvSpellEntry(missing, id, dismissKey, label)
     local e = AcquireEntry()
     e.mode = "spell"; e.spellID = id
     e.label = label or ShortLabel(SpellName(id) or tostring(id))
-    e.cat = "forever"; e.dismissKey = dismissKey
+    e.cat = "forever"; e.dismissKey = dismissKey; e.fvSelf = true
     missing[#missing+1] = e
     return e
 end
@@ -805,21 +805,25 @@ local function FvAvailable(buff, low)
     for i = first, last, step do
         if CachedGetItemCount(items[i]) > 0 then return nil, items[i] end
     end
+    if buff.create then return nil, nil, EABR.FvHighest(buff.create) end
 end
 
 local function FvPick(choice, isImbue, class, wcat, low)
     if choice == "off" then return nil end
     local auto = choice == nil or choice == "auto"
     local list = EABR.FV_WEAPON_BUFFS
+    local creatable, createID
     for i = 1, #list do
         local buff = list[i]
         if (auto or choice == buff.key) and (buff.imbue == true) == isImbue
            and (not buff.class or buff.class == class)
            and (not buff.weapon or buff.weapon == wcat) then
-            local spellID, itemID = FvAvailable(buff, low)
-            if spellID or itemID or not auto then return buff, spellID, itemID end
+            local spellID, itemID, create = FvAvailable(buff, low)
+            if spellID or itemID or not auto then return buff, spellID or create, itemID end
+            if create and not creatable then creatable, createID = buff, create end
         end
     end
+    if creatable then return creatable, createID end
 end
 
 local function FvNeeds(left, warnSec)
@@ -856,7 +860,7 @@ end
 
 local function FvWeaponEntry(missing, hand, label, dismissKey, buff, spellID, itemID, hideNoItem, left)
     if buff.spells and not spellID then return end
-    if buff.items and not itemID and hideNoItem then return end
+    if buff.items and not itemID and not spellID and hideNoItem then return end
     local e = AcquireEntry()
     if spellID then
         e.mode = "spell"; e.spellID = spellID
@@ -879,11 +883,12 @@ local function FvWeaponEntry(missing, hand, label, dismissKey, buff, spellID, it
     end
     if left then e.expireAt = GetTime() + left; e.expireTotal = left end
     e.label = label
-    e.cat = "forever"; e.dismissKey = dismissKey
+    e.cat = "forever"; e.dismissKey = dismissKey; e.fvSelf = dismissKey == hand.imbueKey
     missing[#missing+1] = e
 end
 
-function EABR.CollectForeverWeapons(missing, fo, class)
+function EABR.CollectForeverWeapons(missing, fo, class, wantImbue, wantTemp)
+    if not (wantImbue or wantTemp) then return end
     if not (C_Item.GetWeaponEnchantInfo and Enum.WeaponSlot and Enum.ItemEnchantType) then return end
     local hands = fo.weaponHands and fo.weaponHands[class]
     local low, hideNoItem = fo.weaponLowRank == true, fo.weaponHideNoItem ~= false
@@ -899,13 +904,18 @@ function EABR.CollectForeverWeapons(missing, fo, class)
         if wcat then ok, imbueLeft, tempLeft = FvWeaponEnchants(hand.ws) end
         if ok then
             local label = i == 1 and mhLabel or ohLabel
-            local buff, spellID, itemID = FvPick(hands and hands[hand.imbue], true, class, wcat, low)
-            if buff and FvNeeds(imbueLeft, warnSec) then
-                FvWeaponEntry(missing, hand, label, hand.imbueKey, buff, spellID, itemID, hideNoItem, imbueLeft)
+            local buff, spellID, itemID
+            if wantImbue then
+                buff, spellID, itemID = FvPick(hands and hands[hand.imbue], true, class, wcat, low)
+                if buff and FvNeeds(imbueLeft, warnSec) then
+                    FvWeaponEntry(missing, hand, label, hand.imbueKey, buff, spellID, itemID, hideNoItem, imbueLeft)
+                end
             end
-            buff, spellID, itemID = FvPick(hands and hands[hand.temp], false, class, wcat, low)
-            if buff and FvNeeds(tempLeft, warnSec) then
-                FvWeaponEntry(missing, hand, label, hand.tempKey, buff, spellID, itemID, hideNoItem, tempLeft)
+            if wantTemp then
+                buff, spellID, itemID = FvPick(hands and hands[hand.temp], false, class, wcat, low)
+                if buff and FvNeeds(tempLeft, warnSec) then
+                    FvWeaponEntry(missing, hand, label, hand.tempKey, buff, spellID, itemID, hideNoItem, tempLeft)
+                end
             end
         end
     end
@@ -1291,17 +1301,20 @@ end
 -- lists, a table per weapon.
 function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     local fo = db.profile.forever
-    local shows = fo and not InCombat() and EABR.SectionShows(fo.whereToShow, inInstance)
+    local itemShows = fo and not InCombat() and EABR.SectionShows(fo.whereToShow, inInstance)
+    local selfShows = fo and not InCombat() and EABR.SectionShows(fo.selfWhereToShow, inInstance)
     local hunterTracking = fo and fo.hunterTracking == true and GetPlayerClass() == "HUNTER"
-        and InCombat() and EABR.SectionShows(fo.whereToShow, inInstance) or false
+        and InCombat() and EABR.SectionShows(fo.selfWhereToShow, inInstance) or false
     EABR.FvSyncHunterTrackingEvents(hunterTracking)
     if hunterTracking then EABR.CollectHunterTracking(missing) end
     -- Class trackers and Find Treasure are read from the minimap, whose event
     -- is listened to only while a reminder that reads it can show.
-    EABR.FvSyncTrackingEvent(hunterTracking or (shows and not inPvP
+    EABR.FvSyncTrackingEvent(hunterTracking or (selfShows and not inPvP
         and ((fo.gather == true and fo.gatherClassTrack ~= false) or fo.treasure == true)) or false)
-    EABR.FvSyncWeaponEvents(shows and fo.weapon == true or false)
-    local wantBag = shows and fo.sleepingBag == true and not inPvP
+    local wantImbue = selfShows and fo.weaponImbue == true or false
+    local wantTemp = itemShows and fo.weapon == true or false
+    EABR.FvSyncWeaponEvents(wantImbue or wantTemp)
+    local wantBag = itemShows and fo.sleepingBag == true and not inPvP
     local sleepBag = wantBag and EABR.FvSleepingBagOwned()
     -- The Arcane Censer, in dungeons only: its buff is read first, and the
     -- censer is counted only while the buff is missing (counted again the
@@ -1309,7 +1322,7 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     -- bag work at all.
     local censerIDs = EABR._fvCenserIDs
     if not censerIDs then censerIDs = { EABR.ARCANE_CENSER_BUFF }; EABR._fvCenserIDs = censerIDs end
-    local wantCenser = shows and fo.arcaneCenser == true and EllesmereUI.IsInDungeon()
+    local wantCenser = itemShows and fo.arcaneCenser == true and EllesmereUI.IsInDungeon()
     local censerMissing = wantCenser and not PlayerHasAuraByID(censerIDs)
         and not (EllesmereUI.AuraKit.AurasRestricted() and not EABR.FvRanksReadable(censerIDs))
     if wantCenser and not censerMissing then EABR._fvCenser = nil end
@@ -1319,7 +1332,7 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     local watchStatSpells = false
     local healthBonus, healthExpiration
     local separate = fo and fo.statConsumableSeparateReminders == true
-    if shows and not inPvP and playerClass and (separate or not _dismissedUntilLoad[statConsumableDismissKey]) then
+    if itemShows and not inPvP and playerClass and (separate or not _dismissedUntilLoad[statConsumableDismissKey]) then
         local restricted, campIntellect, firstAidKit
         local minutes = fo.statConsumableShowBelow or 0
         local warnSec = minutes > 0 and EABR.ShowUnderThresholdApplies() and minutes * 60 or nil
@@ -1359,19 +1372,20 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
         end
     end
     -- A plain boolean: censer is the item ID, and the listener's sync compares by value.
-    local bagListen = shows and (fo.weapon == true or sleepBag or (censer and true) or statConsumableNeeded
+    local bagListen = (wantImbue or wantTemp or sleepBag or (censer and true) or statConsumableNeeded
         or statWaitsForItem) or false
     EABR.FvSyncSleepBagWatch(wantBag and not sleepBag and not EABR._fvMaxLevel
         and not bagListen or false)
     EABR.FvSyncCenserWatch(censerMissing and not censer and not bagListen or false)
     EABR.FvSyncBagEvent(bagListen)
-    local pickerEnabled = shows and PickerEnabled() or false
+    local anyShows = selfShows or itemShows
+    local pickerEnabled = anyShows and PickerEnabled() or false
     local watchSpellbook = pickerEnabled or watchStatSpells
     if watchSpellbook ~= (EABR._fvSpellbookEvents or false) then
         EABR.FvSyncSpellbookEvents(watchSpellbook)
     end
-    local watchFood = pickerEnabled and not inPvP and fo.wellFed or false
-    if not shows then
+    local watchFood = itemShows and pickerEnabled and not inPvP and fo.wellFed or false
+    if not anyShows then
         EABR.FvSyncConsumableItemEvents(false, false)
         EABR.SyncForeverFoodWatch(false)
         return
@@ -1382,7 +1396,7 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     local auraLock = EllesmereUI.AuraKit.AurasRestricted()
     local ids = EABR._foreverIDs
     if not ids then ids = {}; EABR._foreverIDs = ids end
-    if fo.camp ~= false and open then
+    if itemShows and fo.camp ~= false and open then
         ids[1] = EABR.CAMP_BENEFITS
         if not PlayerHasAuraByID(ids) and not (auraLock and not EABR.FvRanksReadable(ids)) then
             local e = AcquireEntry()
@@ -1482,7 +1496,7 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     -- auras there, so the minimap is asked only once a tracker is known.
     local scanned, treasureUp, classUp
     local list = EABR.GATHER_TRACKING
-    if fo.gather and open and not PlayerHasAuraByID(list)
+    if selfShows and fo.gather and open and not PlayerHasAuraByID(list)
        and not (auraLock and not EABR.FvRanksReadable(list)) then
         local id
         for i = 1, #list do
@@ -1499,11 +1513,11 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     -- Find Treasure (Dwarf racial): no aura there, so read from the same
     -- minimap pass when the gathering check already ran it.
     local tid = EABR.FIND_TREASURE
-    if fo.treasure and open and Known(tid) then
+    if selfShows and fo.treasure and open and Known(tid) then
         if not scanned then treasureUp = EABR.FvTrackingState() end
         if not treasureUp then EABR.FvSpellEntry(missing, tid, "forever:treasure") end
     end
-    if fo.wellFed and open and not _dismissedUntilLoad["forever:wellfed"] then
+    if itemShows and fo.wellFed and open and not _dismissedUntilLoad["forever:wellfed"] then
         local name = SpellName(EABR.WELL_FED) or "Well Fed"
         local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
         -- Shown while no food buff is up and, with Show Below set, that many minutes before
@@ -1548,19 +1562,18 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     else
         EABR.SyncForeverFoodWatch(false)
     end
-    if fo.mageArmor and open and GetPlayerClass() == "MAGE" then
+    if selfShows and fo.mageArmor and open and GetPlayerClass() == "MAGE" then
         EABR.CollectMageArmor(missing, auraLock, ids)
     end
     -- The ticked class buffs, outside PvP; the custom spells and spell groups
     -- they cover stand down there (EABR.FvClassTracked).
     local coveredIDs, coveredNames
-    if open then
+    if selfShows and open then
         coveredIDs, coveredNames = EABR.FvClassTracked(fo, GetPlayerClass())
         if coveredIDs then EABR.CollectClassBuffs(missing, fo, auraLock, ids, GetPlayerClass()) end
     end
-    if fo.weapon == true then
-        EABR.CollectForeverWeapons(missing, fo, GetPlayerClass())
-    end
+    EABR.CollectForeverWeapons(missing, fo, GetPlayerClass(), wantImbue, wantTemp)
+    if not selfShows then return end
     local groups = fo.customGroups
     if groups and groups[1] then
         EABR.CollectForeverGroups(missing, groups, coveredIDs, coveredNames)
@@ -1595,7 +1608,7 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
                     end
                     e.texture = Tex(id)
                     e.label = ShortLabel(name or tostring(id))
-                    e.cat = "forever"; e.dismissKey = dk
+                    e.cat = "forever"; e.dismissKey = dk; e.fvSelf = true
                     missing[#missing+1] = e
                 end
             end
@@ -1972,8 +1985,8 @@ local function Refresh()
     local inPvP = InPvPInstance()
     local restricted = inCombat or inKeystone
 
-    -- WoW Forever: its Raid Buffs and the one Forever section stand in for the
-    -- four collectors below (reminders off: their watch and event stand down).
+    -- WoW Forever: its Raid Buffs, Self Buffs and Consumables sections stand in for
+    -- the four collectors below (reminders off: their watch and event stand down).
     if EABR.FOREVER then
         if remindersOn then
             EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)

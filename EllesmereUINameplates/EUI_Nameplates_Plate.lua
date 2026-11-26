@@ -976,6 +976,8 @@ function NameplateFrame:SetUnit(unit, nameplate)
     -- Recycled/fresh plate: forget any prior eased scale so the first ApplyScale snaps instead of growing in from a stale one.
     self._curScale = nil
     ns._scaleAnim[self] = nil
+    -- A unit turned hostile on its nameplate (a duel) takes the enemy click bounds.
+    ns.NP_ApplyHitBounds(nameplate, true)
     if ns._hitboxOverlayShown or self.hitboxOverlay then ns._ApplyHitboxOverlay(self) end
     -- Apply static appearance only when stale (settings changed or fresh pool plate).
     if self._appearanceGen ~= ns._npAppearanceGen then

@@ -2040,7 +2040,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             local tbAtlas = (not CK) and UFC and ns.UF_BlizzAtlas(UFC.textbox)
             local nameSide = s.castSpellNameSide or "left"
             local tbOn = tbAtlas and castNameFS2 and nameSide ~= "none"
-            local icoW = ch + (tbOn and 13 or 0)
+            local icoW = ch + (tbAtlas and 13 or 0)
             castbar:ClearAllPoints()
             castbar:SetPoint("TOP", barArea, "BOTTOM", inW and (onRight and -(icoW / 2) or (icoW / 2)) or 0, padBottom - (drop or 0))
             if castIconFrame then castIconFrame:SetSize(icoW, icoW) end
@@ -3075,8 +3075,9 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         border:SetPoint("TOPLEFT", barArea, "TOPLEFT", 0, 0)
         border:SetPoint("TOPRIGHT", barArea, "TOPRIGHT", 0, 0)
         border:SetHeight(borderH)
-        EllesmereUI.ApplyBorderStyle(border, bs, bc.r, bc.g, bc.b, bds.borderAlpha or 1, bTexKey, bds.borderTextureOffset, bds.borderTextureOffsetY, bds.borderTextureShiftX, bds.borderTextureShiftY, "unitframes", bs, nil,
-            EllesmereUI.BorderPx((not s.borderSizeOverride) and bds.borderSizePx, bs, bTexKey))
+        local box, boy = ns.UF_BorderOffsets(unitKey, s, bds)
+        EllesmereUI.ApplyBorderStyle(border, bs, bc.r, bc.g, bc.b, bds.borderAlpha or 1, bTexKey, box, boy, bds.borderTextureShiftX, bds.borderTextureShiftY, "unitframes", bs, nil,
+            EllesmereUI.BorderPx(bds.borderSizePx, bs, bTexKey))
 
         -- Class Power Pips update (player only)
         if cpPipContainer and cpPips then
@@ -3843,11 +3844,11 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             th = blizzG.h - (pad and (pad.top + pad.bottom) or 0)
             if ch > 0 then
                 cbStrip = ch
-                -- The stock text box hangs 13px under the cast bar: reserve
-                -- it so the content header below does not overlap it.
+                -- The stock text box (and the icon spanning it) hangs 13px under
+                -- the cast bar: reserve it so the content header does not overlap.
                 local UFC = ns.UF_CAST_BLIZZ
                 if UFC and not ns.UF_BLIZZ.cast and ns.UF_BlizzAtlas(UFC.textbox)
-                   and (s.castSpellNameSide or "left") ~= "none" then
+                   and ((s.castSpellNameSide or "left") ~= "none" or ns.UF_CastIconInWidth(unitKey, s)) then
                     cbStrip = cbStrip + 13
                 end
                 if not blizzBelow then th = th + cbStrip end
@@ -3876,8 +3877,9 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         if border then
             local bs2 = s.borderSizeOverride or bds.borderSize or 1
             local bTex2 = bds.borderTexture or "solid"
-            EllesmereUI.ApplyBorderStyle(border, bs2, (bds.borderColor or {r=0,g=0,b=0}).r, (bds.borderColor or {r=0,g=0,b=0}).g, (bds.borderColor or {r=0,g=0,b=0}).b, bds.borderAlpha or 1, bTex2, bds.borderTextureOffset, bds.borderTextureOffsetY, bds.borderTextureShiftX, bds.borderTextureShiftY, "unitframes", bs2, nil,
-                EllesmereUI.BorderPx((not s.borderSizeOverride) and bds.borderSizePx, bs2, bTex2))
+            local box2, boy2 = ns.UF_BorderOffsets(unitKey, s, bds)
+            EllesmereUI.ApplyBorderStyle(border, bs2, (bds.borderColor or {r=0,g=0,b=0}).r, (bds.borderColor or {r=0,g=0,b=0}).g, (bds.borderColor or {r=0,g=0,b=0}).b, bds.borderAlpha or 1, bTex2, box2, boy2, bds.borderTextureShiftX, bds.borderTextureShiftY, "unitframes", bs2, nil,
+                EllesmereUI.BorderPx(bds.borderSizePx, bs2, bTex2))
         end
         -- Rounded corners, as on the live frame: the border frame is the shape
         -- (health + power + attached portrait and text bar); the fill sits on
