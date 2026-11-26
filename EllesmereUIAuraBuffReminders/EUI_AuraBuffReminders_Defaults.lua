@@ -216,6 +216,7 @@ if EABR.FOREVER then
         wellFed = false,    -- Well Fed reminder; opt-in, matched by aura name (every food has its own spell ID)
         wellFedShowBelow = 0, -- minutes before the food buff runs out at which it also shows; 0 = off
         mageArmor = false,  -- Mage armor reminder (Mage); opt-in, it shows while no Frost/Ice/Mage Armor rank is up
+        demonicSacrifice = false,  -- Demonic Sacrifice reminder (Warlock talent); opt-in, demon in sacrificeDemon (nil = Auto)
         weapon = false,
         weaponLowRank = false,
         weaponHideNoItem = true,

@@ -52,6 +52,20 @@ EABR.MAGE_ARMORS = {
     { 7302, 7320, 10219, 10220 },   -- Ice Armor 1-4
     { 6117, 22782, 22783 },         -- Mage Armor 1-3
 }
+-- Forever pairs each sacrificed demon with a different buff than vanilla did.
+EABR.DEMONIC_SACRIFICE = 18788
+EABR.SACRIFICE_DEMONS = {
+    { key = "imp",        summon = 688, buff = 18789, family = 23 },
+    { key = "voidwalker", summon = 697, buff = 18792, family = 16 },
+    { key = "succubus",   summon = 712, buff = 18791, family = 17 },
+    { key = "felhunter",  summon = 691, buff = 18790, family = 15 },
+}
+-- Aura lists for PlayerHasAuraByID: every sacrifice buff, and each demon's own.
+EABR.SACRIFICE_BUFFS = { all = {} }
+for _, d in ipairs(EABR.SACRIFICE_DEMONS) do
+    EABR.SACRIFICE_BUFFS.all[#EABR.SACRIFICE_BUFFS.all + 1] = d.buff
+    EABR.SACRIFICE_BUFFS[d.key] = { d.buff }
+end
 if EABR.FOREVER then
     EABR.FV_WEAPON_BUFFS = {
         { key = "instant", name = "Instant Poison", imbue = true, class = "ROGUE", items = { 6947, 6949, 6950, 8926, 8927, 8928 } },
