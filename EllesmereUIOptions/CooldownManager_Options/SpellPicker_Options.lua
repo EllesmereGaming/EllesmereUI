@@ -3072,7 +3072,8 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                         SetOwn("missingShowBelow", (v and v > 0) and v or nil)
                                         ns.QueueReanchor()
                                     end, EllesmereUI.L("Also Show Below"),
-                                        EllesmereUI.L("Seconds left when the buff shows again (0 = off)"))
+                                        EllesmereUI.L("Seconds left when the buff shows again (0 = off)"),
+                                        3600)  -- long buffs (30-60 min) need minutes, not just seconds
                                 end)
                             end,
                             -- Mutually exclusive with the bar's "Keep Buffs in Same Place": that
