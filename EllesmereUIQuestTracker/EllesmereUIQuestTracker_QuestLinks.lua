@@ -34,6 +34,8 @@ function EQT.ShowWowheadLink(questID)
         confirmText = "Close",
         hideCancel = true,
         selectText = true,
+        -- Close must still close after the link is cut or deleted.
+        allowEmpty = true,
     })
 end
 
