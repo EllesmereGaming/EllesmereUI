@@ -3382,7 +3382,7 @@ local function CreateMover(barKey)
         end
 
         -- "Element Options" -- navigate to this element's settings page (top of menu)
-        local settingsMapping = EllesmereUI._ELEMENT_SETTINGS_MAP[barKey]
+        local settingsMapping = (elem and elem.elementOptions) or EllesmereUI._ELEMENT_SETTINGS_MAP[barKey]
         -- Cooldown Manager bars use dynamic per-bar keys ("CDM_<key>" / "TBB_<idx>"),
         -- so they miss the exact lookup; resolve them to their shared tab entry by prefix.
         if not settingsMapping then

@@ -3044,6 +3044,10 @@ EllesmereUI._IS_STANDALONE  = IS_STANDALONE
 --               tracker, whose spot lives in the shared Edit Mode layout and
 --               takes a reload to change)
 --    linkedKeys (table)  list of element keys that move with this one
+--    elementOptions (table) where the cog menu's Element Options goes, in the
+--               shape of an _ELEMENT_SETTINGS_MAP entry: { module, page,
+--               sectionName, preSelectFn, highlightText }. module may be a
+--               plugin's (EllesmereUI.GetPluginModuleKey)
 --    noResize   (boolean) true for Blizzard elements that cannot be resized
 --    sizeFixedByLook (boolean) the current look fixes the element's size
 --               (Blizzard Style unit frames): getSize reports that look's size,
@@ -3091,6 +3095,7 @@ function EllesmereUI.MakeUnlockElement(opts)
         isPositionHeld = opts.isPositionHeld,
         noSpecLayout  = opts.noSpecLayout,
         linkedKeys    = opts.linkedKeys,
+        elementOptions = opts.elementOptions,
         noResize          = opts.noResize,
         linkedDimensions  = opts.linkedDimensions,
         -- noInitHook: self-positioning element; ApplySavedPositions /
