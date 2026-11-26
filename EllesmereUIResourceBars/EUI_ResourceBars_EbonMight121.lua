@@ -160,7 +160,7 @@ local function Build()
                     if tFont then
                         fs:SetFont(tFont, tSize, tFlags)
                     else
-                        fs:SetFont("Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF", 12, "OUTLINE")
+                        fs:SetFont("Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf", 12, "OUTLINE")
                     end
                     if rbText and rbText.GetTextColor then
                         fs:SetTextColor(rbText:GetTextColor())

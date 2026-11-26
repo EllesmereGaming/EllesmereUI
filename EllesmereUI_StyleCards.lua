@@ -363,7 +363,7 @@ function EllesmereUI.BuildStyleCards(parent, topY, opts)
     -- The options font once it has loaded, else the locale-aware core font
     -- (the picker runs before the options addon loads).
     local FONT = EllesmereUI._font or EllesmereUI.EXPRESSWAY
-        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
     opts = opts or {}
 
     local DEFS = {

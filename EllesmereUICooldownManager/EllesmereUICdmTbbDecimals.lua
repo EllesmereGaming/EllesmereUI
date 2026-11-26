@@ -295,7 +295,7 @@ local function BuildContainer(desired)
                 carrier:SetAllPoints(button)
                 local fs = carrier:CreateFontString(nil, "OVERLAY")
                 fs:SetFont((ns.GetCDMFont and ns.GetCDMFont())
-                    or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF", 12, "")
+                    or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf", 12, "")
                 fs:SetPoint("CENTER", button, "CENTER", 0, 0)
                 -- 68914 schema: updateInterval is a binding-level knob now,
                 -- so the formatter + 0.05s interval travel on a configured

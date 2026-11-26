@@ -1474,11 +1474,11 @@ local SOLID_BACKDROP = { bgFile = "Interface\\Buttons\\WHITE8X8" }
 -- locale's glyphs, else falls back to the system font. Do NOT re-decide locale fallback
 -- locally or locale clients could never use a custom font here.
 local cachedFontPath = (EllesmereUI.GetFontPath("unitFrames"))
-    or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+    or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
 local cachedFontPaths = {}  -- per-unit font cache
 local function ResolveFontPath(unitKey)
     local gPath = EllesmereUI.GetFontPath("unitFrames")
-        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
     cachedFontPath = gPath
     for _, uKey in ipairs({"player", "target", "focus", "boss", "pet", "targettarget", "focustarget"}) do
         cachedFontPaths[uKey] = gPath
@@ -1774,9 +1774,9 @@ do
     end
 end
 
--- Cast bars reuse the unit's health bar texture. The cast bar stacks three textures
--- over the fill bounds (base fill + cast tint + shielded tint, all WHITE8X8 by
--- default), so apply to each. On ns to avoid the Lua 200-local cap.
+-- Cast bars reuse the unit's health bar texture: the base fill and the cast tint over
+-- it (the whole bar, masked to the fill) take it; the shielded tint keeps WHITE8X8
+-- (below). On ns to avoid the Lua 200-local cap.
 ns.ApplyCastBarTexture = function(castbar, texKey)
     if not castbar then return end
     ns.UF_TexBgCast(castbar, texKey)

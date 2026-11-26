@@ -87,7 +87,7 @@ local function ShowStyleChoicePopup()
         return
     end
     local FONT = EllesmereUI._font or EllesmereUI.EXPRESSWAY
-        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
     local EG = ELLESMERE_GREEN
     -- Wide enough for the card row (four cards on the WoW Forever client).
     local POPUP_W, POPUP_H = math.max(700, EllesmereUI.STYLE_CARDS_W + 32), 480

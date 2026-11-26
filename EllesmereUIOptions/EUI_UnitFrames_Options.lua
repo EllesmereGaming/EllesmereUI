@@ -1462,7 +1462,7 @@ initFrame:SetScript("OnEvent", function(self)
     --  Preview builder: cosmetic health/power bar + portrait + castbar preview
     ---------------------------------------------------------------------------
     local PREVIEW_FONT = (EllesmereUI.GetFontPath("unitFrames"))
-        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
     local SOLID_BACKDROP = { bgFile = "Interface\\Buttons\\WHITE8X8" }
     local BORDER_BACKDROP = { edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 }
 

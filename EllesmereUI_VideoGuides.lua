@@ -129,7 +129,7 @@ end
 
 local function BuildShell()
     if ui then return end
-    FONT = EllesmereUI._font or ("Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf")
+    FONT = EllesmereUI._font or ("Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf")
     ui = {}
 
     -- Dimmer: eats stray clicks/wheel; clicking anywhere outside the panel

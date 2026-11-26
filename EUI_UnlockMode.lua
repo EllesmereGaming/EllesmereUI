@@ -478,7 +478,7 @@ end
 --  Constants
 -------------------------------------------------------------------------------
 local FONT_PATH   = (EllesmereUI.GetFontPath("extras"))
-    or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+    or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
 
 -- At very low UI scale the overlays/top bar are hard to read, so they're nudged up.
 -- The `UIParent:GetEffectiveScale() < 0.6` test is inlined at each use site (not a

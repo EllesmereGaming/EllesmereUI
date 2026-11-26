@@ -176,7 +176,7 @@ local function ShowKickTrackerPopup()
         return
     end
     local FONT = EllesmereUI._font or EllesmereUI.EXPRESSWAY
-        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
     local EG = EllesmereUI.ELLESMERE_GREEN
     local isOn = cfg.enabled == true
     local POPUP_W, BLOCK_W = 500, 400

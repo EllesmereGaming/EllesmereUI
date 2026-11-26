@@ -235,7 +235,7 @@ local function ApplyUnitNameFont()
     local fonts = EllesmereUIDB and EllesmereUIDB.fonts
     local name = fonts and fonts.unitNameFont
     if not name or name == "" then return end
-    local path = fonts.unitNameFontPath
+    local path = EllesmereUI.CurrentFontPath(fonts.unitNameFontPath)
     if not ProbeFont(path) and EllesmereUI and EllesmereUI.ResolveFontName then
         -- Advisory probe (see ApplyCombatTextFont): a live resolve of the saved
         -- name is better evidence than a probe that false-negatives on macOS
@@ -359,6 +359,7 @@ do
         local db = EllesmereUIDB
         local saved = db and db.fctFont
         if not saved or type(saved) ~= "string" or saved == "" then return end
+        saved = EllesmereUI.CurrentFontPath(saved)
         if not EllesmereUI.CombatTextFontCoversLocale(saved) then return end
         local fontPath = saved
         local smName = saved:match("^smf:(.+)")
@@ -447,7 +448,7 @@ end
 -- NOTE: the global _G.STANDARD_TEXT_FONT override that used to live here was
 -- removed. It was gated on the "Reskin Blizzard Elements" (customTooltips) toggle
 -- and read a dead legacy key (EllesmereUIDB.fontSettings.global), so it always
--- forced STANDARD_TEXT_FONT to the bundled Expressway.TTF -- a Latin-only face --
+-- forced STANDARD_TEXT_FONT to the bundled EUI Highway.ttf -- a Latin-only face --
 -- regardless of the user's actual font choice. In CJK/Cyrillic locales that broke
 -- glyphs across the whole Blizzard UI AND other addons (square boxes), because it
 -- bypassed the locale-aware ResolveFontName fallback.

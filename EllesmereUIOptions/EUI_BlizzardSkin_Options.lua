@@ -790,65 +790,6 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Show Item Level for Items, WoW Forever only: its weapon and armor tooltips
-        -- carry no item level line (retail's do). Independent of the reskin, like
-        -- the row above; the hook (EllesmereUI.lua, ItemLevelTooltipHook) is
-        -- registered on first enable. Not the Tooltip Extras "Item Level", which is
-        -- a hovered player's average item level, drawn by the reskin.
-        if EllesmereUI.IS_FOREVER then
-            local ilvlRow
-            ilvlRow, h = W:DualRow(parent, y,
-                { type="toggle", text="Show Item Level for Items",
-                  tooltip="Adds the item level to weapon and armor tooltips.",
-                  getValue=function()
-                      return EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItems or false
-                  end,
-                  setValue=function(v)
-                      if not EllesmereUIDB then EllesmereUIDB = {} end
-                      EllesmereUIDB.tooltipItemLevelItems = v
-                      if v and EllesmereUI.ActivateItemLevelTooltip then EllesmereUI.ActivateItemLevelTooltip() end
-                      EllesmereUI:RefreshPage()  -- update the cog disabled state
-                  end },
-                { type="label", text="" }
-            );  y = y - h
-
-            -- Item Level cog: modifier, position, line color, difference with the equipped
-            -- item, and bags/quivers. Disabled while the toggle is off.
-            local function ilvlSet(key, v)
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB[key] = v
-            end
-            EllesmereUI.BuildInlineCog(ilvlRow._leftRegion, {
-                gap = 9,
-                disabled = function() return not (EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItems) end,
-                disabledTooltip = "Show Item Level for Items",
-                title = "Item Level",
-                rows = {
-                    { type="dropdown", label="Use Modifier",
-                      values={ none="None", shift="Shift", control="Control", alt="Alt" },
-                      order={ "none", "shift", "control", "alt" },
-                      get=function() return (EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItemsModifier) or "none" end,
-                      set=function(v) ilvlSet("tooltipItemLevelItemsModifier", v) end },
-                    { type="dropdown", label="Position",
-                      values={ bottom="Bottom", name="Next to Name" },
-                      order={ "bottom", "name" },
-                      get=function() return (EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItemsPosition) or "bottom" end,
-                      set=function(v) ilvlSet("tooltipItemLevelItemsPosition", v) end },
-                    { type="dropdown", label="Color",
-                      values={ gold="Gold", white="White", quality="Item Quality" },
-                      order={ "gold", "white", "quality" },
-                      get=function() return (EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItemsColor) or "gold" end,
-                      set=function(v) ilvlSet("tooltipItemLevelItemsColor", v) end },
-                    { type="toggle", label="Compare with Equipped",
-                      get=function() return EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItemsCompare or false end,
-                      set=function(v) ilvlSet("tooltipItemLevelItemsCompare", v) end },
-                    { type="toggle", label="Include Bags and Quivers",
-                      get=function() return EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItemsBags or false end,
-                      set=function(v) ilvlSet("tooltipItemLevelItemsBags", v) end },
-                },
-            })
-        end
-
         -- "Use Modifier" cog on Show Max Stack for Items (left region): the Max
         -- Stack line only shows while the chosen modifier is held. Disabled
         -- (blocked + dimmed) when the toggle is off, mirroring the Spell ID cog.
@@ -1036,6 +977,66 @@ initFrame:SetScript("OnEvent", function(self)
             end
             AttachBorderControls(tooltipBorder,"tooltip",ttReskinOff,true,{ apply = TooltipBorderApply })
             BorderOffsetRow("tooltip",ttReskinOff,TooltipBorderApply)
+        end
+
+        -- Show Item Level for Items, WoW Forever only: its weapon and armor tooltips
+        -- carry no item level line (retail's do). Independent of the reskin, like
+        -- Show Max Stack for Items; the hook (EllesmereUI.lua, ItemLevelTooltipHook) is
+        -- registered on first enable. The section's last row: its blank right half is
+        -- the odd last slot. Not the Tooltip Extras "Item Level", which is
+        -- a hovered player's average item level, drawn by the reskin.
+        if EllesmereUI.IS_FOREVER then
+            local ilvlRow
+            ilvlRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Show Item Level for Items",
+                  tooltip="Adds the item level to weapon and armor tooltips.",
+                  getValue=function()
+                      return EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItems or false
+                  end,
+                  setValue=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      EllesmereUIDB.tooltipItemLevelItems = v
+                      if v and EllesmereUI.ActivateItemLevelTooltip then EllesmereUI.ActivateItemLevelTooltip() end
+                      EllesmereUI:RefreshPage()  -- update the cog disabled state
+                  end },
+                EllesmereUI.BlankRowCfg()
+            );  y = y - h
+
+            -- Item Level cog: modifier, position, line color, difference with the equipped
+            -- item, and bags/quivers. Disabled while the toggle is off.
+            local function ilvlSet(key, v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB[key] = v
+            end
+            EllesmereUI.BuildInlineCog(ilvlRow._leftRegion, {
+                gap = 9,
+                disabled = function() return not (EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItems) end,
+                disabledTooltip = "Show Item Level for Items",
+                title = "Item Level",
+                rows = {
+                    { type="dropdown", label="Use Modifier",
+                      values={ none="None", shift="Shift", control="Control", alt="Alt" },
+                      order={ "none", "shift", "control", "alt" },
+                      get=function() return (EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItemsModifier) or "none" end,
+                      set=function(v) ilvlSet("tooltipItemLevelItemsModifier", v) end },
+                    { type="dropdown", label="Position",
+                      values={ bottom="Bottom", name="Next to Name" },
+                      order={ "bottom", "name" },
+                      get=function() return (EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItemsPosition) or "bottom" end,
+                      set=function(v) ilvlSet("tooltipItemLevelItemsPosition", v) end },
+                    { type="dropdown", label="Color",
+                      values={ gold="Gold", white="White", quality="Item Quality" },
+                      order={ "gold", "white", "quality" },
+                      get=function() return (EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItemsColor) or "gold" end,
+                      set=function(v) ilvlSet("tooltipItemLevelItemsColor", v) end },
+                    { type="toggle", label="Compare with Equipped",
+                      get=function() return EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItemsCompare or false end,
+                      set=function(v) ilvlSet("tooltipItemLevelItemsCompare", v) end },
+                    { type="toggle", label="Include Bags and Quivers",
+                      get=function() return EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItemsBags or false end,
+                      set=function(v) ilvlSet("tooltipItemLevelItemsBags", v) end },
+                },
+            })
         end
 
         -----------------------------------------------------------------------
@@ -3823,7 +3824,7 @@ initFrame:SetScript("OnEvent", function(self)
         local EG = EllesmereUI.ELLESMERE_GREEN
         local L  = EllesmereUI.L
         local MakeBorder = EllesmereUI.MakeBorder
-        local FONT = EllesmereUI._font or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+        local FONT = EllesmereUI._font or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
 
         local HERO_H = 470
         local host = CreateFrame("Frame", nil, parent)

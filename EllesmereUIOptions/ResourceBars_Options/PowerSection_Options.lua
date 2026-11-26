@@ -678,11 +678,12 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
         return "This option requires a Power Text format other than None"
     end
 
+    local powerTextSizeRow
     local function SetPowerText(v)
         local c = cfg(); if not c then return end
         c.textFormat = v; RefreshPower(); EllesmereUI:RefreshPage()
+        ns.ERB_RefreshTextMenu(powerTextSizeRow and powerTextSizeRow._leftRegion)
     end
-    local powerTextSizeRow
     powerTextSizeRow, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Power Text",
           disabled = powerOff,
@@ -697,7 +698,8 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
                   if pc then return { r = pc[1], g = pc[2], b = pc[3] } end
                   return { r = c.textFillR or 1, g = c.textFillG or 1, b = c.textFillB or 1 }
               end,
-              SetPowerText),
+              SetPowerText, { examples = ns.ERB_PowerTagExamples, label = "Power Text", apply = RefreshPower,
+                  region = function() return powerTextSizeRow and powerTextSizeRow._leftRegion end }),
           -- WoW Forever lists no Smart Text (EllesmereUI.PowerTextFormat).
           order = EllesmereUI.PowerTextFormatOrder({ "none", "---", "custom", "---", "smart", "curpp", "curmaxpp", "perpp", "both" }),
           -- Ebon Might is a buff timer: no power values for a template to show.
@@ -777,8 +779,8 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
           end },
         { type = "label", text = "Threshold & Hash Lines" }
     );  y = y - h
-    -- Power Text inline cog: percent sign, anchor, x/y offsets
     ns.ERB_AddCustomFormatAccessor(powerTextSizeRow._leftRegion, "Power Text", cfg, RefreshPower)
+    -- Power Text inline cog: percent sign, anchor, x/y offsets
     do
         local rgn = powerTextSizeRow._leftRegion
         local cogBtn = EllesmereUI.BuildInlineCog(rgn, {

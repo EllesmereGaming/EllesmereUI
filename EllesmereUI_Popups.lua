@@ -943,7 +943,8 @@ end
 --  Custom Input Popup  (matches EllesmereUI aesthetic, with EditBox)
 --  Usage:  EllesmereUI:ShowInputPopup({ title, message, placeholder, confirmText, cancelText, onConfirm, onCancel })
 --          onConfirm receives the entered text as its first argument. A copy box for
---          a link: initialText + selectText (starts selected) + hideCancel (one button).
+--          a link: initialText + selectText (starts selected) + hideCancel (one button)
+--          + allowEmpty (that button still closes it once the text is cut or deleted).
 --          infoTooltip (string or function) adds a hover info badge left of the input;
 --          infoTooltipOpts go to ShowWidgetTooltip, anchored to the popup frame.
 --          preview(text) returns a preview line (under the input, below previewLabel,

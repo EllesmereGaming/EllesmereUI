@@ -104,7 +104,7 @@ local function BuildLivePreview(parent, yOff)
     -- numButtonsShowable --------------------------------------------------
     local buttons = {}
     local DEFAULT_FONT = (EllesmereUI.GetFontPath("actionBars"))
-        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
 
     for i = 1, maxBtns do
         local bf = CreateFrame("Frame", nil, pf)

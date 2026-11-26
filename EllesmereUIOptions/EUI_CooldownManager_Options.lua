@@ -76,7 +76,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- Inline text input helper (no W:InputBox exists)
     local FONT_PATH = (EllesmereUI.GetFontPath("cdm"))
-        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
 
     local GetCDMOptOutline = EllesmereUI.GetFontOutlineFlag
 
@@ -2219,7 +2219,7 @@ initFrame:SetScript("OnEvent", function(self)
             _cdmButtonTip = EllesmereUI.BuildTipCallout(EllesmereUI._panelBody, {
                 width = 360, height = 105,
                 text = EllesmereUI.L("CDM buttons can have their glow and active states\nset per icon or synced to the bar. Click a button\nto show its settings."),
-                font = (EllesmereUI.GetFontPath("cdm")) or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF",
+                font = (EllesmereUI.GetFontPath("cdm")) or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf",
                 textTop = 15, spacing = 4, btnBottom = 11,
                 onOkay = function()
                     if EllesmereUIDB then EllesmereUIDB.cdmButtonTipSeen = true end

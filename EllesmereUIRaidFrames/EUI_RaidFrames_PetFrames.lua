@@ -959,6 +959,13 @@ PF.OwnerLayout = function(restyle)
     end
 end
 
+-- Hide Self with Hide Your Pet on (its cog): your own pet hides with you, in play (the self pet
+-- button and the pet header) and in the options preview. s: the settings read (the profile by default).
+PF.SelfPetHidden = function(s)
+    s = s or db.profile
+    return s.partyHideSelf == true and s.partyHideSelfPet == true
+end
+
 -- Your own pet: beside the self button while that shows you. With Hide Self (in a group), in your
 -- frame's empty slot after the last party frame: seated here, then re-seated by the party frames'
 -- unit snippet after whichever frame the header fills last, so joins, leaves and re-sorts in combat
@@ -971,7 +978,8 @@ PF.PlaceSelfPet = function(force)
     local mode = "off"
     if PF.watching then
         local m = ns._partySelfMode
-        if m == "button" or (m == "hidden" and IsInGroup()) then mode = m end
+        -- Hide Your Pet (Hide Self's cog) hides it with you.
+        if m == "button" or (m == "hidden" and IsInGroup() and not PF.SelfPetHidden()) then mode = m end
     end
     if mode == "off" then
         if force or PF.spMode ~= "off" then
@@ -1173,6 +1181,8 @@ PF.Layout = function(restyle)
     -- One batch: the header re-runs once below, not per attribute.
     local changed = SetAttr(hdr, "groupFilter", group, false)
     changed = SetAttr(hdr, "showSolo", solo, changed)
+    -- Your pet leaves the party pets with you under Hide Self's Hide Your Pet.
+    changed = SetAttr(hdr, "showPlayer", not (party and PF.SelfPetHidden()), changed)
     changed = SetAttr(hdr, "point", point, changed)
     changed = SetAttr(hdr, "xOffset", xOff, changed)
     changed = SetAttr(hdr, "yOffset", yOff, changed)
@@ -1358,7 +1368,7 @@ PF.OwnerPreviewSpec = function(s, w, h, sp)
     else
         spec.padT, spec.padR = gap + ph, max(0, pw - w)
     end
-    if s.partyHideSelf then
+    if s.partyHideSelf and not PF.SelfPetHidden(s) then
         local grow = ns._PartyGrowth(s)
         spec.selfSlot = true
         -- The next slot: the party frames' pitch, party target frames along the stack included.

@@ -1,4 +1,4 @@
-Avant Garde Naowh.ttf holds outlines of two open fonts:
+EUI Geometric.ttf holds outlines of two open fonts:
   - TeX Gyre Adventor (Regular, with the digits and the marks . , : ; - of Bold), under the
     GUST Font License, which is based on the LaTeX Project Public License 1.3c. That license
     lets a changed font be passed on under another license that keeps its conditions

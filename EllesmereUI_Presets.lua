@@ -362,7 +362,7 @@ do
 
         -- Build or reuse the popup
         if not specPopup then
-            local FONT = EllesmereUI._font or ("Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf")
+            local FONT = EllesmereUI._font or ("Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf")
             local COL_W = 165
             local COL_GAP = 12
             local CONTENT_LEFT = 41
@@ -778,7 +778,7 @@ do
         end
 
         -- Populate columns
-        local FONT = EllesmereUI._font or ("Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf")
+        local FONT = EllesmereUI._font or ("Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf")
         local CLASS_H = specPopup._CLASS_H
         local CLASS_PAD_TOP = specPopup._CLASS_PAD_TOP
         local CLASS_PAD_BOT = specPopup._CLASS_PAD_BOT
@@ -1176,7 +1176,7 @@ do
 
                 local presetList = allPresetKeysFn()
                 local mH = 4
-                local ITEM_FONT = EllesmereUI._font or ("Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf")
+                local ITEM_FONT = EllesmereUI._font or ("Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf")
 
                 for idx, entry in ipairs(presetList) do
                     local itm = items[idx]

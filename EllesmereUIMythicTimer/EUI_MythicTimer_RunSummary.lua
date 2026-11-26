@@ -1350,7 +1350,7 @@ local PICKER_H   = 22
 local CLOSE_W    = 14
 local HEADER_GAP = 10
 local CLOSE_ICON    = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png"
-local FONT_FALLBACK = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+local FONT_FALLBACK = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
 local CLASS_ICON_TEX = "Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES"
 
 -- `sub` marks a column that carries a second, separately styled font string.

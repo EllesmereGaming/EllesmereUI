@@ -210,7 +210,7 @@ function _AC.BuildStyle(bd, fixedIcon)
     end
     local brdA = (bd and bd.borderA) or 1
     local cdFont = (EllesmereUI.GetFontPath("cdm"))
-        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
 
     -- Icon rect. A shaped icon samples OUTSIDE its texture to fill the mask, so
     -- the coords come from the shape's inset, not the bar's zoom -- same math as

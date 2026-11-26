@@ -753,7 +753,7 @@ end
                         tc:SetFrameLevel(cd:GetFrameLevel() + 5)
                         local fs = tc:CreateFontString(nil, "OVERLAY")
                         local cdFont = (EllesmereUI.GetFontPath("cdm"))
-                            or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+                            or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
                         local fsScale = (scale and scale > 0.01) and scale or 1
                         local cdSize = ((ss and ss.cooldownFontSize) or (bd and bd.cooldownFontSize) or 12) / fsScale
                         if EllesmereUI.ApplyIconTextFont then

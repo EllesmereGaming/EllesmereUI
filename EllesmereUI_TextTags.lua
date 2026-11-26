@@ -474,8 +474,9 @@ TextTags.EDIT_ICON = EDIT_ICON
 
 --- The template popup. o: cat (the module's catalog), get() / set(text) (the stored
 --- template, single pipes), color (the preview's text color; nil = white), tagNotes
---- (as TextTags.HelpText's), onSave (after the template is stored). Spaces only opens
---- the popup again with a hint instead of closing unsaved.
+--- (as TextTags.HelpText's), examples (the help's examples, in place of the schema's:
+--- for a catalog that binds only some of its keys), onSave (after the template is
+--- stored). Spaces only opens the popup again with a hint instead of closing unsaved.
 function TextTags.EditPopup(o, warning)
     local cur = o.get()
     -- The edit box holds a typed "|" doubled.
@@ -503,7 +504,8 @@ function TextTags.EditPopup(o, warning)
             if o.onSave then o.onSave() end
         end,
     }
-    TextTags.PopupOpts(o.cat, popupOpts, o.tagNotes and { tagNotes = o.tagNotes } or nil)
+    TextTags.PopupOpts(o.cat, popupOpts, (o.tagNotes or o.examples)
+        and { tagNotes = o.tagNotes, examples = o.examples } or nil)
     EllesmereUI:ShowInputPopup(popupOpts)
 end
 

@@ -228,7 +228,9 @@ if EABR.FOREVER then
         pickerEnabled = false,
         classBuffActions = {},  -- class buff key -> { castSpellID, castRanks = { spell ID -> pinned rank } }
         classBuffPicks = {},  -- class buff key -> ticked (unset: the buff's own default)
-        whereToShow = {},   -- section "Where to Show" (an absent bucket = shown)
+        whereToShow = {},   -- Consumables' "Where to Show" (an absent bucket = shown)
+        -- Self Buffs keep selfWhereToShow, selfSound and weaponImbue unset here (everywhere / no sound /
+        -- off); abr_forever_self_buffs_split_v1 seeded them once from the shared values.
         customIDs = {},     -- spell IDs the user tracks, in the order added
         customClasses = {}, -- spell ID -> { CLASS = false }: the classes a custom ID does not remind (unset: every class)
         customGroups = {},  -- { name = string, ids = { spell IDs } }: one reminder while none of ids is active

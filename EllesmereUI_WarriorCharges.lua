@@ -261,7 +261,7 @@ local function BuildHostPhase(H, powerKey, opts)
                     if f then
                         fs:SetFont(f, sz, fl)
                     else
-                        fs:SetFont("Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF", 12, "OUTLINE")
+                        fs:SetFont("Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf", 12, "OUTLINE")
                     end
                     fs:SetTextColor(opts.text.r or 1, opts.text.g or 1, opts.text.b or 1, 0.9)
                     local anchor = opts.text.anchor or "CENTER"

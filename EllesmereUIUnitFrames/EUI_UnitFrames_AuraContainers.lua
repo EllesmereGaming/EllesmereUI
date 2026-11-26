@@ -25,7 +25,7 @@ local AKWorker = EllesmereUI.AuraKit.NewBuildWorker()
 
 local AURA_CROP_HEIGHT = 0.80
 local AURA_ZOOM = 0.07
-local FALLBACK_FONT = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+local FALLBACK_FONT = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
 
 -- The Bloodlust lockouts: hidden while the unit's Hide Exhaustion (its Debuff
 -- Filter, s.debuffHideExhaustion, nil = on) is on. Player Aura Bars' own Hide

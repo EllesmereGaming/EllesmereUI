@@ -1866,7 +1866,8 @@ local function BuildPartyPage(pageName, parent, yOffset)
         })
     end
 
-    _, h = W:DualRow(parent, y,
+    local selfRow
+    selfRow, h = W:DualRow(parent, y,
         { type="dropdown", text="Self Position",
           values={ none = "Default", first = "First", last = "Last" },
           order={ "none", "first", "last" },
@@ -1882,7 +1883,22 @@ local function BuildPartyPage(pageName, parent, yOffset)
         { type="toggle", text="Hide Self",
           getValue=function() return db.profile.partyHideSelf or false end,
           -- RefreshPage re-reads Include Own Target's disabled state.
-          setValue=function(v) db.profile.partyHideSelf = v; PartyReloadAndUpdate(); EllesmereUI:RefreshPage() end });  y = y - h
+          setValue=function(v) db.profile.partyHideSelf = v; PartyReloadAndUpdate(); EllesmereUI:RefreshPage() end })
+    -- Hide Your Pet: with Hide Self, your own pet hides too (off keeps it in your empty slot).
+    EllesmereUI.BuildInlineCog(selfRow._rightRegion, { title = "Hide Self",
+        disabled = function() return db.profile.partyHideSelf ~= true end, disabledTooltip = "Hide Self",
+        rows = {
+            { type="toggle", label="Hide Your Pet",
+              tooltip="Hides your own pet from the party pets while your frame is hidden.",
+              get=function() return db.profile.partyHideSelfPet == true end,
+              set=function(v)
+                  db.profile.partyHideSelfPet = v
+                  PartyReloadAndUpdate()
+                  ns.PF_Apply()
+                  ns.PF_ReAnchor()
+              end },
+        } })
+    y = y - h
 
     -- Auto Resize Icons | Frame Spacing. The checkbox dropdown is a pure VIEW (no migration) over partyAutoResizeIndicators ("Indicators & Auras") and partyAutoResizeTrackedBuffs ("Tracked Buffs", defaults on).
     local partyAutoResizeRow

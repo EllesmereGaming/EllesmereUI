@@ -375,7 +375,7 @@ local function OnEvent(_, event, arg1, arg2)
         -- A partial absorb/block/resist is damage taken (Soul Link, shields)
         if partialFmt[arg1] then
             local data, arg3 = C_CombatText.GetCurrentEventInfo()
-            if (IsSecret(arg3) or arg3 ~= nil) and not IsZeroValue(data) then
+            if arg3 ~= nil and not IsZeroValue(data) then
                 if S.damage then
                     Emit(partialFmt[arg1], FormatAmount(data), S.damageColor, false, arg3)
                 end

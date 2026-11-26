@@ -1365,7 +1365,7 @@ initFrame:SetScript("OnEvent", function(self)
         if pickerMenu then return pickerMenu end
 
         local FONT = (EllesmereUI.GetFontPath())
-            or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+            or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
         local bgR  = EllesmereUI.DD_BG_R or 0.075
         local bgG  = EllesmereUI.DD_BG_G or 0.113
         local bgB  = EllesmereUI.DD_BG_B or 0.141
@@ -2486,7 +2486,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function RebuildMenuRows()
         local m = EnsureMenuMenu()
         local FONT = (EllesmereUI.GetFontPath())
-            or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+            or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
         local mH = 4
         local count = PaletteCount()
         for i = 1, count do

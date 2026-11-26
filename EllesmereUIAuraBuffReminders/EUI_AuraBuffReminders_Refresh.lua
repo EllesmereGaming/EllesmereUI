@@ -648,7 +648,9 @@ function EABR.CollectDemonicSacrifice(missing, fo, auraLock)
     local petFamily
     if UnitExists("pet") and not UnitIsDead("pet") then
         local _, family = UnitCreatureFamily("pet")
-        if not isSecret(family) then petFamily = family end
+        -- Unreadable: which demon is out is unknown, so nothing is offered (a summon would replace it).
+        if isSecret(family) then return end
+        petFamily = family
     end
     local demons = EABR.SACRIFICE_DEMONS
     local target = demons[1]
@@ -911,6 +913,25 @@ local function FvWeaponEntry(missing, hand, label, dismissKey, buff, spellID, it
     e.label = label
     e.cat = "forever"; e.dismissKey = dismissKey; e.fvSelf = dismissKey == hand.imbueKey
     missing[#missing+1] = e
+end
+
+-- Whether the class has a weapon imbue (rogue poisons, shaman imbues, warlock
+-- stones): the options build Weapon Imbues only then, so a profile's
+-- weaponImbue, shared with such a character, costs nothing on any other class.
+do
+    local hasImbue = {}
+    function EABR.FvClassHasImbue(class)
+        if not class then return false end
+        local has = hasImbue[class]
+        if has == nil then
+            has = false
+            for _, b in ipairs(EABR.FV_WEAPON_BUFFS or {}) do
+                if b.imbue == true and (not b.class or b.class == class) then has = true; break end
+            end
+            hasImbue[class] = has
+        end
+        return has
+    end
 end
 
 function EABR.CollectForeverWeapons(missing, fo, class, wantImbue, wantTemp)
@@ -1324,7 +1345,12 @@ end
 -- the class buffs and the trackers nothing in PvP either. The one-slot id
 -- table, the cached families, the kept minimap answer and the dismiss-key memo
 -- keep the pass allocation-free; the weapon pass reads the game's enchant
--- lists, a table per weapon.
+-- lists, a table per weapon. Two sections, each gated by its own Where to
+-- Show: Self Buffs (fo.selfWhereToShow: the trackers, Mage Armors, class
+-- buffs, Weapon Imbues for a class that has one, hunter Target Tracking,
+-- spell groups and custom spells, each entry marked fvSelf, which picks the
+-- Self Buffs sound in ResolveReminderSound) and Consumables (fo.whereToShow:
+-- the rest, Weapon Stones and Oils included).
 function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     local fo = db.profile.forever
     local itemShows = fo and not InCombat() and EABR.SectionShows(fo.whereToShow, inInstance)
@@ -1337,7 +1363,7 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     -- is listened to only while a reminder that reads it can show.
     EABR.FvSyncTrackingEvent(hunterTracking or (selfShows and not inPvP
         and ((fo.gather == true and fo.gatherClassTrack ~= false) or fo.treasure == true)) or false)
-    local wantImbue = selfShows and fo.weaponImbue == true or false
+    local wantImbue = selfShows and fo.weaponImbue == true and EABR.FvClassHasImbue(GetPlayerClass()) or false
     local wantTemp = itemShows and fo.weapon == true or false
     EABR.FvSyncWeaponEvents(wantImbue or wantTemp)
     local wantBag = itemShows and fo.sleepingBag == true and not inPvP
@@ -1406,7 +1432,8 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     EABR.FvSyncBagEvent(bagListen)
     local anyShows = selfShows or itemShows
     local pickerEnabled = anyShows and PickerEnabled() or false
-    local watchSpellbook = pickerEnabled or watchStatSpells
+    -- The spellbook feeds the families and the class buff choices, both Self Buffs.
+    local watchSpellbook = (selfShows and pickerEnabled) or watchStatSpells
     if watchSpellbook ~= (EABR._fvSpellbookEvents or false) then
         EABR.FvSyncSpellbookEvents(watchSpellbook)
     end

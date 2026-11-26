@@ -374,7 +374,7 @@ EllesmereUI.PREVIEW_ROSTER = {
 }
 
 -- Font (Expressway lives in EllesmereUI/media)
-local EXPRESSWAY = MEDIA_PATH .. "fonts\\Expressway.ttf"
+local EXPRESSWAY = MEDIA_PATH .. "fonts\\EUI Highway.ttf"
 
 -- Locale system-font fallback for glyphs our fonts lack (CJK, Cyrillic). Resolved by
 -- EllesmereUI_Locale.lua from the EFFECTIVE locale (client or override); nil = Expressway.
@@ -3572,7 +3572,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.9.4"
+EllesmereUI.VERSION = "9.9.5"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -4748,22 +4748,12 @@ initFrame:SetScript("OnEvent", function(self, event)
         -- Register per-type callbacks instead of AllTypes to avoid firing on every unit/currency tooltip in the game (major CPU savings).
         local _isSecret = issecretvalue  -- cache global once
 
-        -- The spell/item/icon ID lines can be gated behind a held modifier (the "Use Modifier"
-        -- cog: none | shift | control | alt, default none). "none" shows them whenever Show
-        -- Spell ID is on (the original behavior); the others only surface the lines while that key is held.
-        local function IsSpellIDModifierHeld()
-            local mod = (EllesmereUIDB and EllesmereUIDB.spellIDModifier) or "none"
-            if mod == "none" then return true end
-            if mod == "control" then return IsControlKeyDown() end
-            if mod == "alt" then return IsAltKeyDown() end
-            return IsShiftKeyDown()
-        end
-
-        -- The Max Item Stack lines can be gated behind a held modifier (the "Use Modifier" cog:
-        -- none | shift | control | alt, default none). "none" shows them whenever Show Max Stack
-        -- for items is on (the original behavior); the others only surface the lines while that key is held.
-        local function IsItemStackModifierHeld()
-            local mod = (EllesmereUIDB and EllesmereUIDB.itemStackModifier) or "none"
+        -- The spell/item/icon ID, Max Stack and Item Level lines can each be gated behind a held
+        -- modifier (their "Use Modifier" cog, saved under `key`: none | shift | control | alt,
+        -- default none). "none" shows the lines whenever their toggle is on; the others only
+        -- surface them while that key is held.
+        local function ModifierHeld(key)
+            local mod = (EllesmereUIDB and EllesmereUIDB[key]) or "none"
             if mod == "none" then return true end
             if mod == "control" then return IsControlKeyDown() end
             if mod == "alt" then return IsAltKeyDown() end
@@ -4810,7 +4800,7 @@ initFrame:SetScript("OnEvent", function(self, event)
                     end
                 end
             end
-            local want = (on and IsSpellIDModifierHeld()) and "1" or "0"
+            local want = (on and ModifierHeld("spellIDModifier")) and "1" or "0"
             if GetCVar("tooltipShowAuraSpellIDs") == want then return end
             pcall(EllesmereUI.SetCVar, "tooltipShowAuraSpellIDs", want)
         end
@@ -4862,7 +4852,7 @@ initFrame:SetScript("OnEvent", function(self, event)
 
         local function SpellIDTooltipHook(tooltip, data)
             if not EllesmereUI.SpellIDOn() then return end
-            if not IsSpellIDModifierHeld() then return end
+            if not ModifierHeld("spellIDModifier") then return end
             if not data or not data.id then return end
             if _isSecret and _isSecret(data.id) then return end
             -- Aura IDs are rendered engine-side by the tooltipShowAuraSpellIDs CVar (see
@@ -4884,7 +4874,7 @@ initFrame:SetScript("OnEvent", function(self, event)
 
         local function ItemIDTooltipHook(tooltip, data)
             if not EllesmereUI.SpellIDOn() then return end
-            if not IsSpellIDModifierHeld() then return end
+            if not ModifierHeld("spellIDModifier") then return end
             if not data or not data.id then return end
             if _isSecret and _isSecret(data.id) then return end
             if not tooltip or not tooltip.GetName then return end
@@ -4911,7 +4901,7 @@ initFrame:SetScript("OnEvent", function(self, event)
 
         local function ItemIdMaxStackHook(tooltip, data)
             if not (EllesmereUIDB and EllesmereUIDB.showItemMaxStacks) then return end
-            if not IsItemStackModifierHeld() then return end
+            if not ModifierHeld("itemStackModifier") then return end
             if not data or not data.id then return end
             if _isSecret and _isSecret(data.id) then return end
             if not tooltip or not tooltip.GetName then return end
@@ -4928,137 +4918,12 @@ initFrame:SetScript("OnEvent", function(self, event)
             end
         end
 
-        -- Item Level on weapon and armor tooltips, WoW Forever only: its tooltips carry no
-        -- item level line, where retail's carry one natively. Independent of the tooltip
-        -- reskin, like the ID lines above (Tooltips & Menus > Show Item Level for Items, off
-        -- unless true; its cog holds the tooltipItemLevelItems* options below). Registered on
-        -- first enable only (ActivateItemLevelTooltip): a post call cannot be removed, so the
-        -- hook returns at once after a toggle back off.
-        local _ITEM_CLASS = Enum.ItemClass
-        -- Equipped slots an item of each equip location replaces; nil = no comparison.
-        local _ILVL_SLOTS = {
-            INVTYPE_HEAD = { 1 }, INVTYPE_NECK = { 2 }, INVTYPE_SHOULDER = { 3 },
-            INVTYPE_CHEST = { 5 }, INVTYPE_ROBE = { 5 }, INVTYPE_WAIST = { 6 },
-            INVTYPE_LEGS = { 7 }, INVTYPE_FEET = { 8 }, INVTYPE_WRIST = { 9 },
-            INVTYPE_HAND = { 10 }, INVTYPE_FINGER = { 11, 12 }, INVTYPE_TRINKET = { 13, 14 },
-            INVTYPE_CLOAK = { 15 }, INVTYPE_WEAPON = { 16, 17 }, INVTYPE_2HWEAPON = { 16 },
-            INVTYPE_WEAPONMAINHAND = { 16 }, INVTYPE_WEAPONOFFHAND = { 17 },
-            INVTYPE_SHIELD = { 17 }, INVTYPE_HOLDABLE = { 17 },
-        }
-        -- Ranged items: the ranged slot where the client has one, else the main hand.
-        local _rangedSlots
-        local function RangedSlots()
-            if not _rangedSlots then
-                local okSlot, slot = pcall(GetInventorySlotInfo, "RangedSlot")
-                _rangedSlots = { (okSlot and type(slot) == "number") and slot or 16 }
-            end
-            return _rangedSlots
-        end
-
-        local function IsItemLevelModifierHeld()
-            local mod = (EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItemsModifier) or "none"
-            if mod == "none" then return true end
-            if mod == "control" then return IsControlKeyDown() end
-            if mod == "alt" then return IsAltKeyDown() end
-            return IsShiftKeyDown()
-        end
-
-        -- The lowest item level among the equipped items in the slots this one replaces
-        -- (nil: none equipped, or the hovered item is one of them).
-        local function EquippedItemLevel(equipLoc, link)
-            local slots = _ILVL_SLOTS[equipLoc]
-            if not slots and (equipLoc == "INVTYPE_RANGED" or equipLoc == "INVTYPE_RANGEDRIGHT"
-                or equipLoc == "INVTYPE_THROWN" or equipLoc == "INVTYPE_RELIC") then
-                slots = RangedSlots()
-            end
-            if not slots then return nil end
-            local lowest
-            for i = 1, #slots do
-                local eqLink = GetInventoryItemLink("player", slots[i])
-                if eqLink then
-                    if link and eqLink == link then return nil end
-                    local eq = C_Item.GetDetailedItemLevelInfo(eqLink)
-                    if eq and eq > 0 and (not lowest or eq < lowest) then lowest = eq end
-                end
-            end
-            return lowest
-        end
-
-        local function ItemLevelTooltipHook(tooltip, data)
-            local db = EllesmereUIDB
-            if not (db and db.tooltipItemLevelItems) then return end
-            if not IsItemLevelModifierHeld() then return end
-            if not data or not data.id then return end
-            if _isSecret and _isSecret(data.id) then return end
-            if not tooltip or not tooltip.GetName then return end
-            local ok, name = pcall(tooltip.GetName, tooltip)
-            if not ok or not name then return end
-            if name == "ItemSocketingDescription" then return end
-            local _, _, _, equipLoc, _, classID = C_Item.GetItemInfoInstant(data.id)
-            if not _ITEM_CLASS or not classID then return end
-            local gear = classID == _ITEM_CLASS.Weapon or classID == _ITEM_CLASS.Armor
-            if not gear and not (db.tooltipItemLevelItemsBags
-                and (classID == _ITEM_CLASS.Container or classID == _ITEM_CLASS.Quiver)) then
-                return
-            end
-            local link = data.hyperlink
-            local ilvl = C_Item.GetDetailedItemLevelInfo(link or data.id)
-            if not ilvl or ilvl <= 0 then return end
-            local text = string.format(ITEM_LEVEL or "Item Level %d", ilvl)
-            for i = 1, tooltip:NumLines() do
-                local fs = _G[name .. "TextLeft" .. i]
-                local txt = fs and fs:GetText()
-                if txt and not (_isSecret and _isSecret(txt)) and txt:sub(1, #text) == text then return end
-            end
-            -- Difference with the equipped item, on the hovered item's own tooltip only
-            -- (the comparison tooltips show the equipped item itself).
-            local suffix = ""
-            if gear and db.tooltipItemLevelItemsCompare and not name:find("^ShoppingTooltip") then
-                local eq = EquippedItemLevel(equipLoc, link)
-                local diff = eq and (ilvl - eq)
-                if diff and diff ~= 0 then
-                    suffix = string.format(diff > 0 and "  |cff20ff20(+%d)|r" or "  |cffff2020(%d)|r", diff)
-                end
-            end
-            local r, g, b
-            local colorMode = db.tooltipItemLevelItemsColor or "gold"
-            if colorMode == "white" then
-                r, g, b = 1, 1, 1
-            elseif colorMode == "quality" and C_Item.GetItemQualityByID and C_Item.GetItemQualityColor then
-                local q = C_Item.GetItemQualityByID(link or data.id)
-                if q then r, g, b = C_Item.GetItemQualityColor(q) end
-            end
-            if not r then
-                local c = NORMAL_FONT_COLOR
-                r, g, b = c and c.r or 1, c and c.g or 0.82, c and c.b or 0
-            end
-            -- Next to Name: the right column of the name line, which item tooltips leave
-            -- empty; the line goes to the bottom when something else already uses it.
-            if db.tooltipItemLevelItemsPosition == "name" then
-                local right = _G[name .. "TextRight1"]
-                if right then
-                    local short = string.format("%s %d", ITEM_LEVEL_ABBR or "iLvl", ilvl) .. suffix
-                    local cur = right:IsShown() and right:GetText() or nil
-                    if cur and _isSecret and _isSecret(cur) then cur = "?" end
-                    if not cur or cur == "" or cur == short then
-                        right:SetText(short)
-                        right:SetTextColor(r, g, b)
-                        right:Show()
-                        tooltip:Show()
-                        return
-                    end
-                end
-            end
-            tooltip:AddLine(text .. suffix, r, g, b)
-            tooltip:Show()
-        end
-
         -- Macros surface as their own tooltip type, so the Spell hook above never fires for
         -- them (GetSpell() also returns nil on a macro tooltip). The spell #showtooltip resolved
         -- to (honoring conditionals) is exposed as the FIRST tooltip line's tooltipID, read from the tooltip data.
         local function MacroSpellIDTooltipHook(tooltip, _data)
             if not EllesmereUI.SpellIDOn() then return end
-            if not IsSpellIDModifierHeld() then return end
+            if not ModifierHeld("spellIDModifier") then return end
             if not tooltip or not tooltip.GetName or not tooltip.GetTooltipData then return end
             local ok, info = pcall(tooltip.GetTooltipData, tooltip)
             if not ok or type(info) ~= "table" or not info.lines then return end
@@ -5084,20 +4949,145 @@ initFrame:SetScript("OnEvent", function(self, event)
         if Enum.TooltipDataType.PetAction then
             TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.PetAction, SpellIDTooltipHook)
         end
-        local _ilvlHooked = false
-        function EllesmereUI.ActivateItemLevelTooltip()
-            if _ilvlHooked or not EllesmereUI.IS_FOREVER then return end
-            if not (EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItems) then return end
-            if not (C_Item.GetDetailedItemLevelInfo and C_Item.GetItemInfoInstant) then return end
-            _ilvlHooked = true
-            TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ItemLevelTooltipHook)
-        end
-        EllesmereUI.ActivateItemLevelTooltip()
         TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ItemIDTooltipHook)
         if Enum.TooltipDataType.Macro then
             TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Macro, MacroSpellIDTooltipHook)
         end
         TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ItemIdMaxStackHook)
+
+        if EllesmereUI.IS_FOREVER then
+            -- Item Level on weapon and armor tooltips, WoW Forever only: its tooltips carry no
+            -- item level line, where retail's carry one natively. Independent of the tooltip
+            -- reskin, like the ID lines above (Tooltips & Menus > Show Item Level for Items, off
+            -- unless true; its cog holds the tooltipItemLevelItems* options below). Registered on
+            -- first enable only (ActivateItemLevelTooltip): a post call cannot be removed, so the
+            -- hook returns at once after a toggle back off.
+            local _ITEM_CLASS = Enum.ItemClass
+            -- Equipped slots an item of each equip location replaces; nil = no comparison.
+            local _ILVL_SLOTS = {
+                INVTYPE_HEAD = { 1 }, INVTYPE_NECK = { 2 }, INVTYPE_SHOULDER = { 3 },
+                INVTYPE_CHEST = { 5 }, INVTYPE_ROBE = { 5 }, INVTYPE_WAIST = { 6 },
+                INVTYPE_LEGS = { 7 }, INVTYPE_FEET = { 8 }, INVTYPE_WRIST = { 9 },
+                INVTYPE_HAND = { 10 }, INVTYPE_FINGER = { 11, 12 }, INVTYPE_TRINKET = { 13, 14 },
+                INVTYPE_CLOAK = { 15 }, INVTYPE_WEAPON = { 16, 17 }, INVTYPE_2HWEAPON = { 16 },
+                INVTYPE_WEAPONMAINHAND = { 16 }, INVTYPE_WEAPONOFFHAND = { 17 },
+                INVTYPE_SHIELD = { 17 }, INVTYPE_HOLDABLE = { 17 },
+            }
+            -- Ranged items: the ranged slot where the client has one, else the main hand.
+            local _rangedSlots
+            local function RangedSlots()
+                if not _rangedSlots then
+                    local okSlot, slot = pcall(GetInventorySlotInfo, "RangedSlot")
+                    _rangedSlots = { (okSlot and type(slot) == "number") and slot or 16 }
+                end
+                return _rangedSlots
+            end
+
+            -- The lowest item level among the equipped items in the slots this one replaces
+            -- (nil: none equipped, or the hovered item is one of them).
+            local function EquippedItemLevel(equipLoc, link)
+                local slots = _ILVL_SLOTS[equipLoc]
+                if not slots and (equipLoc == "INVTYPE_RANGED" or equipLoc == "INVTYPE_RANGEDRIGHT"
+                    or equipLoc == "INVTYPE_THROWN" or equipLoc == "INVTYPE_RELIC") then
+                    slots = RangedSlots()
+                end
+                if not slots then return nil end
+                local lowest
+                for i = 1, #slots do
+                    local eqLink = GetInventoryItemLink("player", slots[i])
+                    -- A one-hander replaces an off-hand weapon, never a shield or held item.
+                    if eqLink and slots[i] == 17 and equipLoc == "INVTYPE_WEAPON"
+                        and select(6, C_Item.GetItemInfoInstant(eqLink)) ~= _ITEM_CLASS.Weapon then
+                        eqLink = nil
+                    end
+                    if eqLink then
+                        if link and eqLink == link then return nil end
+                        local eq = C_Item.GetDetailedItemLevelInfo(eqLink)
+                        if eq and eq > 0 and (not lowest or eq < lowest) then lowest = eq end
+                    end
+                end
+                return lowest
+            end
+
+            local function ItemLevelTooltipHook(tooltip, data)
+                local db = EllesmereUIDB
+                if not (db and db.tooltipItemLevelItems) then return end
+                if not ModifierHeld("tooltipItemLevelItemsModifier") then return end
+                if not data or not data.id then return end
+                if _isSecret and _isSecret(data.id) then return end
+                if not tooltip or not tooltip.GetName then return end
+                local ok, name = pcall(tooltip.GetName, tooltip)
+                if not ok or not name then return end
+                if name == "ItemSocketingDescription" then return end
+                local _, _, _, equipLoc, _, classID = C_Item.GetItemInfoInstant(data.id)
+                if not _ITEM_CLASS or not classID then return end
+                local gear = classID == _ITEM_CLASS.Weapon or classID == _ITEM_CLASS.Armor
+                if not gear and not (db.tooltipItemLevelItemsBags
+                    and (classID == _ITEM_CLASS.Container or classID == _ITEM_CLASS.Quiver)) then
+                    return
+                end
+                local link = data.hyperlink
+                local ilvl = C_Item.GetDetailedItemLevelInfo(link or data.id)
+                if not ilvl or ilvl <= 0 then return end
+                local text = string.format(ITEM_LEVEL or "Item Level %d", ilvl)
+                for i = 1, tooltip:NumLines() do
+                    local fs = _G[name .. "TextLeft" .. i]
+                    local txt = fs and fs:GetText()
+                    if txt and not (_isSecret and _isSecret(txt)) and txt:sub(1, #text) == text then return end
+                end
+                -- Difference with the equipped item, on the hovered item's own tooltip only
+                -- (the comparison tooltips show the equipped item itself).
+                local suffix = ""
+                if gear and db.tooltipItemLevelItemsCompare and not name:find("^ShoppingTooltip") then
+                    local eq = EquippedItemLevel(equipLoc, link)
+                    local diff = eq and (ilvl - eq)
+                    if diff and diff ~= 0 then
+                        suffix = string.format(diff > 0 and "  |cff20ff20(+%d)|r" or "  |cffff2020(%d)|r", diff)
+                    end
+                end
+                local r, g, b
+                local colorMode = db.tooltipItemLevelItemsColor or "gold"
+                if colorMode == "white" then
+                    r, g, b = 1, 1, 1
+                elseif colorMode == "quality" and C_Item.GetItemQualityByID and C_Item.GetItemQualityColor then
+                    local q = C_Item.GetItemQualityByID(link or data.id)
+                    if q then r, g, b = C_Item.GetItemQualityColor(q) end
+                end
+                if not r then
+                    local c = NORMAL_FONT_COLOR
+                    r, g, b = c and c.r or 1, c and c.g or 0.82, c and c.b or 0
+                end
+                -- Next to Name: the right column of the name line, which item tooltips leave
+                -- empty; the line goes to the bottom when something else already uses it.
+                if db.tooltipItemLevelItemsPosition == "name" then
+                    local right = _G[name .. "TextRight1"]
+                    if right then
+                        local short = string.format("%s %d", ITEM_LEVEL_ABBR or "iLvl", ilvl) .. suffix
+                        local cur = right:IsShown() and right:GetText() or nil
+                        if cur and _isSecret and _isSecret(cur) then cur = "?" end
+                        if not cur or cur == "" or cur == short then
+                            right:SetText(short)
+                            right:SetTextColor(r, g, b)
+                            right:Show()
+                            tooltip:Show()
+                            return
+                        end
+                    end
+                end
+                tooltip:AddLine(text .. suffix, r, g, b)
+                tooltip:Show()
+            end
+
+            local _ilvlHooked = false
+            function EllesmereUI.ActivateItemLevelTooltip()
+                if _ilvlHooked then return end
+                if not (EllesmereUIDB and EllesmereUIDB.tooltipItemLevelItems) then return end
+                if not (C_Item.GetDetailedItemLevelInfo and C_Item.GetItemInfoInstant) then return end
+                _ilvlHooked = true
+                TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ItemLevelTooltipHook)
+            end
+            EllesmereUI.ActivateItemLevelTooltip()
+        end
 
         -- Spell ID on Tooltip with a modifier: a press or release of that key sets the engine's
         -- aura ID CVar (SyncAuraSpellIDCVar), and the aura tooltips show or drop the line on

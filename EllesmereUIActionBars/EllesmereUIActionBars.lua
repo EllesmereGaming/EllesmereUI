@@ -509,7 +509,7 @@ end
 -------------------------------------------------------------------------------
 local MEDIA_DIR = "Interface\\AddOns\\EllesmereUIActionBars\\Media\\"
 local FONT_PATH = (EllesmereUI.GetFontPath("actionBars"))
-    or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+    or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
 local HIGHLIGHT_TEXTURES = {
     MEDIA_DIR .. "highlight-2.png",
     MEDIA_DIR .. "highlight-3.png",

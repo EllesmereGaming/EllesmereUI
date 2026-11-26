@@ -834,6 +834,8 @@ local defaults = {
         partyHorizontal   = false,
         partyFlipGrowth   = false,  -- false=default growth, true=DOWN->UP / RIGHT->LEFT flip, "centered"=stack centered in the 5-slot container
         partyHideSelf     = false,
+        -- With Hide Self, your own pet hides too (Hide Self's cog); off keeps it in the slot after the last frame.
+        partyHideSelfPet  = false,
         partyUnlockPos    = nil,
         -- Party mirror of autoResizeTrackedBuffs ("Auto Resize Icons", Party tab); nil = on.
         partyAutoResizeTrackedBuffs = true,

@@ -254,7 +254,7 @@ ReloadFramesBody = function()
 
     -- Uses global font
     local donorFontPath = EllesmereUI.GetFontPath("unitFrames")
-        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
 
     -- Live enable/disable frames without reload
     local function ToggleFrame(unit, frame)

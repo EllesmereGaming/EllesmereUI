@@ -85,18 +85,14 @@ do
     end
     local function Max(_, mx) return Num(mx) end
     local function Pct(_, _, pct) return Num(pct) end
-    -- The unit schema with the bar's own help examples (the shared ones name unbound tags).
-    local function Schema(examples)
-        local s = {}
-        for k, v in pairs(TT.UNIT) do s[k] = v end
-        s.examples = examples
-        return s
-    end
-    ns.ERB_HealthTags = TT.Bind(Schema({ "[hp:pct]%", "[hp:abr] / [hp:max:abr]", "[hp:abr] | [hp:pct]%" }), {
+    -- The bars' own help examples for the popup (the unit schema's name tags the bars do not bind).
+    ns.ERB_HealthTagExamples = { "[hp:pct]%", "[hp:abr] / [hp:max:abr]", "[hp:abr] | [hp:pct]%" }
+    ns.ERB_PowerTagExamples = { "[pp:pct]%", "[pp:abr] / [pp:max:abr]", "[pp:abr] | [pp:pct]%" }
+    ns.ERB_HealthTags = TT.Bind(TT.UNIT, {
         ["hp"] = Num, ["hp:abr"] = Abr("health"), ["hp:max"] = Max,
         ["hp:max:abr"] = Abr("maxHealth", true), ["hp:pct"] = Pct,
     })
-    ns.ERB_PowerTags = TT.Bind(Schema({ "[pp:pct]%", "[pp:abr] / [pp:max:abr]", "[pp:abr] | [pp:pct]%" }), {
+    ns.ERB_PowerTags = TT.Bind(TT.UNIT, {
         ["pp"] = Num, ["pp:abr"] = Abr("power"), ["pp:max"] = Max,
         ["pp:max:abr"] = Abr("power", true), ["pp:pct"] = Pct,
     })
@@ -224,8 +220,12 @@ local function UpdateHealthBar()
 
     if hp.textFormat ~= "none" and not _G._ERB_TextHiddenByForm(hp) then
         local fmt = hp.textFormat
-        local pctStr = format("%d", pctRaw)
-        local curStr = ns.AbbreviateValue(cur, "health")
+        -- Custom builds its own text: the presets' strings are made for them only.
+        local pctStr, curStr
+        if fmt ~= "custom" then
+            pctStr = format("%d", pctRaw)
+            curStr = ns.AbbreviateValue(cur, "health")
+        end
         local txt
         if fmt == "both" then
             txt = curStr .. " | " .. pctStr .. "%"
@@ -530,8 +530,11 @@ local function UpdatePrimaryBar()
                 primaryBar._txtGen, primaryBar._txtPow = ns.CfgGen, cachedPrimary
             end
             local fmt = pp.textFormat
-            local percentSuffix = (pp.showPercent == false) and "" or "%"
-            local percentText = format("%d", pctRaw) .. percentSuffix
+            -- Custom builds its own text: the presets' percent string is made for them only.
+            local percentText
+            if fmt ~= "custom" then
+                percentText = format("%d", pctRaw) .. ((pp.showPercent == false) and "" or "%")
+            end
             local txt
             if fmt == "smart" then
                 local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(cachedPrimary)

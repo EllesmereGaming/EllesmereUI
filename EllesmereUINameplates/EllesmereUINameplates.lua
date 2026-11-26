@@ -384,7 +384,7 @@ local defaults = {
     -- (ns.ApplyPetCVars); the enemy minion CVars stay the client's own.
     -- Blizzard's nameplateSize CVar (1 Small .. 5 Huge), applied on load; 3 = Large, the old forced value.
     nameplateSize = 3,
-    font = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF",
+    font = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf",
     textSlotTop = "enemyName",
     textSlotRight = "healthPercent",
     -- WoW Forever shows the level by default (retail leaves the slot empty).

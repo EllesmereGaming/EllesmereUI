@@ -790,11 +790,12 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
         return "This option requires a Health Text format other than None"
     end
 
+    local healthTextSizeRow
     local function SetHealthText(v)
         local c = cfg(); if not c then return end
         c.textFormat = v; RefreshHealth(); EllesmereUI:RefreshPage()
+        ns.ERB_RefreshTextMenu(healthTextSizeRow and healthTextSizeRow._leftRegion)
     end
-    local healthTextSizeRow
     healthTextSizeRow, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Health Text",
           disabled = healthOff,
@@ -807,7 +808,8 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                   if c.textCustomColored == false and cls then return EllesmereUI.GetClassColor(cls) end
                   return { r = c.textFillR or 1, g = c.textFillG or 1, b = c.textFillB or 1 }
               end,
-              SetHealthText),
+              SetHealthText, { examples = ns.ERB_HealthTagExamples, label = "Health Text", apply = RefreshHealth,
+                  region = function() return healthTextSizeRow and healthTextSizeRow._leftRegion end }),
           order = { "none", "---", "custom", "---", "perhp", "perhpnosign", "curhpshort", "curmaxhp", "perhpnum", "both" },
           getValue = function() local c = cfg(); return c and c.textFormat or "none" end,
           setValue = SetHealthText },
@@ -861,8 +863,8 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
               end },
           } }
     );  y = y - h
-    -- Health Text inline cog: anchor + x/y offsets
     ns.ERB_AddCustomFormatAccessor(healthTextSizeRow._leftRegion, "Health Text", cfg, RefreshHealth)
+    -- Health Text inline cog: anchor + x/y offsets
     do
         local rgn = healthTextSizeRow._leftRegion
         local cogBtn = EllesmereUI.BuildInlineCog(rgn, {

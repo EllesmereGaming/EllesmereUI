@@ -322,7 +322,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         descFs:SetText(EllesmereUI.L(entry.desc) or "")
 
         local url = entry.url or EllesmereUI.MIDNIGHT_VIDEO_URL or ""
-        local FONT = EllesmereUI._font or ("Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf")
+        local FONT = EllesmereUI._font or ("Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf")
 
         local urlWell = CreateFrame("Frame", nil, card)
         urlWell:SetFrameLevel(card:GetFrameLevel() + 2)

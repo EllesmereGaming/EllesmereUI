@@ -1336,7 +1336,7 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
         else
             -- Expressway is the informed Latin opt-in, using a distinct sentinel key so the untouched default still maps to System Default.
             fontDropValues[EllesmereUI.EXPRESSWAY_FORCED_KEY] = { text = EllesmereUI.LatinOnlyFontLabel(),
-                font = EllesmereUI.MEDIA_PATH .. "fonts\\Expressway.TTF" }
+                font = EllesmereUI.MEDIA_PATH .. "fonts\\EUI Highway.ttf" }
             fontDropOrder[#fontDropOrder + 1] = EllesmereUI.EXPRESSWAY_FORCED_KEY
         end
         EllesmereUI.AppendExternalSharedMediaFonts(fontDropValues, fontDropOrder)
@@ -1357,7 +1357,7 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
                 fontDropOrder[#fontDropOrder + 1] = "---"
             else
                 local path = EllesmereUI.FONT_BLIZZARD[name]
-                    or (FONT_DIR_GLOBAL .. (EllesmereUI.FONT_FILES[name] or "Expressway.TTF"))
+                    or (FONT_DIR_GLOBAL .. (EllesmereUI.FONT_FILES[name] or "EUI Highway.ttf"))
                 local displayName = (EllesmereUI.FONT_DISPLAY_NAMES and EllesmereUI.FONT_DISPLAY_NAMES[name]) or name
                 fontDropValues[name] = { text = displayName, font = path }
                 fontDropOrder[#fontDropOrder + 1] = name

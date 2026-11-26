@@ -1052,7 +1052,7 @@ function _G._EUI_BuildStylePage(pageName, parent, yOffset)
     local HERO_H = BTN_TOP + BTN_H + 4
     local hasHero = EllesmereUI.BuildStyleCards ~= nil
     if hasHero and not EllesmereUI._prebuilding then
-        local FONT = EllesmereUI._font or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+        local FONT = EllesmereUI._font or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf"
         local EG = EllesmereUI.ELLESMERE_GREEN
         local host = CreateFrame("Frame", nil, parent)
         PP.Size(host, parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2, HERO_H)
