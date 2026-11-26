@@ -202,9 +202,16 @@ local function BuildCustomIndicators(minimap)
             local label = HAVE_MAIL
             -- Up to three latest senders, as Blizzard's own mail icon lists them
             -- (our button replaces it, so without this the names are lost).
-            local senders = GetLatestThreeSenders and { GetLatestThreeSenders() } or nil
-            if senders and #senders > 0 then
-                label = HAVE_MAIL_FROM .. "\n" .. table.concat(senders, "\n")
+            -- Any of the three can be nil, so skip the gaps.
+            if GetLatestThreeSenders then
+                local s1, s2, s3 = GetLatestThreeSenders()
+                local senders = {}
+                if s1 then senders[#senders + 1] = s1 end
+                if s2 then senders[#senders + 1] = s2 end
+                if s3 then senders[#senders + 1] = s3 end
+                if #senders > 0 then
+                    label = HAVE_MAIL_FROM .. "\n" .. table.concat(senders, "\n")
+                end
             end
             EllesmereUI.ShowWidgetTooltip(self, label, { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
         end
