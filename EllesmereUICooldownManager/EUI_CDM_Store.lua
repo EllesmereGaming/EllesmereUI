@@ -952,6 +952,18 @@ function ns.RescanMaxStacksGlowFlag()
             return true
         end
     end)
+    -- Custom spells keep theirs in the Custom Active State store.
+    if not ns._cdmAnyMaxStacksGlow then
+        local store = ns.GetCustomActiveStates and ns.GetCustomActiveStates()
+        if store then
+            for _, e in pairs(store) do
+                if type(e) == "table" and e.maxStacksGlow and e.maxStacksGlow > 0 then
+                    ns._cdmAnyMaxStacksGlow = true
+                    break
+                end
+            end
+        end
+    end
 end
 
 -- Audio on Buff Gain/Loss gate: set ns._cdmAnyBuffSound once if any saved buff icon or
@@ -1166,25 +1178,6 @@ function ns.RescanCustomItemFlag()
                             return
                         end
                     end
-                end
-            end
-        end
-    end
-end
-
--- "Show Charges" (custom CD/utility spells) gate. Same contract as the flags above; zero cost in ProcessPresetCooldowns unless a custom spell opted in.
-function ns.RescanCustomForceCountFlag()
-    if ns._cdmAnyCustomForceCount or ns._customForceCountScanned then return end
-    local sp = SpellStore and SpellStore.GetSpecProfiles and SpellStore.GetSpecProfiles()
-    if not sp then return end
-    ns._customForceCountScanned = true
-    for _, prof in pairs(sp) do
-        local barSpells = prof and prof.barSpells
-        if barSpells then
-            for _, bs in pairs(barSpells) do
-                if bs and type(bs.customSpellForceCount) == "table" and next(bs.customSpellForceCount) then
-                    ns._cdmAnyCustomForceCount = true
-                    return
                 end
             end
         end

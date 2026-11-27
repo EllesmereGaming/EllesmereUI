@@ -5185,6 +5185,8 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.inspectItemLevelPos = nil
                 EllesmereUIDB.charSheetShowItemStats = nil
                 EllesmereUIDB.inspectShowItemStats = nil
+                EllesmereUIDB.charSheetShowAvgIlvl = nil
+                EllesmereUIDB.inspectShowAvgIlvl = nil
                 -- The rest of what the export bundle carries for these two tabs
                 -- (BLIZZ_SKIN_GLOBAL_KEYS): card and tooltip settings, defaults too.
                 for _, k in ipairs({

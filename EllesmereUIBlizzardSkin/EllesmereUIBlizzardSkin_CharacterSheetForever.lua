@@ -1115,10 +1115,12 @@ local avg                      -- { host, text, events, shown }
 
 local function UpdateAverage()
     local a = avg
-    local _, equipped = _G.GetAverageItemLevel()
-    local shown = ns.CharSheetShowAvgIlvl() and type(equipped) == "number"
-        and not (issecretvalue and issecretvalue(equipped)) and equipped > 0
-    if shown then a.text:SetFormattedText("%.2f", equipped) end
+    local shown = false
+    if ns.CharSheetShowAvgIlvl() then
+        local _, equipped = _G.GetAverageItemLevel()
+        shown = type(equipped) == "number" and not (issecretvalue and issecretvalue(equipped)) and equipped > 0
+        if shown then a.text:SetFormattedText("%.2f", equipped) end
+    end
     if a.shown ~= shown then
         a.shown = shown
         a.host:SetShown(shown)

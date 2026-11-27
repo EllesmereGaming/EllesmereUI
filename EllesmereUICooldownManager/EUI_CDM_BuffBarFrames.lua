@@ -142,7 +142,9 @@ end
 --  crossed wins" must be draw order, not an if: overlay i is parented to overlay i-1
 --  (a child renders above its parent) and the list stays sorted ascending, so the
 --  highest crossed threshold paints last. Frame levels stay pinned at sb+2, leaving
---  the tick overlay (sb+3) and charge hash lines (sb+4) on top.
+--  the tick overlay (sb+4) and charge hash lines (sb+5) on top. The overlays
+--  cover the bar's fill; while the charge hash fill draws, the full charges
+--  alone (TBBThresholdRegion), re-pointed as that fill turns on or off.
 -------------------------------------------------------------------------------
 local function EnsureTBBThresholdOverlay(bar, i)
     local pool = bar._threshOverlays

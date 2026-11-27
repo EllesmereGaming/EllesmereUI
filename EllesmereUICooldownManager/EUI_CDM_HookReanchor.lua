@@ -677,8 +677,14 @@ local function CollectAndReanchor()
     -- Inject custom/preset buff own-frames (cast-timer driven) into buff-family
     -- bars so they sort + lay out beside Blizzard buff frames. The buff tick
     -- (UpdateCustomBuffBars) owns cast detection + timer lifecycle; here we only
-    -- read the live timer to decide which custom buffs render. Dormant unless a
-    -- buff bar has custom spells (sd.spellDurations set) -- zero cost otherwise.
+    -- read the live timer to decide which custom buffs render. Also the kept
+    -- slots: on a bar that keeps every slot (Always Show Buffs or Keep Buffs in
+    -- Same Place), an aura-tracked custom buff (tagged, no duration) holds its
+    -- place in the order through a placeholder our aura icon engine draws the
+    -- aura over (ns.CDM_KeptAuraFrame, EUI_CDM_AuraIcons.lua); on other bars it
+    -- renders in the custom-aura strip at the bar's end. Dormant unless a buff
+    -- bar has custom spells (sd.spellDurations set, or tagged ones on a bar that
+    -- keeps its slots) -- zero cost otherwise.
     do
         local nowTime = GetTime()
         local cdmPageOpen = ns._cdmBarsPageOpen or false
@@ -688,13 +694,15 @@ local function CollectAndReanchor()
                 local sdInj = ns.GetBarSpellData(injKey)
                 local spellList = sdInj and sdInj.assignedSpells
                 local durs = sdInj and sdInj.spellDurations
-                if spellList and durs then
+                local tags = sdInj and sdInj.customSpellIDs
+                local keeps = tags and ns.CDM_KeptAuraFrame and ns.CdmBuffBarKeepsSlots(bd)
+                if spellList and (durs or keeps) then
                     -- The bar reserves a slot for an INACTIVE preset when Always
                     -- Show Buffs or Keep Buffs in Same Place is on, exactly like an
                     -- inactive Blizzard buff.
                     local showInactive = bd.showInactiveBuffIcons or bd.hidePlaceholderIcon
                     for idx, sid in ipairs(spellList) do
-                        if type(sid) == "number" and sid > 0 and (durs[sid] or 0) > 0 then
+                        if type(sid) == "number" and sid > 0 and durs and (durs[sid] or 0) > 0 then
                             local timer = _customAuraTimers[injKey .. ":" .. sid]
                             local isActive = timer and (nowTime - timer.start) < timer.duration
                             -- Inactive slot-reservation wins over the options-page
@@ -750,6 +758,24 @@ local function CollectAndReanchor()
                                 -- frame might carry from the Blizzard Always-Show path so
                                 -- the sort never mistakes it for "c"..cooldownID.
                                 ph.cooldownID = nil
+                                ph.layoutIndex = 5000 + idx
+                                ph:Show()
+                                local fc = FC(ph)
+                                fc.barKey = injKey
+                                fc.spellID = sid
+                                if not barLists[injKey] then barLists[injKey] = {} end
+                                barLists[injKey][#barLists[injKey] + 1] =
+                                    AcquireEntry(ph, sid, sid, ph.layoutIndex)
+                            end
+                        elseif keeps and type(sid) == "number" and sid > 0 and tags[sid]
+                           and not ns._cdmSpecRebuildStale then
+                            -- Kept slot: a placeholder of the custom's own (greyed
+                            -- or drawn invisible by the existing passes, like an
+                            -- inactive Blizzard buff's), keyed "s"..sid by the sort,
+                            -- with the aura drawn over it while it is up. Held off
+                            -- in the spec-switch stale window, as above.
+                            local ph = ns.CDM_KeptAuraFrame(injKey, sid, sdInj)
+                            if ph then
                                 ph.layoutIndex = 5000 + idx
                                 ph:Show()
                                 local fc = FC(ph)

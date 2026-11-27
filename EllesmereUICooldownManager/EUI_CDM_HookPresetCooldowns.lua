@@ -334,6 +334,13 @@ _racialCdListener:RegisterEvent("ENCOUNTER_END")
 _racialCdListener:RegisterEvent("CHALLENGE_MODE_START")
 _racialCdListener:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 _racialCdListener:RegisterEvent("PLAYER_REGEN_ENABLED")
+-- Use counts for custom spell count texts: registered once the first custom
+-- spell icon shows (EUI_CDM_HookPresetFrames.lua), so nothing listens without one.
+ns.CdmCustomUsesArm = function()
+    if ns._pcUsesArmed then return end
+    ns._pcUsesArmed = true
+    _racialCdListener:RegisterEvent("SPELL_UPDATE_USES")
+end
 
 -- Combat lockout spellID -> itemID map (built once from presets)
 local _combatLockoutSpells = {}
@@ -416,6 +423,113 @@ local function ApplyPresetGCDSwipe(f, sid, cdInfo, barKey)
 end
 ns.ApplyPresetGCDSwipe = ApplyPresetGCDSwipe
 
+-- Push a spell preset's cooldown (racial or custom spell) onto its widget. A
+-- charge spell's own cooldown runs only once every charge is spent, so while a
+-- charge is in hand and the next one recharges, a custom spell shows that
+-- recharge instead, as Blizzard's viewer and a tracked charge spell do (the
+-- charge source wins until the charges are spent): its swipe, countdown and the
+-- charge edge. maxCharges and isActive are never secret. A custom spell found
+-- to have charges is marked (_customCharge) for the settled charge lane below.
+-- On ns: 200-local cap.
+ns.PushPresetSpellCooldown = function(f, sid, onRealCD)
+    local cdW = f._cooldown
+    local recharge = false
+    if not onRealCD and f._isCustomSpellFrame and C_Spell.GetSpellChargeDuration then
+        local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
+        if ci and (ci.maxCharges or 0) > 1 then
+            f._customCharge = true
+            ns._cdmAnyCustomCharge = true
+            recharge = ci.isActive and true or false
+        end
+    end
+    local durObj = recharge and C_Spell.GetSpellChargeDuration(sid) or nil
+    if not durObj then
+        recharge = false
+        durObj = C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(sid)
+    end
+    if durObj and cdW and cdW.SetCooldownFromDurationObject then
+        cdW:SetCooldownFromDurationObject(durObj, true)
+    end
+    -- The charge edge, as a tracked charge spell draws it (none while Only
+    -- Show Numbers hides the art). Taken off again when the recharge ends,
+    -- unless the bar's Show Cooldown Edge keeps one on every icon.
+    if cdW and cdW.SetDrawEdge and (recharge or f._chargeEdgeOn) then
+        local fdE = FD(f)
+        fdE._isProcessingOverride = true
+        if recharge and not fdE._osnOn then
+            local fcE = _ecmeFC[f]
+            I.ApplyCdmEdge(cdW, fcE and fcE.barKey)
+            f._chargeEdgeOn = true
+        else
+            f._chargeEdgeOn = nil
+            if not fdE._edgeFeatureOn then cdW:SetDrawEdge(false) end
+        end
+        fdE._isProcessingOverride = false
+    end
+end
+
+-- A custom spell's count text, by Blizzard's own viewer's rule for a tracked
+-- spell (CacheChargeValues), with no opt-in: a spell with more than one charge
+-- shows its charges, 0 included (maxCharges never secret; SetText takes a
+-- secret count), and the bar's Hide Text at 0 Stacks hides the 0 as on a
+-- tracked spell: the count is the alpha (clamped by the engine, a secret count
+-- allowed), never compared. Any other spell shows its cast (use) count only
+-- above 0: a plain count is compared, a secret one (cooldowns restricted) goes
+-- through TruncateWhenZero, a display string that is empty at 0 and is never
+-- tested (pcall: it can throw; a failure hides the text). The fontstring is
+-- made the first time a count can show, styled like the bar's stack and charge
+-- text (RefreshCDMIconAppearance keeps it so), and kept. On ns: 200-local cap.
+do
+local function CustomCountText(f)
+    local fs = f._castCountText
+    if not fs then
+        fs = f:CreateFontString(nil, "OVERLAY")
+        f._castCountText = fs
+        local fc = _ecmeFC[f]
+        ns.StyleCustomChargeText(f, fc and fc.barKey)
+        ns._cdmAnyCustomCount = true
+    end
+    return fs
+end
+ns.PaintCustomSpellCount = function(f, sid)
+    local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
+    if ci and (ci.maxCharges or 0) > 1 then
+        local fs = CustomCountText(f)
+        fs:SetText(ci.currentCharges)
+        local fc = _ecmeFC[f]
+        local bd = fc and fc.barKey and barDataByKey[fc.barKey]
+        if bd and bd.hideZeroChargeText then
+            fs:SetAlpha(ci.currentCharges)
+        else
+            fs:SetAlpha(1)
+        end
+        if not fs:IsShown() then fs:Show() end
+        return
+    end
+    local n = C_Spell.GetSpellCastCount and C_Spell.GetSpellCastCount(sid)
+    -- has: a plain flag, since the text itself may be secret (never tested).
+    local text, has
+    if issecretvalue and issecretvalue(n) then
+        if C_StringUtil and C_StringUtil.TruncateWhenZero then
+            local ok, str = pcall(C_StringUtil.TruncateWhenZero, n)
+            if ok then text, has = str, true end
+        end
+    elseif type(n) == "number" and n > 0 then
+        text, has = n, true
+    end
+    local fs = f._castCountText
+    if has then
+        fs = CustomCountText(f)
+        fs:SetAlpha(1)
+        fs:SetText(text)
+        if not fs:IsShown() then fs:Show() end
+    elseif fs and fs:IsShown() then
+        fs:SetText("")
+        fs:Hide()
+    end
+end
+end
+
 -- Dirty flag: high-frequency events (SPELL_UPDATE_COOLDOWN, BAG_UPDATE_COOLDOWN)
 -- just set this flag; the BuffTicker (10Hz) processes it, coalescing dozens of
 -- per-GCD events into a single update pass.
@@ -481,10 +595,7 @@ local function ProcessPresetCooldowns()
                     end
                     if f._cdPushArm then
                         f._cdPushArm = false
-                        local durObj = C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(sid)
-                        if durObj and f._cooldown and f._cooldown.SetCooldownFromDurationObject then
-                            f._cooldown:SetCooldownFromDurationObject(durObj, true)
-                        end
+                        ns.PushPresetSpellCooldown(f, sid, onRealCD)
                     end
                     if onRealCD then anyUnsettled = true end
                     -- Binary desat from the SAME readable bools this pass already
@@ -507,60 +618,20 @@ local function ProcessPresetCooldowns()
                     if f._isCustomSpellFrame and f._tex then
                         ns.PaintCustomSpellTint(f, sid, onRealCD)
                     end
+                    -- Proc Glow: an icon that just showed reads the proc state
+                    -- it missed while hidden (EUI_CDM_HookPresetFrames.lua).
+                    if f._procSyncArm then
+                        f._procSyncArm = nil
+                        ns.CdmCustomProcSync(f)
+                    end
                     if f._lastVertexDim then anyUnsettled = true end
-                    -- "Show Charges" (opt-in, CD/utility custom spells only):
-                    -- Blizzard reports no charge frame for a manually-added spell,
-                    -- so on request show its count -- the display charge count when
-                    -- the spell actually has charges, else the cast/usable count.
-                    -- Gated by ns._cdmAnyCustomForceCount + a lazy fontstring, so it
-                    -- costs nothing unless a custom spell opts in. Rides this same
-                    -- 10Hz-when-dirty pass -- no extra OnUpdate.
-                    if ns._cdmAnyCustomForceCount and f._isCustomSpellFrame then
-                        local fcF = _ecmeFC[f]
-                        local bkF = fcF and fcF.barKey
-                        local sdF = bkF and ns.GetBarSpellData and ns.GetBarSpellData(bkF)
-                        -- The setting is saved under the typed ID; sid is the rank the
-                        -- frame reads (WoW Forever: _rankSID, another rank it knows).
-                        local keyF = (f._rankSID and fcF and fcF.spellID) or sid
-                        local forceCount = sdF and sdF.customSpellForceCount and sdF.customSpellForceCount[keyF]
-                        if forceCount then
-                            -- Render only on ARMED passes: the count moves only
-                            -- on edges that arm (gate comment above). An armed
-                            -- pass re-reads; an unarmed pass keeps the text --
-                            -- and no longer blocks the drain from settling.
-                            if textArm then
-                                if not f._castCountText then
-                                    f._castCountText = f:CreateFontString(nil, "OVERLAY")
-                                    -- Match the bar's native stack/charge text styling
-                                    -- (font, size, color, anchor, X/Y offset);
-                                    -- RefreshCDMIconAppearance keeps it in sync afterwards.
-                                    ns.StyleCustomChargeText(f, bkF)
-                                end
-                                local chargeInfo = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
-                                local n = (chargeInfo and C_Spell.GetSpellDisplayCount and C_Spell.GetSpellDisplayCount(sid))
-                                    or (C_Spell.GetSpellCastCount and C_Spell.GetSpellCastCount(sid))
-                                -- The count is a SECRET value in Midnight (cannot be read or
-                                -- compared -- issecretvalue was making the old code bail), so
-                                -- render it Blizzard's way: TruncateWhenZero turns it into a
-                                -- display-safe string and drops it at zero, without reading
-                                -- the value. pcall because it can throw; failure -> hide.
-                                local ok, str
-                                if C_StringUtil and C_StringUtil.TruncateWhenZero then
-                                    ok, str = pcall(C_StringUtil.TruncateWhenZero, n)
-                                end
-                                if ok and str then
-                                    f._castCountText:SetText(str)
-                                    if not f._castCountText:IsShown() then f._castCountText:Show() end
-                                elseif f._castCountText:IsShown() then
-                                    f._castCountText:SetText("")
-                                    f._castCountText:Hide()
-                                end
-                            end
-                        elseif f._castCountText and f._castCountText:IsShown() then
-                            f._castCountText:SetText("")
-                            f._castCountText:Hide()
-                            f._lastCastCount = nil
-                        end
+                    -- Count text (CD/utility custom spells), as on a tracked spell:
+                    -- read on ARMED passes only. The count moves only on edges that
+                    -- arm (the gate comment above, the settled charge lane and
+                    -- SPELL_UPDATE_USES); an unarmed pass keeps the text and never
+                    -- blocks the drain from settling. Rides this pass, no OnUpdate.
+                    if textArm and f._isCustomSpellFrame then
+                        ns.PaintCustomSpellCount(f, sid)
                     end
                 end
             elseif f._isItemPresetFrame and f._presetItemID and now >= _encounterResetUntil
@@ -957,6 +1028,31 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
         end
         return
     end
+    if event == "SPELL_UPDATE_USES" then
+        -- A spell's use count moved (Blizzard's viewer re-reads a tracked
+        -- spell's count on this event): re-read the matching custom spell's
+        -- count text (spellID, or baseSpellID for an override); an unreadable
+        -- id wakes every custom spell. Not settled-gated: a use count can move
+        -- with nothing else in flight. Registered once the first custom spell
+        -- icon shows (ns.CdmCustomUsesArm).
+        local named = _PlainNum(a1)
+        local baseOk = named and _PlainNum(a2)
+        local hit
+        for f in pairs(_pcActive) do
+            if f._isCustomSpellFrame and not f._isCustomBuffFrame then
+                local fsid = f._cachedPresetSID
+                if not named or not fsid or fsid == a1 or (baseOk and fsid == a2) then
+                    f._cdEvalArm = true
+                    hit = true
+                end
+            end
+        end
+        if hit then
+            _presetCdDirty = true
+            if ns.ArmBuffTicker then ns.ArmBuffTicker() end
+        end
+        return
+    end
     -- High-frequency events: arm the drain ONLY while something is in flight.
     -- When the last pass found every preset frame settled, this noise
     -- (SPELL_UPDATE_COOLDOWN/CHARGES fire steadily even at idle) would only
@@ -997,36 +1093,51 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
         end
         _presetCdDirty = true
         if ns.ArmBuffTicker then ns.ArmBuffTicker() end
-    elseif event == "SPELL_UPDATE_CHARGES" and ns._cdmAnyCustomForceCount then
-        -- Settled-state charge wake, shown charge texts ONLY: a charge regen
-        -- completing is the one count edge that arrives with no cast and no
-        -- unsettled state (a SPEND always rides a cast, which unsettles and
-        -- lets the named lane above arm precisely). Named ids wake just the
-        -- matching text; unreadable ids (instanced secrecy) wake every shown
-        -- text, capped at one arm per 0.2s so charge chatter can never hold
-        -- the settled drain awake.
+    elseif event == "SPELL_UPDATE_CHARGES"
+       and (ns._cdmAnyCustomCount or ns._cdmAnyCustomCharge) then
+        -- Settled-state charge wake: a charge regen completing (or a reset) is
+        -- the one charge edge that arrives with no cast and no unsettled state
+        -- (a SPEND always rides a cast, which unsettles and lets the named lane
+        -- above arm precisely). The event names no spell (12.1.5 docs), so it
+        -- wakes every custom charge spell (a fresh cooldown push: the next
+        -- recharge, or none at max) and every shown charge text, capped at one
+        -- wake per 0.2s so charge chatter can never hold the settled drain
+        -- awake; an event inside the cap queues one wake at the window's end,
+        -- so the last edge is never lost.
         local nowC = GetTime()
         if nowC >= (ns._pcChargeNext or 0) then
-            local sid = a1
-            local named = _PlainNum(sid)
-            local hit
-            for f in pairs(_pcActive) do
-                if f._isCustomSpellFrame and f._castCountText
-                   and f._castCountText:IsShown()
-                   and (not named or not f._cachedPresetSID
-                        or f._cachedPresetSID == sid) then
-                    f._cdEvalArm = true
-                    hit = true
-                end
-            end
-            if hit then
-                ns._pcChargeNext = nowC + 0.2
-                _presetCdDirty = true
-                if ns.ArmBuffTicker then ns.ArmBuffTicker() end
-            end
+            ns._pcChargeWake()
+        elseif not ns._pcChargeQueued then
+            ns._pcChargeQueued = true
+            C_Timer.After(ns._pcChargeNext - nowC, ns._pcChargeWakeTimerFn)
         end
     end
 end)
+
+-- The settled charge lane's wake (above). On ns: 200-local cap.
+ns._pcChargeWake = function()
+    local hit
+    for f in pairs(_pcActive) do
+        if f._isCustomSpellFrame and not f._isCustomBuffFrame then
+            if f._customCharge then
+                f._cdPushArm = true
+                hit = true
+            elseif f._castCountText and f._castCountText:IsShown() then
+                f._cdEvalArm = true
+                hit = true
+            end
+        end
+    end
+    if hit then
+        ns._pcChargeNext = GetTime() + 0.2
+        _presetCdDirty = true
+        if ns.ArmBuffTicker then ns.ArmBuffTicker() end
+    end
+end
+ns._pcChargeWakeTimerFn = function()
+    ns._pcChargeQueued = nil
+    ns._pcChargeWake()
+end
 
 -- Custom aura bar cast detection
 local _pendingCastIDs = {}

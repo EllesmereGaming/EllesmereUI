@@ -446,9 +446,21 @@ local function ApplyMaxStacksGlow(frame, fd, ss2, atMax)
     if not fd then return end
     local has = ss2 and ss2.maxStacksGlow and ss2.maxStacksGlow > 0
     if has and atMax then
+        local style = ss2.maxStacksGlow
+        local gr, gg, gb = ns.ResolveGlowColor(ss2)
+        -- A lit glow whose style or color changed (a menu pick while it shows)
+        -- is lit again with the new one, instead of keeping the old look until
+        -- the next charge edge.
+        if fd._maxStacksGlowOn and (fd._msStyle ~= style or fd._msR ~= gr
+           or fd._msG ~= gg or fd._msB ~= gb) then
+            if fd.maxStacksGlowOverlay then ns.StopNativeGlow(fd.maxStacksGlowOverlay) end
+            fd._maxStacksGlowOn = false
+        end
         if not fd._maxStacksGlowOn then
             -- Lazy-create (unused feature adds no frame). Own overlay never
-            -- fights the active glow (StartNativeGlow is per-overlay).
+            -- fights the active glow (StartNativeGlow is per-overlay). Its level
+            -- follows the icon's on every DecorateFrame pass, as the other glow
+            -- overlays' do (the layout re-levels icons by position).
             local mo = fd.maxStacksGlowOverlay
             if not mo and frame then
                 mo = CreateFrame("Frame", nil, frame)
@@ -459,9 +471,9 @@ local function ApplyMaxStacksGlow(frame, fd, ss2, atMax)
             end
             if mo then
                 if frame then mo:SetFrameLevel(frame:GetFrameLevel() + 16) end
-                local gr, gg, gb = ns.ResolveGlowColor(ss2)
-                ns.StartNativeGlow(mo, ss2.maxStacksGlow, gr, gg, gb)
+                ns.StartNativeGlow(mo, style, gr, gg, gb)
                 fd._maxStacksGlowOn = true
+                fd._msStyle, fd._msR, fd._msG, fd._msB = style, gr, gg, gb
             end
         end
     elseif fd._maxStacksGlowOn then
@@ -478,6 +490,21 @@ end
 -- icons; the event frame is created only once the feature is on (0 cost).
 ns._maxStacksWatch = ns._maxStacksWatch or setmetatable({}, { __mode = "k" })
 
+-- The settings a Max Charges Glow reads (its style and the Glow Effect Color). A
+-- custom spell keeps them in its Custom Active State entry, the custom spell
+-- menu's store, keyed by the typed ID; every other icon in its per-spell
+-- settings (ss: those, when the caller already resolved them).
+local function MaxStacksSettingsFor(frame, sid, bk, ss)
+    if frame and frame._isCustomSpellFrame and not frame._isCustomBuffFrame then
+        local fc = _ecmeFC[frame]
+        local key = (fc and fc.spellID) or sid
+        return key and ns.GetEffectiveCustomActiveState
+            and ns.GetEffectiveCustomActiveState(key) or nil
+    end
+    if ss ~= nil then return ss end
+    return bk and ResolveSpellSettings(frame, sid, ns.GetBarSpellData(bk)) or nil
+end
+
 -- Re-derive at-max from CLEAN charge state and (un)glow. Self-unwatches when the
 -- per-icon setting is off or the frame lost its spell, so the set drains itself.
 local function EvalMaxStacksFrame(frame, fd)
@@ -490,15 +517,16 @@ local function EvalMaxStacksFrame(frame, fd)
         ns._maxStacksWatch[frame] = nil
         return
     end
-    local ssw = ResolveSpellSettings(frame, sidw, ns.GetBarSpellData(bkw))
+    local ssw = MaxStacksSettingsFor(frame, sidw, bkw)
     if not (ssw and ssw.maxStacksGlow and ssw.maxStacksGlow > 0) then
         ApplyMaxStacksGlow(frame, fd, ssw, false)
         ns._maxStacksWatch[frame] = nil
         return
     end
-    local liveSid = sidw
+    -- A custom spell reads the rank its icon draws (WoW Forever: _rankSID).
+    local liveSid = frame._rankSID or sidw
     if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
-        liveSid = C_SpellBook.FindSpellOverrideByID(sidw) or sidw
+        liveSid = C_SpellBook.FindSpellOverrideByID(liveSid) or liveSid
     end
     -- atMax derives PURELY from charge data (maxCharges + recharge isActive),
     -- NEVER HasVisualDataSource_Charges: that is false while the icon draws a GCD
@@ -537,11 +565,11 @@ function ns.WatchMaxStacksIfEnabled(frame)
     if not (sidw and bkw) then return end
     -- Charge-spell test via static charge data (stable). HasVisualDataSource_Charges
     -- flips false during a GCD swipe and would wrongly skip the spell here too.
-    local liveSid = sidw
-    if C_SpellBook and C_SpellBook.FindSpellOverrideByID then liveSid = C_SpellBook.FindSpellOverrideByID(sidw) or sidw end
+    local liveSid = frame._rankSID or sidw
+    if C_SpellBook and C_SpellBook.FindSpellOverrideByID then liveSid = C_SpellBook.FindSpellOverrideByID(liveSid) or liveSid end
     local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(liveSid)
     local isCharge = ci ~= nil and (ci.maxCharges or 0) > 1
-    local ssw = isCharge and ResolveSpellSettings(frame, sidw, ns.GetBarSpellData(bkw)) or nil
+    local ssw = isCharge and MaxStacksSettingsFor(frame, sidw, bkw) or nil
     if ssw and ssw.maxStacksGlow and ssw.maxStacksGlow > 0 then
         ns._cdmAnyMaxStacksGlow = true
         WatchMaxStacksFrame(frame, fd)
@@ -558,4 +586,5 @@ I.ApplyMaxStacksGlow, I.CdmChargeInfoFor = ApplyMaxStacksGlow, CdmChargeInfoFor
 I.CdmFrameIsActive, I.CdmStaleLinkedSpell = CdmFrameIsActive, CdmStaleLinkedSpell
 I.EvalMaxStacksFrame, I.HideBlizzardDecorations = EvalMaxStacksFrame, HideBlizzardDecorations
 I.IsFrameIncluded, I.WatchMaxStacksFrame = IsFrameIncluded, WatchMaxStacksFrame
+I.MaxStacksSettingsFor = MaxStacksSettingsFor
 I.broken = false

@@ -532,6 +532,7 @@ Custom Alert Text (empty = ability name)
 Custom Buff ID
 Custom Buff Manager
 Custom Color
+Custom Cooldown ID
 Custom Debuff Manager
 Custom Group Order
 Custom Icon
@@ -1535,7 +1536,6 @@ Shift+Right Click to temporarily hide overlay
 Shift+Scroll to see more
 Show 'Not Needed' Reminder
 Show All Debuffs
-Show Charges
 Show Hash Lines
 Show Owned (%d)
 Show Stronger Buffs

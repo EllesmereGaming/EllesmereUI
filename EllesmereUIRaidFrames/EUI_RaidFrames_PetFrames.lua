@@ -32,8 +32,9 @@ I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 -------------------------------------------------------------------------------
 --  Pet Frames: party and raid pets in one Blizzard pet header, beside the
 --  groups like Friendly Boss, or (Party tab, Beside Owner) one pet button
---  beside each party frame. Health, name, range, hover/target borders and
---  click-cast only, on the FB visuals, painter and anchor; out of the raid
+--  beside each party frame. Health, name, range, hover/target borders,
+--  click-cast and the aura containers (debuffs, dispel overlay, Buff Manager
+--  indicators), on the FB visuals, painter and anchor; out of the raid
 --  routing maps, trackers of their own. Built on first Show Pets.
 -------------------------------------------------------------------------------
 do
@@ -472,17 +473,16 @@ PF.StyleButton = function(b, map, party)
         PF.visCount = (PF.visCount or 0) + 1
         -- A button showing again holds its unit's map entry, which another button may have taken
         -- and dropped while this one was off screen with the same unit.
+        local u = self:GetAttribute("unit")
+        local d = GetFFD(self)
         if map then
-            local u = self:GetAttribute("unit")
-            local d = GetFFD(self)
             local old = d.pfUnit
             if old and old ~= u and map[old] == self then map[old] = nil end
             if u then map[u] = self end
             d.pfUnit = u
         end
         -- Containers first, as on the friendly boss frames.
-        local u = self:GetAttribute("unit")
-        if u and ns.RFC_OnUnitAssigned then ns.RFC_OnUnitAssigned(self, GetFFD(self), u) end
+        if u and ns.RFC_OnUnitAssigned then ns.RFC_OnUnitAssigned(self, d, u) end
         -- Header buttons hidden at the last restyle catch up as they show.
         local g = PF.styledGen[self]
         if g and g ~= PF.styleGen then PF.StyleHeaderButton(self) end

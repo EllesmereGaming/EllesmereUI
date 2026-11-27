@@ -172,7 +172,8 @@ end
 -- SecondsFormatter fallback shows the unit in both variants (it cannot drop
 -- it) -- the accepted degraded look either way.
 -- decimalThreshold (seconds, optional): tenths below it. Pair it with
--- AK.DECIMAL_UPDATE_INTERVAL or the tenths only redraw once a second.
+-- AK.DECIMAL_UPDATE_INTERVAL as the binding's update interval, so the tenths
+-- redraw often enough to read.
 function AK.GetDurationFormatter(showSecondsUnit, preciseThreshold, decimalThreshold)
     preciseThreshold = tonumber(preciseThreshold)
     if preciseThreshold and preciseThreshold > 0 then

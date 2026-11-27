@@ -22,7 +22,7 @@ local ResolveFrameSpellID, ResolveSpellSettings = I.ResolveFrameSpellID, I.Resol
 local ApplyCdmChargeStyle, ApplyCdmEdge = I.ApplyCdmChargeStyle, I.ApplyCdmEdge
 local ApplyMaxStacksGlow, CdmChargeInfoFor = I.ApplyMaxStacksGlow, I.CdmChargeInfoFor
 local CdmFrameIsActive, CdmStaleLinkedSpell = I.CdmFrameIsActive, I.CdmStaleLinkedSpell
-local EvalMaxStacksFrame = I.EvalMaxStacksFrame
+local EvalMaxStacksFrame, MaxStacksSettingsFor = I.EvalMaxStacksFrame, I.MaxStacksSettingsFor
 local HideBlizzardDecorations = I.HideBlizzardDecorations
 local WatchMaxStacksFrame, ApplyCustomIcon = I.WatchMaxStacksFrame, I.ApplyCustomIcon
 local ApplyOnlyNumbers, ArmCdStateEval = I.ApplyOnlyNumbers, I.ArmCdStateEval
@@ -212,6 +212,10 @@ local function DecorateFrame(frame, barData)
         end
     end
     if fd.glowOverlay then fd.glowOverlay:SetFrameLevel(baseLvl + 16) end
+    -- The Max Charges Glow's own overlay, same level: leveled only when it
+    -- lit, it stayed under the border once the layout raised the icon (an icon
+    -- at bar position 5 or later, lit by the appearance pass before LayoutCDMBar).
+    if fd.maxStacksGlowOverlay then fd.maxStacksGlowOverlay:SetFrameLevel(baseLvl + 16) end
     -- Blackout (solid-fill Cooldown State glow) sits BELOW frame.Cooldown
     -- (icon+14, +13 under a Pixels border), unlike every other glow style on glowOverlay (icon+16): a
     -- fill above it would hide the swipe and countdown. Made by
@@ -643,7 +647,9 @@ local function DecorateFrame(frame, barData)
                 -- Consuming a charge fires this swipe hook, refilling to max
                 -- fires Cooldown:Clear. Register for charge events (the only
                 -- catch for refill-to-max) and eval now so a SPEND is immediate.
-                if ns._cdmAnyMaxStacksGlow and ss2 and ss2.maxStacksGlow and ss2.maxStacksGlow > 0 then
+                -- A custom spell's glow choice lives in its own store, not ss2.
+                local msS = MaxStacksSettingsFor(frame, sid2, nil, ss2 or false)
+                if ns._cdmAnyMaxStacksGlow and msS and msS.maxStacksGlow and msS.maxStacksGlow > 0 then
                     WatchMaxStacksFrame(frame, fd)
                     EvalMaxStacksFrame(frame, fd)
                 elseif fd._maxStacksGlowOn then
@@ -1302,7 +1308,8 @@ local function DecorateFrame(frame, barData)
                 local cse, glow = ns.CdStateOf(ss2, frame)
                 -- The hide effects run as their base mode plus flags
                 -- (ns.CD_STATE_HIDE: Shift Icons, Hidden Until Usable, Hidden
-                -- Outside Form/Stance), so every comparison below is unchanged.
+                -- Until Castable, Hidden Outside Form/Stance), so every
+                -- comparison below is unchanged.
                 local m = cse and ns.CD_STATE_HIDE[cse]
                 local cseShift, cseUsable, cseForm, csePower
                 if m then cse, cseShift, cseUsable, cseForm, csePower = m.base, m.shift, m.usable, m.form, m.power end
@@ -1353,9 +1360,10 @@ local function DecorateFrame(frame, barData)
                     ArmCdStateEval(frame, fd, cse, cseShift,
                         (ss2 and ss2.cdStateLowerAlpha) or 0.5,
                         ss2 and ss2.chargeHideUntilSpent, cseUsable, cseForm, stance, stanceOnly, csePower)
-                    -- Proc, form and stance bar edges never fire this hook: the watch
-                    -- re-arms on SPELL_UPDATE_USABLE / UPDATE_SHAPESHIFT_FORM /
-                    -- UPDATE_BONUS_ACTIONBAR.
+                    -- Proc, form, stance bar and power edges never fire this hook:
+                    -- the watch re-arms on SPELL_UPDATE_USABLE /
+                    -- UPDATE_SHAPESHIFT_FORM / UPDATE_BONUS_ACTIONBAR, and for Hidden
+                    -- Until Castable on the player's power.
                     if cseUsable or cseForm or stance then
                         ns.WatchCdUsable(frame, cseForm, stance ~= nil, cseUsable, csePower)
                     end

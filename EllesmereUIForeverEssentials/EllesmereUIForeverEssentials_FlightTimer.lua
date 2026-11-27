@@ -5,11 +5,12 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  Route display with an ETA for flight-master flights: a thin track between
 --  the two ends, stops scrolling past a "you" marker. Route lengths come from
 --  the game's TaxiPath data (EllesmereUIForeverEssentials_FlightTimerData.lua);
---  the client exposes no flight duration, so time is length / speed, with the
---  speed corrected by every flight that lands normally. The options page shows
---  the same display flying a sample route on a loop. Flight Time on the Map
---  (always on, whatever the timer's setting) puts the same estimate in a
---  destination's tooltip on the flight map.
+--  the client exposes no flight duration, so a route never flown reads length /
+--  speed, with the speed corrected by every flight that lands normally, and a
+--  route flown once reads its own measured time (the server speeds some routes
+--  up partway). The options page shows the same display flying a sample route
+--  on a loop. Flight Time on the Map (always on, whatever the timer's setting)
+--  puts the same estimate in a destination's tooltip on the flight map.
 --
 --  Known issue: a reload, relog or crash mid-flight drops the bar for the rest
 --  of that flight. The client gives no destination or progress for a flight
@@ -106,6 +107,16 @@ local function FormatTime(sec)
     return string.format("%d:%02d", math.floor(sec / 60), sec % 60)
 end
 
+-- A route's own flight time, in seconds for this character (mult: its
+-- Frequent Flier factor): saved at every normal landing under the route's key
+-- (RouteInfo) in the settings table's `times`, as the seconds it takes without
+-- the perk, so every character shares it. nil for a route never flown.
+local function LearnedTime(key, mult)
+    local times = key and Read().times
+    local secs = times and times[key]
+    return secs and secs / mult
+end
+
 -- The time text of flight fl at elapsed seconds: the time left, plus the
 -- full time with Show Total Time.
 local function TimeLeft(fl, elapsed)
@@ -128,7 +139,8 @@ end
 -- Sums the stored length of every hop on the way to slot; nil when any hop
 -- is missing from the data, which leaves the bar showing elapsed time only.
 -- Also returns every node on the way, start first, each with the yards flown
--- to reach it (nil once a hop is missing).
+-- to reach it (nil once a hop is missing), and the route's key: its node ids
+-- in order ("80:25:30"), nil when one is unknown.
 local function RouteInfo(slot)
     local hops = GetNumRoutes(slot)
     if hops < 1 then return nil end
@@ -140,16 +152,19 @@ local function RouteInfo(slot)
         idBySlot[node.slotIndex] = node.nodeID
     end
     local yards = 0
+    local key
     local points = { { name = TaxiNodeName(TaxiGetNodeSlot(slot, 1, true)), yards = 0 } }
     for hop = 1, hops do
         local toSlot = TaxiGetNodeSlot(slot, hop, false)
         local from = idBySlot[TaxiGetNodeSlot(slot, hop, true)]
         local to = idBySlot[toSlot]
+        if hop == 1 then key = from end
+        key = key and to and (key .. ":" .. to)
         local hopYards = from and to and routes[from * 10000 + to]
         yards = yards and hopYards and yards + hopYards
         points[#points + 1] = { name = TaxiNodeName(toSlot), yards = yards }
     end
-    return yards and yards > 0 and yards or nil, points
+    return yards and yards > 0 and yards or nil, points, key
 end
 
 -- Text in Forever Essentials' font and outline (Fonts page, else the global font).
@@ -545,28 +560,59 @@ local function ArmTimer(b, fl)
     b.track:SetTimerDuration(dur,Enum.StatusBarInterpolation.Immediate, Enum.StatusBarTimerDirection.ElapsedTime)
 end
 
--- The server can speed a flight up mid-route (30 -> 50 yd/s seen), so the
--- rest is re-paced at the live speed; start becomes when it would have left.
-Repace = function(fl)
-    if not UnitOnTaxi("player") then return end
+-- The taxi's speed right now: nil off the taxi and while the game withholds
+-- it (unit stats restricted).
+local function LiveSpeed()
+    if not UnitOnTaxi("player") then return nil end
     local live = GetUnitSpeed("player")
-    local cur = fl.yards / fl.eta
-    if not live or live <= 0 or math.abs(live - cur) < cur * 0.02 then return end
-    local now = GetTime()
-    local flown = math.min((now - fl.start) / fl.eta * fl.yards, fl.yards)
-    if math.abs(live - cur) > cur * 0.1 then fl.boosted = true end
-    fl.eta = fl.yards / live
-    fl.start = now - flown / live
-    ArmTimer(bar, fl)
-    StyleBar(bar, fl)
+    if not live or EllesmereUI.IsSecret(live) or live <= 0 then return nil end
+    return live
 end
 
--- points: every node on the way, start first (see RouteInfo).
-local function StartFlight(yards, points)
-    flight = { yards = yards, start = GetTime(), takeoff = GetTime(), points = points }
-    if yards then
-        flight.mult = SpeedMultiplier()
-        flight.eta = yards / (Speed() * flight.mult)
+-- Follows the flight's real pace, once a tick. The server can speed a flight
+-- up mid-route (30 -> 50 yd/s seen): the yards flown are summed from the live
+-- speed, and the rest is re-paced at it (start becomes when a flight at that
+-- speed would have left). A flight counts as boosted once its speed moves a
+-- tenth off its own first reading, taken a moment after takeoff. A learned
+-- time is the route's own, speed-ups included, so it stands until the flight
+-- outlasts it in the air or gets well ahead of it; then the live speed takes
+-- over for the rest.
+Repace = function(fl)
+    local live = fl.yards and LiveSpeed()
+    if not live then return end
+    local now = GetTime()
+    local first = fl.first
+    if not first and now - fl.takeoff >= 3 then first = live; fl.first = live end
+    if first and math.abs(live - first) > first * 0.1 then fl.boosted = true end
+    -- A tick with no reading is flown at the last speed read.
+    fl.flown = math.min(fl.flown + (fl.pace or live) * (now - fl.at), fl.yards)
+    fl.at, fl.pace = now, live
+    if fl.learned then
+        local left = fl.eta - (now - fl.start)
+        local leftLive = (fl.yards - fl.flown) / live
+        if left > 0 and leftLive > left - math.max(5, fl.eta * 0.03) then return end
+        fl.learned = nil
+    else
+        local cur = fl.yards / fl.eta
+        if math.abs(live - cur) < cur * 0.02 then return end
+    end
+    fl.eta = fl.yards / live
+    fl.start = now - fl.flown / live
+    ArmTimer(bar, fl)
+    LayoutRoute(bar, fl)
+end
+
+-- points: every node on the way, start first; key: the route's (see RouteInfo).
+local function StartFlight(yards, points, key)
+    local now = GetTime()
+    local mult = SpeedMultiplier()
+    flight = { yards = yards, start = now, takeoff = now, points = points, key = key, mult = mult,
+        flown = 0, at = now }
+    local learned = LearnedTime(key, mult)
+    if learned then
+        flight.eta, flight.learned = learned, true
+    elseif yards then
+        flight.eta = yards / (Speed() * mult)
     end
     CreateBar()
     ArmTimer(bar, flight)
@@ -582,9 +628,12 @@ end
 -- of one may land at the node after, and the bar then ends early.
 local function Retarget(b, fl)
     fl.early = true
+    -- A learned time is the whole route's: the live speed paces the rest.
+    fl.learned = nil
     local points = fl.points
     if points and fl.yards and fl.eta then
-        local flown = (GetTime() - fl.start) / fl.eta * fl.yards
+        -- The yards flown: summed from the live speed on a real flight, by the clock in the preview.
+        local flown = fl.flown or (GetTime() - fl.start) / fl.eta * fl.yards
         for i, p in ipairs(points) do
             if p.yards and p.yards > flown then
                 for j = #points, i + 1, -1 do points[j] = nil end
@@ -598,17 +647,39 @@ local function Retarget(b, fl)
     StyleBar(b, fl)
 end
 
--- Moves the stored speed a quarter of the way toward what this flight measured.
--- A flight more than a third off the estimate is treated as bad data, not a speed.
--- The stored speed excludes Frequent Flier so every character can share it.
--- A server-boosted flight is not a normal speed and teaches nothing.
+-- Saves a route's time (secs: without Frequent Flier). The first flight is
+-- taken as it is; a later one within a tenth of the saved time moves it
+-- halfway (a landing edge jitters by a second), and one further off replaces
+-- it (the route's pace changed). A time no taxi covers its length in is
+-- dropped.
+local function LearnRoute(key, secs, yards)
+    if not key or secs < 5 then return end
+    if yards and (yards / secs < 10 or yards / secs > 150) then return end
+    local c = Cfg()
+    local times = c.times
+    if not times then times = {}; c.times = times end
+    local old = times[key]
+    if old and math.abs(secs - old) < old * 0.1 then secs = old + (secs - old) * 0.5 end
+    times[key] = math.floor(secs * 10 + 0.5) / 10
+end
+
+-- A flight that lands normally teaches two things. The route's own time
+-- (LearnRoute). And the shared speed, moved a quarter of the way toward what
+-- the flight measured: a flight more than a third off the estimate is treated
+-- as bad data, not a speed, and a server-boosted one is not a normal speed.
+-- Both exclude Frequent Flier so every character can share them.
 Land = function()
-    if flight.yards and not flight.early and not flight.boosted then
-        local measured = flight.yards / (GetTime() - flight.takeoff) / flight.mult
-        local speed = Speed()
-        if measured > speed * 0.75 and measured < speed * 1.33 then
-            Cfg().speed = speed + (measured - speed) * 0.25
+    local fl = flight
+    local secs = GetTime() - fl.takeoff
+    if not fl.early and secs > 1 then
+        if fl.yards and not fl.boosted then
+            local measured = fl.yards / secs / fl.mult
+            local speed = Speed()
+            if measured > speed * 0.75 and measured < speed * 1.33 then
+                Cfg().speed = speed + (measured - speed) * 0.25
+            end
         end
+        LearnRoute(fl.key, secs * fl.mult, fl.yards)
     end
     EndFlight()
 end
@@ -621,7 +692,7 @@ local function OnEvent(_, event)
         -- it. A stun right after a refused click is ended by UpdateText's
         -- not-on-taxi check two seconds in.
         if pending and GetTime() - pending.clicked < 5 then
-            StartFlight(pending.yards, pending.points)
+            StartFlight(pending.yards, pending.points, pending.key)
         end
         pending = nil
     elseif event == "PLAYER_CONTROL_GAINED" then
@@ -631,16 +702,17 @@ end
 
 local function OnTakeTaxiNode(slot)
     if not Enabled() then return end
-    local yards, points = RouteInfo(slot)
-    pending = { yards = yards, points = points, clicked = GetTime() }
+    local yards, points, key = RouteInfo(slot)
+    pending = { yards = yards, points = points, key = key, clicked = GetTime() }
 end
 
 -------------------------------------------------------------------------------
 --  Flight Time on the Map (always on, no setting; owner 2026-11-17): a
 --  destination's tooltip on the flight map shows how long the flight takes,
---  from the same lengths and speed as the bar, whether or not the timer is
---  on (the speed is learned only from flights the timer follows; until then
---  it is the built-in one). The line goes in the Taxi frame, the flight map
+--  from the same data as the bar (the route's own time once flown, else its
+--  length at the shared speed), whether or not the timer is on (both are
+--  learned only from flights the timer follows; until then the speed is the
+--  built-in one). The line goes in the Taxi frame, the flight map
 --  WoW Forever's flight masters open (Blizzard_FlightMap is not covered).
 --  The hook is set up once at login and runs only on a destination's hover.
 -------------------------------------------------------------------------------
@@ -648,9 +720,10 @@ local tipHooked = false
 
 local function AddFlightTime(button)
     -- The current node and an unreachable one have no route: no line.
-    local yards = RouteInfo(button:GetID())
-    if not yards then return end
-    local secs = yards / (Speed() * SpeedMultiplier())
+    local yards, _, key = RouteInfo(button:GetID())
+    local mult = SpeedMultiplier()
+    local secs = LearnedTime(key, mult) or (yards and yards / (Speed() * mult))
+    if not secs then return end
     GameTooltip:AddLine(EllesmereUI.Lf("Flight time: %s", FormatTime(secs)), 1, 1, 1)
     GameTooltip:Show()
 end

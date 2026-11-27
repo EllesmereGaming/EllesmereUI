@@ -792,10 +792,11 @@ local BUFF_BENEFICIARIES = {
         PALADIN = true, MONK = true, DRUID = true, DEMONHUNTER = true, SHAMAN = true,
     },
 }
--- WoW Forever: Intellect serves every mana user (hunters included) and Battle
--- Shout raises melee attack power only (a hunter shoots with ranged).
+-- WoW Forever: Intellect and Divine Spirit serve every mana user (hunters
+-- included) and Battle Shout raises melee attack power only (a hunter shoots
+-- with ranged).
 if EABR.FOREVER then
-    -- The shared Intellect family's list (the Raid Frames Missing Buffs reads it too).
+    -- The shared families' lists (the Raid Frames Missing Buffs reads them too).
     BUFF_BENEFICIARIES.intellect = EllesmereUI.FOREVER_BUFF_FAMILIES.ai.beneficiaries
     BUFF_BENEFICIARIES.spirit = EllesmereUI.FOREVER_BUFF_FAMILIES.spirit.beneficiaries
     BUFF_BENEFICIARIES.attackPower = {
@@ -862,6 +863,31 @@ EABR.SPEC_BENEFITS = {
         [263]=true,                               -- Shaman: Enhancement
     },
 }
+-- WoW Forever: LibSpecialization (version 32 on) reports a member's "spec" as
+-- the talent tree holding the most points (its own IDs; Feral covers cat and
+-- bear). Intellect serves every mana user, so every tree of those classes;
+-- Battle Shout serves the melee trees only (never a hunter's). Divine Spirit
+-- has no set: its class list answers the same for every tree.
+if EABR.FOREVER then
+    EABR.SPEC_BENEFITS = {
+        intellect = {
+            [11582]=true, [11594]=true, [11601]=true, -- Mage
+            [11629]=true, [11636]=true, [11637]=true, -- Warlock
+            [11608]=true, [11615]=true, [11622]=true, -- Priest
+            [11328]=true, [11347]=true, [11340]=true, -- Druid
+            [11372]=true, [11371]=true, [11370]=true, -- Hunter
+            [11486]=true, [11541]=true, [11559]=true, -- Paladin
+            [11326]=true, [11363]=true, [11362]=true, -- Shaman
+        },
+        attackPower = {
+            [11650]=true, [11657]=true, [11670]=true, -- Warrior
+            [11580]=true, [11573]=true, [11572]=true, -- Rogue
+            [11347]=true,                             -- Druid: Feral Combat
+            [11541]=true, [11559]=true,               -- Paladin: Protection, Retribution
+            [11363]=true,                             -- Shaman: Enhancement
+        },
+    }
+end
 
 -- Name-keyed spec cache filled by the LibSpecialization group callback
 -- (wired in OnEnable). Entries self-heal: a rejoining player rebroadcasts
@@ -889,8 +915,9 @@ end
 -- counted (coverage skips the unit).
 function EABR.UnitBenefits(u, benefit)
     if not benefit then return true end
-    -- WoW Forever has no spec data to look up (no comms cache, no specs).
-    local specSet = not EABR.FOREVER and EABR.SPEC_BENEFITS[benefit]
+    -- On WoW Forever the sets hold talent tree IDs; the player's own client
+    -- spec there is a starter spec, which no set lists (class answer below).
+    local specSet = EABR.SPEC_BENEFITS[benefit]
     if specSet then
         local spec = EABR.GroupSpecFor(u)
         if spec then

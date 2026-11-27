@@ -4,9 +4,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  Missing Buffs indicator: on each raid, party and Extra Frames button, the
 --  icon of every buff the member lacks that the PLAYER can cast --
---  Fortitude and Spirit (priest; Spirit needs the Divine Spirit talent),
---  Mark of the Wild and Thorns (druid), Arcane Intellect (mage; on mana users
---  only), Salvation and a paladin blessing --
+--  Fortitude and Spirit (priest; Spirit needs the Divine Spirit talent and
+--  shows on mana users only), Mark of the Wild and Thorns (druid), Arcane
+--  Intellect (mage; on mana users only), Salvation and a paladin blessing --
 --  i.e. a trained rank or the group version is in the player's spellbook. On
 --  the member every rank and the group version count, another caster's
 --  included, and so does a stronger buff of the same stat that the game
@@ -71,8 +71,8 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 local FAMILIES = {
     { key = "fort",   class = "PRIEST", setting = "missingBuffsFort",   icon = 1243,  from = { "fort" } },
     { key = "mark",   class = "DRUID",  setting = "missingBuffsMark",   icon = 1126,  from = { "mark" } },
-    -- Arcane Intellect and Arcane Brilliance: mana users only (the family's
-    -- beneficiaries).
+    -- Arcane Intellect and Arcane Brilliance, Divine Spirit and Prayer of
+    -- Spirit: mana users only (each family's beneficiaries).
     { key = "intellect", class = "MAGE", setting = "missingBuffsIntellect", icon = 1459, from = { "ai" } },
     { key = "spirit", class = "PRIEST", setting = "missingBuffsSpirit", icon = 14752, from = { "spirit" } },
     -- Thorns: six druid ranks (Balance), no group version.
@@ -816,8 +816,9 @@ end
 
 -- The secure header's unit assignment (every roster re-process, same unit
 -- included): only a button whose unit really changed looks its member up.
+-- Boss and pet buttons have no health field and show no missing buffs.
 function ns.RF_FvMissingUnit(btn, d, unit)
-    if not enabled or d._fvUnit == unit then return end
+    if not enabled or not d.health or d._fvUnit == unit then return end
     d._fvUnit = unit
     if not unit then
         -- An emptied button hides: its glows leave the driver with it.

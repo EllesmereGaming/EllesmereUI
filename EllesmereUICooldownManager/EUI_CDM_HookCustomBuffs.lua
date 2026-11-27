@@ -954,6 +954,11 @@ function ns.UpdateCustomBuffAuraTracking()
                 end
                 local list = sd and sd.assignedSpells
                 local tags = sd and sd.customSpellIDs
+                -- A buff bar that keeps every slot draws its aura customs in
+                -- their places in the order instead (kept slots,
+                -- EUI_CDM_AuraIcons.lua): no strip, so its container is let go
+                -- below like a bar with none.
+                if tags and ns.CDM_KeptAuraFrame and ns.CdmBuffBarKeepsSlots(bd) then tags = nil end
                 if list and tags then
                     local durs = sd.spellDurations
                     local sids

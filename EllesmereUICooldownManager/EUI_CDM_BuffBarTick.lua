@@ -256,6 +256,15 @@ function ns.UpdateTrackedBuffBarTimers()
             -- skip
         elseif ns._tbbPlaceholderMode then
             tickLive = true
+            -- An engine bar (EllesmereUICdmTbbDecimals.lua): the preview shows the
+            -- bar itself whole, its game-drawn twin off.
+            if bar._tbbEngineMode then
+                bar._tbbIdleHidden = nil
+                bar._tbbIdleSet = nil
+                ns.TBBTwin_Set(bar, false)
+            end
+            -- A Decimals timer twin stands aside for the preview's own text.
+            ns.TBBEngineTimerOff(bar)
             if not bar:IsShown() then bar:Show() end
         elseif cfg.enabled == false then
             bar:Hide()
@@ -283,6 +292,20 @@ function ns.UpdateTrackedBuffBarTimers()
         else
             local blzChild = assignment[cfg]
             if blzChild then ns.HookPandemicState(blzChild) end
+            -- Engine mode (EllesmereUICdmTbbDecimals.lua): no Blizzard bar frame
+            -- draws this aura, so the bar's game-drawn twin does, in and out of
+            -- restriction. A Blizzard frame that now pairs takes the bar back.
+            local engine = bar._tbbEngineMode and not blzChild
+            -- No Blizzard frame and no twin yet: have the engine file look again
+            -- (once per rebuild; Blizzard's frames can come after the last one).
+            if not blzChild and not bar._tbbEngineMode and ns.TBBDecimals_RequestSync then
+                ns.TBBDecimals_RequestSync(bar)
+            end
+            if bar._tbbEngineMode and not engine then
+                bar._tbbIdleHidden = nil
+                bar._tbbIdleSet = nil
+                ns.TBBTwin_Set(bar, false)
+            end
 
             -- Active state MUST come from the CooldownViewer item's IsActive() (real
             -- aura state: expirationTime > now, or infinite auras), NEVER IsShown(): a
@@ -319,7 +342,11 @@ function ns.UpdateTrackedBuffBarTimers()
                     bar._fbCfg, bar._fbSpell, bar._fbBase = cfg, cfg.spellID, cfg.baseSpellID
                     bar._fbPGen, bar._fbTGen = nil, nil
                 end
-                if bar._fbPGen ~= _tbbWake._fbPGen then
+                if engine then
+                    -- The engine slot draws the player's own aura; only the
+                    -- target half below still reads here.
+                    bar._fbPAura, bar._fbPGen = false, nil
+                elseif bar._fbPGen ~= _tbbWake._fbPGen then
                     bar._fbPGen = _tbbWake._fbPGen
                     local a = C_UnitAuras.GetPlayerAuraBySpellID(cfg.spellID)
                     if not a and cfg.baseSpellID and cfg.baseSpellID > 0 then
@@ -540,9 +567,9 @@ function ns.UpdateTrackedBuffBarTimers()
                             bar._nameSet = true
                         end
                     end
-                    -- Timer: engine-bound decimal mirror first (the engine formats the secret
-                    -- remaining time into a hidden FS we copy). Fallback: passthrough from
-                    -- Blizzard's FontString every frame (it changes constantly).
+                    -- Timer: a Decimals timer twin first (the engine formats the secret
+                    -- remaining time and draws it over the bar itself). Fallback: passthrough
+                    -- from Blizzard's FontString every frame (it changes constantly).
                     if MirrorEngineTimer(bar, cfg) then
                         bar._timerText:Show()
                     else
@@ -651,6 +678,13 @@ function ns.UpdateTrackedBuffBarTimers()
             elseif fbAura then
                 -- Bind-miss fallback: self-drive fill/timer from the live aura until
                 -- Blizzard's frame catches up; isActive then resumes the normal mirror path seamlessly.
+                -- An engine bar shows a target debuff this way (plain reads, out of
+                -- restriction): its twin (the player's own aura) stands aside meanwhile.
+                if engine then
+                    bar._tbbIdleHidden = nil
+                    bar._tbbIdleSet = nil
+                    ns.TBBTwin_Set(bar, false)
+                end
                 bar._cChild = nil
                 local wasShown = bar:IsShown()
                 if not wasShown then bar:Show() end
@@ -691,9 +725,10 @@ function ns.UpdateTrackedBuffBarTimers()
                         if cfg.showTimer and bar._timerText then
                             local remaining = exp - GetTime()
                             if remaining < 0 then remaining = 0 end
-                            if not MirrorEngineTimer(bar, cfg) then
-                                bar._timerText:SetText(FormatTime(remaining))
-                            end
+                            -- A readable time: the bar's own text (a Decimals twin
+                            -- reads the player's auras, and this one may be the target's).
+                            ns.TBBEngineTimerOff(bar)
+                            bar._timerText:SetText(FormatTime(remaining))
                             bar._timerText:Show()
                         elseif bar._timerText then
                             bar._timerText:Hide()
@@ -716,10 +751,9 @@ function ns.UpdateTrackedBuffBarTimers()
                             sb:SetValue(remaining)
                         end
                         if cfg.showTimer and bar._timerText then
-                            -- Engine-bound decimal mirror first; the clean local format is the fallback.
-                            if not MirrorEngineTimer(bar, cfg) then
-                                bar._timerText:SetText(FormatTime(remaining))
-                            end
+                            -- A readable time: the bar's own text (as above).
+                            ns.TBBEngineTimerOff(bar)
+                            bar._timerText:SetText(FormatTime(remaining))
                             bar._timerText:Show()
                         elseif bar._timerText then
                             bar._timerText:Hide()
@@ -729,8 +763,8 @@ function ns.UpdateTrackedBuffBarTimers()
                         sb:SetMinMaxValues(0, 1)
                         sb:SetValue(1)
                         if bar._timerText then
-                            -- The engine-bound decimal mirror can render the secret remaining
-                            -- time we cannot; otherwise no readable time -> no text.
+                            -- A Decimals twin can draw the secret remaining time we
+                            -- cannot; otherwise no readable time -> no text.
                             bar._timerText:SetShown(MirrorEngineTimer(bar, cfg))
                         end
                     end
@@ -758,6 +792,47 @@ function ns.UpdateTrackedBuffBarTimers()
                     bar._stackCount = 0
                 end
                 if bar._pandemicGlowActive then ClearPandemic(bar) end
+            elseif engine then
+                -- Engine mode (EllesmereUICdmTbbDecimals.lua): Lua cannot know whether
+                -- the aura is up, so the bar stays shown in its IDLE look (an empty
+                -- bar, or nothing at all under Hide When Inactive: the opacity pass
+                -- below) and its game-drawn twin shows the active look over it while
+                -- the aura is up. The bar keeps its group slot either way.
+                bar._cChild = nil
+                if _anyPandemic and bar._pandemicGlowActive then ClearPandemic(bar) end
+                if not bar:IsShown() then bar:Show() end
+                bar._tbbIdleHidden = cfg.hideWhenInactive ~= false
+                if not bar._tbbIdleSet then
+                    bar._tbbIdleSet = true
+                    local sbI = bar._bar
+                    if sbI then sbI:SetMinMaxValues(0, 1); sbI:SetValue(0) end
+                    if bar._timerText then bar._timerText:Hide() end
+                    if bar._spark then bar._spark:Hide() end
+                    if bar._stacksText then bar._stacksText:Hide() end
+                    bar._stackCount = 0
+                end
+                -- Icon: the configured spell (the twin shows the same art).
+                if bar._icon and bar._icon:IsShown() then
+                    local iconSID = EffectiveIconSpellID(cfg)
+                    if iconSID and iconSID ~= bar._lastIconSID then
+                        local spInfo = C_Spell.GetSpellInfo(iconSID)
+                        if spInfo and spInfo.iconID then
+                            ns.SetTBBIconTexture(bar._icon, spInfo.iconID)
+                            bar._lastIconSID = iconSID
+                        end
+                    end
+                end
+                -- Deferred tick marks, as on a mirrored bar.
+                local sbE = bar._bar
+                if bar._ticksDirty and sbE then
+                    local bw = sbE:GetWidth()
+                    if bw and bw > 0 then
+                        ApplyTBBTickMarks(sbE, cfg, bar._threshTicks,
+                            cfg.verticalOrientation, bar._tickOverlay)
+                        bar._ticksDirty = nil
+                    end
+                end
+                ns.TBBTwin_Set(bar, true)
             else
                 -- Inactive: clear transient state
                 bar._cChild = nil
@@ -769,6 +844,7 @@ function ns.UpdateTrackedBuffBarTimers()
                 if _anyPandemic and bar._pandemicGlowActive then ClearPandemic(bar) end
                 if bar._stacksText then bar._stacksText:Hide() end
                 bar._stackCount = 0
+                ns.TBBEngineTimerOff(bar)
                 if cfg.hideWhenInactive == false then
                     -- "Hide When Inactive" off: keep the bar on screen as an empty idle bar (name visible, no fill/timer/spark).
                     if not bar:IsShown() then bar:Show() end
@@ -833,12 +909,20 @@ function ns.UpdateTrackedBuffBarTimers()
     local lerpSpeed = dt * 8
     for _, f in ipairs(tbbFrames) do
         if f and f._opacityTarget then
-            local cur = f:GetAlpha()
             local tgt = f._opacityTarget
-            if abs(cur - tgt) > 0.005 then
-                f:SetAlpha(cur + (tgt - cur) * min(1, lerpSpeed))
-            elseif cur ~= tgt then
-                f:SetAlpha(tgt)
+            if f._tbbEngineMode then
+                -- A game-drawn bar (EllesmereUICdmTbbDecimals.lua): its twin carries
+                -- the bar's opacity; the bar itself shows only its idle look, none
+                -- under Hide When Inactive. Set straight (the twin does not lerp).
+                local want = f._tbbIdleHidden and 0 or tgt
+                if abs(f:GetAlpha() - want) > 0.005 then f:SetAlpha(want) end
+            else
+                local cur = f:GetAlpha()
+                if abs(cur - tgt) > 0.005 then
+                    f:SetAlpha(cur + (tgt - cur) * min(1, lerpSpeed))
+                elseif cur ~= tgt then
+                    f:SetAlpha(tgt)
+                end
             end
         end
     end

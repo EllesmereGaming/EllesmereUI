@@ -774,7 +774,20 @@ local function ShowProcGlow(icon, cr, cg, cb)
     local isCustomShape = shapeName and shapeName ~= "none" and shapeName ~= "cropped"
     local style = isCustomShape and 2 or PROC_GLOW_STYLE
     local sid = fc and fc.spellID
-    if sid then
+    if sid and icon._isCustomSpellFrame and not icon._isCustomBuffFrame then
+        -- A custom spell keeps its glow choices in its Custom Active State entry
+        -- (the custom spell menu's store, keyed by the typed ID), as its other
+        -- glows do: Proc Glow there, and the one Glow Effect Color.
+        local cas = ns.GetEffectiveCustomActiveState and ns.GetEffectiveCustomActiveState(sid)
+        if cas then
+            if not isCustomShape then
+                if cas.procGlow == 0 then return end
+                if cas.procGlow and cas.procGlow > 0 then style = cas.procGlow end
+            end
+            local ur, ug, ub = ResolveGlowColor(cas)
+            if ur then cr, cg, cb = ur, ug, ub end
+        end
+    elseif sid then
         local bk = fc and fc.barKey
         local sd = bk and ns.GetBarSpellData(bk)
         -- Shared resolver: matches the stored key against the frame's FULL identity set
@@ -905,5 +918,7 @@ InstallProcGlowHooks()
 I.barDataByKey, I.cdmBarFrames, I.cdmBarIcons = barDataByKey, cdmBarFrames, cdmBarIcons
 I.IconShownAlpha, I.InstallProcGlowHooks = IconShownAlpha, InstallProcGlowHooks
 I.OnProcGlowEvent, I.ShowProcGlow = OnProcGlowEvent, ShowProcGlow
+-- For the custom spell proc listener (EUI_CDM_HookPresetFrames.lua, another chain).
+ns.CdmShowProcGlow, ns.CdmStopProcGlow = ShowProcGlow, StopProcGlow
 I.StartNativeGlow, I.StopNativeGlow = StartNativeGlow, StopNativeGlow
 I.broken = false

@@ -61,7 +61,8 @@ function ns.CharSheetParkStatsPane()
 end
 function ns.CharSheetBlizzColor()
     if not ns.CharSheetStock() then return nil end
-    if EllesmereUIDB and EllesmereUIDB.charSheetBlizzColors == false then return nil end
+    -- WoW Forever has no control for it: always on under Blizz Default there.
+    if not EllesmereUI.IS_FOREVER and EllesmereUIDB and EllesmereUIDB.charSheetBlizzColors == false then return nil end
     local c = ns._csBlizzYellow
     if not c then
         local n = _G.NORMAL_FONT_COLOR

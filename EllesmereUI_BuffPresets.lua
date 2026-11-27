@@ -578,10 +578,15 @@ EllesmereUI.BUFF_PRESET_OTHER_FILTERS = OTHER.filters
 -- group = the trainable ranks of the buff and of its group version, lowest
 -- first; ids = every spell that applies it (ranks, group version, NPC and
 -- item casts, i.e. every spell of those names on the client). A family may
--- also carry amounts (what each trainable rank gives of its stat) and
--- stronger (other buffs of that stat which the game does not let a weaker
--- rank replace: spell -> what it gives). Built on WoW Forever only.
+-- also carry amounts (what each trainable rank gives of its stat), stronger
+-- (other buffs of that stat which the game does not let a weaker rank
+-- replace: spell -> what it gives) and beneficiaries (the classes the buff
+-- serves; a family without it serves everyone). Built on WoW Forever only.
 if EllesmereUI.IS_FOREVER == true then
+    -- Every class with a mana bar there, hunters included: the classes Arcane
+    -- Intellect and Divine Spirit serve. One table, read by both families.
+    local MANA_USERS = { DRUID = true, HUNTER = true, MAGE = true, PALADIN = true, PRIEST = true,
+        SHAMAN = true, WARLOCK = true }
     EllesmereUI.FOREVER_BUFF_FAMILIES = {
         fort = { names = { 1243, 21562 },
             single = { 1243, 1244, 1245, 2791, 10937, 10938 }, group = { 21562, 21564 },
@@ -597,9 +602,8 @@ if EllesmereUI.IS_FOREVER == true then
             single = { 14752, 14818, 14819, 27841 }, group = { 27681 },
             ids = { 14752, 14818, 14819, 16875, 27841, 27681 },
             amounts = { [14752] = 17, [14818] = 23, [14819] = 33, [16875] = 40, [27841] = 40, [27681] = 40 },
-            -- Spirit regenerates mana: mana users only (Arcane Intellect's set).
-            beneficiaries = { DRUID = true, HUNTER = true, MAGE = true, PALADIN = true, PRIEST = true,
-                SHAMAN = true, WARLOCK = true } },
+            -- Spirit regenerates mana: mana users only.
+            beneficiaries = MANA_USERS },
         thorns = { names = { 467 },
             single = { 467, 782, 1075, 8914, 9756, 9910 }, group = {},
             ids = { 467, 782, 1075, 8914, 9756, 9910, 15438, 16877, 21335, 21337, 22128, 22351, 22696,
@@ -620,16 +624,13 @@ if EllesmereUI.IS_FOREVER == true then
         salvation = { names = { 1038, 25895 },
             single = { 1038 }, group = { 25895 },
             ids = { 1038, 1912, 25895 } },
-        -- beneficiaries: the classes the buff serves (every mana user,
-        -- hunters included); a family without it serves everyone.
         ai = { names = { 1459, 23028 },
             single = { 1459, 1460, 1461, 10156, 10157 }, group = { 23028 },
             ids = { 1459, 1460, 1461, 10156, 10157, 13326, 16876, 364161, 23028 },
             -- Intellect per rank, and the Elixir of Greater Intellect's buff.
             amounts = { [1459] = 2, [1460] = 7, [1461] = 15, [10156] = 22, [10157] = 31, [23028] = 31 },
             stronger = { [11396] = 25 },
-            beneficiaries = { DRUID = true, HUNTER = true, MAGE = true, PALADIN = true, PRIEST = true,
-                SHAMAN = true, WARLOCK = true } },
+            beneficiaries = MANA_USERS },
         bshout = { names = { 6673 },
             single = { 6673, 5242, 6192, 11549, 11550, 11551, 25289 }, group = {},
             ids = { 6673, 5242, 6192, 11549, 11550, 11551, 25289, 9128, 24438, 25101, 26043, 26099,

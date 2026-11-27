@@ -31,15 +31,15 @@ ns._presetFrames = _presetFrames
 -- container per bar -- PURE ENGINE, zero Lua per aura event. Under 12.1
 -- secrecy (M+/raid combat -- the normal state for our users) Lua can NEVER
 -- know whether these auras are active (RequiresNonSecretAura: "protected
--- APIs will return no values"), so customs can never join the bar's own
--- icon row: in-bar mixing needs a Lua-known count. Both workarounds were
--- field-rejected (reserved grey slots push real buffs off center;
--- tail-injection reads off center on centered bars). The engine, however,
--- sizes and CENTERS its own content under full secrecy, so the container
--- hangs off the bar GROWTH-AWARE: directional bars get a tail flowing off
--- the growth edge (reads as the bar simply extending), CENTER bars get a
--- centered strip below/above (the only centered shape physics allows).
--- Actives compact engine-side; when none are up it renders nothing.
+-- APIs will return no values"), so customs can never join the icon row of a
+-- bar that closes its gaps: in-bar mixing needs a Lua-known count, and
+-- reserved grey slots push real buffs off center there. The container hangs
+-- off the bar's end for every growth mode (the tail flows away from the
+-- bar's end). Actives compact engine-side; when none are up it renders
+-- nothing. A buff bar that keeps every slot (Always Show Buffs or Keep Buffs
+-- in Same Place) never closes a gap, so there each custom holds a slot of
+-- its own in the bar's order instead and has no tail (kept slots,
+-- EUI_CDM_AuraIcons.lua).
 --
 -- The container lives on a UIParent-anchored holder: engine aura buttons
 -- are FORBIDDEN objects, and any anchor path from the bar to them
@@ -112,6 +112,9 @@ end
 -- the empty<->occupied mode flip must never be missed.
 function ns._AuraCustomPoke(barKey)
     if _AC.bars[barKey] then _AC.MarkSync(barKey) end
+    -- The kept slots of a buff bar that keeps its slots follow the same edges
+    -- (EUI_CDM_AuraIcons.lua).
+    if ns.CDM_KeptAuraPoke then ns.CDM_KeptAuraPoke(barKey) end
 end
 
 -- Coalesced holder re-anchoring, driven by the bar-frame hooks.
@@ -362,6 +365,63 @@ do
     end
 end
 
+-------------------------------------------------------------------------------
+--  Proc Glow on custom spells. Blizzard lights its own icons through the action
+--  button alert manager (hooked in EUI_CDM_Glows.lua), which never reaches a
+--  frame of ours, so custom spell icons listen for the game's proc events
+--  themselves. Their spellID payload carries no secret flag (12.1.5 docs), so a
+--  proc lights in combat as on a tracked spell. Registered once the first custom
+--  spell icon shows; a proc event walks only the shown icons. An icon that shows
+--  asks for the proc state it missed while hidden, on the next drain pass
+--  (_procSyncArm), once the reanchor has decorated it.
+-------------------------------------------------------------------------------
+do
+    local procFrame
+    local function SidOf(f)
+        local fc = _ecmeFC[f]
+        return f._rankSID or (fc and fc.spellID)
+    end
+    -- The event names the spell the game lights: the icon's spell, its live
+    -- override, or a form whose base (base: the event spell's, read once per
+    -- event) is the icon's spell.
+    local function Matches(f, id, base)
+        local sid = SidOf(f)
+        if not sid or sid <= 0 then return false end
+        if id == sid or base == sid then return true end
+        local ovr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
+            and C_SpellBook.FindSpellOverrideByID(sid)
+        return ovr == id
+    end
+    local function OnProcEvent(_, event, id)
+        if type(id) ~= "number" or (issecretvalue and issecretvalue(id)) then return end
+        local show = event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW"
+        local base = C_Spell.GetBaseSpell and C_Spell.GetBaseSpell(id)
+        for f in pairs(_pcActive) do
+            if f._isCustomSpellFrame and not f._isCustomBuffFrame and Matches(f, id, base) then
+                if show then ns.CdmShowProcGlow(f) else ns.CdmStopProcGlow(f) end
+            end
+        end
+    end
+    function ns.CdmCustomProcArm()
+        if procFrame then return end
+        procFrame = CreateFrame("Frame")
+        procFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
+        procFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
+        procFrame:SetScript("OnEvent", OnProcEvent)
+    end
+    function ns.CdmCustomProcSync(f)
+        local isOv = C_SpellActivationOverlay and C_SpellActivationOverlay.IsSpellOverlayed
+        local sid = SidOf(f)
+        if not (isOv and sid and sid > 0 and ns.CdmShowProcGlow) then return end
+        local on = isOv(sid)
+        if not on and C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+            local ovr = C_SpellBook.FindSpellOverrideByID(sid)
+            if ovr and ovr ~= sid then on = isOv(ovr) end
+        end
+        if on then ns.CdmShowProcGlow(f) else ns.CdmStopProcGlow(f) end
+    end
+end
+
 local function _RegisterPresetLive(f, fkey)
     f._pfKey = fkey
     f:HookScript("OnShow", function(self)
@@ -369,6 +429,12 @@ local function _RegisterPresetLive(f, fkey)
         -- Show is a state edge (events may have fired while hidden):
         -- re-read and re-push everything on the next pass.
         self._cdPushArm = true
+        if self._isCustomSpellFrame and not self._isCustomBuffFrame then
+            ns.CdmCustomProcArm()
+            -- Use-count edges for its count text (EUI_CDM_HookPresetCooldowns.lua).
+            if ns.CdmCustomUsesArm then ns.CdmCustomUsesArm() end
+            self._procSyncArm = true
+        end
         if self._isItemPresetFrame then
             self._itemWalkArm = true
             self._countArm = true
@@ -385,7 +451,14 @@ local function _RegisterPresetLive(f, fkey)
         -- A hidden icon holds no range registration; its Show re-arms it.
         if self._rangeOpted then ns.ReleaseCustomSpellRange(self) end
     end)
-    if f:IsShown() then _pcActive[f] = true end
+    if f:IsShown() then
+        _pcActive[f] = true
+        if f._isCustomSpellFrame and not f._isCustomBuffFrame then
+            ns.CdmCustomProcArm()
+            if ns.CdmCustomUsesArm then ns.CdmCustomUsesArm() end
+            f._procSyncArm = true
+        end
+    end
 end
 
 -------------------------------------------------------------------------------

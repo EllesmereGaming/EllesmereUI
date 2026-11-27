@@ -1076,7 +1076,9 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
             { type = "slider", label = "Color Below (seconds, 0 = off)", min = 0, max = 30, step = 1,
               get = function() return cfg.durationColorBelowThreshold or 0 end,
               set = function(v) cfg.durationColorBelowThreshold = v > 0 and v or nil; apply() end },
-            { type = "colorpicker", label = "Color",
+            { type = "colorpicker", label = "Color When Below",
+              disabled = function() return not cfg.durationColorBelowThreshold end,
+              disabledTooltip = EllesmereUI.DisabledTooltip("Color Below"),
               get = function() return cfg.durationColorBelowR or 1, cfg.durationColorBelowG or 0.25, cfg.durationColorBelowB or 0.25 end,
               set = function(r, g, b)
                   cfg.durationColorBelowR, cfg.durationColorBelowG, cfg.durationColorBelowB = r, g, b

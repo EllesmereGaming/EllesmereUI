@@ -1714,9 +1714,6 @@ if EllesmereUI then
             if EllesmereUI._refreshInspectEnchantsVisibility then
                 EllesmereUI._refreshInspectEnchantsVisibility()
             end
-            if EllesmereUI._refreshInspectAverageItemLevelVisibility then
-                EllesmereUI._refreshInspectAverageItemLevelVisibility()
-            end
         end
     end)
 
@@ -1747,8 +1744,8 @@ do
     end)
 end
 
--- Function to refresh item level visibility when toggle changes
--- The Show Average Item Level toggle (also run on each INSPECT_READY).
+-- The Show Average Item Level toggle: the header pass again, which reads it
+-- (the themed pass of each INSPECT_READY runs that pass itself).
 function EllesmereUI._refreshInspectAverageItemLevelVisibility()
     local frame = InspectFrame
     if not (frame and frame:IsShown() and GetFFD(frame).avgIlvlText) then return end
@@ -1760,6 +1757,7 @@ function EllesmereUI._refreshInspectAverageItemLevelVisibility()
     end
 end
 
+-- Function to refresh item level visibility when toggle changes
 function EllesmereUI._refreshInspectItemLevelVisibility()
     if not InspectFrame or not InspectPaperDollItemsFrame then return end
 

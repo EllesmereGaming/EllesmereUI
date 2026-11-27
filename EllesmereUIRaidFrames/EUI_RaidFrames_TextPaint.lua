@@ -234,7 +234,7 @@ end
 -- Show Above Icons per text: the carrier sits where the name's setting puts it (the
 -- reload passes level it); a text set the other way goes on a second carrier at the
 -- other level (live buttons build it with the first; previews here, on first need).
--- Boss and pet frames have no aura band.
+-- Boss and pet frames keep the one carrier: their texts sit under the aura icons.
 local function CarrierOf(d, s, e)
     local main = d.textCarrier
     if d._txFB then return main end

@@ -129,6 +129,12 @@ local _needUsable, _needForms, _needFormAuras, _formSeen = false, false, false, 
 local _needStance = false
 local _formAuraRules = {}
 local _formAuraQueued = false
+-- The cd-state rules on Hidden Until Castable (CD_STATE_HIDE power; spells
+-- only): the player's power joins the edges while one exists. Power moves on
+-- every frame while a resource regenerates or decays, so its events only ask
+-- these rules, once a frame (_power.Flush), and a rule is evaluated when its
+-- "cannot cast" answer flipped (rule._castNo, the last one).
+local _power = { rules = {} }
 
 -- CD-ready sound "armed" state, keyed by ability so it survives the rule-object
 -- churn of FakeActive_Rearm (rebuilds are frequent in M+ and would otherwise eat
@@ -998,7 +1004,10 @@ end
 -- updateInfo: UNIT_AURA's payload (UNIT_SPELLCAST_SUCCEEDED's cast GUID, unused);
 -- ITEM_DATA_LOAD_RESULT brings the item ID in unit and the success flag in updateInfo
 OnEvent = function(self, event, unit, updateInfo, spellID)
-    if event == "UNIT_AURA" then
+    if event == "UNIT_POWER_FREQUENT" or event == "RUNE_POWER_UPDATE" then
+        -- Hidden Until Castable: its rules are asked on the next frame.
+        _power.frame:Show()
+    elseif event == "UNIT_AURA" then
         -- Registered for aura rules, or for form rules: a powershift's return,
         -- and the exception auras a form rule can hang on
         if _needAura then
@@ -1089,6 +1098,21 @@ UpdateListeners = function()
         else _events:UnregisterEvent("PLAYER_REGEN_ENABLED") end
         if _needUsable then _events:RegisterEvent("SPELL_UPDATE_USABLE")
         else _events:UnregisterEvent("SPELL_UPDATE_USABLE") end
+        -- Every power type; a Death Knight's runes come back through
+        -- RUNE_POWER_UPDATE.
+        if #_power.rules > 0 then
+            if not _power.frame then
+                _power.frame = CreateFrame("Frame")
+                _power.frame:Hide()
+                _power.frame:SetScript("OnUpdate", _power.Flush)
+            end
+            _events:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
+            _events:RegisterEvent("RUNE_POWER_UPDATE")
+        else
+            _events:UnregisterEvent("UNIT_POWER_FREQUENT")
+            _events:UnregisterEvent("RUNE_POWER_UPDATE")
+            if _power.frame then _power.frame:Hide() end
+        end
         -- Trinket swaps only matter when the player actually uses custom states.
         if _hasUserRules then _events:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
         else _events:UnregisterEvent("PLAYER_EQUIPMENT_CHANGED") end
@@ -1599,6 +1623,29 @@ EvalCdStateNow = function()
     end
 end
 
+-- Hidden Until Castable on a preset or a spell added by ID: one probe a
+-- frame, however many power events came (energy and combo points, runic power
+-- and each rune), and only a rule whose answer flipped is evaluated. The test
+-- is the evaluator's own (the drawn rank's on WoW Forever).
+_power.Flush = function(self)
+    self:Hide()
+    local icons = ns.cdmBarIcons
+    local FCt = ns._ecmeFC
+    if not icons or not FCt then return end
+    local rankOf = ns._cdmRankOf
+    local rules = _power.rules
+    for i = 1, #rules do
+        local rule = rules[i]
+        local key = rule.spellID
+        if rankOf then key = rankOf[key] or key end
+        local no = PresetSpellTest(key, ns.CdmSpellNotCastable)
+        if no ~= rule._castNo then
+            rule._castNo = no
+            EvalCdStateRule(rule, icons, FCt)
+        end
+    end
+end
+
 -- After an exception aura came or went (ns.CdmFormAuraEdge): only the form
 -- rules that hang on one, unless a full pass is queued for the same frame.
 local function RunFormAuraEval()
@@ -1793,6 +1840,7 @@ function ns.FakeActive_Rearm()
     RefreshSlotItemKeys()
     _needAura, _needCast, _armed, _hasUserRules, _needUsable, _needForms, _needFormAuras = false, false, false, false, false, false, false
     _needStance = false
+    wipe(_power.rules)
     if FA121 then FA121.BeginSweep() end
 
     -- 1. Built-in rules (class/spec gated).
@@ -1854,6 +1902,10 @@ function ns.FakeActive_Rearm()
                 _cdStateRules[#_cdStateRules + 1] = rule
                 local m = hide and ns.CD_STATE_HIDE[hide]
                 if m and m.usable then _needUsable = true end
+                -- An item key never reads unusable (PresetSpellTest).
+                if m and m.power and matchKey > 0 then
+                    _power.rules[#_power.rules + 1] = rule
+                end
                 if m and m.form then _needForms = true end
                 if stance then _needStance = true end
             end

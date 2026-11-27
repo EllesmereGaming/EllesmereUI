@@ -174,6 +174,9 @@ local function Cell(i, parent)
         c.binding = C_DurationUtil.CreateDurationTextBinding()
         c.binding:SetFontString(d.duration)
         c.binding:SetDuration(c.dur)
+        -- The binding's own redraw interval, put back when Decimals Below goes off.
+        c.defInterval = c.binding:GetUpdateInterval()
+        c.interval = c.defInterval
     end
     f.fvImbue = c
     cells[i] = c
@@ -195,7 +198,12 @@ local function Paint(c, s)
         local fmt = AK.GetDurationFormatter(style.durationShowSeconds, style.durationPrecisionThreshold,
             style.durationDecimalThreshold)
         if fmt then b:SetFormatter(fmt) end
-        if style.durationUpdateInterval then b:SetUpdateInterval(style.durationUpdateInterval) end
+        -- Decimals Below redraws faster; off, the binding's own interval again.
+        local interval = style.durationUpdateInterval or c.defInterval
+        if interval ~= c.interval then
+            b:SetUpdateInterval(interval)
+            c.interval = interval
+        end
         local tc = style.durationColorCurve and AK.DurationTextColor(style.durationColorCurve)
         if tc then b:SetTextColorCurve(tc.curve, tc.property) else b:ClearTextColorCurve() end
         b:SetEnabled(true)

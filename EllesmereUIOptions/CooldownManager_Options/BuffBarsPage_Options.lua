@@ -604,8 +604,11 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         if _tbbSpellPickerMenu then _tbbSpellPickerMenu:Hide() end
     end)
 
-    -- Show the "Custom Buff ID" popup with Spell ID + Duration fields
-    local function ShowCustomBuffIDPopup(anchorFrame, barCfg, onChanged)
+    -- Show the "Custom Buff ID" popup with Spell ID + Duration fields, or with
+    -- cooldown set the "Custom Cooldown ID" popup (Spell ID alone): a cooldown
+    -- tracking bar for any spell the character knows, which the cooldown bar
+    -- engine draws from the spell's own cooldown (EUI_CDM_BuffBarCooldown.lua).
+    local function ShowCustomBuffIDPopup(anchorFrame, barCfg, onChanged, cooldown)
         local popupName = "EUI_TBB_CustomBuffPopup"
         local popup = _G[popupName]
         if not popup then
@@ -633,6 +636,8 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             title:SetPoint("TOP", popup, "TOP", 0, -18)
             title:SetTextColor(1, 1, 1, 1)
             title:SetText(EllesmereUI.L("Custom Buff ID"))
+            popup._title = title
+            popup._fullH = POPUP_H
 
             local sidLbl = popup:CreateFontString(nil, "OVERLAY")
             sidLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
@@ -667,6 +672,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             durLbl:SetPoint("TOPLEFT", sidBox, "BOTTOMLEFT", 0, -12)
             durLbl:SetTextColor(0.7, 0.7, 0.7, 1)
             durLbl:SetText(EllesmereUI.L("Duration (seconds)"))
+            popup._durLbl = durLbl
 
             local durBox = CreateFrame("EditBox", nil, popup)
             durBox:SetSize(180, 28)
@@ -735,8 +741,18 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             _G[popupName] = popup
         end
 
-        local curSID = (barCfg.spellID and barCfg.spellID > 0 and not barCfg.popularKey) and barCfg.spellID or nil
-        local curDur = barCfg.customDuration or nil
+        -- Dress the shared popup for its mode: the cooldown form has no duration.
+        popup._title:SetText(EllesmereUI.L(cooldown and "Custom Cooldown ID" or "Custom Buff ID"))
+        popup._durLbl:SetShown(not cooldown)
+        popup._durBox:SetShown(not cooldown)
+        popup._status:ClearAllPoints()
+        popup._status:SetPoint("TOP", cooldown and popup._sidBox or popup._durBox, "BOTTOM", 0, -6)
+        popup:SetHeight(cooldown and (popup._fullH - 50) or popup._fullH)
+
+        local isCd = barCfg.trackType == "cooldown"
+        local curSID = (barCfg.spellID and barCfg.spellID > 0 and not barCfg.popularKey
+            and (isCd == (cooldown and true or false))) and barCfg.spellID or nil
+        local curDur = (not cooldown) and barCfg.customDuration or nil
         popup._sidBox:SetText(curSID and tostring(curSID) or "")
         popup._durBox:SetText(curDur and tostring(curDur) or "")
         popup._status:SetText("")
@@ -758,6 +774,22 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             if not sid or sid <= 0 then SetStatus("Enter a valid spell ID"); return end
             sid = math.floor(sid)
             if not C_Spell.GetSpellName(sid) then SetStatus("Unknown spell ID"); return end
+            if cooldown then
+                popup._dimmer:Hide()
+                barCfg.spellID        = sid
+                barCfg.spellIDs       = nil
+                barCfg.popularKey     = nil
+                barCfg.glowBased      = nil
+                barCfg.customDuration = nil
+                barCfg.trackType      = "cooldown"
+                barCfg.baseSpellID    = nil
+                barCfg.name           = C_Spell.GetSpellName(sid)
+                barCfg.customName     = nil
+                Refresh()
+                ns.BuildTrackedBuffBars()
+                if onChanged then onChanged() end
+                return
+            end
             if not dur or dur <= 0 then SetStatus("Enter a duration in seconds"); return end
             dur = math.floor(dur)
             popup._dimmer:Hide()
@@ -846,6 +878,43 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         csItem:SetScript("OnClick", function()
             menu:Hide()
             ShowCustomBuffIDPopup(anchorFrame, barCfg, onChanged)
+        end)
+        mH = mH + ITEM_H
+
+        -- "Custom Cooldown ID": a cooldown bar for any spell by its ID (the
+        -- Cooldowns list below offers only Blizzard's catalog). Selected while the
+        -- bar tracks a cooldown that list does not hold.
+        local cdSpells = ns.GetCDMSpellsForBar and ns.GetCDMSpellsForBar("cooldowns") or {}
+        local isCustomCdSelected = false
+        if barCfg.trackType == "cooldown" and not barCfg.popularKey and not barCfg.spellIDs
+           and barCfg.spellID and barCfg.spellID > 0 then
+            isCustomCdSelected = true
+            for _, sp in ipairs(cdSpells) do
+                if sp.spellID == barCfg.spellID then isCustomCdSelected = false; break end
+            end
+        end
+        local ccItem = CreateFrame("Button", nil, inner)
+        ccItem:SetHeight(ITEM_H)
+        ccItem:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+        ccItem:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+        ccItem:SetFrameLevel(menu:GetFrameLevel() + 2)
+        local ccHl = ccItem:CreateTexture(nil, "ARTWORK", nil, -1)
+        ccHl:SetAllPoints(); ccHl:SetColorTexture(1, 1, 1, 0)
+        local ccLbl = ccItem:CreateFontString(nil, "OVERLAY")
+        ccLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+        ccLbl:SetPoint("LEFT", 10, 0)
+        ccLbl:SetJustifyH("LEFT")
+        ccLbl:SetText(EllesmereUI.L("Custom Cooldown ID"))
+        local function PaintCc()
+            local s = isCustomCdSelected
+            ccLbl:SetTextColor(s and 1 or tDimR, s and 1 or tDimG, s and 1 or tDimB, s and 1 or tDimA)
+        end
+        PaintCc()
+        ccItem:SetScript("OnEnter", function() ccLbl:SetTextColor(1,1,1,1); ccHl:SetColorTexture(1,1,1,hlA) end)
+        ccItem:SetScript("OnLeave", function() PaintCc(); ccHl:SetColorTexture(1,1,1,0) end)
+        ccItem:SetScript("OnClick", function()
+            menu:Hide()
+            ShowCustomBuffIDPopup(anchorFrame, barCfg, onChanged, true)
         end)
         mH = mH + ITEM_H
 
@@ -1104,8 +1173,8 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         end
 
         -- "Cooldowns" section: pick a spell COOLDOWN to track instead of a buff
-        -- (cfg.trackType="cooldown"), sourced from Essential+Utility pools + settings catalog; skipped when empty.
-        local cdSpells = ns.GetCDMSpellsForBar and ns.GetCDMSpellsForBar("cooldowns") or {}
+        -- (cfg.trackType="cooldown"), sourced from Essential+Utility pools + settings catalog
+        -- (cdSpells, read above for the Custom Cooldown ID entry); skipped when empty.
         if #cdSpells > 0 then
             local cdDiv = inner:CreateTexture(nil, "ARTWORK")
             cdDiv:SetHeight(1); cdDiv:SetColorTexture(1, 1, 1, 0.10)
