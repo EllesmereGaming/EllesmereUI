@@ -195,6 +195,34 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end
 
+    -- Action Bar Macros: the edited menu's macro, made once (or given the
+    -- menu's current icon) and handed to the cursor to drop on a bar. The body
+    -- is a comment: the bar button's keybind is taken over by the menu
+    -- (EUI_Quickdraw_BarMacros.lua), so the macro never needs to run.
+    local function PickUpMenuMacro()
+        if InCombatLockdown() then
+            Complain("Quickdraw: leave combat to pick up a menu macro.")
+            return
+        end
+        if not ns.BarMacroName then return end
+        local name = ns.BarMacroName(editPalette)
+        local icon = PaletteListIcon(PaletteRead(editPalette))
+        if type(icon) == "string" then icon = icon:gsub("^[Ii]nterface\\[Ii]cons\\", "") end
+        if GetMacroIndexByName(name) == 0 then
+            if GetNumMacros() >= Constants.MacroConsts.MAX_ACCOUNT_MACROS then
+                Complain("Quickdraw: all account macro slots are in use. Delete one to make the menu macro.")
+                return
+            end
+            CreateMacro(name, icon, "#EllesmereUI Quickdraw menu", nil)
+        else
+            EditMacro(GetMacroIndexByName(name), nil, icon)
+        end
+        -- Found again by name: macro handlers that run inside CreateMacro and
+        -- EditMacro may reorder the list.
+        local index = GetMacroIndexByName(name)
+        if index > 0 then PickupMacro(index) end
+    end
+
     -- What the user calls the action a chord is currently bound to. The binding
     -- system stores an action string; BINDING_NAME_<action> is the label every
     -- keybind UI shows, and our own palettes declare one each.
@@ -3343,6 +3371,29 @@ initFrame:SetScript("OnEvent", function(self)
               -- frame it anchors under some other way.
               onClick=function() ShowAddPaletteMenu(addPaletteBtn) end })
         addPaletteBtn = row._rightRegion and row._rightRegion._control
+        y = y - h
+
+        -- Action Bar Macros: the switch, and the macro of the menu being
+        -- edited below, handed to the cursor to drop on a bar.
+        local function BarMacrosOff() return Disabled() or Cfg("barMacros") ~= true end
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Action Bar Macros",
+              disabled=Disabled, disabledTooltip="the module",
+              tooltip="Put a menu's macro on an action bar, and that button's "
+                  .. "keybind opens the menu.\nMove the macro to move the key. "
+                  .. "Works on Action Bars 2 to 10, not the main bar, which "
+                  .. "changes with stances and forms.",
+              getValue=function() return Cfg("barMacros") == true end,
+              setValue=function(v) Set("barMacros", v); Refresh() end },
+            { type="labeledButton", text="Menu Macro",
+              disabled=BarMacrosOff,
+              disabledTooltip=function()
+                  return Disabled() and "the module" or "Action Bar Macros"
+              end,
+              tooltip="Puts the macro of the action menu you are editing below "
+                  .. "on your cursor. Drop it on an action bar.",
+              buttonText="Pick Up",
+              onClick=PickUpMenuMacro })
         y = y - h
 
         -----------------------------------------------------------------------

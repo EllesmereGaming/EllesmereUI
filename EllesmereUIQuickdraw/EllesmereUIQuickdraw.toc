@@ -31,6 +31,7 @@ EUI_Quickdraw_Pointer.lua
 EUI_Quickdraw_Live.lua
 EUI_Quickdraw_Secure.lua
 EUI_Quickdraw_Gates.lua
+EUI_Quickdraw_BarMacros.lua
 EUI_Quickdraw_Runtime.lua
 
 # Options page lives in the LoadOnDemand EllesmereUIOptions addon.
