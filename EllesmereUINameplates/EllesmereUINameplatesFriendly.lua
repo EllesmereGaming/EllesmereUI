@@ -957,6 +957,18 @@ local function OnTargetChangedNPCOverlays()
 end
 ns.OnTargetChangedNPCOverlays = OnTargetChangedNPCOverlays
 
+-- One deferred pass per frame, however many plate removals and target changes ask.
+local npcPassQueued
+local function RunQueuedNPCPass()
+    npcPassQueued = nil
+    OnTargetChangedNPCOverlays()
+end
+function ns.QueueNPCOverlayPass()
+    if npcPassQueued then return end
+    npcPassQueued = true
+    C_Timer.After(0, RunQueuedNPCPass)
+end
+
 -- A base that let go of its unit keeps no overlay. NAME_PLATE_UNIT_REMOVED cannot
 -- look the base up once the driver has cleared it (GetNamePlateForUnit(unit) is
 -- already nil), so the live overlays are swept instead. Bounded by the overlays in
