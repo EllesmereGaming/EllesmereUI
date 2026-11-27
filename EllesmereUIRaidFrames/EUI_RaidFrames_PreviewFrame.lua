@@ -393,7 +393,7 @@ local function CreatePreviewFrame(index, party)
         end
         if hlSize then r, g, b = ns.RF_VisibleHighlight(s, r, g, b, br, bg, bb) end
         bdrFrame._hlBorderSize = nil
-        EllesmereUI.SetBorderStyleColor(bdrFrame, r, g, b, a)
+        ns.RF_TintCellBorder(bdrFrame, s, raised or f._pvDispelBdrC, r, g, b, a)
         if s.powerBorderMatchColor == true and f._powerBorder and f._powerBorder._powerArtMode == "divider" then
             ns.RF_ColorPowerDivider(f._powerBorder, r, g, b, a)
         elseif s.borderClassColored then

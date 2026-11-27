@@ -594,14 +594,19 @@ local function UpdateBordersForScale(frame, unit)
     if not frame then return end
     local settings = GetSettingsForUnit(unit)
     if not settings then return end
-    local borderSize = settings.borderSize or 1
-
     -- 1) Main frame border textures.
     if frame.unifiedBorder then
-        local bc = settings.borderColor or { r = 0, g = 0, b = 0 }
-        local textureKey = settings.borderTexture or "solid"
-        EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, borderSize, bc.r, bc.g, bc.b, settings.borderAlpha or 1, textureKey, settings.borderTextureOffset, settings.borderTextureOffsetY, settings.borderTextureShiftX, settings.borderTextureShiftY, "unitframes", borderSize, nil,
-            EllesmereUI.BorderPx(settings.borderSizePx, borderSize, textureKey))
+        local key = UnitToSettingsKey(unit)
+        local source = key == "boss" and ns.UF_BossBorderSettings()
+            or (MINI_BORDER_KEYS[key] and GetMiniDonorSettings(key)) or settings
+        local borderSize = settings.borderSizeOverride or source.borderSize or 1
+        local bc = source.borderColor or { r = 0, g = 0, b = 0 }
+        local textureKey = source.borderTexture or "solid"
+        local x, y = ns.UF_BorderOffsets(key, settings, source)
+        EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, borderSize, bc.r, bc.g, bc.b, source.borderAlpha or 1, textureKey, x, y, source.borderTextureShiftX, source.borderTextureShiftY, "unitframes", borderSize, nil,
+            EllesmereUI.BorderPx(source.borderSizePx, borderSize, textureKey),
+            ns.UF_KeepBorderGradient(source, unit, frame))
+        ns.UF_ApplyBorderGradient(frame.unifiedBorder, source, unit, frame)
     end
 
     -- 2) Gather layout info.

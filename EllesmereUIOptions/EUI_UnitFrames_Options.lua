@@ -484,6 +484,77 @@ function ns.UF_CastBorderRows(W, parent, y, getS, onChange, matchKey, sync)
     return y0 - y
 end
 
+function ns.UFO_FrameBorderGradientControls(rgn, unitKey, own, getBorder, readOnly, onChange)
+    local db = ns._UFO_OptEnv.db
+    local dress = PoolGen(rgn)
+    local function Gradient()
+        return ns.UF_BorderGradientSettings(getBorder(), unitKey)
+    end
+    local function BlockedReason()
+        local reason = readOnly()
+        if reason then return reason end
+        local border = getBorder()
+        if (own.borderSizeOverride or border.borderSize or 1) <= 0 then
+            return "This option requires a Border Size above 0."
+        end
+        if not ns.UF_BorderGradientPainter(border) then
+            return "Gradients are available for Solid, Glow, Shadow, Blizzard, Lightspark Border, Pixels and Pixels Textured."
+        end
+    end
+    local function Blocked() return BlockedReason() ~= nil end
+    local function CanEdit()
+        return PoolGen(rgn) == dress and not PoolIsIdle(rgn) and db.profile[unitKey] == own
+            and rgn:IsVisible() and not EllesmereUI.BlizzStyle.Get("unitframes") and not Blocked()
+    end
+    local function SetOption(key, value)
+        if not CanEdit() then return end
+        own[key] = value
+        onChange()
+        EllesmereUI:RefreshPage()
+    end
+    local function WriteColor(r, g, b)
+        local color = { r = r, g = g, b = b }
+        own.borderGradientColor = color
+        onChange()
+        return color
+    end
+    local rows = {
+        { type = "toggle", label = "Enable Gradient",
+          tooltip = "Blends the border color to the Gradient End Color.",
+          disabled = Blocked, disabledTooltip = BlockedReason, rawTooltip = true,
+          get = function() return Gradient().borderGradientEnabled == true end,
+          set = function(v) SetOption("borderGradientEnabled", v) end },
+        { type = "dropdown", label = "Gradient Direction",
+          values = { HORIZONTAL = "Horizontal", VERTICAL = "Vertical" },
+          order = { "HORIZONTAL", "VERTICAL" },
+          disabled = Blocked, disabledTooltip = BlockedReason, rawTooltip = true,
+          get = function() return Gradient().borderGradientDir or "HORIZONTAL" end,
+          set = function(v) SetOption("borderGradientDir", v) end },
+    }
+    local swatch = {
+        tooltip = "Gradient End Color", rawTooltip = true,
+        disabled = function() return Blocked() or not Gradient().borderGradientEnabled end,
+        disabledTooltip = function() return BlockedReason() or "Enable Gradient" end,
+        getValue = function() return ns.UF_BorderGradientRGB(Gradient()) end,
+        setValue = function(r, g, b)
+            if CanEdit() and own.borderGradientEnabled then WriteColor(r, g, b) end
+        end,
+        bindPicker = function()
+            local oldColor, lastColor = own.borderGradientColor
+            return function(r, g, b)
+                if not CanEdit() or not own.borderGradientEnabled then return false end
+                lastColor = WriteColor(r, g, b)
+            end, function()
+                if not lastColor or own.borderGradientColor ~= lastColor then return false end
+                own.borderGradientColor = oldColor
+                if db.profile[unitKey] ~= own then return false end
+                onChange()
+            end
+        end,
+    }
+    return rows, swatch
+end
+
 -- Boss Frames DISPLAY "Border Style | Border Size": the boss frames' own frame
 -- border. "Inherit (Main Frames)" (the first entry; boss borderCustom false)
 -- keeps the mini frame donor's border, as before; any other pick stores the
@@ -505,7 +576,7 @@ function ns.UF_BossFrameBorderRows(W, parent, y, B, onChange)
     texValues.inherit = "Inherit (Main Frames)"
     local row, h = W:DualRow(parent, y,
         BS.Gate("unitframes", { type="dropdown", text="Border Style",
-          tooltip="Border art drawn around the boss frames. Inherit (Main Frames) uses the main frames' border.",
+          tooltip="Inherit (Main Frames) follows the border and gradient of the first available frame in this order: Focus, Target, then Player.",
           values=texValues, order=texOrder,
           getValue=function()
               if Inheriting() then return "inherit" end
@@ -622,17 +693,9 @@ function ns.UF_BossFrameBorderRows(W, parent, y, B, onChange)
     -- and blocked while inheriting or at 0.
     do
         local rgn = row._rightRegion
-        -- Corner Radius (EllesmereUI_RoundedCorners.lua): the boss table's own,
-        -- beside the control with the swatch left of it; while inheriting the
-        -- main frames' radius applies.
-        EllesmereUI.BuildInlineCog(rgn, {
-            title = "Corner Radius", tip = "Corner Radius",
-            disabled = function() return Inheriting() or not EllesmereUI.RoundedStyleOK(B.borderTexture) end,
-            disabledTooltip = function()
-                if Inheriting() then return NEEDS_STYLE end
-                return "This option requires the Solid, Glow or Shadow border style."
-            end,
-            rows = EllesmereUI.RoundedJoinRow(EllesmereUI.RoundedCornerRows({
+        local gradientRows, gradientSwatch = ns.UFO_FrameBorderGradientControls(rgn, "boss", B, Src,
+            function() if Inheriting() then return NEEDS_STYLE end end, onChange)
+        local rows = EllesmereUI.RoundedJoinRow(EllesmereUI.RoundedCornerRows({
                 { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
                   get = function() return Src().cornerRadius or 0 end,
                   set = function(v) B.cornerRadius = v; onChange() end },
@@ -640,7 +703,21 @@ function ns.UF_BossFrameBorderRows(W, parent, y, B, onChange)
                 "Join Power Bar", "Rounds a detached power bar right above or below the frame as one shape with it.",
                 function() return B.cornerJoinPower end, function(v) B.cornerJoinPower = v; onChange() end,
                 function() local pos = B.powerPosition or "below"; return pos == "detached_top" or pos == "detached_bottom" end,
-                "Detached Power Bar"),
+                "Detached Power Bar")
+        local function NotRounded() return not EllesmereUI.RoundedStyleOK(B.borderTexture) end
+        for _, cfg in ipairs(rows) do
+            local disabled, tip = cfg.disabled, cfg.disabledTooltip
+            cfg.disabled = function() return NotRounded() or (disabled and disabled()) end
+            cfg.disabledTooltip = function()
+                if NotRounded() then return "This option requires the Solid, Glow or Shadow border style." end
+                return type(tip) == "function" and tip() or tip
+            end
+        end
+        for _, cfg in ipairs(gradientRows) do rows[#rows + 1] = cfg end
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Border Settings", tip = "Border Settings",
+            disabled = Inheriting, disabledTooltip = NEEDS_STYLE, rawTooltip = true,
+            rows = rows,
         })
         if EllesmereUI._prebuilding then return y0 - y end
         local sw, updateSw = EllesmereUI.BuildColorSwatch(rgn, row:GetFrameLevel() + 3,
@@ -678,6 +755,7 @@ function ns.UF_BossFrameBorderRows(W, parent, y, B, onChange)
         end
         EllesmereUI.RegisterWidgetRefresh(UpdateSw)
         UpdateSw()
+        EllesmereUI.BuildInlineSwatches(rgn, { gradientSwatch })
     end
     return y0 - y
 end

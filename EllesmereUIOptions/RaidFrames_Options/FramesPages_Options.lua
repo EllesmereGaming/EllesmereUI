@@ -346,11 +346,22 @@ end
 ---------------------------------------------------------------------------
 --  Page Builder
 ---------------------------------------------------------------------------
+local BORDER_GRADIENT_STYLE_TIP = "Gradients are available for Solid, Glow, Shadow, Blizzard, Lightspark Border, Pixels and Pixels Textured."
+
 -- The Border Size slot's inline swatches (Custom | Class Colored): the two pick
 -- the mode, a click on the dimmed one switches to it. rgn = the slot.
 local function BorderColorSwatches(rgn)
     local env = ns._RFO_OptEnv
     local SGet, SVal, SWrite = env.SGet, env.SVal, env.SWrite
+    local function GradientEnabled(profile)
+        return profile.borderGradientEnabled and ns.RF_BorderGradientPainter(profile)
+    end
+    local function WriteGradientColor(r, g, b)
+        local color = { r=r, g=g, b=b }
+        SWrite("borderGradientColor", color)
+        env.ReloadAndUpdate()
+        return color
+    end
     local function IsClassColored()
         return SVal("borderClassColored", false)
     end
@@ -362,6 +373,32 @@ local function BorderColorSwatches(rgn)
         EllesmereUI:RefreshPage()
     end
     return {
+        { tooltip = "Gradient End Color",
+          disabled = function() return not GradientEnabled(env.db.profile) end,
+          disabledTooltip = function()
+              return ns.RF_BorderGradientPainter(env.db.profile) and "Enable Gradient" or BORDER_GRADIENT_STYLE_TIP
+          end,
+          rawTooltip = true,
+          getValue = function() return ns.RF_BorderGradientRGB(env.db.profile) end,
+          setValue = function(r, g, b)
+              if not env.optState._partyCtx and GradientEnabled(env.db.profile) then WriteGradientColor(r, g, b) end
+          end,
+          bindPicker = function()
+              local profile = env.db.profile
+              local oldColor = profile.borderGradientColor
+              local lastColor
+              return function(r, g, b)
+                  if env.db.profile ~= profile or env.optState._partyCtx
+                      or not GradientEnabled(profile) then return false end
+                  lastColor = WriteGradientColor(r, g, b)
+              end, function()
+                  if profile.borderGradientColor ~= lastColor then return false end
+                  profile.borderGradientColor = oldColor
+                  if env.db.profile ~= profile then return false end
+                  if ns._BumpAbsorbGen then ns._BumpAbsorbGen() end
+                  env.ReloadAndUpdate()
+              end
+          end },
         { tooltip = "Custom Color", hasAlpha = true,
           getValue = function() return ns.RF_BaseBorderColor(nil, SGet("borderColor"), SVal("borderAlpha", 1)) end,
           setValue = function(r, g, b, a)
@@ -995,17 +1032,54 @@ local function BuildMainPage(pageName, parent, yOffset)
     end
     do
         local rgn = borderStyleRow._rightRegion
-        -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog beside
-        -- the control, the Border swatches left of it.
-        EllesmereUI.BuildInlineCog(rgn, {
-            title = "Corner Radius", tip = "Corner Radius",
-            disabled = function() return not EllesmereUI.RoundedStyleOK(SGet("borderTexture")) end,
-            disabledTooltip = "This option requires the Solid, Glow or Shadow border style.",
-            rows = EllesmereUI.RoundedCornerRows({
+        local profile = db.profile
+        local function GradientUnavailable()
+            return optState._partyCtx or not ns.RF_BorderGradientPainter(profile)
+        end
+        local function SetGradientOption(key, value)
+            if db.profile ~= profile or GradientUnavailable() then return end
+            SSet(key, value)
+            EllesmereUI:RefreshPage()
+        end
+        local roundedRows = EllesmereUI.RoundedCornerRows({
                 { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
                   get = function() return SVal("cornerRadius", 0) end,
                   set = function(v) SSet("cornerRadius", v) end },
-            }, function() return SGet("cornerMask") end, function(v) SSet("cornerMask", v) end),
+            }, function() return SGet("cornerMask") end, function(v) SSet("cornerMask", v) end)
+        local function NotRounded() return not EllesmereUI.RoundedStyleOK(SGet("borderTexture")) end
+        for _, row in ipairs(roundedRows) do
+            local disabled, tip = row.disabled, row.disabledTooltip
+            row.disabled = function() return NotRounded() or (disabled and disabled()) end
+            row.disabledTooltip = function()
+                if NotRounded() then return "This option requires the Solid, Glow or Shadow border style." end
+                return tip
+            end
+        end
+        local function GradientTip()
+            if optState._partyCtx then return "Configure gradients on the Raid Frames tab." end
+            return BORDER_GRADIENT_STYLE_TIP
+        end
+        local gradientRows = {
+            { type = "toggle", label = "Enable Gradient",
+              tooltip = "Blends from your Custom or Class color to the Gradient End Color.",
+              disabled = GradientUnavailable, disabledTooltip = GradientTip, rawTooltip = true,
+              get = function() return profile.borderGradientEnabled end,
+              set = function(v) SetGradientOption("borderGradientEnabled", v) end },
+            { type = "dropdown", label = "Gradient Direction",
+              values = { HORIZONTAL = "Horizontal", VERTICAL = "Vertical" },
+              order = { "HORIZONTAL", "VERTICAL" },
+              disabled = GradientUnavailable, disabledTooltip = GradientTip, rawTooltip = true,
+              get = function()
+                  return profile.borderGradientDir == "VERTICAL" and "VERTICAL" or "HORIZONTAL"
+              end,
+              set = function(v) SetGradientOption("borderGradientDir", v) end },
+        }
+        for _, row in ipairs(gradientRows) do roundedRows[#roundedRows + 1] = row end
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Border Settings", tip = "Border Settings",
+            disabled = function() return EllesmereUI.BlizzStyle.Get("raidframes") end,
+            disabledTooltip = function() return EllesmereUI.BlizzStyle.Label("raidframes") end,
+            rows = roundedRows,
         })
         EllesmereUI.BuildInlineSwatches(rgn, BorderColorSwatches(rgn))
     end

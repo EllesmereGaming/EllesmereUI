@@ -121,7 +121,7 @@ end
 --  pieces draw in, and its pooled pieces -- outline hosts, separators and Grid
 --  Mode's empty backgrounds. Draw runs only when a cell or the style changed,
 --  and a piece takes the style again only when the style changed since it last
---  did (styleGen), so a roster change only moves pieces.
+--  did (styleGen). Gradient dividers also repaint when their sampled colors move.
 -------------------------------------------------------------------------------
 local raid, party, pets, raidPreview, partyPreview, petPreview
 
@@ -162,6 +162,15 @@ local function UpdateStyle(st, s)
     PutStyle(st, "shiftX", s.borderTextureShiftX); PutStyle(st, "shiftY", s.borderTextureShiftY)
     PutStyle(st, "behind", s.borderBehind); PutStyle(st, "r", c.r); PutStyle(st, "g", c.g); PutStyle(st, "b", c.b)
     PutStyle(st, "a", s.borderAlpha or 1); PutStyle(st, "bgR", r); PutStyle(st, "bgG", g); PutStyle(st, "bgB", b); PutStyle(st, "bgA", a)
+    local paint = not st.isPet and s.borderGradientEnabled and ns.RF_BorderGradientPainter(s)
+    local er, eg, eb, direction
+    if paint then
+        er, eg, eb = ns.RF_BorderGradientRGB(s)
+        direction = s.borderGradientDir == "VERTICAL" and "VERTICAL" or "HORIZONTAL"
+    end
+    PutStyle(st, "gradient", paint or nil)
+    PutStyle(st, "endR", er); PutStyle(st, "endG", eg); PutStyle(st, "endB", eb)
+    PutStyle(st, "gradientDir", direction)
     PutStyle(st, "one", EUI.PP.perfect / st.owner:GetEffectiveScale())
     PutStyle(st, "grid", grid)
     -- Textured Background on the empty backgrounds, as on the frames.
@@ -216,13 +225,20 @@ local function Host(st, index, first, x, y, w, h)
     if host._sg ~= st.styleGen or host._w ~= w or host._h ~= h then
         host._sg, host._w, host._h = st.styleGen, w, h
         EUI.ApplyBorderStyle(host, v.size, v.r, v.g, v.b, v.a, v.tex,
-            v.offX, v.offY, v.shiftX, v.shiftY, "unitframes", v.size, nil, v.px)
+            v.offX, v.offY, v.shiftX, v.shiftY, "unitframes", v.size, nil, v.px, v.gradient)
+        if v.gradient and not st.gridWidth then
+            v.gradient(host, v.r, v.g, v.b, v.endR, v.endG, v.endB, v.a, v.gradientDir)
+        end
+    end
+    if st.gridWidth then
+        v.gradient(host, v.r, v.g, v.b, v.endR, v.endG, v.endB, v.a, v.gradientDir,
+            x - st.gridLeft, st.gridTop - y, st.gridWidth, st.gridHeight)
     end
     host:Show()
 end
 
 -- A separator along one join (x, y: the join's top-left in the owner's scale).
-local function Seam(st, index, first, x, y, length, vertical)
+local function Seam(st, index, first, x, y, length, vertical, group)
     local t = st.seams[index]
     if not t then
         if not st.seamHost then st.seamHost = CreateFrame("Frame", nil, st.owner) end
@@ -240,6 +256,7 @@ local function Seam(st, index, first, x, y, length, vertical)
     end
     if t._sg ~= st.styleGen or t._vertical ~= vertical then
         t._sg, t._vertical = st.styleGen, vertical
+        t._gradientFrom, t._gradientTo = nil, nil
         t:SetDrawLayer("OVERLAY", vertical and 0 or 1)
         t:SetTexture(vertical and v.sepV or v.sepH)
         t:SetTexCoord(0, 1, 0, 1)
@@ -248,7 +265,42 @@ local function Seam(st, index, first, x, y, length, vertical)
     t:ClearAllPoints()
     t:SetPoint("TOPLEFT", first.frame, "TOPLEFT", x - first.x - (vertical and v.lead or 0), y - first.y + (vertical and 0 or v.lead))
     t:SetSize(vertical and v.thick or length, vertical and length or v.thick)
+    local width = v.gradient and (st.gridWidth or (group and group.w))
+    local height = width and (st.gridWidth and st.gridHeight or group.h)
+    if width and width > 0 and height > 0 then
+        -- Grid joins share raid bounds. Compact-only joins use their own outline's bounds.
+        local left = st.gridWidth and st.gridLeft or group.x
+        local top = st.gridWidth and st.gridTop or group.y
+        local from, to
+        if v.gradientDir == "VERTICAL" then
+            to = 1 - (top - y) / height
+            from = vertical and to - length / height or to
+        else
+            from = (x - left) / width
+            to = vertical and from or from + length / width
+        end
+        if t._gradientFrom ~= from or t._gradientTo ~= to then
+            EUI.PaintBorderGradientSpan(t, vertical and "VERTICAL" or "HORIZONTAL", v, from, to)
+            t._gradientFrom, t._gradientTo = from, to
+        end
+    elseif t._gradientFrom ~= nil then
+        t._gradientFrom, t._gradientTo = nil, nil
+        t:SetVertexColor(v.r, v.g, v.b, v.a)
+    end
     t:Show()
+end
+
+local function GroupSeams(st, group, gap, count)
+    local c = group.sorted[1]
+    local horizontal = group.growth == "LEFT" or group.growth == "RIGHT"
+    local n = (st.style.grid and not st.isPet) and 5 or group.count
+    local x, y = group.x, group.y
+    for i = 1, n - 1 do
+        count = count + 1
+        Seam(st, count, c, horizontal and x + i * (c.w + gap) or x,
+            horizontal and y or y - i * (c.h + gap), horizontal and group.h or group.w, horizontal, group)
+    end
+    return count
 end
 
 local function Draw(st)
@@ -266,6 +318,8 @@ local function Draw(st)
     local gap = st.layoutPixel or v.one
     local hostCount, emptyCount, seamCount = 0, 0, 0
     local minX, maxY, maxX, minY, area, first = nil, nil, nil, nil, 0, nil
+    local gridGradient = v.grid and v.gradient
+    st.gridWidth = nil
     for gi = 1, st.count do
         local group = st.groups[gi]
         local cells, n = group.cells, group.count
@@ -311,18 +365,24 @@ local function Draw(st)
                     end
                     f:Show()
                 end
-                n = 5
             end
             group.x, group.y, group.w, group.h = x, y, w, h
             minX, maxY = math.min(minX or x, x), math.max(maxY or y, y)
             maxX, minY = math.max(maxX or (x + w), x + w), math.min(minY or (y - h), y - h)
             area = area + (w + gap) * (h + gap)
             first = first or c
-            for i = 1, n - 1 do
-                seamCount = seamCount + 1
-                Seam(st, seamCount, c, horizontal and x + i * (c.w + gap) or x,
-                    horizontal and y or y - i * (c.h + gap), horizontal and h or w, horizontal)
-            end
+            if not gridGradient then seamCount = GroupSeams(st, group, gap, seamCount) end
+        end
+    end
+    -- The grid bounds are needed before tinting any of the dividers.
+    if first and gridGradient then
+        if maxX > minX and maxY > minY then
+            st.gridLeft, st.gridTop = minX, maxY
+            st.gridWidth, st.gridHeight = maxX - minX, maxY - minY
+        end
+        for gi = 1, st.count do
+            local group = st.groups[gi]
+            if group.count > 0 then seamCount = GroupSeams(st, group, gap, seamCount) end
         end
     end
     -- One outline round the groups only while they tile a rectangle (their padded

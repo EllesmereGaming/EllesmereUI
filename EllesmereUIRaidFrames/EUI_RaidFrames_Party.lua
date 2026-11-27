@@ -272,6 +272,7 @@ ns._partyProxy = setmetatable({}, {
             local pv = rawget(db.profile, "party_" .. key)
             if pv ~= nil then return pv end
         end
+        -- Raid-only border color mode and gradient settings always fall through to Raid.
         return db and db.profile and db.profile[key]
     end,
 })

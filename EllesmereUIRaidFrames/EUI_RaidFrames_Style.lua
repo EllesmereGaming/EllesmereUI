@@ -328,6 +328,16 @@ function ns.RF_BaseBorderColor(classToken, custom, alpha)
     return 0, 0, 0, alpha
 end
 
+function ns.RF_BorderGradientPainter(s)
+    local getPainter = EllesmereUI.GetBorderGradientPainter
+    if getPainter then return getPainter(s.borderTexture) end
+end
+
+function ns.RF_BorderGradientRGB(s)
+    local c = s.borderGradientColor or defaults.profile.borderGradientColor
+    return c.r, c.g, c.b
+end
+
 function ns.RF_VisibleHighlight(s, r, g, b, br, bg, bb)
     if br == nil then br, bg, bb = ns.RF_BaseBorderColor(nil, s.borderColor) end
     if math.abs(r - br) + math.abs(g - bg) + math.abs(b - bb) >= 0.15 then return r, g, b end
@@ -350,7 +360,7 @@ end
 
 local function TintClassBorder(border, r, g, b, a)
     local backdrop = EllesmereUI._bdBorderData and EllesmereUI._bdBorderData[border]
-    if backdrop and backdrop:IsShown() then
+    if backdrop and backdrop:IsShown() and not backdrop._euiBackdropGradient then
         -- Restyles and overlays can recolor the backdrop independently.
         local cr, cg, cb, ca = backdrop:GetBackdropBorderColor()
         if not (issecretvalue(cr) or issecretvalue(cg) or issecretvalue(cb) or issecretvalue(ca))
@@ -359,6 +369,22 @@ local function TintClassBorder(border, r, g, b, a)
             and abs(cb - b) < 0.000001 and abs(ca - a) < 0.000001 then return end
     end
     EllesmereUI.SetBorderStyleColor(border, r, g, b, a)
+end
+
+function ns.RF_TintCellBorder(border, s, highlighted, r, g, b, a)
+    if s.borderGradientEnabled and not highlighted then
+        local paint = ns.RF_BorderGradientPainter(s)
+        if paint then
+            local er, eg, eb = ns.RF_BorderGradientRGB(s)
+            local direction = s.borderGradientDir == "VERTICAL" and "VERTICAL" or "HORIZONTAL"
+            if paint(border, r, g, b, er, eg, eb, a, direction) then return end
+        end
+    end
+    if s.borderClassColored then
+        TintClassBorder(border, r, g, b, a)
+    else
+        EllesmereUI.SetBorderStyleColor(border, r, g, b, a)
+    end
 end
 
 function ns.RF_TintMatchedPowerBorder(host, r, g, b, a)
@@ -1022,11 +1048,7 @@ local function StyleButton(button)
         end
         if hlSize then r, g, b = ns.RF_VisibleHighlight(s, r, g, b, br, bg, bb) end
         d.borderFrame._hlBorderSize = nil
-        if s.borderClassColored then
-            TintClassBorder(d.borderFrame, r, g, b, a)
-        else
-            EllesmereUI.SetBorderStyleColor(d.borderFrame, r, g, b, a)
-        end
+        ns.RF_TintCellBorder(d.borderFrame, s, raised, r, g, b, a)
         if s.powerBorderMatchColor == true and d.powerBorderFrame and d.powerBorderFrame._powerArtMode == "divider" then
             ns.RF_ColorPowerDivider(d.powerBorderFrame, r, g, b, a)
         elseif s.borderClassColored then
@@ -1081,7 +1103,8 @@ local function StyleButton(button)
         EllesmereUI.ApplyBorderStyle(d.borderFrame, bs, bc.r, bc.g, bc.b, s.borderAlpha or 1,
             texKey, s.borderTextureOffset, s.borderTextureOffsetY,
             s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs, nil,
-            EllesmereUI.BorderPx(s.borderSizePx, bs, texKey))
+            EllesmereUI.BorderPx(s.borderSizePx, bs, texKey),
+            s.borderGradientEnabled and ns.RF_BorderGradientPainter(s))
         ApplyBorderColor()
         -- Rounded corners (EllesmereUI_RoundedCorners.lua; nothing at radius 0).
         -- The power border rides in the body so its edge strips round too.
