@@ -177,7 +177,30 @@ local function TBBMultiThresholdList(cfg)
     return list
 end
 
-local function ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, i, r, g, b, a, value, blizzAtlas)
+-- The fill the overlays cover: in charge hash mode only the full charges (the
+-- count bar's texture), so the recharging segment keeps its fill and shade.
+local function TBBThresholdRegion(bar)
+    if bar._chargeHashFillActive and bar._chargeHashCountTexture then
+        return bar._chargeHashCountTexture
+    end
+    return bar._bar:GetStatusBarTexture()
+end
+
+-- Re-points shown overlays when the charge hash fill turns on or off.
+local function AnchorTBBThresholdOverlays(bar)
+    local pool = bar._threshOverlays
+    if not pool or not bar._bar then return end
+    local region = TBBThresholdRegion(bar)
+    for i = 1, #pool do
+        local overlay = pool[i]
+        if overlay and overlay:IsShown() then
+            overlay:ClearAllPoints()
+            overlay:SetAllPoints(region)
+        end
+    end
+end
+
+local function ApplyTBBThresholdOverlay(overlay, region, texPath, orient, reverse, i, r, g, b, a, value, blizzAtlas)
     overlay:SetStatusBarTexture(texPath)
     overlay:SetOrientation(orient)
     overlay:SetReverseFill(reverse)
@@ -187,15 +210,14 @@ local function ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, i
     tex:SetVertexColor(r, g, b, a)
     tex:SetDrawLayer("ARTWORK", i)
     overlay:ClearAllPoints()
-    overlay:SetAllPoints(sb:GetStatusBarTexture())
+    overlay:SetAllPoints(region)
     overlay:SetMinMaxValues(value - 1, value)
     overlay:SetValue(0)
     overlay:Show()
 end
 
 local function SetupTBBThresholdOverlay(bar, cfg)
-    if not cfg.stackThresholdEnabled
-       or (cfg.trackType == "cooldown" and cfg.chargeHashLines == true) then
+    if not cfg.stackThresholdEnabled then
         HideTBBThresholdOverlaysFrom(bar, 1)
         return
     end
@@ -204,6 +226,7 @@ local function SetupTBBThresholdOverlay(bar, cfg)
     local texPath = EllesmereUI.ResolveTexturePath(TBB_TEXTURES, cfg.texture or "none", "Interface\\Buttons\\WHITE8x8")
     local orient  = cfg.verticalOrientation and "VERTICAL" or "HORIZONTAL"
     local reverse = cfg.reverseFill and true or false
+    local region  = TBBThresholdRegion(bar)
 
     local n = 0
     local list = TBBMultiThresholdList(cfg)
@@ -213,14 +236,14 @@ local function SetupTBBThresholdOverlay(bar, cfg)
             local t = list[i]
             local overlay = EnsureTBBThresholdOverlay(bar, i)
             if not overlay then break end
-            ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, i,
+            ApplyTBBThresholdOverlay(overlay, region, texPath, orient, reverse, i,
                 t.r or 0.8, t.g or 0.1, t.b or 0.1, t.a or 1, t.value or 5, bar._blizzFillAtlas)
             n = i
         end
     else
         local overlay = EnsureTBBThresholdOverlay(bar, 1)
         if overlay then
-            ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, 1,
+            ApplyTBBThresholdOverlay(overlay, region, texPath, orient, reverse, 1,
                 cfg.stackThresholdR or 0.8, cfg.stackThresholdG or 0.1,
                 cfg.stackThresholdB or 0.1, cfg.stackThresholdA or 1,
                 cfg.stackThreshold or 5, bar._blizzFillAtlas)
@@ -1230,5 +1253,6 @@ I.ApplyTBBChargeHashLines, I.ApplyTBBTickMarks = ApplyTBBChargeHashLines, ApplyT
 I.ApplyTrackedBuffBarSettings = ApplyTrackedBuffBarSettings
 I.CreateTrackedBuffBarFrame = CreateTrackedBuffBarFrame
 I.FeedTBBThresholdOverlay = FeedTBBThresholdOverlay
+I.AnchorTBBThresholdOverlays = AnchorTBBThresholdOverlays
 I.StableCooldownSpellID = StableCooldownSpellID
 I.broken = false

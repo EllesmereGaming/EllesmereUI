@@ -19,6 +19,7 @@ local _tbbWake, AnchorTBBSpark = I._tbbWake, I.AnchorTBBSpark
 local ApplyTBBChargeHashLines = I.ApplyTBBChargeHashLines
 local ApplyTBBTickMarks = I.ApplyTBBTickMarks
 local FeedTBBThresholdOverlay, _tbbCleanNum = I.FeedTBBThresholdOverlay, I._tbbCleanNum
+local AnchorTBBThresholdOverlays = I.AnchorTBBThresholdOverlays
 local ClearPandemic, CooldownBarSpellID = I.ClearPandemic, I.CooldownBarSpellID
 local SetRestoreNormalFill = I.SetRestoreNormalFill
 
@@ -177,6 +178,7 @@ _restoreTBBNormalFill = function(bar, cfg)
     end
 
     bar._chargeHashFillActive = nil
+    AnchorTBBThresholdOverlays(bar)
     bar._chargeHashDuration = nil
     -- The stock bar timer is not re-armed while its texture is hidden, so a mid-recharge exit from hash mode must force the original path to refresh.
     bar._cdNeedSet = true
@@ -358,6 +360,7 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
         if not bar._spark:IsShown() then bar._spark:Show() end
     end
     bar._chargeHashFillActive = true
+    if activating then AnchorTBBThresholdOverlays(bar) end
     bar._cdNeedSet = nil
     return true
 end
@@ -837,3 +840,4 @@ end
 
 I._UpdateCooldownBar = _UpdateCooldownBar
 I.broken = false
+
