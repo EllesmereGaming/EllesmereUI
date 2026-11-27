@@ -20,7 +20,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  (mailAltListTab): Characters (the roster), Guild (the guild roster, by last
 --  time online) or Friends (Forever has no character friend list: the
 --  Battle.net friends seen in this game, each character kept in
---  EllesmereUIDB.mailAltFriends so it stays listed while its player is away).
+--  EllesmereUIDB.mailAltFriends so it stays listed while its player is away,
+--  for 90 days after it was last seen).
 --  A friend of the other faction, in another region or on another ruleset
 --  (the letters its realm name ends in against this character's:
 --  EllesmereUI.RealmRulesetSuffix) shows dimmed: mail cannot reach it.
@@ -81,6 +82,7 @@ local wipe, sort = wipe, table.sort
 
 local DEFAULT_MAX, DEFAULT_MIN_LEVEL, DEFAULT_SORT = 10, 1, "recent"
 local MAX_ROWS   = 20       -- the Max Characters Shown slider's top
+local FRIEND_KEEP = 90 * 86400  -- a friend's character unseen this long is forgotten
 -- WoW Forever lists "Name Surname": a wider panel.
 local PANEL_W    = FOREVER and 200 or 170
 local ROW_H      = 22
@@ -314,8 +316,13 @@ local function GatherFriends(now)
     for i = 1, BNGetNumFriends() do RememberFriend(C_BattleNet.GetFriendAccountInfo(i), now) end
     local store = Friends()
     if not store then return end
+    local cutoff = now - FRIEND_KEEP
     for key, e in pairs(store) do
-        if type(e) == "table" and type(e.name) == "string" and e.class then contacts[key] = e end
+        if type(e) ~= "table" or (tonumber(e.seen) or 0) < cutoff then
+            store[key] = nil
+        elseif type(e.name) == "string" and e.class then
+            contacts[key] = e
+        end
     end
 end
 
