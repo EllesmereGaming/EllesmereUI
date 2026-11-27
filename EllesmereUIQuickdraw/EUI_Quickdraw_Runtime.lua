@@ -1180,6 +1180,12 @@ function ns.Refresh()
             v:Layout(v:GetPaletteIndex())
         end
     end
+
+    -- A menu's entries may be keybind text on the Cooldown Manager (its
+    -- Include Quickdraw Menus option); a key change reaches it through
+    -- UPDATE_BINDINGS, an entry change only through here. Debounced there.
+    local notify = EllesmereUI.CDMQuickdrawChanged
+    if notify then notify() end
 end
 
 -- Options-panel entry point, matching the suite's _G._<PREFIX>_ convention.

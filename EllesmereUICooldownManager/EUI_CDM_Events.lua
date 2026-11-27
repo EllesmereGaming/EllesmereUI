@@ -37,6 +37,18 @@ local function KeybindDebounceFire()
     UpdateCDMKeybinds()
 end
 
+-- Quickdraw's entries changed (EllesmereUIQuickdraw ns.Refresh, which runs on
+-- every options edit): the same debounce, and nothing unless Include Quickdraw
+-- Menus is on.
+function EllesmereUI.CDMQuickdrawChanged()
+    if not (ns.CDMQuickdrawKeybindsEnabled and ns.CDMQuickdrawKeybindsEnabled()) then return end
+    _keybindDue = GetTime() + 0.5
+    if not _keybindArmed then
+        _keybindArmed = true
+        C_Timer.After(0.5, KeybindDebounceFire)
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Event-Driven Runtime Maintenance
 --
