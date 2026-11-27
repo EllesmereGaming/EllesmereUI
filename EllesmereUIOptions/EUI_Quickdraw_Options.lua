@@ -250,8 +250,8 @@ initFrame:SetScript("OnEvent", function(self)
         local name = MenuMacroName(editPalette)
         local body = ns.BarMacroBody(editPalette)
         local icon = PaletteListIcon(PaletteRead(editPalette))
-        -- A macro takes a file ID or an icon name, not an atlas table (Pings,
-        -- outfits, a picked atlas) or another texture path.
+        -- A macro takes a file ID or an icon name, not an atlas table (such as
+        -- the Pings and outfit entries) or another texture path.
         if type(icon) == "string" then icon = icon:gsub("^[Ii]nterface\\[Ii]cons\\", "") end
         if type(icon) ~= "number" and (type(icon) ~= "string" or icon:find("\\", 1, true)) then
             icon = "INV_Misc_Bag_08"
