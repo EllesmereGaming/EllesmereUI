@@ -250,12 +250,12 @@ end
 -------------------------------------------------------------------------------
 -- A friend's key in the group store: the BattleTag, or for a friend added by
 -- character (no BattleTag) the character Blizzard whispers. Kept per account
--- id until the friend list changes size.
+-- id once found, until the friend list changes size.
 local keyById, sortById = {}, {}
 local function FriendKey(info)
     local id = info.bnetAccountID
     local key = keyById[id]
-    if key ~= nil then return key or nil end
+    if key then return key end
     local tag = info.battleTag
     if type(tag) == "string" and not IsSecret(tag) and tag ~= "" then
         key = tag
@@ -265,7 +265,7 @@ local function FriendKey(info)
             key = "title:" .. target
         end
     end
-    keyById[id] = key or false
+    keyById[id] = key
     return key
 end
 
@@ -321,29 +321,41 @@ local function BucketOf(g, info, key)
     return UNGROUPED
 end
 
--- The group an old Friends build wrote into a friend note, read once so those
--- groups come back. Nothing is written to the note.
+-- The group an old Friends build wrote into a friend note, read so those
+-- groups come back. Nothing is written to the note. A friend not readable
+-- yet is tried on a later rebuild; the flag holds the keys done until then,
+-- so a retry never undoes a move made since.
 local function MigrateNoteTags(g)
-    if g.friendGroupsTagMigrated then return end
+    local done = g.friendGroupsTagMigrated
+    if done == true then return end
     local total = BNGetNumFriends() or 0
     if total == 0 then return end
-    g.friendGroupsTagMigrated = true
+    if type(done) ~= "table" then done = {} end
+    local complete = true
     for i = 1, total do
         local info = C_BattleNet.GetFriendAccountInfo(i)
         local note = info and info.note
-        if type(note) == "string" and not IsSecret(note) then
+        if not info or IsSecret(note) then
+            complete = false
+        elseif type(note) == "string" then
             local s = note:find("||EUI:", 1, true)
             local e = s and note:find("||", s + 6, true)
             local name = e and CleanGroupName(note:sub(s + 6, e - 1))
             local key = name and FriendKey(info)
-            if key and not g.friendGroupsByTag[key] then
-                if not FindGroup(g, name) then
-                    g.friendGroups[#g.friendGroups + 1] = { name = name, collapsed = false }
+            if name and not key then
+                complete = false
+            elseif key and not done[key] then
+                done[key] = true
+                if not g.friendGroupsByTag[key] then
+                    if not FindGroup(g, name) then
+                        g.friendGroups[#g.friendGroups + 1] = { name = name, collapsed = false }
+                    end
+                    g.friendGroupsByTag[key] = name
                 end
-                g.friendGroupsByTag[key] = name
             end
         end
     end
+    g.friendGroupsTagMigrated = complete or done
 end
 
 -------------------------------------------------------------------------------
@@ -478,7 +490,9 @@ local function Rebuild()
     for i = 1, orderCount do
         local key = order[i]
         local list = buckets[key]
-        if list and #list > 0 then
+        -- A group of the user's shows even empty, so it can still be edited
+        if (list and #list > 0) or (not searchActive and key ~= FAV and key ~= UNGROUPED) then
+            if not list then buckets[key] = {} end
             renderedCount = renderedCount + 1
             rendered[renderedCount] = key
         end
