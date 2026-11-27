@@ -162,34 +162,37 @@ local pendingRegen      -- true while a combat-deferred rebuild is queued
 local styleDirty        -- a style copy was refused under aura restriction
 local liftHooked
 
--- The bar timer FS's look as one string, to detect settings changes.
+-- The bar timer's look as one string, to detect settings changes. Anchor and
+-- color come from settings: GetPoint/GetTextColor on the bar's own FS can
+-- return secrets once the bar has mirrored a secret value.
 local function TimerStyleSig(out, cfg)
     local path, size, flags = out:GetFont()
-    local r, g, b, a = out:GetTextColor()
     local sx, sy = out:GetShadowOffset()
     local sr, sg, sb, sa = out:GetShadowColor()
-    local point, _, relPoint, x, y = out:GetPoint(1)
+    local point, relPoint, x, y, justify = ns.TBBTimerAnchor(cfg)
     return table.concat({ tostring(path), tostring(size), tostring(flags),
-        r, g, b, a, sx or 0, sy or 0, sr, sg, sb, sa, tostring(out:GetJustifyH()),
-        tostring(point), tostring(relPoint), x or 0, y or 0,
+        sx or 0, sy or 0, sr, sg, sb, sa,
+        tostring(cfg.timerTextR), tostring(cfg.timerTextG),
+        tostring(cfg.timerTextB), tostring(cfg.timerTextA),
+        point, relPoint, x, y, justify,
         tostring(cfg.showTimer), tostring(cfg.timerPosition) }, "|")
 end
 
--- Copy the bar timer FS's look onto the engine FS. The carrier covers the
--- status bar the timer anchors to, so the same anchor lands in the same place.
+-- Give the engine FS the bar timer's look. The carrier covers the status bar
+-- the timer anchors to, so the same anchor lands in the same place.
 -- Only in the button's creation window or out of aura restriction.
 local function ApplyTimerStyle(fs, carrier, out, cfg)
     local path, size, flags = out:GetFont()
     fs:SetFont(path or (ns.GetCDMFont and ns.GetCDMFont())
         or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf",
         size or 11, flags or "")
-    fs:SetTextColor(out:GetTextColor())
+    ns.SetTBBTextColor(fs, cfg, "timer")
     fs:SetShadowOffset(out:GetShadowOffset())
     fs:SetShadowColor(out:GetShadowColor())
-    fs:SetJustifyH(out:GetJustifyH())
-    local point, _, relPoint, x, y = out:GetPoint(1)
+    local point, relPoint, x, y, justify = ns.TBBTimerAnchor(cfg)
+    fs:SetJustifyH(justify)
     fs:ClearAllPoints()
-    fs:SetPoint(point or "RIGHT", carrier, relPoint or point or "RIGHT", x or 0, y or 0)
+    fs:SetPoint(point, carrier, relPoint, x, y)
     fs:SetShown(cfg.showTimer and (cfg.timerPosition or "right") ~= "none" and true or false)
 end
 
@@ -412,8 +415,8 @@ function ns.TBBDecimals_Sync()
                 if fs and carrier and bar._timerText then
                     local styleSig = TimerStyleSig(bar._timerText, want.cfg)
                     if styleSig ~= boundStyle[want.index] then
-                        if AK.CanTouchButton(button)
-                            and pcall(ApplyTimerStyle, fs, carrier, bar._timerText, want.cfg) then
+                        if AK.CanTouchButton(button) then
+                            ApplyTimerStyle(fs, carrier, bar._timerText, want.cfg)
                             boundStyle[want.index] = styleSig
                         else
                             styleDirty = true

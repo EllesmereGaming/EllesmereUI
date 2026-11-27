@@ -758,6 +758,26 @@ local function LayoutIconDivider(tex)
     tex:Show()
 end
 
+-- Timer text anchor on the status bar: point, relativePoint, x, y, justifyH.
+-- From settings only: once the bar mirrors a secret value, GetPoint on the
+-- timer text returns secrets, so it can never be read back.
+-- Vertical bars place left/right OUTSIDE the (thin) bar.
+local function TBBTimerAnchor(cfg)
+    local pos = cfg.timerPosition or (cfg.showTimer and "right" or "none")
+    local tX, tY = cfg.timerX or 0, cfg.timerY or 0
+    if pos == "center" then return "CENTER", "CENTER", tX, tY, "CENTER" end
+    if pos == "top" then return "BOTTOM", "TOP", tX, 5 + tY, "CENTER" end
+    if pos == "bottom" then return "TOP", "BOTTOM", tX, -5 + tY, "CENTER" end
+    if cfg.verticalOrientation then
+        if pos == "left" then return "RIGHT", "LEFT", -5 + tX, tY, "RIGHT" end
+        return "LEFT", "RIGHT", 5 + tX, tY, "LEFT"
+    end
+    if pos == "left" then return "LEFT", "LEFT", 5 + tX, tY, "LEFT" end
+    return "RIGHT", "RIGHT", -5 + tX, tY, "RIGHT"
+end
+ns.TBBTimerAnchor = TBBTimerAnchor
+ns.SetTBBTextColor = SetTBBTextColor
+
 local function ApplyTrackedBuffBarSettings(bar, cfg)
     if not bar or not cfg then return end
     local sb = bar._bar
@@ -965,44 +985,15 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
     SetTBBTextColor(bar._nameText, cfg, "name")
     SetTBBTextColor(bar._stacksText, cfg, "stacks")
 
-    -- Timer text. Vertical bars honor the same position choices as horizontal: left/right sit OUTSIDE the (thin) bar, top/bottom above/below it, center inside.
+    -- Timer text (anchor table in TBBTimerAnchor, shared with the decimals text).
     local timerPos = cfg.timerPosition or (cfg.showTimer and "right" or "none")
     if timerPos ~= "none" then
         bar._timerText:Show()
         SetFont(bar._timerText, cfg.timerSize or 11)
         bar._timerText:ClearAllPoints()
-        local tX, tY = cfg.timerX or 0, cfg.timerY or 0
-        if isVert and timerPos == "center" then
-            bar._timerText:SetPoint("CENTER", sb, "CENTER", tX, tY)
-            bar._timerText:SetJustifyH("CENTER")
-        elseif isVert and timerPos == "top" then
-            bar._timerText:SetPoint("BOTTOM", sb, "TOP", tX, 5 + tY)
-            bar._timerText:SetJustifyH("CENTER")
-        elseif isVert and timerPos == "bottom" then
-            bar._timerText:SetPoint("TOP", sb, "BOTTOM", tX, -5 + tY)
-            bar._timerText:SetJustifyH("CENTER")
-        elseif isVert and timerPos == "left" then
-            bar._timerText:SetPoint("RIGHT", sb, "LEFT", -5 + tX, tY)
-            bar._timerText:SetJustifyH("RIGHT")
-        elseif isVert then
-            bar._timerText:SetPoint("LEFT", sb, "RIGHT", 5 + tX, tY)
-            bar._timerText:SetJustifyH("LEFT")
-        elseif timerPos == "center" then
-            bar._timerText:SetPoint("CENTER", sb, "CENTER", tX, tY)
-            bar._timerText:SetJustifyH("CENTER")
-        elseif timerPos == "top" then
-            bar._timerText:SetPoint("BOTTOM", sb, "TOP", tX, 5 + tY)
-            bar._timerText:SetJustifyH("CENTER")
-        elseif timerPos == "bottom" then
-            bar._timerText:SetPoint("TOP", sb, "BOTTOM", tX, -5 + tY)
-            bar._timerText:SetJustifyH("CENTER")
-        elseif timerPos == "left" then
-            bar._timerText:SetPoint("LEFT", sb, "LEFT", 5 + tX, tY)
-            bar._timerText:SetJustifyH("LEFT")
-        else
-            bar._timerText:SetPoint("RIGHT", sb, "RIGHT", -5 + tX, tY)
-            bar._timerText:SetJustifyH("RIGHT")
-        end
+        local point, relPoint, x, y, justify = TBBTimerAnchor(cfg)
+        bar._timerText:SetPoint(point, sb, relPoint, x, y)
+        bar._timerText:SetJustifyH(justify)
     else
         bar._timerText:Hide()
     end
