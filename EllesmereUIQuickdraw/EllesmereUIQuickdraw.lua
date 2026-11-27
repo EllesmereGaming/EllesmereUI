@@ -914,8 +914,10 @@ end
 function EllesmereUI.QuickdrawForEachBoundEntry(fn)
     local p = P()
     if not (p and p.enabled) then return end
+    -- rawget: the internals table errors on a missing entry, and BarKeys is
+    -- only there with Action Bar Macros.
     local I = ns._qdInternals
-    local barKeys = I and I.BarKeys
+    local barKeys = I and rawget(I, "BarKeys")
     local count = PaletteCount()
     local scratch
     for i = 1, count do
