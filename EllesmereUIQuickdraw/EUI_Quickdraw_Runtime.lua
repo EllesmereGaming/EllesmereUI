@@ -35,7 +35,7 @@ local ReleaseEscape, EnsureCancelButton = I.ReleaseEscape, I.EnsureCancelButton
 local LayoutModel, SNIPPET_POST, SNIPPET_PRE = I.LayoutModel, I.SNIPPET_POST, I.SNIPPET_PRE
 local EnsureGates, EnsureLatticeGates = I.EnsureGates, I.EnsureLatticeGates
 local gatePools, SetDB, SetReleaseSecureState = I.gatePools, I.SetDB, I.SetReleaseSecureState
-local BarKeys, SyncBarMacros = I.BarKeys, I.SyncBarMacros
+local BarKeys, SyncBarMacros, BarSlotPressed = I.BarKeys, I.SyncBarMacros, I.BarSlotPressed
 -- The signature loop's bar keys, reused: it runs on every options refresh.
 local sigBarKeys = {}
 
@@ -134,6 +134,14 @@ local function OnPreClick(self, button, down)
     -- already up. Everything they do happens in the snippet and in OnPostClick.
     if button == CONFIRM_BUTTON or button == CANCEL_BUTTON then return end
     if down then
+        -- A bar key (Action Bar Macros) shows its button pressed, as it would
+        -- with the bar's own action. Action Bars lights it and puts it out
+        -- when the key comes up.
+        local flash = EllesmereUI.ActionBarPushedFlash
+        if flash then
+            local slot = BarSlotPressed()
+            if slot then flash(slot) end
+        end
         -- A latched menu whose key is pressed again is toggling shut, not
         -- opening. Read before the snippet, which runs after this and is what
         -- clears the flag -- so this is the last moment it still says which of

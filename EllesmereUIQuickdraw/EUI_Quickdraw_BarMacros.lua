@@ -17,7 +17,7 @@ I.broken = true
 local tonumber, type = tonumber, type
 local GetActionInfo, GetActionText = GetActionInfo, GetActionText
 local GetMacroBody, GetMacroInfo = GetMacroBody, GetMacroInfo
-local GetBindingKey = GetBindingKey
+local GetBindingKey, IsKeyDown = GetBindingKey, IsKeyDown
 local EQD, P = I.EQD, I.P
 
 -- The menu number lives in the body, a # line the macro system ignores, so the
@@ -93,7 +93,7 @@ local function RebuildList()
         for s = first, first + 11 do
             local idx = slotPalette[s]
             if idx then
-                barList[#barList + 1] = { palette = idx, command = command .. (s - first + 1) }
+                barList[#barList + 1] = { palette = idx, command = command .. (s - first + 1), slot = s }
             end
         end
     end
@@ -128,6 +128,24 @@ function I.BarKeys(index, out)
         end
     end
     return n
+end
+
+-- IsKeyDown takes the key alone: "SHIFT-1" is held while "1" is. The minus
+-- key's name is "-" itself, which the pattern would not find.
+local function KeyHeld(key)
+    if not key then return false end
+    local base = key:sub(-1) == "-" and "-" or key:match("[^%-]+$")
+    return base ~= nil and IsKeyDown(base)
+end
+
+-- The tracked slot whose key is held, for the bar's pressed look: the press
+-- reaches the menu's button, not the bar's, so nothing else lights it.
+function I.BarSlotPressed()
+    for e = 1, #barList do
+        local entry = barList[e]
+        local k1, k2 = GetBindingKey(entry.command)
+        if KeyHeld(k1) or KeyHeld(k2) then return entry.slot end
+    end
 end
 
 -- Fires for every slot redraw (assisted combat dirties its slot several times
