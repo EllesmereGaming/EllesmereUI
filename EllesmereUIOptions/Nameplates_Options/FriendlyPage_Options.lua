@@ -853,6 +853,17 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
             UpdatePreview()
           end });  y = y - h
 
+    -- Health Ticks and Health Animations switches for the health bar plate
+    -- (Nameplate style only, as the bar's own rows).
+    if plateStyle and EllesmereUI.HealthTicksPlaceCfg and EllesmereUI.HealthAnimationsPlaceCfg then
+        local ticks, anim = EllesmereUI.HealthTicksPlaceCfg("friendly"), EllesmereUI.HealthAnimationsPlaceCfg("friendly")
+        local placeRow
+        placeRow, h = W:DualRow(parent, y, ticks, anim.damage);  y = y - h
+        ticks.attach(placeRow._leftRegion)
+        anim.AddEditLook(placeRow._rightRegion)
+        _, h = W:DualRow(parent, y, anim.heal, EllesmereUI.BlankRowCfg());  y = y - h
+    end
+
     ---------------------------------------------------------------
     --  Friendly pets: the pet plate's owner line
     ---------------------------------------------------------------
