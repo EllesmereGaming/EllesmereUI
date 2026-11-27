@@ -1548,15 +1548,7 @@ local function CollectAndReanchor()
                                 local base = C_Spell.GetBaseSpell(sid)
                                 if base and base > 0 and _globalClaimSet[base] then hasClaim = true end
                             end
-                            -- An entry an aura icon of ours draws (EUI_CDM_AuraIcons.lua:
-                            -- a registered provider's spell ID), native-first like a racial.
-                            local auraF = not hasClaim and ns.CDM_AuraIconFor
-                                and ns.CDM_AuraIconFor(barKey, sid)
-                            if auraF then
-                                frames[#frames + 1] = auraF
-                                local fc = FC(auraF)
-                                fc.barKey = barKey; fc.spellID = sid
-                            elseif not hasClaim then
+                            if not hasClaim then
                                 local isRacial = ns._myRacialsSet and ns._myRacialsSet[sid]
                                 local isCustomSpell = sd and sd.customSpellIDs and sd.customSpellIDs[sid]
                                 -- WoW Forever: the highest rank of a typed spell this
