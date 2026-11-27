@@ -250,34 +250,33 @@ end
 -- Self-timed presets (lust/potions/Time Spiral) are excluded -- they already
 -- render tenths from their own clean, never-secret countdown.
 --
--- Two passes. Pass 1 collects each bar's SAVED identity (stored ids + override/base
--- variants) and claims those ids for that bar. Pass 2 adds the cooldownInfo enrichment,
--- but an id claimed by a DIFFERENT decimal bar's saved config never leaks in: spell
--- families share one cooldownInfo (ritual + art chains list each other in
--- linkedSpellIDs), and family-wide filters on two bars made the engine bind the live
--- aura to whichever slot it liked -- the losing bar showed no decimals at all.
+-- Two passes. Pass 1 collects each aura bar's SAVED identity (stored ids + override/base
+-- variants) and claims those ids for that bar -- every enabled aura bar, Decimals on or
+-- not. Pass 2 adds the cooldownInfo enrichment, but an id claimed by a DIFFERENT bar's
+-- saved config never leaks in: spell families share one cooldownInfo (ritual + art
+-- chains list each other in linkedSpellIDs), and a borrowed id another bar tracks let
+-- the engine bind that bar's aura to this slot (wrong time, or "0.0").
 local function CollectDesired()
     local tbb = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
     local bars = tbb and tbb.bars
     if not bars then return nil, "" end
 
-    local work, claimed
+    local work
+    local claimed = {}
     for i, cfg in ipairs(bars) do
-        if cfg.enabled ~= false and cfg.timerDecimals and not cfg.popularKey
-           and cfg.trackType ~= "cooldown" then
+        if cfg.enabled ~= false and cfg.trackType ~= "cooldown" then
             local include = {}
             AddVariants(include, cfg.spellID)
             AddVariants(include, cfg.baseSpellID)
             if cfg.spellIDs then
                 for k = 1, #cfg.spellIDs do AddVariants(include, cfg.spellIDs[k]) end
             end
-            if next(include) then
+            for id in pairs(include) do
+                if claimed[id] == nil then claimed[id] = i end
+            end
+            if cfg.timerDecimals and not cfg.popularKey and next(include) then
                 work = work or {}
-                claimed = claimed or {}
                 work[#work + 1] = { index = i, cfg = cfg, include = include }
-                for id in pairs(include) do
-                    if claimed[id] == nil then claimed[id] = i end
-                end
             end
         end
     end
