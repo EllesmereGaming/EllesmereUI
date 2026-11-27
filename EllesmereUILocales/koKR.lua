@@ -3463,6 +3463,15 @@ L["Gilded Sentinel"] = "황금빛 파수병"
 L["Rift Stalker"] = "균열 추적자"
 L["Shadowguard Brute"] = "어둠수호병 싸움꾼"
 L["Void Ravager"] = "공허 약탈자"
+-- 2026-11-27 유닛 프레임: 테두리 그라데이션 (유닛/공격대 프레임 공용 포함)
+L["Gradients are available for Solid, Glow, Shadow, Blizzard, Lightspark Border, Pixels and Pixels Textured."] = "그라데이션은 단색, 반짝임, 그림자, 블리자드, 빛나는 섬광 테두리, 픽셀 및 픽셀 텍스처 스타일에서만 사용할 수 있습니다."
+L["Blends the border color to the Gradient End Color."] = "테두리 색상을 그라데이션 끝 색상으로 자연스럽게 이어 줍니다."
+L["Blends from your Custom or Class color to the Gradient End Color."] = "사용자 지정 색상 또는 직업 색상에서 그라데이션 끝 색상으로 자연스럽게 이어 줍니다."
+L["Inherit (Main Frames) follows the border and gradient of the first available frame in this order: Focus, Target, then Player."] = "'상속 (주 프레임)'은 주시 대상, 대상, 플레이어 순서로 사용 가능한 첫 프레임의 테두리와 그라데이션을 따릅니다."
+L["Follow Copy Look From"] = "'외형 복사 기준' 따르기"
+L["Use the gradient settings from the main frame this frame copies its look from."] = "이 프레임이 외형을 복사해 오는 주 프레임의 그라데이션 설정을 그대로 사용합니다."
+L["Turn off Follow Copy Look From to edit this frame's gradient."] = "이 프레임의 그라데이션을 편집하려면 '외형 복사 기준' 따르기를 끄세요."
+L["Gradient End Color. Active Elite/Rare overrides use their own end color."] = "그라데이션 끝 색상입니다. 정예/희귀 색상 재정의가 활성화되어 있으면 각 재정의의 끝 색상을 사용합니다."
 
 -- == add RaidFrames (공격대 프레임) =============================================
 L["Previewing Override: %1$s"] = "재정의 미리보기: %1$s"
@@ -3883,6 +3892,8 @@ L["This option is only available with the Down and then Right or Right and then 
 L["Groups Before Wrap"] = "줄바꿈 전 파티 수"
 L["How many groups fill each row or column before the next one starts."] = "다음 줄이나 열로 넘어가기 전에 한 줄 또는 한 열에 배치할 파티 수입니다."
 L["Class colors require individual frame borders. Disable Compact Mode first."] = "직업 색상은 개별 프레임 테두리가 필요합니다. 먼저 밀착 모드를 꺼 주세요."
+-- 2026-11-27 공격대 프레임: 테두리 그라데이션
+L["Configure gradients on the Raid Frames tab."] = "그라데이션은 공격대 프레임 탭에서 설정하세요."
 L["Heal Absorb Style"] = "치유 흡수 모양"
 L["Healers, Tanks"] = "치유 전담, 방어 전담"
 L["Health Bar Texture"] = "생명력 바 텍스처"
@@ -7599,6 +7610,7 @@ L["Saves the most recent lines per chat tab (per character), except Blizzard's c
 L["Scroll to Bottom"] = "맨 아래로 스크롤"
 L["Voice/Channels"] = "음성/채널"
 L["Chat Menu"] = "대화 메뉴"
+L["Only works in the General tab"] = "일반 탭에서만 사용할 수 있습니다"
 L["When enabled, Shift+Click any sidebar icon to drag it to a custom position."] = "활성화 시 사이드바 아이콘을 쉬프트+클릭하여 원하는 위치로 끌 수 있습니다."
 L["Your chat position is now controlled by Blizzard Edit Mode.\nPlease adjust its position there."] = "채팅창 위치는 이제 블리자드 편집 모드에서 제어합니다.\n해당 메뉴에서 위치를 조정해 주세요."
 L["Separates the sidebar from the chat panel and gives it its own background and border."] = "사이드바를 채팅 패널에서 분리해 별도의 배경과 테두리를 적용합니다."
@@ -9085,6 +9097,7 @@ L["Only show this bar while the tracked buff/cooldown is active. Unchecked keeps
 L["Precise Below (minutes, 0 = off)"] = "이하일 때 정밀 표시 (분 단위, 0 = 끔)"
 L["Decimals Below (seconds, 0 = off)"] = "이하일 때 소수점 표시 (초 단위, 0 = 끔)"
 L["Color Below (seconds, 0 = off)"] = "이하일 때 색상 변경 (초 단위, 0 = 끔)"
+L["Color Below"] = "이하일 때 색상 변경"
 L["Color When Below"] = "이하일 때 색상"
 L["This will create a fully unique Buff Manager for this conditional group. Changes made to your default Buff Manager will no longer affect it."] = "이 조건부 그룹을 위한 완전히 독립된 강화 효과 관리자를 생성합니다. 기본 강화 효과 관리자를 변경해도 이 그룹에는 더 이상 영향을 주지 않습니다."
 L["This will create a fully unique Buff Manager for this override group. Changes made to your default Buff Manager will no longer affect these specs."] = "이 오버라이드 그룹을 위한 완전히 독립된 강화 효과 관리자를 생성합니다. 기본 강화 효과 관리자를 변경해도 이 전문화들에는 더 이상 영향을 주지 않습니다."
@@ -15048,3 +15061,36 @@ L["Cast bar textures with a gradient or pattern are no longer squeezed into the 
 L["Under Blizzard Style and WoW Forever Style the cast bar background no longer shows in the empty icon slot when the cast icon is moved with its offsets."] = "블리자드 스타일과 WoW 포에버 스타일에서 위치 보정으로 시전 아이콘을 옮겨도 비어 있는 아이콘 자리에 시전 바 배경이 나타나지 않습니다."
 L["The options preview draws a detached power bar above or below the frame as the live frame does, following the Detached Power Bar strata."] = "설정 미리보기에서도 실제 프레임과 마찬가지로 '분리된 자원 바'의 레이어 설정에 따라 자원 바가 프레임의 위나 아래에 표시됩니다."
 L["Traditional Chinese, Portuguese (Brazil) and Spanish translations updated."] = "중국어 번체, 포르투갈어(브라질) 및 스페인어 번역을 업데이트했습니다."
+
+-- ============================================================================
+-- v9.9.6 패치 노트 (Patch Notes v9.9.6)
+-- ============================================================================
+-- 주요 기능 (Features)
+L["Click Well Fed to Eat"] = "포만감 알림을 클릭해 음식 먹기"
+L["Clicking the Well Fed reminder eats a buff food from your bags: your Action Picker pick, else the food you last ate, else the best one you can eat"] = "'포만감' 알림을 클릭하면 가방의 강화 효과 음식을 먹습니다. '시전 기술 선택'에서 고른 음식, 마지막으로 먹은 음식, 지금 먹을 수 있는 가장 좋은 음식 순서로 사용합니다"
+L["The character sheet shows your average item level under Blizz Default too, and the character and inspect sheets each gain a Show Average Item Level toggle"] = "'블리자드 기본' 스타일의 캐릭터 창에도 평균 아이템 레벨이 표시됩니다. 캐릭터 창과 살펴보기 창에는 각각 '평균 아이템 레벨 표시' 옵션이 추가되었습니다"
+L["Tracking Bars can follow the cooldown of any spell by its ID: pick Custom Cooldown ID in a bar's spell picker"] = "추적 바에서 주문 ID로 모든 주문의 재사용 대기시간을 추적할 수 있습니다. 바의 주문 선택 메뉴에서 '사용자 지정 재사용 대기시간 ID'를 선택하세요"
+L["Glows for Custom Spells"] = "사용자 지정 주문 반짝임"
+L["Spells added by ID now glow on procs like tracked spells, and their menu gains Proc Glow and Max Charges Glow"] = "ID로 추가한 주문도 추적 중인 주문처럼 발동 시 반짝입니다. 주문 메뉴에 '발동 시 반짝임'과 '최대 충전 시 반짝임'이 추가되었습니다"
+L["Hidden Until Castable"] = "시전 가능할 때만 표시"
+L["A new Cooldown State Effect shows an icon only while its spell can be cast right now: usable, off cooldown and with enough resources. Works on spells added by ID too"] = "'재사용 대기 중 스타일'에 새로운 옵션이 추가되었습니다. 주문을 사용할 수 있고 재사용 대기시간이 끝났으며 자원이 충분할 때만 아이콘을 표시합니다. ID로 추가한 주문에도 적용됩니다"
+L["Flight Times That Learn"] = "실제 비행 시간 기록"
+L["After you fly a route once, the flight timer and the flight map tooltip show its real time"] = "비행 경로를 한 번 이용하면 비행 시간 표시와 비행 지도 툴팁에 실제 소요 시간이 표시됩니다"
+L["Decimals Below and Color Below"] = "남은 시간에 따른 소수점과 색상"
+L["A bar's Duration Text cog can show tenths of a second, and change the text's color, once an aura has only a few seconds left"] = "바의 '지속시간 글자' 톱니바퀴 메뉴에서 오라가 몇 초 남았을 때 0.1초 단위로 표시하거나 글자 색상을 바꾸도록 설정할 수 있습니다"
+
+-- 수정 사항 (Fixes)
+L["Raid Buffs reminders no longer count caster talent specs, such as Restoration druids or Holy paladins, as missing Battle Shout when their addons share their spec."] = "공격대 강화 효과 알림에서 회복 드루이드나 신성 성기사처럼 주문을 주로 사용하는 전문화의 경우, 애드온을 통해 전문화 정보가 공유되면 전투의 외침이 누락된 것으로 집계하지 않습니다."
+L["The reminder row now shows Raid Buffs first, then Self Buffs, then Consumables."] = "알림 행은 이제 공격대 강화 효과, 개인 강화 효과, 소모품 순서로 표시됩니다."
+L["Divine Spirit reminders, and the Missing Buffs Spirit icon on Raid & Party Frames, no longer count warriors and rogues."] = "천상의 정신 알림과 공격대 및 파티 프레임의 '누락된 강화 효과' 정신력 아이콘에서 전사와 도적을 집계하지 않습니다."
+L["Tracking Bars for custom buff IDs now show their fill, timer and stacks in dungeon and raid combat, also for buffs Blizzard's Cooldown Manager does not track. The game draws these bars, so they show no corner radius, threshold colors, tick marks or Pandemic Glow."] = "던전과 공격대 전투 중에도 사용자 지정 강화 효과 ID의 추적 바에 채움 상태, 남은 시간, 중첩 수가 표시됩니다. 블리자드 재사용 대기시간 관리자가 추적하지 않는 강화 효과에도 적용됩니다. 게임이 직접 그리는 바에는 모서리 곡률, 임계값 색상, 눈금, 팬데믹 반짝임이 표시되지 않습니다."
+L["On buff bars with Always Show Buffs or Keep Buffs in Same Place, a custom spell ID now shows in its place in the bar's order instead of at the end."] = "'강화 효과 항상 표시' 또는 '강화 효과를 같은 위치에 유지'를 사용하는 강화 효과 바에서 사용자 지정 주문 ID가 설정한 순서에 맞는 위치에 표시됩니다."
+L["Spells added by ID now show their charges like spells from Blizzard's Cooldown Manager, with no Show Charges checkbox, and keep showing the recharge while a charge is in hand."] = "ID로 추가한 주문도 블리자드 재사용 대기시간 관리자의 주문처럼 충전 수를 표시합니다. 별도의 '충전 수 표시' 체크박스가 필요 없으며, 사용할 수 있는 충전이 남아 있어도 다음 충전까지 남은 시간을 계속 표시합니다."
+L["Tracking Bars with Charge Hash Lines now show the Stack Threshold color."] = "'충전 구분선'을 켠 추적 바에도 '중첩 임계값' 색상이 표시됩니다."
+L["Tracking Bars with Decimals on now show tenths of a second in Mythic+ and raid combat too."] = "'소수점'을 켠 추적 바에는 쐐기돌과 공격대 전투 중에도 0.1초 단위로 표시됩니다."
+L["The flight timer now follows flights the server speeds up partway, so it reaches 0:00 as you land."] = "서버가 비행 도중 속도를 높이는 경우에도 비행 시간이 보정되어 착륙할 때 0:00에 도달합니다."
+L["Spell ID on Tooltip now shows on spells with charges in Mythic+ and raid combat."] = "쐐기돌과 공격대 전투 중에도 충전형 주문에 '툴팁 주문 ID'가 표시됩니다."
+L["Hovering the mail icon no longer causes an error when a recent sender is unknown."] = "최근 우편의 발신자를 알 수 없을 때 우편 아이콘에 마우스를 올리면 오류가 나던 문제를 수정했습니다."
+L["With the round Blizzard Style map at the top of the screen, the zone bar and its zone name now stay on screen."] = "원형 블리자드 스타일 미니맵을 화면 상단에 배치해도 지역 바와 지역 이름이 화면 안에 표시됩니다."
+L["Pet frames now show debuffs, dispel highlights and Buff Manager indicators."] = "소환수 프레임에도 약화 효과, 해제 강조 표시, 강화 효과 표시기가 나타납니다."
+L["German, Korean, Simplified Chinese and Traditional Chinese translations updated."] = "독일어, 한국어, 중국어 간체 및 중국어 번체 번역을 업데이트했습니다."
