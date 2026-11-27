@@ -1115,11 +1115,20 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                 btn.duration:SetFont(fontPath, style.durationFontSize or 11, "OUTLINE")
                 btn.duration:SetPoint(style.durationPoint or "CENTER", btn, style.durationRelPoint or "CENTER",
                     style.durationX or 0, style.durationY or 0)
+                local pv = slot.pv or i
+                local pvDur = PREVIEW_DURATIONS[((pv - 1) % #PREVIEW_DURATIONS) + 1]
                 local dc = style.durationColor
+                if style.durationColorBelowThreshold and pvDur < style.durationColorBelowThreshold then
+                    dc = style.durationColorBelow
+                end
                 btn.duration:SetTextColor(dc and dc.r or 1, dc and dc.g or 1, dc and dc.b or 1)
                 btn.duration:SetShown(not style.hideDurationText)
-                local pv = slot.pv or i
-                btn.duration:SetText(PREVIEW_DURATIONS[((pv - 1) % #PREVIEW_DURATIONS) + 1])
+                local decAt = style.durationDecimalThreshold
+                if decAt and pvDur < decAt then
+                    btn.duration:SetText(string.format("%.1f", pvDur))
+                else
+                    btn.duration:SetText(pvDur)
+                end
 
                 btn.stack:ClearAllPoints()
                 btn.stack:SetFont(fontPath, style.stackFontSize or 11, "OUTLINE")

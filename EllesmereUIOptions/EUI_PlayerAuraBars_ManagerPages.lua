@@ -1070,6 +1070,18 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
             { type = "slider", label = "Precise Below (minutes, 0 = off)", min = 0, max = 90, step = 1,
               get = function() return cfg.durationPrecisionThreshold and cfg.durationPrecisionThreshold / 60 or 0 end,
               set = function(v) cfg.durationPrecisionThreshold = v > 0 and math.floor(v * 60 + 0.5) or nil; apply() end },
+            { type = "slider", label = "Decimals Below (seconds, 0 = off)", min = 0, max = 10, step = 1,
+              get = function() return cfg.durationDecimalThreshold or 0 end,
+              set = function(v) cfg.durationDecimalThreshold = v > 0 and v or nil; apply() end },
+            { type = "slider", label = "Color Below (seconds, 0 = off)", min = 0, max = 30, step = 1,
+              get = function() return cfg.durationColorBelowThreshold or 0 end,
+              set = function(v) cfg.durationColorBelowThreshold = v > 0 and v or nil; apply() end },
+            { type = "colorpicker", label = "Color",
+              get = function() return cfg.durationColorBelowR or 1, cfg.durationColorBelowG or 0.25, cfg.durationColorBelowB or 0.25 end,
+              set = function(r, g, b)
+                  cfg.durationColorBelowR, cfg.durationColorBelowG, cfg.durationColorBelowB = r, g, b
+                  apply()
+              end },
         } })
         local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
             rgn, dsRow:GetFrameLevel() + 3,

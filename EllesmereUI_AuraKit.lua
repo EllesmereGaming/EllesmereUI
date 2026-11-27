@@ -85,7 +85,7 @@ local function SecondsRoundDown()
     return secondsDown
 end
 
-local function BuildRuleDurationFormatter(withSecondsUnit, preciseThreshold)
+local function BuildRuleDurationFormatter(withSecondsUnit, preciseThreshold, decimalThreshold)
     if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter
         and Enum.NumericRuleFormatRounding) then
         return nil
@@ -136,6 +136,12 @@ local function BuildRuleDurationFormatter(withSecondsUnit, preciseThreshold)
             days,
         }
     end
+    -- Decimals Below: tenths under the threshold, whole seconds from it up.
+    if decimalThreshold then
+        seconds.threshold = decimalThreshold
+        table.insert(points, 1, { threshold = 0, format = withSecondsUnit and "%.1fs" or "%.1f",
+            rounding = Enum.NumericRuleFormatRounding.Nearest })
+    end
     local ok = pcall(formatter.SetBreakpoints, formatter, points)
     if not ok then return nil end
     return formatter
@@ -165,7 +171,9 @@ end
 -- (every pre-existing caller) returns the bare-seconds formatter. The
 -- SecondsFormatter fallback shows the unit in both variants (it cannot drop
 -- it) -- the accepted degraded look either way.
-function AK.GetDurationFormatter(showSecondsUnit, preciseThreshold)
+-- decimalThreshold (seconds, optional): tenths below it. Pair it with
+-- AK.DECIMAL_UPDATE_INTERVAL or the tenths only redraw once a second.
+function AK.GetDurationFormatter(showSecondsUnit, preciseThreshold, decimalThreshold)
     preciseThreshold = tonumber(preciseThreshold)
     if preciseThreshold and preciseThreshold > 0 then
         -- The UI tops out at 90 minutes, where the hours begin. Clamp saved and
@@ -173,9 +181,21 @@ function AK.GetDurationFormatter(showSecondsUnit, preciseThreshold)
         -- of order.
         preciseThreshold = math.max(60, math.floor(preciseThreshold + 0.5))
         if preciseThreshold > 5400 then preciseThreshold = 5400 end
-        local key = (showSecondsUnit and "s" or "b") .. preciseThreshold
+    else
+        preciseThreshold = nil
+    end
+    decimalThreshold = tonumber(decimalThreshold)
+    if decimalThreshold and decimalThreshold > 0 then
+        -- Stay under the next band's 60.
+        decimalThreshold = math.min(59, math.max(1, math.floor(decimalThreshold + 0.5)))
+    else
+        decimalThreshold = nil
+    end
+    if preciseThreshold or decimalThreshold then
+        local key = (showSecondsUnit and "s" or "b") .. (preciseThreshold or 0) .. "d" .. (decimalThreshold or 0)
         if preciseDurationFormatters[key] == nil then
-            preciseDurationFormatters[key] = BuildRuleDurationFormatter(showSecondsUnit, preciseThreshold) or false
+            preciseDurationFormatters[key] = BuildRuleDurationFormatter(showSecondsUnit,
+                preciseThreshold, decimalThreshold) or false
         end
         return preciseDurationFormatters[key] or AK.GetDurationFormatter(showSecondsUnit)
     end
@@ -189,6 +209,21 @@ function AK.GetDurationFormatter(showSecondsUnit, preciseThreshold)
         durationFormatter = BuildRuleDurationFormatter() or BuildSecondsDurationFormatter()
     end
     return durationFormatter
+end
+
+AK.DECIMAL_UPDATE_INTERVAL = 0.1
+
+-- Stamp for live duration rebinds (d.durationFmtS). Suffixes only when set,
+-- keeping the "b<threshold>" shape the Unit Frame rebind compares against.
+function AK.DurationFmtStamp(style)
+    local stamp = (style.durationShowSeconds and "s" or "b") .. tostring(style.durationPrecisionThreshold or 0)
+    if style.durationDecimalThreshold then
+        stamp = stamp .. "d" .. tostring(style.durationDecimalThreshold)
+    end
+    if style.durationColorKey then
+        stamp = stamp .. "c" .. style.durationColorKey
+    end
+    return stamp
 end
 
 ------------------------------------------------------------------------------
@@ -1369,12 +1404,13 @@ function AK.MakeInitializer(styleKey, extra, rec)
         -- neighboring non-AuraKit display supplies its own rule formatter.
         -- Omitted (every pre-existing style) keeps the shared one.
         local durationOpts = AK.BuildDurationTextOpts(
-            style.durationFormatter or AK.GetDurationFormatter(style.durationShowSeconds, style.durationPrecisionThreshold),
+            style.durationFormatter or AK.GetDurationFormatter(style.durationShowSeconds,
+                style.durationPrecisionThreshold, style.durationDecimalThreshold),
             style.durationColorCurve, style.durationUpdateInterval)
         AK.SetDurationTextSafe(button, d.duration, durationOpts)
         -- Formatter-choice stamp for live rebinds (style.applyExtra reruns on
         -- restyles; duration opts otherwise land only here at creation).
-        d.durationFmtS = (style.durationShowSeconds and "s" or "b") .. tostring(style.durationPrecisionThreshold or 0)
+        d.durationFmtS = AK.DurationFmtStamp(style)
 
         -- Creation-time guarantee, stamp-guarded: ApplyStyleToRegions above already
         -- wires the click token on this pass, so this only fires if that call was

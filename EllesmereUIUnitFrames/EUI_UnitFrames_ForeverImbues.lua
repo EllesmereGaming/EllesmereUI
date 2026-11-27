@@ -192,7 +192,8 @@ local function Paint(c, s)
     local b = c.binding
     if b then
         c.dur:SetTimeFromEnd(s.endTime, s.total)
-        local fmt = AK.GetDurationFormatter(style.durationShowSeconds, style.durationPrecisionThreshold)
+        local fmt = AK.GetDurationFormatter(style.durationShowSeconds, style.durationPrecisionThreshold,
+            style.durationDecimalThreshold)
         if fmt then b:SetFormatter(fmt) end
         if style.durationUpdateInterval then b:SetUpdateInterval(style.durationUpdateInterval) end
         local tc = style.durationColorCurve and AK.DurationTextColor(style.durationColorCurve)
