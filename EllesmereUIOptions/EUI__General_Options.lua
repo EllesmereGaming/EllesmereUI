@@ -1292,15 +1292,16 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -------------------------------------------------------------------
-        --  TOP SECTION: one row, Reset EUI Module Settings | Optimize My FPS
-        --  and Graphics | Uninstall EUI. While a graphics backup exists the
-        --  Optimize card restores it instead.
+        --  TOP SECTION: two lines, Optimize My FPS and Graphics | Debug Mode,
+        --  then Reset EUI Module Settings | Uninstall EUI. While a graphics
+        --  backup exists the Optimize card restores it instead.
         -------------------------------------------------------------------
         local MEDIA_ICONS = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
         -- Red for stop (Reset ALL, Uninstall, Restore), EllesmereUI's own green
         -- (#0cd29d) for go (Optimize and its link): fixed, never the theme accent.
         local WARN = { r = 0.9, g = 0.3, b = 0.3 }
         local GO = { r = 0x0c / 255, g = 0xd2 / 255, b = 0x9d / 255 }
+        local DEBUG_Y = { r = 1, g = 0.84, b = 0 }
 
         -- Reset ALL's wipe: every EUI addon back to its defaults.
         local function ResetAllNow()
@@ -1356,13 +1357,16 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
             -- Game settings, not EUI ones: the record of the settings from
-            -- before EUI (Uninstall EUI) and Optimize Graphics' Restore values.
+            -- before EUI (Uninstall EUI), Optimize Graphics' Restore values and
+            -- the addons Debug Mode turned off.
             local oldRestore = EllesmereUIDB.restoreOnUninstall
             local oldGfx = EllesmereUIDB.gfxBackup
+            local oldDebug = EllesmereUIDB.debugAddOns
             _G["EllesmereUIDB"] = {}
             EllesmereUIDB = _G["EllesmereUIDB"]
             EllesmereUIDB.restoreOnUninstall = oldRestore
             EllesmereUIDB.gfxBackup = oldGfx
+            EllesmereUIDB.debugAddOns = oldDebug
             if oldScale then EllesmereUIDB.ppUIScale = oldScale end
             if oldScaleAuto ~= nil then EllesmereUIDB.ppUIScaleAuto = oldScaleAuto end
             if savedFriends then
@@ -1454,9 +1458,36 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.L("Tune graphics for higher FPS and clarity.")
         end
 
-        -- One row of plain text buttons: Reset ALL, then in the middle Optimize
-        -- (a boxed button, with its "What Does This Do?" link under it) or
-        -- Restore (plain and red like the others), then Uninstall.
+        -- Debug Mode: yellow to turn other addons off, red to turn them back on. Both reload.
+        local debugOn = EllesmereUI.DebugModeActive()
+        local dbgOnTitle, dbgOnDesc = EllesmereUI.L("Activate Debug Mode"), EllesmereUI.L("Turn off all other addons to test EUI.")
+        local dbgOffTitle, dbgOffDesc = EllesmereUI.L("Deactivate Debug Mode"), EllesmereUI.L("Turn your other addons back on.")
+        local function ConfirmDebugMode()
+            if EllesmereUI.DebugModeActive() then
+                EllesmereUI:ShowConfirmPopup({
+                    title       = EllesmereUI.L("Deactivate Debug Mode"),
+                    message     = EllesmereUI.L("Turns your other addons back on for this character and reloads the UI."),
+                    confirmText = EllesmereUI.L("Deactivate & Reload"),
+                    cancelText  = EllesmereUI.L("Cancel"),
+                    reload      = true,
+                    onConfirm   = EllesmereUI.ExitDebugMode,
+                })
+                return
+            end
+            EllesmereUI:ShowConfirmPopup({
+                title       = EllesmereUI.L("Activate Debug Mode"),
+                message     = EllesmereUI.L("Turns off every addon except EUI for this character and reloads the UI, to test EUI on its own.") .. "\n\n"
+                    .. EllesmereUI.L("Click Deactivate Debug Mode here to turn them back on. Addons you had already turned off stay off."),
+                confirmText = EllesmereUI.L("Activate & Reload"),
+                cancelText  = EllesmereUI.L("Cancel"),
+                reload      = true,
+                onConfirm   = EllesmereUI.EnterDebugMode,
+            })
+        end
+
+        -- Two lines of two: Optimize (a boxed button, with its "What Does This
+        -- Do?" link under it) or Restore (plain and red), boxed Debug Mode;
+        -- then Reset ALL and Uninstall as plain text buttons.
         local GFX_GAP = 8
 
         -- "What Does This Do?": what Optimize changes. Built first, so the
@@ -1514,11 +1545,6 @@ initFrame:SetScript("OnEvent", function(self)
         local _, altTitle, altDesc = GfxCardContent(showInfo)
         local cards
         y, cards = EllesmereUI.BuildActionCardRow(parent, y, {
-            -- A menu of ALL Settings and each module's own reset (EllesmereUI_Panel.lua).
-            { icon = MEDIA_ICONS .. "sync.png", accent = WARN,
-              title = EllesmereUI.L("Reset EUI Module Settings"),
-              desc = EllesmereUI.L("Pick a module, or ALL, to return to defaults."),
-              onClick = function(card) EllesmereUI._ShowModuleResetMenu(card, ConfirmResetAll) end },
             { icon = gfxIcon, title = gfxTitle, desc = gfxDesc,
               hero = showInfo, accent = showInfo and GO or WARN,
               sizeAlso = { altTitle, altDesc },
@@ -1527,12 +1553,43 @@ initFrame:SetScript("OnEvent", function(self)
                   if had then RestoreGfxSettings() else ApplyOptimizedGfx() end
                   if HasGfxBackup() ~= had then EllesmereUI:RefreshPage(true) end
               end },
+            { icon = MEDIA_ICONS .. "eui-bug.png", hero = true, accent = debugOn and WARN or DEBUG_Y,
+              title = debugOn and dbgOffTitle or dbgOnTitle, desc = debugOn and dbgOffDesc or dbgOnDesc,
+              sizeAlso = debugOn and { dbgOnTitle, dbgOnDesc } or { dbgOffTitle, dbgOffDesc },
+              onClick = ConfirmDebugMode },
+            -- A menu of ALL Settings and each module's own reset (EllesmereUI_Panel.lua).
+            { icon = MEDIA_ICONS .. "sync.png", accent = WARN,
+              title = EllesmereUI.L("Reset EUI Module Settings"),
+              desc = EllesmereUI.L("Pick a module, or ALL, to return to defaults."),
+              onClick = function(card) EllesmereUI._ShowModuleResetMenu(card, ConfirmResetAll) end },
             -- power.png's glyph fills its whole canvas: drawn smaller, it matches sync.png.
             { icon = MEDIA_ICONS .. "power.png", accent = WARN, iconSize = 22,
               title = EllesmereUI.L("Uninstall EUI"), desc = EllesmereUI.L("Revert EUI's changes and disable."),
               onClick = ConfirmUninstall },
-        }, { inline = true, footer = showInfo and (GFX_GAP + infoH) or nil })
-        local gfxCard = cards[2]
+        }, { inline = true, columns = 2, footer = (showInfo or EllesmereUI.DebugErrors()) and (GFX_GAP + infoH) or nil })
+        local gfxCard = cards[1]
+        -- Under Debug Mode: "View Saved Errors (N)" (ready to copy) on the left, "Clear Errors" on the right.
+        local errs = EllesmereUI.DebugErrors()
+        if errs then
+            local errLink = EllesmereUI.BuildAccentLink(cards[2],
+                EllesmereUI.L("View Saved Errors") .. " (" .. #errs .. ")", function()
+                    EllesmereUI:ShowCopyPopup(EllesmereUI.L("Saved Errors"),
+                        EllesmereUI.L("Lua errors caught while Debug Mode was on. Press Ctrl+C to copy."),
+                        EllesmereUI.DebugErrorsText())
+                end, { color = { DEBUG_Y.r, DEBUG_Y.g, DEBUG_Y.b } })
+            local clearLink = EllesmereUI.BuildAccentLink(cards[2], EllesmereUI.L("Clear Errors"), function()
+                EllesmereUI.ClearDebugErrors()
+                EllesmereUI:RefreshPage(true)
+            end, { color = { WARN.r, WARN.g, WARN.b } })
+            -- Text at the top, as the info link's, so all sit on one line.
+            for _, link in ipairs({ errLink, clearLink }) do
+                link:SetHeight(infoH)
+                link.fs:ClearAllPoints()
+                link.fs:SetPoint("TOP")
+            end
+            if errLink then PP.Point(errLink, "TOPLEFT", cards[2], "BOTTOMLEFT", 0, -GFX_GAP) end
+            if clearLink then PP.Point(clearLink, "TOPRIGHT", cards[2], "BOTTOMRIGHT", 0, -GFX_GAP) end
+        end
         -- The link rides the card: clearing the page search shows every
         -- top-level page frame again, which would bring it back over Restore.
         infoBtn:SetParent(gfxCard)
