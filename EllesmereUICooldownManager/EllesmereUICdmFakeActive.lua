@@ -1532,7 +1532,7 @@ local function EvalCdStateRule(rule, icons, FCt)
             if m.form then
                 hideCD = PresetSpellTest(cdKey, ns.CdmSpellOutsideForm)
             elseif not onCD then
-                hideCD = PresetSpellTest(cdKey, ns.CdmSpellNotUsable)
+                hideCD = PresetSpellTest(cdKey, m.power and ns.CdmSpellNotCastable or ns.CdmSpellNotUsable)
             end
         end
         -- Stance Bar: hidden on (or off) a stance bar page whatever the
