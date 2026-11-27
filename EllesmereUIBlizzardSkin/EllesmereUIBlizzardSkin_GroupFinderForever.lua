@@ -197,6 +197,15 @@ local function SkinLFGTooltip(t)
     FontTip(t, 0)
 end
 
+-- The List Self restyle (retail checks, the expand squares, the padded comment
+-- box) goes with the Group Finder's own list: only while it is loaded and on.
+-- Turning it on or off reloads, so reading it once per skin pass is enough.
+local function GroupFinderOn()
+    local t = EllesmereUIDB and EllesmereUIDB.groupFinder
+    return type(t) == "table" and t.enabled == true
+        and C_AddOns.IsAddOnLoaded("EllesmereUIGroupFinder") and true or false
+end
+
 -- A dungeon row's check as retail's: a 14x14 bordered box on the left, the
 -- accent filling it when ticked (half strength when only some of a group is),
 -- a soft wash on hover or ticked. Blizzard's art stays, clear; state is read
@@ -265,7 +274,7 @@ local function SkinChecksIn(fr, depth)
     if depth > 0 and WSkin.IsForeignFrame(fr) then return end
     if fr:IsObjectType("CheckButton") then
         local row = fr:GetParent()
-        if row and row.NameButton and row.CheckButton == fr then RetailCheck(fr)
+        if row and row.NameButton and row.CheckButton == fr and GroupFinderOn() then RetailCheck(fr)
         else WSkin.Checkbox(fr, CHECK_OPTS) end
     end
     local children = { fr:GetChildren() }
@@ -330,7 +339,7 @@ local function SkinActivityRow(row)
     if d.checksSkinned then return end
     d.checksSkinned = true
     SkinChecksIn(row, 0)
-    if row.ExpandOrCollapseButton then SkinExpand(row.ExpandOrCollapseButton) end
+    if row.ExpandOrCollapseButton and GroupFinderOn() then SkinExpand(row.ExpandOrCollapseButton) end
 end
 
 -- 1px border hugging a tile's content (its Icon, else its largest visible art).
@@ -434,7 +443,11 @@ local function Skin_LFGVanilla()
     if av and av.VoiceChatDropdown then WSkin.Dropdown(av.VoiceChatDropdown) end
     for _, n in ipairs(BUTTONS) do
         local b = _G[n]
-        if b then WSkin.Button(b); WSkin.WhiteButtonLabel(b) end
+        -- list self greys while blizzard has it off (no category or activity picked yet)
+        if b then
+            WSkin.Button(b)
+            if n == "LFGListingFramePostButton" then WSkin.StateButtonLabel(b) else WSkin.WhiteButtonLabel(b) end
+        end
     end
     -- The browser's refresh button: the house glyph, as on retail.
     WSkin.RefreshGlyph(_G.LFGBrowseFrameRefreshButton)
@@ -466,8 +479,9 @@ local function Skin_LFGVanilla()
     for _, tn in ipairs(SIDE_TABS) do WSkin.SideTab(f[tn]) end
 
     -- "More details" comment box: its border is loose BACKGROUND textures on the
-    -- ScrollFrame wrapper, so a box of ours a little outside it gets the dark fill
-    -- and border (the text padded off the edges); the inner EditBox stays stock.
+    -- ScrollFrame wrapper, so the wrapper gets the dark fill and border; the inner
+    -- EditBox stays stock. With the Group Finder on, a black box of ours a little
+    -- outside it instead (the text padded off the edges, as the list's search boxes).
     local cmt = _G.LFGListingComment
     if cmt then
         local cd = GetFFD(cmt)
@@ -478,6 +492,12 @@ local function Skin_LFGVanilla()
                and r:GetDrawLayer() == "BACKGROUND" then
                 r:SetAlpha(0)
             end
+        end
+        if not cd.commentFill and not GroupFinderOn() then
+            cd.commentFill = cmt:CreateTexture(nil, "BACKGROUND", nil, -8)
+            cd.commentFill:SetColorTexture(0.08, 0.08, 0.08, 0.92)
+            cd.commentFill:SetAllPoints(cmt)
+            WSkin.AddBorder(cmt)
         end
         if not cd.commentFill then
             local PAD_X, PAD_Y = 6, 5

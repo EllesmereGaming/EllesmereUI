@@ -77,14 +77,54 @@ local function IconSize(h)
     return math.max(8, math.min(h - 4, 16 + math.floor((pct - 100) / 5 + 0.5)))
 end
 
+-- lfg reads are secret in chat messaging lockdown: a table we read only when
+-- it and everything in it (one level down) can be read, else nil
+do
+    local Secret = EUI.IsSecret
+    local function Readable(t)
+        return type(t) == "table" and not Secret(t) and not (canaccesstable and not canaccesstable(t))
+    end
+    local function Plain(t)
+        if not Readable(t) then return nil end
+        for _, v in pairs(t) do
+            if Secret(v) or (type(v) == "table" and not Readable(v)) then return nil end
+        end
+        return t
+    end
+    -- any of blizzard's results we can't read: our list steps aside for blizzard's
+    function ns.ForeverAnySecret()
+        local res = BF and BF.results
+        if type(res) ~= "table" or Secret(res) then return false end
+        for _, id in ipairs(res) do
+            if Secret(id) then return true end
+            local raw = C_LFGList.GetSearchResultInfo(id)
+            if raw ~= nil and not Plain(raw) then return true end
+        end
+        return false
+    end
+    -- your own listing, when there is one and it can be read
+    function ns.ForeverMyEntry()
+        local has = C_LFGList.HasActiveEntryInfo()
+        if Secret(has) or not has then return nil end
+        return Plain(C_LFGList.GetActiveEntryInfo())
+    end
+    function ns.ForeverMember(id, i)
+        return Plain(C_LFGList.GetSearchResultPlayerInfo(id, i))
+    end
+    function ns.ForeverCounts(id)
+        return Plain(C_LFGList.GetSearchResultMemberCounts(id))
+    end
+    ns.ForeverSecret, ns.ForeverPlain = Secret, Plain
+end
+
 local function Info(id)
-    local info = id and C_LFGList.GetSearchResultInfo(id)
-    return type(info) == "table" and info or nil
+    if not id or ns.ForeverSecret(id) then return nil end
+    return ns.ForeverPlain(C_LFGList.GetSearchResultInfo(id))
 end
 
 local function Leader(id)
-    local li = C_LFGList.GetSearchResultLeaderInfo and C_LFGList.GetSearchResultLeaderInfo(id)
-    return type(li) == "table" and li or nil
+    if not (id and C_LFGList.GetSearchResultLeaderInfo) or ns.ForeverSecret(id) then return nil end
+    return ns.ForeverPlain(C_LFGList.GetSearchResultLeaderInfo(id))
 end
 
 local function ClassRGB(file)
@@ -119,7 +159,7 @@ end
 local function ActivityText(info)
     if info.hasSelf then return LFG_SELF_LISTING or "" end
     local acts = info.activityIDs or {}
-    local mine = C_LFGList.HasActiveEntryInfo() and C_LFGList.GetActiveEntryInfo()
+    local mine = ns.ForeverMyEntry()
     local match = {}
     if mine and mine.activityIDs then
         for _, a in ipairs(mine.activityIDs) do
@@ -187,7 +227,7 @@ local function ShowTip(row)
     GameTooltip:AddLine(" ")
     local n = info.numMembers or 0
     if n > 1 then
-        local c = C_LFGList.GetSearchResultMemberCounts(id)
+        local c = ns.ForeverCounts(id)
         if c and LFG_LIST_TOOLTIP_MEMBERS then
             GameTooltip:AddLine(string.format(LFG_LIST_TOOLTIP_MEMBERS, n, c.TANK or 0, c.HEALER or 0, c.DAMAGER or 0), 1, 1, 1)
         end
@@ -202,11 +242,11 @@ local function ShowTip(row)
     -- leader first, then the rest
     local leaderShown
     for i = 1, math.min(n, 40) do
-        local m = C_LFGList.GetSearchResultPlayerInfo(id, i)
+        local m = ns.ForeverMember(id, i)
         if m and m.isLeader then MemberLine(m); leaderShown = true; break end
     end
     for i = 1, math.min(n, 40) do
-        local m = C_LFGList.GetSearchResultPlayerInfo(id, i)
+        local m = ns.ForeverMember(id, i)
         if m and m.name and not (m.isLeader and leaderShown) then MemberLine(m) end
     end
     if info.isDelisted then
@@ -504,8 +544,8 @@ local needs = {}
 local function Needs(id, cap)
     wipe(needs)
     if cap ~= 5 or look.missing == "none" then return needs end
-    local c = C_LFGList.GetSearchResultMemberCounts(id)
-    if type(c) ~= "table" then return needs end
+    local c = ns.ForeverCounts(id)
+    if not c then return needs end
     for _, role in ipairs(ROLE_ORDER) do
         local left = c[REMAIN[role]]
         if type(left) ~= "number" then left = math.max(0, FIVE[role] - (tonumber(c[role]) or 0)) end
@@ -552,7 +592,7 @@ local function Roles(r, id, info, leader, off)
         end
         -- one role in a five-player activity: drawn as a group of one, the
         -- open spots after it with the roles a group still needs
-        if #soloPick == 1 and Cap(info) == 5 then
+        if #soloPick == 1 and (Cap(info) or 5) == 5 then
             local mine = soloPick[1]
             wipe(needs)
             if look.missing ~= "none" then
@@ -571,9 +611,10 @@ local function Roles(r, id, info, leader, off)
         for k, role in ipairs(soloPick) do x = Role(r, k, x, role, nil, off, LARGE_ATLAS[role]) end
         return
     end
-    local cap = Cap(info) or n
+    -- no cap on the activity (quests): a party of five, its open spots empty circles
+    local cap = Cap(info) or math.max(5, n)
     if cap > 5 or n > 5 then
-        local c = C_LFGList.GetSearchResultMemberCounts(id) or {}
+        local c = ns.ForeverCounts(id) or {}
         for k = 3, 1, -1 do
             local role = ROLE_ORDER[k]
             x = Role(r, 4 - k, x, role, c[role] or 0, off, LARGE_ATLAS[role])
@@ -583,7 +624,7 @@ local function Roles(r, id, info, leader, off)
     -- tanks, healers, dps from the left, open spots on the right
     wipe(members)
     for i = 1, n do
-        local m = C_LFGList.GetSearchResultPlayerInfo(id, i)
+        local m = ns.ForeverMember(id, i)
         if m then members[#members + 1] = m end
     end
     table.sort(members, ByRole)
@@ -661,7 +702,7 @@ local function Available(cat)
     local acts = C_LFGList.GetAvailableActivities(cat) or {}
     if GetCVarBool("disableSuggestedLevelActivityFilter") then return acts end
     local lvl = UnitLevel("player")
-    local entry = C_LFGList.GetActiveEntryInfo()
+    local entry = ns.ForeverMyEntry()
     local keep = {}
     for _, id in ipairs(acts) do
         local ai = C_LFGList.GetActivityInfoTable(id)
@@ -713,7 +754,7 @@ local function Collect()
     if BF.NoResultsFound then BF.NoResultsFound:SetAlpha(none and 0 or 1) end
     if none then return end
     local res = BF.results
-    if BF.searching or type(res) ~= "table" then return end
+    if BF.searching or type(res) ~= "table" or ns.ForeverSecret(res) then return end
     local want = LivePicks()
     for i = 1, #res do
         local id = res[i]
@@ -766,6 +807,8 @@ end
 -- the frame after result updates: each changed group repaints its own row
 local function Flush()
     flusher:Hide()
+    -- a result went secret: blizzard's list until they read again
+    if active and ns.ForeverAnySecret() then wipe(dirty); ns.ForeverRefresh() return end
     if active then
         for id in pairs(dirty) do
             for i = 1, #rows do
@@ -812,7 +855,8 @@ end
 --  wide as retail's rows
 -------------------------------------------------------------------------------
 local ROW1_H, ROW_GAP, DD_W = 24, 3, 110  -- retail's filters button: height, gap, width
-local ACT_W = 140  -- "filter by activity" fits
+local ACT_W = 140  -- "filter by activity" fits (the who list's filter)
+local SLOT_W = 105  -- the browse row's activity slot: directions, or an activity filter
 local topY, bottomY  -- blizzard's own offsets, read before the first move
 
 local dressed
@@ -895,27 +939,37 @@ local function RefreshCooldown(rb)
     ev:SetScript("OnEvent", function() if active then StartCooldown(CD_FAILED) end end)
 end
 
--- blizzard's options cog only holds "show all level ranges", which lives on
--- our settings page instead
-local function HideOptionsCog()
+-- blizzard's options cog (show all level ranges, and what other addons add to
+-- its menu) as a square like refresh, wearing ellesmere's cog: its own button, its own menu
+local function DressOptionsCog()
     local opt = BF.OptionsButton
-    if opt then
-        opt:SetAlpha(0)
-        opt:EnableMouse(false)
+    if not opt then return end
+    RefreshBox(opt)
+    local ic = opt.Icon
+    if ic then
+        ic:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\cogs-3.png")
+        ic:SetTexCoord(0, 1, 0, 1)
+        ic:ClearAllPoints()
+        ic:SetPoint("CENTER")
+        ic:SetSize(15, 15)
     end
 end
 
 -- titles leave room for blizzard's portrait on the left: the same on both sides
-local function CenterTitle(fr)
-    local tc = fr and fr.TitleContainer
-    if not (tc and tc.GetPoint) then return end
-    local _, _, _, _, y = tc:GetPoint(1)
-    y = y or -1
-    if tc.euiY == y and tc:GetNumPoints() == 2 then return end
-    tc:ClearAllPoints()
-    tc:SetPoint("TOPLEFT", fr, "TOPLEFT", 24, y)
-    tc:SetPoint("TOPRIGHT", fr, "TOPRIGHT", -24, y)
-    tc.euiY = y
+local CenterTitle
+do
+    local titleY = setmetatable({}, { __mode = "k" })  -- title container: the y we last placed it at
+    function CenterTitle(fr)
+        local tc = fr and fr.TitleContainer
+        if not (tc and tc.GetPoint) then return end
+        local _, _, _, _, y = tc:GetPoint(1)
+        y = y or -1
+        if titleY[tc] == y and tc:GetNumPoints() == 2 then return end
+        tc:ClearAllPoints()
+        tc:SetPoint("TOPLEFT", fr, "TOPLEFT", 24, y)
+        tc:SetPoint("TOPRIGHT", fr, "TOPRIGHT", -24, y)
+        titleY[tc] = y
+    end
 end
 
 local function Center()
@@ -963,34 +1017,42 @@ local function Rows()
         rb:SetPoint("TOP", BF, "TOP", 0, -topY)
         rb:SetPoint("RIGHT", sb, "LEFT", LIST_X + LIST_W, 0)
         rb:SetSize(ROW1_H, ROW1_H)
-        act:ClearAllPoints()
-        act:SetPoint("TOPRIGHT", rb, "TOPLEFT", -ROW_GAP, 0)
-        act:SetSize(ACT_W, ROW1_H)
-        -- on dungeons the row of squares does its job
+        local opt = BF.OptionsButton
+        local right = rb
+        if opt then
+            opt:ClearAllPoints()
+            opt:SetPoint("TOPRIGHT", rb, "TOPLEFT", -ROW_GAP, 0)
+            opt:SetSize(ROW1_H, ROW1_H)
+            right = opt
+        end
+        -- one dropdown in the activity slot: blizzard's while it holds picks (your
+        -- listing sets them), else directions on dungeons, else ours. blizzard's
+        -- is never hidden (its show would run its menu from our code): it only
+        -- gives up the mouse and its face
         local dung = Category() == DUNGEONS
-        -- ours stands in for blizzard's everywhere else
-        local mine = ns.foreverActs
-        act:SetShown(not dung and not mine)
+        local mine, dirs = ns.foreverActs, ns.foreverDirs
+        local picks = act.selectedValues
+        local theirs = type(picks) == "table" and #picks > 0
+        local slot = (theirs and act) or (dung and dirs) or (not dung and (mine or act)) or nil
+        for _, dd in ipairs({ act, mine, dirs }) do
+            if dd then
+                dd:ClearAllPoints()
+                dd:SetPoint("TOPRIGHT", right, "TOPLEFT", -ROW_GAP, 0)
+                dd:SetSize(SLOT_W, ROW1_H)
+            end
+        end
+        ns.ForeverPresent(act, slot == act)
         if mine then
-            mine:ClearAllPoints()
-            mine:SetPoint("TOPRIGHT", rb, "TOPLEFT", -ROW_GAP, 0)
-            mine:SetSize(ACT_W, ROW1_H)
-            mine:SetShown(not dung)
+            mine:SetShown(slot == mine)
             if mine:IsShown() and not mine:IsMenuOpen() then mine:GenerateMenu() end
         end
-        local dirs = ns.foreverDirs
-        if dirs then
-            dirs:ClearAllPoints()
-            dirs:SetPoint("TOPRIGHT", rb, "TOPLEFT", -ROW_GAP, 0)
-            dirs:SetSize(ACT_W, ROW1_H)
-            dirs:SetShown(dung)
-        end
+        if dirs then dirs:SetShown(slot == dirs) end
         -- our settings cog leads the row (placed by Row2)
         cat:ClearAllPoints()
         cat:SetPoint("TOP", BF, "TOP", 0, -topY)
         cat:SetPoint("LEFT", sb, "LEFT", LIST_X + ROW1_H + ROW_GAP, 0)
-        local catW = LIST_W - (ROW1_H + ROW_GAP) * 2
-        if not dung or dirs then catW = catW - ACT_W - ROW_GAP end
+        local catW = LIST_W - (ROW1_H + ROW_GAP) * (opt and 3 or 2)
+        if slot then catW = catW - SLOT_W - ROW_GAP end
         cat:SetSize(math.max(DD_W, catW), ROW1_H)
     end
     if send and invite then
@@ -1011,6 +1073,14 @@ end
 --  ever; the face only copies its text and state, never writes to it
 -------------------------------------------------------------------------------
 local faces = {}
+ns.foreverAside = {}  -- blizzard dropdown: kept shown but out of the row
+function ns.ForeverPresent(dd, on)
+    ns.foreverAside[dd] = not on or nil
+    dd:EnableMouse(on)
+    dd:EnableMouseWheel(on)
+    local f = faces[dd]
+    if f then f:SetShown(on and dd:IsShown()) end
+end
 
 -- the face's text a size under the bottom buttons', as retail's filters button
 local dropFont
@@ -1096,8 +1166,8 @@ local function Face(dd)
     dd:SetAlpha(0)
     hooksecurefunc(dd, "SetAlpha", function(self, a) if a ~= 0 then self:SetAlpha(0) end end)
     local function Paint() PaintFace(dd) end
-    f:SetShown(dd:IsShown())
-    dd:HookScript("OnShow", function() f:Show(); Paint() end)
+    f:SetShown(dd:IsShown() and not ns.foreverAside[dd])
+    dd:HookScript("OnShow", function() f:SetShown(not ns.foreverAside[dd]); Paint() end)
     dd:HookScript("OnHide", function() f:Hide() end)
     dd:HookScript("OnEnter", function() f.hover = true; Paint() end)
     dd:HookScript("OnLeave", function() f.hover = false; Paint() end)
@@ -1133,9 +1203,19 @@ local function DressRows()
     if _G.LFGBrowseFrameRefreshButton then
         RefreshBox(_G.LFGBrowseFrameRefreshButton)
         RefreshCooldown(_G.LFGBrowseFrameRefreshButton)
-        HideOptionsCog()
+        DressOptionsCog()
     end
     BF:HookScript("OnSizeChanged", Rows)
+    local act = _G.LFGBrowseFrameActivityDropdown
+    if act and act.UpdateHeader then
+        local function Again()
+            C_Timer.After(0, function()
+                if active and not (act.IsMenuOpen and act:IsMenuOpen()) then Rows() end
+            end)
+        end
+        hooksecurefunc(act, "UpdateHeader", Again)
+        if act.OnMenuClosed then hooksecurefunc(act, "OnMenuClosed", Again) end
+    end
 end
 
 -- the who list's top bar as the browser's: the search box where the category sits,
@@ -1582,66 +1662,90 @@ end
 
 -- short names for the old dungeons, else the initials
 -- by the lowercased name, "the " dropped; a wing by "base:wing"
-local SHORT = {
-    ["ragefire chasm"] = "RFC", ["wailing caverns"] = "WC", ["deadmines"] = "DM",
-    ["shadowfang keep"] = "SFK", ["blackfathom deeps"] = "BFD",
-    ["stockade"] = "SWS", ["stockades"] = "SWS", ["stormwind stockade"] = "SWS", ["stormwind stockades"] = "SWS",
-    ["ruins of lordaeron"] = "RoL",
-    ["gnomeregan"] = "GNO", ["razorfen kraul"] = "RFK", ["razorfen downs"] = "RFD",
-    ["uldaman"] = "UDM", ["zul'farrak"] = "ZF", ["maraudon"] = "MAR",
-    ["sunken temple"] = "ST", ["temple of atal'hakkar"] = "ST", ["blackrock depths"] = "BRD",
-    ["lower blackrock spire"] = "LBRS", ["upper blackrock spire"] = "UBRS",
-    ["scholomance"] = "SCH", ["stratholme"] = "Strat",
-    ["scarlet monastery:graveyard"] = "SM:G", ["scarlet monastery:library"] = "SM:L",
-    ["scarlet monastery:armory"] = "SM:A", ["scarlet monastery:cathedral"] = "SM:C",
-    graveyard = "SM:G", library = "SM:L", armory = "SM:A", cathedral = "SM:C",
-    ["dire maul:east"] = "DM:E", ["dire maul:north"] = "DM:N", ["dire maul:west"] = "DM:W",
-    ["dire maul east"] = "DM:E", ["dire maul north"] = "DM:N", ["dire maul west"] = "DM:W",
-    ["stratholme:service gate"] = "S:SG", ["stratholme:service entrance"] = "S:SG", ["stratholme:undead"] = "S:SG",
-    ["stratholme:main gate"] = "S:MG", ["stratholme:live"] = "S:MG",
-    ["stratholme service gate"] = "S:SG", ["stratholme main gate"] = "S:MG",
-    -- forever's own dungeons
-    ["hall of thanes"] = "HoT", ["city of dalaran"] = "CoD", ["drowned city"] = "TDC",
-    ["krol'dok stronghold"] = "KSH", ["blackmaw hold"] = "BMH", ["shaper's terrace"] = "TST",
-    ["excavation site: wetlands"] = "ESW", ["alcaz prison"] = "AP",
-}
-local SMALL = { of = true, the = true, ["and"] = true }
-local UTF8 = "[%z\1-\127\194-\244][\128-\191]*"
+local Short
+do
+    local SHORT = {
+        ["ragefire chasm"] = "RFC", ["wailing caverns"] = "WC", ["deadmines"] = "DM",
+        ["shadowfang keep"] = "SFK", ["blackfathom deeps"] = "BFD",
+        ["stockade"] = "SWS", ["stockades"] = "SWS", ["stormwind stockade"] = "SWS", ["stormwind stockades"] = "SWS",
+        ["ruins of lordaeron"] = "RoL",
+        ["gnomeregan"] = "GNO", ["razorfen kraul"] = "RFK", ["razorfen downs"] = "RFD",
+        ["uldaman"] = "UDM", ["zul'farrak"] = "ZF", ["maraudon"] = "MAR",
+        ["sunken temple"] = "ST", ["temple of atal'hakkar"] = "ST", ["blackrock depths"] = "BRD",
+        ["lower blackrock spire"] = "LBRS", ["upper blackrock spire"] = "UBRS",
+        ["scholomance"] = "SCH", ["stratholme"] = "Strat",
+        ["scarlet monastery:graveyard"] = "SM:G", ["scarlet monastery:library"] = "SM:L",
+        ["scarlet monastery:armory"] = "SM:A", ["scarlet monastery:cathedral"] = "SM:C",
+        graveyard = "SM:G", library = "SM:L", armory = "SM:A", cathedral = "SM:C",
+        ["dire maul:east"] = "DM:E", ["dire maul:north"] = "DM:N", ["dire maul:west"] = "DM:W",
+        ["dire maul east"] = "DM:E", ["dire maul north"] = "DM:N", ["dire maul west"] = "DM:W",
+        ["stratholme:service gate"] = "S:SG", ["stratholme:service entrance"] = "S:SG", ["stratholme:undead"] = "S:SG",
+        ["stratholme:main gate"] = "S:MG", ["stratholme:live"] = "S:MG",
+        ["stratholme service gate"] = "S:SG", ["stratholme main gate"] = "S:MG",
+        -- forever's own dungeons
+        ["hall of thanes"] = "HoT", ["city of dalaran"] = "CoD", ["drowned city"] = "TDC",
+        ["krol'dok stronghold"] = "KSH", ["blackmaw hold"] = "BMH", ["shaper's terrace"] = "TST",
+        ["excavation site: wetlands"] = "ESW", ["alcaz prison"] = "AP",
+    }
+    local SMALL = { of = true, the = true, ["and"] = true }
+    local UTF8 = "[%z\1-\127\194-\244][\128-\191]*"
 
-local function Short(name)
-    name = name or ""
-    local base, wing = name:match("^(.-)%s*%((.-)%)%s*$")
-    if base and base ~= "" then
-        local hit = SHORT[base:lower():gsub("^the ", "") .. ":" .. wing:lower()]
-        if hit then return hit end
+    function Short(name)
+        name = name or ""
+        local base, wing = name:match("^(.-)%s*%((.-)%)%s*$")
+        if base and base ~= "" then
+            local hit = SHORT[base:lower():gsub("^the ", "") .. ":" .. wing:lower()]
+            if hit then return hit end
+        end
+        name = name:gsub("%s*%b()", "")
+        local key = name:lower():gsub("^the ", "")
+        if SHORT[key] then return SHORT[key] end
+        -- "scarlet monastery - library", "dire maul - east"
+        local base, part = name:match("^(.-)%s*[%-:]%s+(.+)$")
+        if base and base ~= "" then
+            local b = base:lower():gsub("^the ", "")
+            return SHORT[b .. ":" .. part:lower()] or SHORT[part:lower()]
+                or (Short(base) .. (part:match(UTF8) or ""):upper())
+        end
+        local out = {}
+        for w in name:gmatch("%S+") do
+            if not SMALL[w:lower()] then out[#out + 1] = (w:match(UTF8) or ""):upper() end
+        end
+        if #out > 1 then return table.concat(out) end
+        -- one word: its first four letters
+        local head, n = {}, 0
+        for c in name:gmatch(UTF8) do
+            n = n + 1
+            if n > 4 then break end
+            head[n] = c
+        end
+        return table.concat(head)
     end
-    name = name:gsub("%s*%b()", "")
-    local key = name:lower():gsub("^the ", "")
-    if SHORT[key] then return SHORT[key] end
-    -- "scarlet monastery - library", "dire maul - east"
-    local base, part = name:match("^(.-)%s*[%-:]%s+(.+)$")
-    if base and base ~= "" then
-        local b = base:lower():gsub("^the ", "")
-        return SHORT[b .. ":" .. part:lower()] or SHORT[part:lower()]
-            or (Short(base) .. (part:match(UTF8) or ""):upper())
-    end
-    local out = {}
-    for w in name:gmatch("%S+") do
-        if not SMALL[w:lower()] then out[#out + 1] = (w:match(UTF8) or ""):upper() end
-    end
-    if #out > 1 then return table.concat(out) end
-    -- one word: its first four letters
-    local head, n = {}, 0
-    for c in name:gmatch(UTF8) do
-        n = n + 1
-        if n > 4 then break end
-        head[n] = c
-    end
-    return table.concat(head)
 end
 
--- blizzard's own lfg dungeon art, by instance map (the english name, run
--- together, for any other). nil when the client doesn't have the file
+-- a dungeon's code by its activity (wings sharing one map), else by its instance
+-- map: the same in every language. Short() of the name for any other
+local Code
+do
+    local CODE_BY_ACT = {
+        [805] = "SM:G", [827] = "SM:A", [828] = "SM:C", [829] = "SM:L",
+        [813] = "DM:E", [814] = "DM:W", [815] = "DM:N",
+        [812] = "LBRS", [837] = "UBRS", [816] = "S:MG", [1603] = "S:SG",
+    }
+    local CODE_BY_MAP = {
+        [389] = "RFC", [43] = "WC", [36] = "DM", [33] = "SFK", [48] = "BFD", [34] = "SWS", [90] = "GNO",
+        [47] = "RFK", [189] = "SM", [129] = "RFD", [70] = "UDM", [209] = "ZF", [349] = "MAR", [109] = "ST",
+        [230] = "BRD", [229] = "LBRS", [429] = "DM:N", [289] = "SCH", [329] = "Strat",
+        -- forever's own
+        [3065] = "HoT", [2959] = "CoD", [2999] = "RoL", [2998] = "ESW", [2994] = "AP",
+        [2970] = "TDC", [3039] = "KSH", [2974] = "BMH", [3001] = "TST",
+    }
+    function Code(d)
+        return CODE_BY_ACT[d.id] or (d.map and CODE_BY_MAP[d.map]) or Short(d.name)
+    end
+end
+
+-- blizzard's own lfg dungeon art, by instance map. nil when the client doesn't have the file
 local LFG_ICONS = "Interface\\LFGFrame\\LFGIcon-"
 local ICON_BY_MAP = {
     [389] = "RagefireChasm", [43] = "WailingCaverns", [36] = "Deadmines", [33] = "ShadowfangKeep",
@@ -1649,6 +1753,10 @@ local ICON_BY_MAP = {
     [189] = "ScarletMonastery", [129] = "RazorfenDowns", [70] = "Uldaman", [209] = "ZulFarak",
     [349] = "Maraudon", [109] = "SunkenTemple", [230] = "BlackrockDepths", [229] = "BlackrockSpire",
     [429] = "DireMaul", [289] = "Scholomance", [329] = "Stratholme",
+    -- forever's own, should the client have art for them
+    [3065] = "HallofThanes", [2959] = "CityofDalaran", [2999] = "RuinsofLordaeron",
+    [2998] = "ExcavationSiteWetlands", [2994] = "AlcazPrison", [2970] = "DrownedCity",
+    [3039] = "KroldokStronghold", [2974] = "BlackmawHold", [3001] = "ShapersTerrace",
 }
 -- the journal's button art is wide: its middle square
 local JOURNAL_CROP = { 0.156, 0.527, 0, 0.742 }
@@ -1661,28 +1769,30 @@ local function JournalArt(mapID)
     return nil
 end
 
--- the zone a dungeon sits in, by its english name: that zone's icon
-local ZONE_ART = "Interface\\Icons\\Achievement_Zone_"
-local ZONE_OF = {
-    ["hall of thanes"] = "DunMorogh",
-    ["excavation site: wetlands"] = "Wetlands_01",
-    ["city of dalaran"] = "AlteracMountains_01",
-    ["alcaz prison"] = "DustwallowMarsh",
-    ["drowned city"] = "Stranglethorn_01",
-    -- riverglades has no icon of its own: river and marsh country instead
-    ["krol'dok stronghold"] = { "Riverglades", "Zangarmarsh", "SwampSorrows_01", "Wetlands_01" },
-    ["blackmaw hold"] = "Azshara_01",
-    ["shaper's terrace"] = "UnGoroCrater_01",
-}
-local function ZoneArt(name)
-    local key = name and name:lower():gsub("%s*%b()", ""):gsub("^the ", "")
-    local z = key and ZONE_OF[key]
-    if not z then return nil end
-    for _, zone in ipairs(type(z) == "table" and z or { z }) do
-        local path = ZONE_ART .. zone
-        if not GetFileIDFromPath or GetFileIDFromPath(path) then return path end
+-- the zone a dungeon sits in, by its instance map: that zone's icon
+local ZoneArt
+do
+    local ZONE_ART = "Interface\\Icons\\Achievement_Zone_"
+    local ZONE_OF = {
+        [3065] = "DunMorogh",             -- hall of thanes
+        [2998] = "Wetlands_01",           -- excavation site: wetlands
+        [2959] = "AlteracMountains_01",   -- city of dalaran
+        [2994] = "DustwallowMarsh",       -- alcaz prison
+        [2970] = "Stranglethorn_01",      -- the drowned city
+        -- krol'dok stronghold: riverglades has no icon of its own, river and marsh country instead
+        [3039] = { "Riverglades", "Zangarmarsh", "SwampSorrows_01", "Wetlands_01" },
+        [2974] = "Azshara_01",            -- blackmaw hold
+        [3001] = "UnGoroCrater_01",       -- the shaper's terrace
+    }
+    function ZoneArt(mapID)
+        local z = mapID and ZONE_OF[mapID]
+        if not z then return nil end
+        for _, zone in ipairs(type(z) == "table" and z or { z }) do
+            local path = ZONE_ART .. zone
+            if not GetFileIDFromPath or GetFileIDFromPath(path) then return path end
+        end
+        return nil
     end
-    return nil
 end
 
 local icons = {}  -- activity id -> { art, crop }, or false
@@ -1693,17 +1803,14 @@ local function DungeonIcon(id, ai)
         return nil
     end
     local key = ai.mapID and ICON_BY_MAP[ai.mapID]
-    if not key then
-        key = (ai.fullName or ""):gsub("%s*%b()", ""):gsub("%s*%-.*$", ""):gsub("^The ", ""):gsub("[^%a]", "")
-    end
-    local path = key ~= "" and (LFG_ICONS .. key) or nil
+    local path = key and (LFG_ICONS .. key) or nil
     if path and GetFileIDFromPath and not GetFileIDFromPath(path) then path = nil end
     local crop
     if not path then
         path = JournalArt(ai.mapID)
         crop = path and JOURNAL_CROP
     end
-    if not path then path = ZoneArt(ai.fullName) end
+    if not path then path = ZoneArt(ai.mapID) end
     icons[id] = path and { path, crop } or false
     return path, crop
 end
@@ -1718,7 +1825,7 @@ local function Dungeons()
     for i, id in ipairs(all) do
         local ai = C_LFGList.GetActivityInfoTable(id)
         if ai then
-            dungeons[#dungeons + 1] = { id = id, i = i, name = ai.fullName or ai.shortName or "?",
+            dungeons[#dungeons + 1] = { id = id, i = i, map = ai.mapID, name = ai.fullName or ai.shortName or "?",
                 ok = ok[id] == true, lo = ai.minLevelSuggestion or 0, hi = ai.maxLevelSuggestion or 0,
                 icon = nil, crop = nil }
             local d = dungeons[#dungeons]
@@ -1932,7 +2039,7 @@ local function LayoutStrip()
         -- the name when it's on, or when there's no art to show
         local named = Shown("dungeonAbbr") or not d.icon
         if named then
-            Label(sq, Short(d.name))
+            Label(sq, Code(d))
             labelled[#labelled + 1] = sq
         end
         sq.label:SetShown(named)
@@ -2018,66 +2125,62 @@ end
 --  waypoint or tracks one
 -------------------------------------------------------------------------------
 do
-    -- by Short()'s code: zone (uiMapID, or a name for forever's own zones), x, y.
-    -- the classic ones are map markers' instance entrances
+    -- by Code(): zone uiMapID, x, y. the classic ones from wowhead's forever dungeon
+    -- guide; forever's own are where that guide places them
+    local SM, BRM, DMAUL = { 1420, 83.5, 32.0 }, { 1427, 35.2, 84.2 }, { 1444, 58.9, 41.5 }
     local ENTRANCES = {
-        RFC = { 1454, 53.0, 48.9 }, WC = { 1413, 47.7, 35.0 }, DM = { 1436, 42.5, 71.7 },
-        SFK = { 1421, 44.7, 67.8 }, BFD = { 1440, 16.5, 11.0 }, SWS = { 1453, 50.4, 66.2 },
-        RoL = { 1420, 63.1, 67.5 }, GNO = { 1426, 17.7, 39.2 }, RFK = { 1413, 42.3, 89.9 },
-        RFD = { 1413, 50.9, 92.9 },
-        SM = { 1420, 85.1, 31.4 }, ["SM:G"] = { 1420, 85.1, 31.4 }, ["SM:L"] = { 1420, 85.1, 31.4 },
-        ["SM:A"] = { 1420, 85.1, 31.4 }, ["SM:C"] = { 1420, 85.1, 31.4 },
-        UDM = { 1418, 35.2, 10.3 }, ZF = { 1446, 38.7, 19.9 }, MAR = { 1443, 29.1, 62.9 },
-        ST = { 1435, 77.3, 35.9 },
-        -- blackrock mountain from the searing gorge side
-        BRD = { 1427, 27.1, 72.5 }, LBRS = { 1427, 40.8, 95.6 }, UBRS = { 1427, 40.8, 95.6 },
-        ["DM:N"] = { 1444, 62.5, 24.9 }, ["DM:E"] = { 1444, 65.0, 29.8 }, ["DM:W"] = { 1444, 60.3, 30.3 },
-        SCH = { 1422, 69.1, 73.0 },
-        Strat = { 1423, 26.1, 10.4 }, ["S:MG"] = { 1423, 26.1, 10.4 }, ["S:SG"] = { 1423, 43.6, 19.0 },
-        HoT = { 1455, 28.0, 48.0 }, CoD = { 1416, 8.8, 59.6 }, ESW = { 1437, 48.0, 56.0 },
+        RFC = { 1454, 52.0, 49.0 }, WC = { 1413, 45.5, 35.5 }, DM = { 1436, 42.4, 70.4 },
+        SFK = { 1421, 42.6, 66.6 }, BFD = { 1440, 13.4, 12.8 }, SWS = { 1453, 41.0, 57.0 },
+        GNO = { 1426, 30.5, 36.3 }, RFK = { 1413, 42.6, 88.5 }, RFD = { 1413, 50.0, 92.0 },
+        SM = SM, ["SM:G"] = SM, ["SM:L"] = SM, ["SM:A"] = SM, ["SM:C"] = SM,
+        UDM = { 1418, 42.6, 10.8 }, ZF = { 1446, 39.5, 21.3 }, MAR = { 1443, 29.5, 57.8 },
+        ST = { 1435, 69.6, 53.2 },
+        -- blackrock mountain, from the searing gorge
+        BRD = BRM, LBRS = BRM, UBRS = BRM,
+        ["DM:N"] = DMAUL, ["DM:E"] = DMAUL, ["DM:W"] = DMAUL,
+        SCH = { 1422, 69.8, 76.0 },
+        Strat = { 1423, 30.9, 15.2 }, ["S:MG"] = { 1423, 30.9, 15.2 }, ["S:SG"] = { 1423, 48.3, 21.8 },
         -- forever's own
-        AP = { 1445, 75.3, 14.1 },
-        TDC = { 1434, 21.4, 27.9 },
-        KSH = { "Riverglades", 37.5, 37.2 },  -- a forever zone: found by name
-        BMH = { 1447, 38.4, 32.6 },
-        TST = { 1449, 48.1, 6.1 },
+        HoT = { 1455, 43.0, 51.0 }, RoL = { 1420, 63.1, 67.5 }, CoD = { 1416, 8.8, 59.6 },
+        ESW = { 1437, 47.8, 56.2 }, AP = { 1445, 75.3, 14.1 }, TDC = { 1434, 21.4, 27.9 },
+        KSH = { 16591, 37.5, 37.2 }, BMH = { 1447, 38.4, 32.6 }, TST = { 1449, 48.1, 6.1 },
     }
-    -- how to find each way in, under its name (by the same codes); places in light red
+    -- how to find each way in, by the same codes. english here, through L() when drawn
     local TIPS = {
-        RFC = "From the |cffff8080Orgrimmar|r |cffff8080Valley of Strength|r, run west into |cffff8080the Drag|r, take the tunnel leading south into the Chasm cleft, and follow the cavern path down to the portal.",
-        HoT = "Inside |cffff8080Ironforge|r, run straight past the Forgemaster to the back of the |cffff8080Mystic Quarter|r and follow the tunnel down to the instance portal.",
-        RoL = "Pass through the main |cffff8080Undercity|r gates into the upper courtyard, turn right up the rampart stairs, and follow the ruined stone hallway to the portal.",
-        WC = "From |cffff8080Ratchet|r in |cffff8080The Barrens|r, ride west along the southern road, climb the central thorn-covered rocky mound, and enter the cave opening at the top.",
-        DM = "Run to the southern edge of |cffff8080Moonbrook|r in |cffff8080Westfall|r, enter the large goblin-occupied house at the back, and follow the tunnel down to the water and portal.",
-        SFK = "Follow the main road south through |cffff8080Silverpine Forest|r, take the western switchback path uphill past |cffff8080Pyrewood Village|r, and approach the large wooden front gates.",
-        BFD = "Travel to the northwest coast of |cffff8080Ashenvale|r, swim through the gap in the broken stone wall into the |cffff8080Zoram Strand|r cove, and dive down to the underwater grotto entrance.",
-        SWS = "Run down the eastern canal of |cffff8080Stormwind|r's |cffff8080Wizard's Row|r, cross the stone bridge to the brick guard tower, and speak to the guard outside the subterranean gate.",
-        ESW = "Ride to the central dig site in the |cffff8080Wetlands|r, follow the dirt path down into the main camp, and enter the guarded tunnel cave at the back.",
-        CoD = "Travel to the |cffff8080Alterac Mountains|r crater lake, swim or fly up to the floating bubble perimeter, and land on the main platform to enter the portal.",
-        GNO = "Take the tram from |cffff8080Ironforge|r to |cffff8080Dun Morogh|r, run north to |cffff8080New Tinkertown|r, ride the elevator down to the surface floor, and run past the troggs to the workshop blast doors.",
-        RFK = "Ride south through |cffff8080The Barrens|r along the western mountain wall, follow the winding thorn-hedge path upward, and enter the cave at the top.",
-        TDC = "Swim out into the ocean bay east of |cffff8080Booty Bay|r in |cffff8080Stranglethorn Vale|r, locate the sunken stone pillars, and dive straight down to the submerged ruins portal.",
-        RFD = "Travel to the southern tip of |cffff8080The Barrens|r just past |cffff8080Razorfen Kraul|r, follow the dirt path up the ridge, and enter through the large bone archway carved into the cliff.",
-        KSH = "Travel to the |cffff8080Riverglades|r in the southern zone, clear the hostile camp guards along the main path, and enter the central stronghold cave.",
-        UDM = "Ride east from |cffff8080The Bulwark|r into the |cffff8080Badlands|r, follow the southern canyon path down to the lowest dig site, and run through the stone tunnel to the inner vault doors.",
-        ZF = "Travel to central |cffff8080Tanaris|r, ride through the main stone gateway into the walled troll city ruins, and clear the central courtyard to reach the inner temple gates.",
-        MAR = "Ride west from the centaur camps in |cffff8080Desolace|r, follow the southern winding canyon path down into the purple and orange crystal gorge, and enter the large stone grotto at the end.",
-        AP = "Ride to the northern coast of |cffff8080Dustwallow Marsh|r, swim across the water channel to |cffff8080Alcaz Island|r, and follow the path up to the main prison building.",
-        ST = "Swim across the central |cffff8080Sorrowmurk|r pool in the |cffff8080Swamp of Sorrows|r to the central ziggurat island, climb the exterior ramps to the upper tier, and enter the portal doorway.",
-        BRD = "Enter |cffff8080Blackrock Mountain|r from the |cffff8080Burning Steppes|r bridge, run down the spiral chain to the lower central platform, and enter the massive iron portal guarded by the pillbox.",
-        BMH = "Travel to northern |cffff8080Azshara|r, follow the cliffside switchbacks up to the |cffff8080Furbolg Gates|r, and push through the tunnel camp to the inner wooden doors.",
-        SCH = "Ride to the western shore of |cffff8080Darrowmere Lake|r in the |cffff8080Western Plaguelands|r, swim or cross the bridge to |cffff8080Caer Darrow|r island, and enter the main crypt-keep courtyard.",
-        TST = "Ride to the southern wall of |cffff8080Un'Goro Crater|r, follow the narrow stone ramp up the pylon structure, and enter the terrace portal at the top.",
-        -- wings share their dungeon's way in
-        SM = "Ride to the north wall of |cffff8080Tyrs Hand|r or |cffff8080Brill|r in |cffff8080Tirisfal Glades|r, follow the road north into the |cffff8080Scarlet monastery|r complex, and enter the courtyard to find the four wing doors.",
-        ["DM:N"] = "Travel to the central ruins in |cffff8080Feralas|r, follow the road into the central open-air courtyard ring, and run up the ramp to the specific wing entrance.",
-        LBRS = "Enter |cffff8080Blackrock Mountain|r from the |cffff8080Searing Gorge|r upper bridge, run across the chain to the upper fortress balcony, and take the left path down or right path up.",
-        Strat = "Ride to the eastern plague walls of the |cffff8080Eastern Plaguelands|r, follow the cobblestone road to the main front gates or wrap around the northern path to the service gate.",
+        RFC = "In Orgrimmar, inside the Cleft of Shadow.",
+        WC = "In the Barrens, southwest of the Crossroads, in the hills above the oasis.",
+        DM = "In Westfall, inside a building in Moonbrook: follow the mine down to the portal.",
+        SFK = "In Silverpine Forest, on the hill above Pyrewood Village.",
+        SWS = "In Stormwind City, beneath the canal district.",
+        BFD = "In Ashenvale, along the Zoram Strand on the northwest coast.",
+        GNO = "In western Dun Morogh, northwest of Kharanos.",
+        RFK = "In the southern Barrens, at the edge of Thousand Needles.",
+        RFD = "In the southern Barrens, past Razorfen Kraul, at the edge of Thousand Needles.",
+        SM = "In northeast Tirisfal Glades. Each wing has its own door in the monastery's courtyard.",
+        UDM = "In the northern Badlands.",
+        ZF = "In northwest Tanaris, inside the walled troll city.",
+        MAR = "In western Desolace: go down into the canyon and through either cave to the portal inside.",
+        ST = "In the Swamp of Sorrows, the sunken temple in the Pool of Hakkar.",
+        BRD = "Inside Blackrock Mountain: take the chains down to the lowest level.",
+        LBRS = "Inside Blackrock Mountain: take the chains up to the highest level.",
+        SCH = "In the Western Plaguelands, beneath Caer Darrow, the island in Darrowmere Lake.",
+        ["DM:N"] = "In Feralas, the ruins of Dire Maul. Each wing has its own door; West and North need the Crescent Key.",
+        ["S:MG"] = "In the far north of the Eastern Plaguelands: the main gate, the living side.",
+        ["S:SG"] = "In the far north of the Eastern Plaguelands, east of the main gate: the service gate, the undead side. It needs the Key to the City, or a way through from the living side.",
+        HoT = "Beneath the city of Ironforge.",
+        RoL = "In Tirisfal Glades, above the Undercity.",
+        CoD = "In the Alterac Mountains, in the city of Dalaran.",
+        ESW = "In the Wetlands, on top of Whelgar's Excavation Site.",
+        TDC = "Off the coast of Stranglethorn Vale: the entrance is underwater.",
+        KSH = "In the hills of the Riverglades, on the east coast of the Eastern Kingdoms.",
+        AP = "On Alcaz Island, in the far northeast of Dustwallow Marsh.",
+        BMH = "In northern Azshara, behind the Furbolg Gates.",
+        TST = "In the hills of Un'Goro Crater, near Marshal's Refuge.",
     }
     for _, k in ipairs({ "SM:G", "SM:L", "SM:A", "SM:C" }) do TIPS[k] = TIPS.SM end
     TIPS["DM:E"], TIPS["DM:W"] = TIPS["DM:N"], TIPS["DM:N"]
     TIPS.UBRS = TIPS.LBRS
-    TIPS["S:MG"], TIPS["S:SG"] = TIPS.Strat, TIPS.Strat
+    TIPS.Strat = TIPS["S:MG"]
     local TIP_FONT, TIP_W = 9, LIST_W - 44  -- the tip's size, and its width (inside the menu's padding and bar)
 
     local BANDS = { { 10, 19 }, { 20, 29 }, { 30, 39 }, { 40, 49 }, { 50, 60 } }
@@ -2092,26 +2195,9 @@ do
         ns.foreverDirBands[i] = b.label
     end
 
-    -- a zone given by name: its uiMapID, looked up once
-    local maps = {}
-    local function MapOf(zone)
-        if type(zone) == "number" then return zone end
-        if maps[zone] == nil then
-            maps[zone] = false
-            local want = zone:lower()
-            for _, info in ipairs(C_Map.GetMapChildrenInfo(947, Enum.UIMapType.Zone, true) or {}) do
-                if info.name and info.name:lower() == want then
-                    maps[zone] = info.mapID
-                    break
-                end
-            end
-        end
-        return maps[zone] or nil
-    end
-
     local function Entrance(d)
-        local e = ENTRANCES[Short(d.name)]
-        local map = e and MapOf(e[1])
+        local e = ENTRANCES[Code(d)]
+        local map = e and e[1]
         if map and C_Map.CanSetUserWaypointOnMap(map) then return map, e[2], e[3] end
     end
 
@@ -2226,7 +2312,8 @@ do
                     end
                     local map, x, y = Entrance(d)
                     local way = map and Way(map, x, y)
-                    local tip = TIPS[Short(d.name)]
+                    local tip = TIPS[Code(d)]
+                    tip = tip and EUI.L(tip)
                     local row = root:CreateButton(d.name, function() Pick(d) end)
                     row:SetOnEnter(function(button) ShowBorder(button, true) end)
                     row:SetOnLeave(function(button) ShowBorder(button, false) end)
@@ -2402,12 +2489,13 @@ do
     local menus = {}  -- menu frames open from our two dropdowns
     local groupNames = {}
 
-    -- our dropdowns: the browser's two, the listing tab's playstyle and voice chat
+    -- our dropdowns: the browser's two and its options cog, the listing tab's playstyle and voice chat
     local function Drops()
         local av = _G.LFGListingFrameActivityView
         local t = {}
         for _, dd in pairs({ _G.LFGBrowseFrameCategoryDropdown, _G.LFGBrowseFrameActivityDropdown,
-                av and av.PlayStyleDropdown, av and av.VoiceChatDropdown, ns.foreverDirs, ns.foreverActs }) do
+                BF and BF.OptionsButton, av and av.PlayStyleDropdown, av and av.VoiceChatDropdown,
+                ns.foreverDirs, ns.foreverActs }) do
             t[#t + 1] = dd
         end
         return t
@@ -2470,9 +2558,12 @@ do
     -- our boxes and dividers drawn over a menu's rows (blizzard's rows have only two
     -- textures: no room for a border). kept per menu, hidden with every restyle
     local decos = setmetatable({}, { __mode = "k" })
+    local mine = setmetatable({}, { __mode = "k" })  -- our deco frames
     local function HideDecos(m)
         local d = decos[m]
         if not d then return end
+        for _, t in ipairs(d.cleared) do t:SetAlpha(1) end
+        wipe(d.cleared)
         if d.bg then d.bg:Hide() end
         for _, b in ipairs(d.boxes) do b:Hide() end
         for _, l in ipairs(d.lines) do l:Hide() end
@@ -2483,7 +2574,7 @@ do
     local function Decos(m)
         local d = decos[m]
         if not d then
-            d = { boxes = {}, lines = {}, nb = 0, nl = 0 }
+            d = { boxes = {}, lines = {}, cleared = {}, nb = 0, nl = 0 }
             decos[m] = d
         end
         return d
@@ -2494,6 +2585,7 @@ do
         local b = d.boxes[d.nb]
         if not b then
             b = CreateFrame("Frame", nil, m)
+            mine[b] = true
             b:EnableMouse(false)
             b:SetSize(BOX, BOX)
             local bg = b:CreateTexture(nil, "BACKGROUND")
@@ -2514,6 +2606,7 @@ do
         local l = d.lines[d.nl]
         if not l then
             local f = CreateFrame("Frame", nil, m)
+            mine[f] = true
             f:EnableMouse(false)
             l = f:CreateTexture(nil, "OVERLAY")
             l:SetAllPoints(f)
@@ -2525,6 +2618,40 @@ do
         local es = m:GetEffectiveScale()
         l:SetHeight(((EUI.PP and EUI.PP.perfect) or 1) / ((es and es > 0) and es or 1))
         return l
+    end
+
+    -- a scrolling menu's rows start further in than a plain menu's: the plain
+    -- menus' boxes are moved in to match (read from the first scrolling menu seen)
+    local BoxInset
+    do
+        local scrollInset
+        function BoxInset(row, m)
+            local rl, ml = row:GetLeft(), m:GetLeft()
+            if not (rl and ml) then return 0 end
+            local inset = rl - ml
+            local sb = m.ScrollBox
+            if sb and sb:IsShown() then
+                scrollInset = scrollInset or inset
+                return 0
+            end
+            return math.max(0, (scrollInset or (inset + 4)) - inset)
+        end
+    end
+
+    -- blizzard's divider (a tooltip divider texture, dark line on top): ours, one pixel
+    local function StyleDivider(row, m)
+        local d = Decos(m)
+        for _, r in ipairs({ row:GetRegions() }) do
+            if r:IsObjectType("Texture") and r:IsShown() and r:GetAlpha() > 0 then
+                r:SetAlpha(0)
+                d.cleared[#d.cleared + 1] = r
+            end
+        end
+        local l = LineDeco(m)
+        l:ClearAllPoints()
+        l:SetPoint("LEFT", row, "LEFT", 2, 0)
+        l:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+        l:Show()
     end
 
     local function StyleRow(row, m)
@@ -2566,6 +2693,12 @@ do
             l:Show()
             return
         end
+        if not box and not ns.foreverDirsOpen then
+            -- a plain button elsewhere (a submenu's, as choose languages): the ticked rows' text
+            MenuFont(fs, MENU_FONT)
+            fs:SetTextColor(EUI.TEXT_DIM_R or 0.75, EUI.TEXT_DIM_G or 0.75, EUI.TEXT_DIM_B or 0.75, EUI.TEXT_DIM_A or 1)
+            return
+        end
         if not box then
             -- a plain button (directions): our font, yellow, grey while it can't be clicked
             MenuFont(fs, 10)
@@ -2582,7 +2715,7 @@ do
         box:SetAlpha(0)
         box:SetSize(BOX, BOX)
         box:ClearAllPoints()
-        box:SetPoint("LEFT", row, "LEFT", 0, 0)
+        box:SetPoint("LEFT", row, "LEFT", BoxInset(row, m), 0)
         if tick then tick:SetAlpha(0) end
         local b = BoxDeco(m)
         b:SetFrameLevel(row:GetFrameLevel() + 2)
@@ -2608,6 +2741,10 @@ do
         for _, c in ipairs({ parent:GetChildren() }) do
             if c.fontString then
                 if c:IsShown() then StyleRow(c, m) end
+            elseif mine[c] or c == m.ScrollBox or c == m.ScrollBar then
+                -- ours, or the scroll parts (their rows are styled from the scroll target)
+            elseif c:IsShown() and c:GetNumChildren() == 0 and c:GetNumRegions() > 0 then
+                StyleDivider(c, m)
             elseif c:IsShown() then
                 local row = c:GetChildren()
                 if row and row.fontString and row:IsShown() then StyleRow(row, m) end
@@ -2619,6 +2756,7 @@ do
         local d = Decos(m)
         if not d.bg then
             d.bg = CreateFrame("Frame", nil, m)
+            mine[d.bg] = true
             d.bg:EnableMouse(false)
             d.bg:SetAllPoints(m)
             d.bg.tex = d.bg:CreateTexture(nil, "BACKGROUND")
@@ -2709,6 +2847,7 @@ do
             d.bar = bar
             if not d.thumb then
                 d.thumb = CreateFrame("Frame", nil, m)
+                mine[d.thumb] = true
                 d.thumb:EnableMouse(false)
                 d.thumb:SetWidth(3)
                 local t = d.thumb:CreateTexture(nil, "OVERLAY")
@@ -3232,10 +3371,10 @@ local function Build()
     end)
 end
 
--- ours while the browse tab shows
+-- ours while the browse tab shows and every result can be read; blizzard's otherwise
 function ns.ForeverRefresh()
     if not frame then return end
-    local now = ns.Enabled() and BF:IsVisible()
+    local now = ns.Enabled() and BF:IsVisible() and not ns.ForeverAnySecret()
     if now ~= active then
         active = now
         local a = active and 0 or 1
