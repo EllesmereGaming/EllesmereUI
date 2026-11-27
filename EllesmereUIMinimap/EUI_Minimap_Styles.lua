@@ -507,6 +507,9 @@ EBS._ApplyBlizzMinimapChrome = function(minimap, mapSize)
     if not header then
         header = CreateFrame("Frame", nil, minimap)
         header:EnableMouse(false)
+        -- A map at the screen's top leaves the bar at the edge, as its buttons
+        -- stay, so the zone text never goes off screen.
+        header:SetClampedToScreen(true)
         local bar = fv and C_Texture.GetAtlasInfo(EBS.FV_HEADER_ATLAS)
         if bar then
             local tex = header:CreateTexture(nil, "BACKGROUND")
