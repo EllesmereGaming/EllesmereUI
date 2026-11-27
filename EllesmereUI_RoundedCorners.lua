@@ -1261,7 +1261,8 @@ local ClipFrame
 local function ClipRegions(...)
     for i = 1, select("#", ...) do
         local reg = select(i, ...)
-        if reg:GetObjectType() == "Texture" then
+        -- _noListClip: an inset texture the corners never reach (a row's spell icon).
+        if reg:GetObjectType() == "Texture" and not reg._noListClip then
             local g = PoolDress(reg) or 0
             if reg.IsObjectLoaded and not reg:IsObjectLoaded() then
                 if cSet[reg] == g then
