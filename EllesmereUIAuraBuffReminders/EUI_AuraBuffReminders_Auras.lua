@@ -797,6 +797,7 @@ local BUFF_BENEFICIARIES = {
 if EABR.FOREVER then
     -- The shared Intellect family's list (the Raid Frames Missing Buffs reads it too).
     BUFF_BENEFICIARIES.intellect = EllesmereUI.FOREVER_BUFF_FAMILIES.ai.beneficiaries
+    BUFF_BENEFICIARIES.spirit = EllesmereUI.FOREVER_BUFF_FAMILIES.spirit.beneficiaries
     BUFF_BENEFICIARIES.attackPower = {
         DRUID = true, PALADIN = true, ROGUE = true, SHAMAN = true, WARRIOR = true,
     }

@@ -596,7 +596,10 @@ if EllesmereUI.IS_FOREVER == true then
         spirit = { names = { 14752, 27681 },
             single = { 14752, 14818, 14819, 27841 }, group = { 27681 },
             ids = { 14752, 14818, 14819, 16875, 27841, 27681 },
-            amounts = { [14752] = 17, [14818] = 23, [14819] = 33, [16875] = 40, [27841] = 40, [27681] = 40 } },
+            amounts = { [14752] = 17, [14818] = 23, [14819] = 33, [16875] = 40, [27841] = 40, [27681] = 40 },
+            -- Spirit regenerates mana: mana users only (Arcane Intellect's set).
+            beneficiaries = { DRUID = true, HUNTER = true, MAGE = true, PALADIN = true, PRIEST = true,
+                SHAMAN = true, WARLOCK = true } },
         thorns = { names = { 467 },
             single = { 467, 782, 1075, 8914, 9756, 9910 }, group = {},
             ids = { 467, 782, 1075, 8914, 9756, 9910, 15438, 16877, 21335, 21337, 22128, 22351, 22696,
