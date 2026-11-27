@@ -286,6 +286,18 @@ end
 -- the note's line under the row
 local function NoteHeight() return ns.OwnListSize("lineSize") + 4 end
 local sortDown, sortAppsFirst = false, true
+-- the info field extraSortBy orders by, nil when it keeps the list order
+local function SortField()
+    local gc = GFNS.Cfg and GFNS.Cfg()
+    local by = gc and gc.extraSortBy
+    return (by == "high" or by == "low") and "leaderOverallDungeonScore"
+        or (by == "big" or by == "small") and "numMembers" or nil, by
+end
+local function SortValOf(id, field)
+    local info = C_LFGList.GetSearchResultInfo(id)
+    local v = Readable(info) and info[field]
+    return (type(v) == "number" and not Secret(v)) and v or 0
+end
 local function BySortVal(a, b)
     if sortAppsFirst and isApp[a] ~= isApp[b] then return isApp[a] == true end
     local va, vb = sortVal[a], sortVal[b]
@@ -350,18 +362,11 @@ local function Collect()
         table.sort(shown, ByPos)
     end
     -- sort by score or size, applications stay on top
-    local gc = GFNS.Cfg and GFNS.Cfg()
-    local by = gc and gc.extraSortBy
-    local field = (by == "high" or by == "low") and "leaderOverallDungeonScore"
-        or (by == "big" or by == "small") and "numMembers"
+    local field, by = SortField()
+    wipe(sortVal)
     if field then
         sortDown, sortAppsFirst = by == "high" or by == "big", appsFirst
-        wipe(sortVal)
-        for _, id in ipairs(shown) do
-            local info = C_LFGList.GetSearchResultInfo(id)
-            local v = Readable(info) and info[field]
-            sortVal[id] = (type(v) == "number" and not Secret(v)) and v or 0
-        end
+        for _, id in ipairs(shown) do sortVal[id] = SortValOf(id, field) end
         table.sort(shown, BySortVal)
     end
     wipe(noteOf)
@@ -1820,8 +1825,8 @@ end
 
 -- the frame after result updates: each changed group repaints its own row.
 -- The whole list collects again only when it has to: a group gone secret, one
--- whose filter pass changed, a sort that follows score or size, or a refresh
--- that was asked for
+-- whose filter pass changed or whose score or size moved it in the sort, or a
+-- refresh that was asked for
 local function Flush()
     flusher:Hide()
     if not active then
@@ -1832,15 +1837,16 @@ local function Flush()
     local full = fullDirty
     fullDirty = false
     if not full then
-        local gc = GFNS.Cfg and GFNS.Cfg()
-        local by = gc and gc.extraSortBy
-        full = by == "high" or by == "low" or by == "big" or by == "small"
-    end
-    if not full then
         local notesOn = ns.OwnListGet("groupNotes")
         local judge = MismatchOn()
+        local field = SortField()
         for id in pairs(dirty) do
             if ResultSecret(id) then
+                full = true
+                break
+            end
+            -- a shown group's score or size changed: it may move in the sort
+            if field and sortVal[id] ~= nil and SortValOf(id, field) ~= sortVal[id] then
                 full = true
                 break
             end
