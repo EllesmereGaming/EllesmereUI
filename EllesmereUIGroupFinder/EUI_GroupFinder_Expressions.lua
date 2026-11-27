@@ -50,20 +50,20 @@ local function Tokens(src)
             local word = not num and src:match("^[%a_][%w_]*", i)
             local two = src:sub(i, i + 1)
             if num then
-                out[#out + 1] = { t = "num", v = tonumber(num) }
+                out[#out + 1] = { t = "num", v = tonumber(num), s = num }
                 i = i + #num
             elseif word then
                 local lw = word:lower()
-                if KEYWORDS[lw] then out[#out + 1] = { t = KEYWORDS[lw] }
-                elseif lw == "true" or lw == "false" then out[#out + 1] = { t = "num", v = lw == "true" and 1 or 0 }
-                elseif WORDS[lw] then out[#out + 1] = { t = "var", v = WORDS[lw] }
+                if KEYWORDS[lw] then out[#out + 1] = { t = KEYWORDS[lw], s = word }
+                elseif lw == "true" or lw == "false" then out[#out + 1] = { t = "num", v = lw == "true" and 1 or 0, s = word }
+                elseif WORDS[lw] then out[#out + 1] = { t = "var", v = WORDS[lw], s = word }
                 else return nil, EllesmereUI.Lf("unknown word: %1$s", word) end
                 i = i + #word
             elseif TWO[two] then
-                out[#out + 1] = { t = TWO[two] }
+                out[#out + 1] = { t = TWO[two], s = two }
                 i = i + 2
             elseif ONE[c] then
-                out[#out + 1] = { t = ONE[c] }
+                out[#out + 1] = { t = ONE[c], s = c }
                 i = i + 1
             else
                 return nil, EllesmereUI.Lf("can't use \"%1$s\"", c)
@@ -107,7 +107,7 @@ local function Compile(src)
             if take() == nil or toks[pos - 1].t ~= ")" then error(EllesmereUI.L("missing )"), 0) end
             return f
         end
-        error(EllesmereUI.Lf("unexpected \"%1$s\"", tk.t), 0)
+        error(EllesmereUI.Lf("unexpected \"%1$s\"", tk.s or tk.t), 0)
     end
     local function Unary()
         if peek() == "-" then
@@ -179,7 +179,7 @@ local function Compile(src)
 
     local ok, f = pcall(Or)
     if not ok then return nil, f end
-    if pos <= #toks then return nil, EllesmereUI.Lf("unexpected \"%1$s\"", toks[pos].t) end
+    if pos <= #toks then return nil, EllesmereUI.Lf("unexpected \"%1$s\"", toks[pos].s or toks[pos].t) end
     return f
 end
 
