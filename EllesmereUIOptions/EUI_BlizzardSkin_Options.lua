@@ -1855,6 +1855,23 @@ initFrame:SetScript("OnEvent", function(self)
             seasonCfg or (EllesmereUI.IS_FOREVER and flyoutLevelsCfg) or EllesmereUI.BlankRowCfg()
         );  y = y - h
 
+        -- WoW Forever: the average item level above the stats, every style
+        -- (on unless false). Retail shows it always.
+        if EllesmereUI.IS_FOREVER then
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Show Average Item Level",
+                  tooltip="Show your average equipped item level at the top of the character sheet's stats.",
+                  disabled=themedOff, disabledTooltip="Character Sheet",
+                  getValue=function() return not (EllesmereUIDB and EllesmereUIDB.charSheetShowAvgIlvl == false) end,
+                  setValue=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      EllesmereUIDB.charSheetShowAvgIlvl = v
+                      if EllesmereUI._refreshCharSheetAvgIlvl then EllesmereUI._refreshCharSheetAvgIlvl() end
+                  end },
+                EllesmereUI.BlankRowCfg()
+            );  y = y - h
+        end
+
         do
             local durRows = {
                     { type="dropdown", label="Location",
@@ -2238,6 +2255,13 @@ initFrame:SetScript("OnEvent", function(self)
                     "Show each item's main and secondary stat (or its armor) and each weapon's damage per second beside its slot.",
                     "inspectShowItemStats", "_refreshInspectSlotLabels", true,
                     function() LevelIntoIcon("inspectShowItemLevel", "inspectItemLevelPos") end)
+            );  y = y - h
+            -- The inspected player's average item level (retail always shows it).
+            _, h = W:DualRow(parent, y,
+                InspectLabelToggle("Show Average Item Level",
+                    "Show the inspected player's average equipped item level at the top of the inspect sheet.",
+                    "inspectShowAvgIlvl", "_refreshInspectAverageItemLevelVisibility"),
+                EllesmereUI.BlankRowCfg()
             );  y = y - h
         else
             _, h = W:DualRow(parent, y,

@@ -40,14 +40,14 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  All of this is the EllesmereUI look (the Character Sheet card's
 --  EllesmereUI and Modern). Under the card's Blizz Default only the slot text
---  stays, on Blizzard's own sheet: the same lines through the same per-slot
---  update, set further out so they clear Blizzard's bronze slot frames. The
---  outer weapon slots' lines start lower (under the columns' bottom slot
---  frames) and the middle weapon slot's lines stack above it, running left
---  from its right edge (the frame border leaves no room under it), clear of
---  the columns' own text; weapon lines too long for their room are cut
---  short. No eyeball there: that corner is Blizzard's portrait.
---  The card's Off and the window skins kill switch stop both looks.
+--  and the overall item level stay, on Blizzard's own sheet: the same slot
+--  lines through the same per-slot update, set further out so they clear
+--  Blizzard's bronze slot frames. The outer weapon slots' lines start lower
+--  (under the columns' bottom slot frames) and the middle weapon slot's lines
+--  stack above it, running left from its right edge (the frame border leaves
+--  no room under it), clear of the columns' own text; weapon lines too long
+--  for their room are cut short. No eyeball there: that corner is Blizzard's
+--  portrait. The card's Off and the window skins kill switch stop both looks.
 --
 --  Cost: a one-time pass at login on frames that already exist (under Blizz
 --  Default, a one-time text build at the slots' first show instead), then a
@@ -1105,8 +1105,9 @@ end
 --  equipped average on a line of its own above the player's stats list. A
 --  child of that list, so it shows only with it (never over the equipment
 --  manager, the titles or the pet stats), and the list's rows start under it
---  while it shows. Its two events are registered only while the sheet is
---  shown; nothing is built when the client has no average item level.
+--  while it shows. Both looks, behind Show Average Item Level. Its two events
+--  are registered only while the sheet is shown and the option is on; nothing
+--  is built while it is off or when the client has no average item level.
 --------------------------------------------------------------------------------
 local AVG_H = 24               -- the line's room above the rows
 local LIST_X, LIST_Y = 10, -8  -- Blizzard's own inset of the rows in the list frame
@@ -1115,7 +1116,7 @@ local avg                      -- { host, text, events, shown }
 local function UpdateAverage()
     local a = avg
     local _, equipped = _G.GetAverageItemLevel()
-    local shown = type(equipped) == "number"
+    local shown = ns.CharSheetShowAvgIlvl() and type(equipped) == "number"
         and not (issecretvalue and issecretvalue(equipped)) and equipped > 0
     if shown then a.text:SetFormattedText("%.2f", equipped) end
     if a.shown ~= shown then
@@ -1129,18 +1130,20 @@ end
 
 local function WatchAverage()
     local a = avg
-    if _G.CharacterFrame:IsShown() then
+    if _G.CharacterFrame:IsShown() and ns.CharSheetShowAvgIlvl() then
         a.events:RegisterEvent("PLAYER_AVG_ITEM_LEVEL_UPDATE")
         a.events:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
-        UpdateAverage()
     else
         a.events:UnregisterAllEvents()
     end
+    UpdateAverage()
 end
 
-local function BuildAverage(frame)
-    local box = _G.CharacterStatsPaneScrollBox
-    if avg or not (box and box.ScrollBox and _G.GetAverageItemLevel) then return end
+-- Both looks; built on first use while Show Average Item Level is on.
+local function BuildAverage()
+    local frame, box = _G.CharacterFrame, _G.CharacterStatsPaneScrollBox
+    if avg or not ns.CharSheetShowAvgIlvl() then return end
+    if not (frame and box and box.ScrollBox and _G.GetAverageItemLevel) then return end
     local host = CreateFrame("Frame", nil, box)
     host:SetPoint("TOPLEFT", box, "TOPLEFT", LIST_X, LIST_Y + 2)
     host:SetPoint("TOPRIGHT", box, "TOPRIGHT", -30, LIST_Y + 2)
@@ -1149,7 +1152,9 @@ local function BuildAverage(frame)
     local text = host:CreateFontString(nil, "OVERLAY")
     EllesmereUI.ApplyModuleFont(text, nil, 18, "blizzardSkin")
     text:SetPoint("CENTER", host, "CENTER", 0, 0)
-    text:SetTextColor(0.6, 0.2, 1, 1)  -- the retail sheet's and the inspect sheet's
+    -- Blizz Default's Blizzard UI Color: Blizzard's yellow, else the retail sheet's purple.
+    local blz = ns.CharSheetBlizzColor()
+    if blz then text:SetTextColor(blz.r, blz.g, blz.b, 1) else text:SetTextColor(0.6, 0.2, 1, 1) end
     host:EnableMouse(true)
     host:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, "Equipped Item Level") end)
     host:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -1159,6 +1164,12 @@ local function BuildAverage(frame)
     frame:HookScript("OnShow", WatchAverage)
     frame:HookScript("OnHide", WatchAverage)
     WatchAverage()
+end
+
+-- The options toggle: builds on first enable, else re-syncs.
+function EllesmereUI._refreshCharSheetAvgIlvl()
+    if not TextEnabled() then return end
+    if avg then WatchAverage() else BuildAverage() end
 end
 
 local function SkinFrame()
@@ -1265,7 +1276,7 @@ local function SkinFrame()
     -- Stats list colors.
     HookStatsList(_G.CharacterStatsPaneScrollBox)
     HookStatsList(_G.CharacterStatsPanePetScrollBox)
-    BuildAverage(frame)
+    BuildAverage()
 
     -- The stats scrollbars: the house thin thumb in Blizzard's own track
     -- position, the up/down arrows left as they are. Texture work only, the
@@ -1285,6 +1296,7 @@ local function BuildStockText()
     if itemWatch then return end
     BuildSlotText()
     HookSlotUpdates()
+    BuildAverage()
 end
 
 -- Show Item Durability: the weakest item's percent above the model, both
