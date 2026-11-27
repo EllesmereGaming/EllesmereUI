@@ -666,14 +666,30 @@ initFrame:SetScript("OnEvent", function(self)
                     -- repeating it.
                     or (slot.kind == "dynamicrez"
                         and "resurrection, chosen for this character")
+                    or (slot.kind == "macrotext" and "custom macro")
                     or slot.kind
             end
             text = EllesmereUI.L(name or slot.kind)
                 .. "\n|cff999999" .. EllesmereUI.L(caption) .. "|r"
-                .. EllesmereUI.L("\n|cff66ccffDrag to reorder."
+            -- Custom macros and nested menus: Shift + right-click edits.
+            if slot.kind == "palette" then
+                text = text .. EllesmereUI.L("\n|cff66ccffDrag to reorder."
+                    .. "\nRight-click to change action."
+                    .. "\nShift-right-click to change icon or label."
+                    .. "\nMiddle-click to remove."
+                    .. "\nDrop an action here to replace it.|r")
+            elseif slot.kind == "macrotext" then
+                text = text .. EllesmereUI.L("\n|cff66ccffDrag to reorder."
+                    .. "\nRight-click to change action."
+                    .. "\nShift-right-click to edit icon, label or text."
+                    .. "\nMiddle-click to remove."
+                    .. "\nDrop an action here to replace it.|r")
+            else
+                text = text .. EllesmereUI.L("\n|cff66ccffDrag to reorder."
                     .. "\nRight-click to change action."
                     .. "\nMiddle-click to remove."
                     .. "\nDrop an action here to replace it.|r")
+            end
         else
             text = EllesmereUI.L("Add an action"
                 .. "\n|cff66ccffLeft-click to pick an action from a list."
@@ -1558,7 +1574,7 @@ initFrame:SetScript("OnEvent", function(self)
         local custom = CreateFrame("Frame", nil, menu)
         custom:SetPoint("TOPLEFT", menu.back, "BOTTOMLEFT", 7, -6)
         custom:SetPoint("TOPRIGHT", menu.back, "BOTTOMRIGHT", -7, -6)
-        custom:SetHeight(150)
+        custom:SetHeight(158)
         custom:SetFrameLevel(menu:GetFrameLevel() + 2)
         custom:Hide()
         menu.custom = custom
@@ -1585,8 +1601,152 @@ initFrame:SetScript("OnEvent", function(self)
             return box
         end
 
+        -- Icon: stored as slot.icon; none keeps the question mark.
+        local ICON_SZ = 38
+        local iconBtn = CreateFrame("Button", nil, custom)
+        iconBtn:SetSize(ICON_SZ, ICON_SZ)
+        iconBtn:SetPoint("TOPLEFT", custom, "TOPLEFT", 1, -1)
+        iconBtn:SetFrameLevel(custom:GetFrameLevel() + 1)
+        local iBg = iconBtn:CreateTexture(nil, "BACKGROUND")
+        iBg:SetAllPoints()
+        iBg:SetColorTexture(0, 0, 0, 0.4)
+        EllesmereUI.MakeRoundedBorder(iconBtn, 1, 1, 1, 0.15, iBg)
+        iconBtn.tex = iconBtn:CreateTexture(nil, "ARTWORK")
+        iconBtn.tex:SetPoint("TOPLEFT", 2, -2)
+        iconBtn.tex:SetPoint("BOTTOMRIGHT", -2, 2)
+        -- Drawn as the menu draws it, atlas tables included.
+        local function ShowIcon(icon)
+            icon = icon or QUESTION_MARK
+            ns.SetIconTexture(iconBtn.tex, icon)
+            ns.ApplyIconCrop(iconBtn.tex, icon)
+        end
+        ShowIcon(nil)
+        local function SetChosenIcon(icon)
+            custom.icon = icon
+            ShowIcon(icon)
+        end
+        custom.SetChosenIcon = SetChosenIcon
+        iconBtn:SetScript("OnEnter", function(s)
+            iBg:SetColorTexture(1, 1, 1, 0.12)
+            EllesmereUI.ShowWidgetTooltip(s, EllesmereUI.L("Choose Icon"))
+        end)
+        iconBtn:SetScript("OnLeave", function()
+            iBg:SetColorTexture(0, 0, 0, 0.4)
+            EllesmereUI.HideWidgetTooltip()
+        end)
+
+        -- Icon grid beside the menu; a child of the pane so it hides with it.
+        local GRID_COLS, GRID_ROWS, CELL = 8, 7, 32
+        local grid = CreateFrame("Frame", nil, custom)
+        grid:SetSize(GRID_COLS * CELL + 16, GRID_ROWS * CELL + 82)
+        grid:SetPoint("TOPLEFT", menu, "TOPRIGHT", 4, 0)
+        grid:SetFrameLevel(menu:GetFrameLevel() + 10)
+        grid:EnableMouse(true)
+        grid:EnableMouseWheel(true)
+        grid:Hide()
+        menu.iconGrid = grid
+        local gBg = grid:CreateTexture(nil, "BACKGROUND")
+        gBg:SetAllPoints()
+        gBg:SetColorTexture(bgR, bgG, bgB, bgA)
+        EllesmereUI.MakeRoundedBorder(grid, 1, 1, 1, brdA, gBg, nil, true)
+        local gTitle = EllesmereUI.MakeFont(grid, 12, nil, 1, 1, 1, 0.9)
+        gTitle:SetPoint("TOP", grid, "TOP", 0, -7)
+        gTitle:SetText(EllesmereUI.L("Choose Icon"))
+
+        local idBox = MakeInput(grid, 22, false)
+        idBox:SetPoint("TOPLEFT", grid, "TOPLEFT", 8, -26)
+        idBox:SetPoint("TOPRIGHT", grid, "TOPRIGHT", -8, -26)
+        idBox:SetMaxLetters(120)
+        local idPH = idBox:CreateFontString(nil, "OVERLAY")
+        idPH:SetFont(FONT, 10, "")
+        idPH:SetTextColor(0.5, 0.5, 0.5, 0.6)
+        idPH:SetPoint("LEFT", idBox, "LEFT", 6, 0)
+        idPH:SetText(EllesmereUI.L("Icon name, file ID or atlas:name, then Enter"))
+        idBox:SetScript("OnTextChanged", function(s)
+            idPH:SetShown((s:GetText() or "") == "")
+        end)
+        idBox:SetScript("OnEnterPressed", function(s)
+            local v = strtrim(s:GetText() or "")
+            s:ClearFocus()
+            if v == "" then return end
+            local atlas = v:match("^[Aa][Tt][Ll][Aa][Ss]:%s*(.+)$")
+            local icon = atlas and { atlas = atlas } or tonumber(v)
+            if not icon then
+                icon = v:find("\\", 1, true) and v or ("Interface\\Icons\\" .. v)
+            end
+            SetChosenIcon(icon)
+            s:SetText("")
+            grid:Hide()
+        end)
+
+        local icons, offset = nil, 0
+        local cells = {}
+        local function PaintGrid()
+            for i, c in ipairs(cells) do
+                local icon = icons[offset + i]
+                c.value = icon
+                if icon then
+                    c.tex:SetTexture(icon)
+                    c.sel:SetShown(icon == (custom.icon or QUESTION_MARK))
+                    c:Show()
+                else
+                    c:Hide()
+                end
+            end
+        end
+        for i = 1, GRID_COLS * GRID_ROWS do
+            local c = CreateFrame("Button", nil, grid)
+            c:SetSize(CELL - 2, CELL - 2)
+            c:SetPoint("TOPLEFT", grid, "TOPLEFT",
+                8 + ((i - 1) % GRID_COLS) * CELL,
+                -54 - math.floor((i - 1) / GRID_COLS) * CELL)
+            c:SetFrameLevel(grid:GetFrameLevel() + 2)
+            c.tex = c:CreateTexture(nil, "ARTWORK")
+            c.tex:SetAllPoints()
+            c.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            c.sel = c:CreateTexture(nil, "OVERLAY")
+            c.sel:SetPoint("TOPLEFT", -1, 1)
+            c.sel:SetPoint("BOTTOMRIGHT", 1, -1)
+            c.sel:SetColorTexture(ACCENT.r, ACCENT.g, ACCENT.b, 0.45)
+            c.sel:Hide()
+            local hl = c:CreateTexture(nil, "HIGHLIGHT")
+            hl:SetAllPoints()
+            hl:SetColorTexture(1, 1, 1, 0.25)
+            c:SetScript("OnClick", function(s)
+                -- The question mark clears the icon.
+                SetChosenIcon(s.value ~= QUESTION_MARK and s.value or nil)
+                grid:Hide()
+            end)
+            cells[i] = c
+        end
+        local function MaxOffset()
+            local rows = math.ceil(#icons / GRID_COLS)
+            return math.max(0, (rows - GRID_ROWS) * GRID_COLS)
+        end
+        grid:SetScript("OnMouseWheel", function(_, delta)
+            local o = math.max(0, math.min(MaxOffset(), offset - delta * GRID_COLS * 2))
+            if o ~= offset then offset = o; PaintGrid() end
+        end)
+        local gHint = EllesmereUI.MakeFont(grid, 10, nil, tR, tG, tB, tA)
+        gHint:SetPoint("BOTTOM", grid, "BOTTOM", 0, 8)
+        gHint:SetText(EllesmereUI.L("Scroll for more icons"))
+
+        iconBtn:SetScript("OnClick", function()
+            if grid:IsShown() then grid:Hide(); return end
+            if not icons then
+                icons = { QUESTION_MARK }
+                GetLooseMacroIcons(icons)
+                GetLooseMacroItemIcons(icons)
+                GetMacroIcons(icons)
+                GetMacroItemIcons(icons)
+            end
+            offset = 0
+            PaintGrid()
+            grid:Show()
+        end)
+
         local nameLbl = EllesmereUI.MakeFont(custom, 10, nil, tR, tG, tB, tA)
-        nameLbl:SetPoint("TOPLEFT", custom, "TOPLEFT", 1, 0)
+        nameLbl:SetPoint("TOPLEFT", iconBtn, "TOPRIGHT", 8, 1)
         nameLbl:SetText(EllesmereUI.L("Label"))
         local nameBox = MakeInput(custom, 22, false)
         nameBox:SetPoint("TOPLEFT", nameLbl, "BOTTOMLEFT", 0, -3)
@@ -1594,7 +1754,7 @@ initFrame:SetScript("OnEvent", function(self)
         nameBox:SetMaxLetters(24)
 
         local textLbl = EllesmereUI.MakeFont(custom, 10, nil, tR, tG, tB, tA)
-        textLbl:SetPoint("TOPLEFT", nameBox, "BOTTOMLEFT", 0, -8)
+        textLbl:SetPoint("TOPLEFT", iconBtn, "BOTTOMLEFT", 0, -8)
         textLbl:SetText(EllesmereUI.L("Macro Text"))
         local textBox = MakeInput(custom, 62, true)
         textBox:SetPoint("TOPLEFT", textLbl, "BOTTOMLEFT", 0, -3)
@@ -1619,22 +1779,58 @@ initFrame:SetScript("OnEvent", function(self)
             aBg:SetColorTexture(ACCENT.r, ACCENT.g, ACCENT.b, 0.20)
         end)
         addBtn:SetScript("OnClick", function()
+            if custom.mode == "nest" then
+                -- Nested menu: only its icon and label; unset ones fall back
+                -- in SlotDisplay.
+                local palette = pickerReplaceIndex and Palette(editPalette)
+                local old = palette and palette.slots[pickerReplaceIndex]
+                if not (old and old.kind == "palette") then return end
+                local slot = {}
+                for k, v in pairs(old) do slot[k] = v end
+                local label = strtrim(nameBox:GetText() or "")
+                slot.name = label ~= "" and label or nil
+                slot.icon = custom.icon
+                AssignEntry({ slot = slot })
+                return
+            end
             local body = strtrim(textBox:GetText() or "")
             if body == "" then return end
             local label = strtrim(nameBox:GetText() or "")
             if label == "" then label = "Macro" end
-            -- No icon is stored: SlotDisplay falls back to the question mark,
-            -- which is what an unnamed custom macro looks like on an action bar
-            -- too.
-            if AssignEntry({ slot = { kind = "macrotext", macrotext = body, name = label } }) then
-                nameBox:SetText("")
-                textBox:SetText("")
+            -- No icon picked: SlotDisplay falls back to the question mark.
+            if AssignEntry({ slot = { kind = "macrotext", macrotext = body, name = label,
+                                      icon = custom.icon } }) then
+                custom.Fill(nil)
             end
         end)
+        -- slot: the entry being edited, or nil for a new macro. mode "nest":
+        -- a nested menu's icon and label only, no macro text.
+        function custom.Fill(slot, mode)
+            local nest = mode == "nest"
+            custom.mode = mode
+            nameBox:SetText(slot and slot.name or "")
+            textBox:SetText(slot and slot.macrotext or "")
+            SetChosenIcon(slot and slot.icon or nil)
+            if nest and not (slot and slot.icon) then
+                -- Show the borrowed icon without storing it.
+                ShowIcon(ns.SlotDisplay(slot))
+            end
+            textLbl:SetShown(not nest)
+            textBox:SetShown(not nest)
+            addBtn:ClearAllPoints()
+            addBtn:SetPoint("TOPRIGHT", nest and nameBox or textBox, "BOTTOMRIGHT", 0, nest and -18 or -8)
+            custom:SetHeight(nest and 96 or 158)
+            aTx:SetText(slot and EllesmereUI.L("Save") or EllesmereUI.L("Add"))
+            custom.filled = slot ~= nil
+            grid:Hide()
+        end
+
         menu:SetScript("OnHide", function(m)
             m.search:ClearFocus()
             nameBox:ClearFocus()
             textBox:ClearFocus()
+            idBox:ClearFocus()
+            grid:Hide()
             -- Replace mode ends with the menu, however it went down --
             -- committed, dismissed, or torn down by a page rebuild.
             pickerReplaceIndex = nil
@@ -1645,7 +1841,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- as a click outside it.
         menu:SetScript("OnUpdate", function(m)
             if IsMouseButtonDown("LeftButton") and not m:IsMouseOver()
-               and not (pickerAnchor and pickerAnchor:IsMouseOver()) then
+               and not (pickerAnchor and pickerAnchor:IsMouseOver())
+               and not (m.iconGrid:IsShown() and m.iconGrid:IsMouseOver()) then
                 m:Hide()
             end
         end)
@@ -1850,12 +2047,13 @@ initFrame:SetScript("OnEvent", function(self)
         menu:Show()
     end
 
-    ShowPickerCustom = function()
+    -- mode "nest": edit a nested menu entry's icon and label.
+    ShowPickerCustom = function(mode)
         local menu = EnsurePickerMenu()
         -- No cat recorded: menu.cat means "a list view is up, re-filter it on a
         -- keystroke", and there is no list here.
         menu.cat = nil
-        menu.title:SetText(EllesmereUI.L("Custom Macro"))
+        menu.title:SetText(mode == "nest" and EllesmereUI.L("Edit Menu Entry") or EllesmereUI.L("Custom Macro"))
         menu.back:Show()
         -- Restated rather than left as it was: the row is shared, and the view
         -- before this one may have been a sub-category's.
@@ -1866,6 +2064,16 @@ initFrame:SetScript("OnEvent", function(self)
         -- scroll child's children.
         menu.scroll:Hide()
         menu.catDivider:Hide()
+        -- Editing fills the pane; a new macro keeps any unsaved draft.
+        local palette = pickerReplaceIndex and Palette(editPalette)
+        local slot = palette and palette.slots[pickerReplaceIndex]
+        if mode == "nest" then
+            menu.custom.Fill(slot, "nest")
+        elseif slot and slot.kind == "macrotext" then
+            menu.custom.Fill(slot)
+        elseif menu.custom.filled or menu.custom.mode then
+            menu.custom.Fill(nil)
+        end
         menu.custom:Show()
         menu:SetHeight(PICK_HEAD_H + PICK_ROW_H + 6 + menu.custom:GetHeight() + 4)
         menu:Show()
@@ -1873,7 +2081,8 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- replaceIndex: open in replace mode on that slot (right-click on an
     -- entry); nil is the "+" append mode.
-    local function TogglePicker(widget, replaceIndex)
+    -- edit: Shift + right-click, open the entry's editor instead of the list.
+    local function TogglePicker(widget, replaceIndex, edit)
         local menu = EnsurePickerMenu()
         if menu:IsShown() and pickerAnchor == widget then
             HidePicker()
@@ -1893,7 +2102,15 @@ initFrame:SetScript("OnEvent", function(self)
         -- briefly show the wrong view.
         menu.cat = nil
         menu.search:SetText("")
-        ShowPickerCategories()
+        local palette = edit and replaceIndex and Palette(editPalette)
+        local slot = palette and palette.slots[replaceIndex]
+        if slot and slot.kind == "macrotext" then
+            ShowPickerCustom()
+        elseif slot and slot.kind == "palette" then
+            ShowPickerCustom("nest")
+        else
+            ShowPickerCategories()
+        end
     end
 
     ---------------------------------------------------------------------------
@@ -2908,7 +3125,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -- (AssignEntry). Nothing to change on the "+" -- its
                     -- left-click already opens the append picker.
                     if self.isPlaceholder then return end
-                    TogglePicker(self, self.index)
+                    TogglePicker(self, self.index, IsShiftKeyDown())
                     return
                 end
                 -- A loaded cursor still means "place this here" on every entry;
