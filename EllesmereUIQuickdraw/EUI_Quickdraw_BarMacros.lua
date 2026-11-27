@@ -2,8 +2,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EUI_Quickdraw_BarMacros.lua
 --
---  Action Bar Macros: a menu macro (EUI_Quickdraw<n>, made by the options
---  page) placed on an action bar lends that button's keybind to menu <n>.
+--  Action Bar Macros: a menu macro (named after its menu, made by the
+--  options page) placed on an action bar lends that button's keybind to the
+--  menu whose number its body carries.
 --  Moving the macro moves the key; ns.UpdateBindings does the binding.
 --  Reads the earlier Quickdraw files through ns and ns._qdInternals.
 -------------------------------------------------------------------------------
@@ -15,14 +16,26 @@ I.broken = true
 
 local tonumber, type = tonumber, type
 local GetActionInfo, GetActionText = GetActionInfo, GetActionText
+local GetMacroBody, GetMacroInfo = GetMacroBody, GetMacroInfo
 local GetBindingKey = GetBindingKey
 local EQD, P = I.EQD, I.P
 
-local MACRO_PREFIX = "EUI_Quickdraw"
-local MACRO_PATTERN = "^" .. MACRO_PREFIX .. "(%d+)$"
+-- The menu number lives in the body, a # line the macro system ignores, so the
+-- name is free to be the menu's own. Macros made before that were named
+-- EUI_Quickdraw<n>; those still count until Pick Up rewrites them.
+local MACRO_TAG = "#EllesmereUI Quickdraw menu "
+local TAG_PATTERN = "^" .. MACRO_TAG .. "(%d+)"
+local LEGACY_PATTERN = "^EUI_Quickdraw(%d+)$"
 
-function ns.BarMacroName(index)
-    return MACRO_PREFIX .. index
+function ns.BarMacroBody(index)
+    return MACRO_TAG .. index
+end
+
+-- The menu a macro belongs to (0: its menu was deleted), or nil.
+function ns.BarMacroPalette(name, body)
+    local n = type(body) == "string" and body:match(TAG_PATTERN)
+        or type(name) == "string" and name:match(LEGACY_PATTERN)
+    return n and tonumber(n)
 end
 
 -- The bars whose slots never page, by first action slot, and the binding
@@ -56,13 +69,21 @@ local function SlotRange(slot)
     end
 end
 
--- By the macro's name (GetActionText): GetActionInfo's id is a spell or item
--- for a macro showing one.
+-- GetActionInfo's id is the macro's index, except for a macro showing a spell
+-- or an item (never a menu macro, whose body is a comment): checked against
+-- the name, with the name as the fallback.
 local function MacroPalette(slot)
-    if GetActionInfo(slot) ~= "macro" then return nil end
+    local kind, id = GetActionInfo(slot)
+    if kind ~= "macro" then return nil end
     local name = GetActionText(slot)
-    local n = name and name:match(MACRO_PATTERN)
-    return n and tonumber(n)
+    if not name then return nil end
+    local body
+    if type(id) == "number" and GetMacroInfo(id) == name then
+        body = GetMacroBody(id)
+    else
+        body = GetMacroBody(name)
+    end
+    return ns.BarMacroPalette(name, body)
 end
 
 local function RebuildList()

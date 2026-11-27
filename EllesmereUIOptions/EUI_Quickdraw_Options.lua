@@ -195,17 +195,60 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end
 
-    -- Action Bar Macros: the edited menu's macro, made once (or given the
-    -- menu's current icon) and handed to the cursor to drop on a bar. The body
-    -- is a comment: the bar button's keybind is taken over by the menu
-    -- (EUI_Quickdraw_BarMacros.lua), so the macro never needs to run.
+    -- Action Bar Macros. A menu's macro carries the menu's name, cut to the
+    -- macro limit, and its number in the body (ns.BarMacroBody), which is what
+    -- the module reads; the body is a comment because the bar button's keybind
+    -- is taken over by the menu (EUI_Quickdraw_BarMacros.lua) and the macro
+    -- never needs to run. Account macros only: Pick Up makes them there.
+    local MACRO_NAME_MAX = 16
+    local function MenuMacroName(index)
+        local name = MenuName(index)
+        -- Whole characters only: drop the last UTF-8 sequence until it fits.
+        while #name > MACRO_NAME_MAX do
+            name = name:gsub("[%z\1-\127\192-\255][\128-\191]*$", "")
+        end
+        return name
+    end
+
+    -- The account macro of menu `index`, by its body (or a pre-rename name).
+    local function FindMenuMacro(index)
+        if not ns.BarMacroPalette then return nil end
+        for m = 1, (GetNumMacros()) do
+            local name, _, body = GetMacroInfo(m)
+            if ns.BarMacroPalette(name, body) == index then return m end
+        end
+    end
+
+    -- A menu renamed: its macro follows, so the bar shows the new name.
+    local function RenameMenuMacro(index)
+        if InCombatLockdown() then return end
+        local m = FindMenuMacro(index)
+        if m then EditMacro(m, MenuMacroName(index)) end
+    end
+
+    -- A menu deleted: its macros are orphaned (menu 0, which binds nothing)
+    -- and the ones above it move down with their menus. Ascending, so a macro
+    -- just moved down is never found again under the number it left.
+    local function RenumberMenuMacros(deleted, oldCount)
+        for t = deleted, oldCount do
+            local m = FindMenuMacro(t)
+            while m do
+                EditMacro(m, nil, nil, ns.BarMacroBody(t == deleted and 0 or t - 1))
+                m = FindMenuMacro(t)
+            end
+        end
+    end
+
+    -- The edited menu's macro, made once (and given the menu's current name
+    -- and icon on every pick up), handed to the cursor to drop on a bar.
     local function PickUpMenuMacro()
         if InCombatLockdown() then
             Complain("Quickdraw: leave combat to pick up a menu macro.")
             return
         end
-        if not ns.BarMacroName then return end
-        local name = ns.BarMacroName(editPalette)
+        if not ns.BarMacroBody then return end
+        local name = MenuMacroName(editPalette)
+        local body = ns.BarMacroBody(editPalette)
         local icon = PaletteListIcon(PaletteRead(editPalette))
         -- A macro takes a file ID or an icon name, not an atlas table (Pings,
         -- outfits, a picked atlas) or another texture path.
@@ -213,19 +256,20 @@ initFrame:SetScript("OnEvent", function(self)
         if type(icon) ~= "number" and (type(icon) ~= "string" or icon:find("\\", 1, true)) then
             icon = "INV_Misc_Bag_08"
         end
-        if GetMacroIndexByName(name) == 0 then
+        local m = FindMenuMacro(editPalette)
+        if m then
+            EditMacro(m, name, icon, body)
+        else
             if GetNumMacros() >= Constants.MacroConsts.MAX_ACCOUNT_MACROS then
                 Complain("Quickdraw: all account macro slots are in use. Delete one to make the menu macro.")
                 return
             end
-            CreateMacro(name, icon, "#EllesmereUI Quickdraw menu", nil)
-        else
-            EditMacro(GetMacroIndexByName(name), nil, icon)
+            CreateMacro(name, icon, body, nil)
         end
-        -- Found again by name: macro handlers that run inside CreateMacro and
+        -- Found again: macro handlers that run inside CreateMacro and
         -- EditMacro may reorder the list.
-        local index = GetMacroIndexByName(name)
-        if index > 0 then PickupMacro(index) end
+        m = FindMenuMacro(editPalette)
+        if m then PickupMacro(m) end
     end
 
     -- What the user calls the action a chord is currently bound to. The binding
@@ -2406,6 +2450,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         table.remove(p.palettes, index)
         Set("paletteCount", count - 1)
+        RenumberMenuMacros(index, count)
 
         -- The auto-names close ranks with everything else. A palette the user
         -- never renamed carries the number it was made under, so deleting
@@ -2686,6 +2731,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if newName == "" then newName = AutoName(idx) end
                         if newName == pal3.name then return end
                         pal3.name = newName
+                        RenameMenuMacro(idx)
                         RebuildPage()
                     end,
                 })
