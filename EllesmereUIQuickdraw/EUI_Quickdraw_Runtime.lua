@@ -948,8 +948,14 @@ function ns.UpdateBindings()
                 SetOverrideBindingClick(bindOwner, false, k2, name)
                 claimed[k2] = true
             end
+            -- Priority: the bar's own button holds an override on the same key
+            -- (EllesmereUI's action bars click-route or command-route every
+            -- bar key), and between two plain overrides the last one set wins,
+            -- which at login is whichever module binds later. Its modifier
+            -- variants need nothing of the kind: BindWithModifiers only takes
+            -- a combination nothing is bound to.
             for b = 1, nb do
-                SetOverrideBindingClick(bindOwner, false, keys[b], name)
+                SetOverrideBindingClick(bindOwner, true, keys[b], name)
                 claimed[keys[b]] = true
             end
         end
