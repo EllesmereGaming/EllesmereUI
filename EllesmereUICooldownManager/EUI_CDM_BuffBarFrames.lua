@@ -761,7 +761,7 @@ end
 -- Timer text anchor on the status bar: point, relativePoint, x, y, justifyH.
 -- From settings only: once the bar mirrors a secret value, GetPoint on the
 -- timer text returns secrets, so it can never be read back.
--- Vertical bars place left/right OUTSIDE the (thin) bar.
+--  Vertical bars honor the same position choices as horizontal: left/right sit OUTSIDE the (thin) bar, top/bottom above/below it, center inside.
 local function TBBTimerAnchor(cfg)
     local pos = cfg.timerPosition or (cfg.showTimer and "right" or "none")
     local tX, tY = cfg.timerX or 0, cfg.timerY or 0
