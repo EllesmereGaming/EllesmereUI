@@ -2426,11 +2426,15 @@ EllesmereUI.RegisterMigration({
         local db = ctx.db
         if db.mailCloseBags == false and db.profiles then
             for _, profData in pairs(db.profiles) do
-                if not profData.addons then profData.addons = {} end
-                local bags = profData.addons.EllesmereUIBags
-                if not bags then bags = {}; profData.addons.EllesmereUIBags = bags end
-                if not bags.bagAutoCloseWindows then bags.bagAutoCloseWindows = {} end
-                bags.bagAutoCloseWindows.mail = false
+                -- Skip empty/stub profiles: bags_hide_pinned_existing_off_v1 reads
+                -- any addons entry as an existing user's profile.
+                if type(profData) == "table" and type(profData.addons) == "table"
+                   and next(profData.addons) then
+                    local bags = profData.addons.EllesmereUIBags
+                    if not bags then bags = {}; profData.addons.EllesmereUIBags = bags end
+                    if not bags.bagAutoCloseWindows then bags.bagAutoCloseWindows = {} end
+                    bags.bagAutoCloseWindows.mail = false
+                end
             end
         end
         db.mailCloseBags = nil
