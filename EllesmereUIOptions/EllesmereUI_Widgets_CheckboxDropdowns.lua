@@ -335,6 +335,8 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 ico:SetPoint("LEFT", row, "LEFT", 10, 0)
             end
             ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            -- The list's clip mask blanks icons; it sits clear of the corners anyway.
+            ico._noListClip = true
             row._ico = ico
             lblAnchor = ico
         end
