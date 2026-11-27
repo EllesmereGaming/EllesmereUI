@@ -201,7 +201,9 @@ end
 --  Entity type: NPCs and their pets
 -------------------------------------------------------------------------------
 -- The NPC subtitle (e.g. "Innkeeper", "Flight Master") from tooltip line 2,
--- through the safe C_TooltipInfo API. nil when there is none.
+-- through the safe C_TooltipInfo API. nil when there is none; the second return
+-- is true only when the line was read and holds no title, so nil alone may mean
+-- the tooltip was not built yet or read secret.
 local LEVEL_PATTERN
 do
     local tpl = UNIT_LEVEL_TEMPLATE or "Level %d"
@@ -221,9 +223,9 @@ function Allied.GetNPCTitle(unit)
     -- (not text) is secret-safe, so the nil-guard stays first.
     if not text then return nil end
     if issecretvalue and issecretvalue(text) then return nil end
-    if text == "" then return nil end
+    if text == "" then return nil, true end
     -- Filter out level strings (e.g. "Level 70 Humanoid")
-    if text:lower():match(LEVEL_PATTERN) then return nil end
+    if text:lower():match(LEVEL_PATTERN) then return nil, true end
     return text
 end
 
@@ -234,17 +236,29 @@ local titleByGUID = {}
 local titleCount = 0
 local function CachedNPCTitle(unit)
     local guid = UnitGUID(unit)
-    if not guid then return Allied.GetNPCTitle(unit) end
+    if not guid then return (Allied.GetNPCTitle(unit)) end
     -- A withheld identity has no subtitle we could read either.
     if issecretvalue(guid) then return nil end
     local title = titleByGUID[guid]
-    if title == nil then
+    -- A number is the time an unreadable answer may be asked again.
+    if type(title) == "number" then
+        if GetTime() < title then return nil end
+    elseif title ~= nil then
+        return title or nil
+    else
         if titleCount >= 512 then wipe(titleByGUID); titleCount = 0 end
-        title = Allied.GetNPCTitle(unit) or false
-        titleByGUID[guid] = title
         titleCount = titleCount + 1
     end
-    return title or nil
+    local none
+    title, none = Allied.GetNPCTitle(unit)
+    -- Not built yet, or read secret: not kept as "no title", but not rebuilt on
+    -- every refresh either.
+    if title or none then
+        titleByGUID[guid] = title or false
+    else
+        titleByGUID[guid] = GetTime() + 2
+    end
+    return title
 end
 
 -- A unit's subtitle, cached by GUID: the tooltip build is the expensive part, and
