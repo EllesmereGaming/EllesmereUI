@@ -520,18 +520,21 @@ end
 
 local Land
 
+local Repace
+
 local function UpdateText()
-    local elapsed = GetTime() - flight.start
-    if elapsed > 2 and not UnitOnTaxi("player") then
+    if GetTime() - flight.takeoff > 2 and not UnitOnTaxi("player") then
         -- Landing edge missed (PLAYER_CONTROL_GAINED is the precise one): end the
         -- flight here instead of running on, but learn nothing from a late read.
         flight.early = true
         Land()
     elseif flight.eta then
+        Repace(flight)
+        local elapsed = GetTime() - flight.start
         bar.time:SetText(TimeLeft(flight, elapsed))
         ScrollStrip(bar, flight, elapsed)
     else
-        bar.time:SetText(FormatTime(elapsed))
+        bar.time:SetText(FormatTime(GetTime() - flight.start))
     end
 end
 
@@ -542,9 +545,25 @@ local function ArmTimer(b, fl)
     b.track:SetTimerDuration(dur,Enum.StatusBarInterpolation.Immediate, Enum.StatusBarTimerDirection.ElapsedTime)
 end
 
+-- The server can speed a flight up mid-route (30 -> 50 yd/s seen), so the
+-- rest is re-paced at the live speed; start becomes when it would have left.
+Repace = function(fl)
+    if not UnitOnTaxi("player") then return end
+    local live = GetUnitSpeed("player")
+    local cur = fl.yards / fl.eta
+    if not live or live <= 0 or math.abs(live - cur) < cur * 0.02 then return end
+    local now = GetTime()
+    local flown = math.min((now - fl.start) / fl.eta * fl.yards, fl.yards)
+    if math.abs(live - cur) > cur * 0.1 then fl.boosted = true end
+    fl.eta = fl.yards / live
+    fl.start = now - flown / live
+    ArmTimer(bar, fl)
+    StyleBar(bar, fl)
+end
+
 -- points: every node on the way, start first (see RouteInfo).
 local function StartFlight(yards, points)
-    flight = { yards = yards, start = GetTime(), points = points }
+    flight = { yards = yards, start = GetTime(), takeoff = GetTime(), points = points }
     if yards then
         flight.mult = SpeedMultiplier()
         flight.eta = yards / (Speed() * flight.mult)
@@ -582,9 +601,10 @@ end
 -- Moves the stored speed a quarter of the way toward what this flight measured.
 -- A flight more than a third off the estimate is treated as bad data, not a speed.
 -- The stored speed excludes Frequent Flier so every character can share it.
+-- A server-boosted flight is not a normal speed and teaches nothing.
 Land = function()
-    if flight.yards and not flight.early then
-        local measured = flight.yards / (GetTime() - flight.start) / flight.mult
+    if flight.yards and not flight.early and not flight.boosted then
+        local measured = flight.yards / (GetTime() - flight.takeoff) / flight.mult
         local speed = Speed()
         if measured > speed * 0.75 and measured < speed * 1.33 then
             Cfg().speed = speed + (measured - speed) * 0.25
