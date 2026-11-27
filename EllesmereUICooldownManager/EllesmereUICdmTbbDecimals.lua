@@ -5,36 +5,35 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  The main TBB tick mirrors Blizzard's duration FontString verbatim because
 --  the remaining time is a secret value in combat -- Lua cannot format it.
---  This module renders tenths anyway via a hidden aura container: each
---  opted-in bar gets a slot whose SetDurationText formatter is evaluated
+--  This module renders tenths anyway: each opted-in bar gets its own aura
+--  container with one slot whose SetDurationText formatter is evaluated
 --  ENGINE-side against the (possibly secret) remaining duration, so the text
 --  is identical in and out of combat.
 --
---  ENGINE RULE: a FontString registered with SetDurationText must inherit the
---  button's forbidden aspects, i.e. be a DESCENDANT of the aura button --
---  binding the bar's own timer FS hard-errors inside AddAuraSlot ("must
---  inherit all forbidden parent aspects from owner"). So the engine writes
---  into a hidden FS created ON the slot button, and the tick copies that
---  string onto the bar's real timer FS -- the exact passthrough mechanics it
---  already uses for Blizzard's FontString, just reading a decimal source.
+--  ENGINE RULES: a FontString registered with SetDurationText must be a
+--  DESCENDANT of the aura button ("must inherit all forbidden parent aspects
+--  from owner"), and it is a forbidden object to addon code: it cannot be
+--  read back (GetText), so its string can never be copied onto the bar. The
+--  engine FS IS the bar's visible timer text: styled from bar._timerText and
+--  anchored like it, inside a container parented (through a holder frame of
+--  ours) to the bar's text overlay, so it hides, fades and layers with the
+--  bar. The engine shows the slot button exactly while the aura exists. Slot
+--  buttons are never placed by the engine: extraInit anchors them.
 --
 --  Contract with the tick (EUI_CDM_BuffBarTick.lua):
---    * bar._tbbEngineText = the bound slot button, bar._tbbEngineFS = the
---      hidden engine-written FS (both set/cleared ONLY here). While set, the
---      tick mirrors engineFS -> bar._timerText, gated on the slot button's
---      shown state (shown exactly while the aura exists) so stale text can
---      never display; any pcall failure falls back to the whole-second
---      Blizzard passthrough, still accurate.
+--    * bar._tbbEngineFS = the bound engine FS (set/cleared ONLY here). While
+--      set, the tick holds bar._timerText at alpha 0 and skips its own timer
+--      text (MirrorEngineTimer); unbound bars keep the whole-second Blizzard
+--      passthrough.
 --    * ns.TBBDecimals_Sync() runs at the end of every BuildTrackedBuffBars.
 --
 --  Cost model: nothing exists until a bar enables Decimals (no container, no
 --  events, no tick work -- the tick's only overhead is one nil field read).
---  Enabled, the engine writes the text C-side and the tick DROPS its per-tick
---  GetText/SetText passthrough for that bar. Containers are (re)built only
---  when the set of opted-in bars or their spells changes (signature check),
---  never per tick. Container creation is combat-illegal, so a mid-combat
---  change unbinds everything first (the tick falls back to the whole-second
---  mirror, still accurate) and the rebuild runs at regen.
+--  Containers are (re)built only when the set of opted-in bars or their
+--  spells changes (signature check), never per tick. Threshold and timer
+--  style changes re-apply on the live FS; under aura restriction the style
+--  copy waits for the lift. A mid-combat slot-set change unbinds everything
+--  first (whole-second passthrough) and the rebuild runs at regen.
 --------------------------------------------------------------------------------
 
 local _, ns = ...
@@ -152,12 +151,54 @@ local function AddCooldownInfoIDs(include, cfg)
     end
 end
 
-local host           -- shown 1px anchor for the container (alpha 0, mouse-off)
-local container      -- live AuraContainer, or nil
-local signature      -- signature string of the live container's slot set
+local containers     -- live AuraContainers (one per decimal bar), or nil
+local holders        -- our frame around each container (always hideable)
+local signature      -- signature string of the live slot set
 local boundIndex = {}   -- bar index -> slot button (rebuilt per container)
 local boundThr = {}     -- bar index -> threshold its binding was registered with
+local boundCarrier = {} -- bar index -> frame the engine FS is anchored in
+local boundStyle = {}   -- bar index -> style signature last copied onto the FS
 local pendingRegen      -- true while a combat-deferred rebuild is queued
+local styleDirty        -- a style copy was refused under aura restriction
+local liftHooked
+
+-- The bar timer FS's look as one string, to detect settings changes.
+local function TimerStyleSig(out, cfg)
+    local path, size, flags = out:GetFont()
+    local r, g, b, a = out:GetTextColor()
+    local sx, sy = out:GetShadowOffset()
+    local sr, sg, sb, sa = out:GetShadowColor()
+    local point, _, relPoint, x, y = out:GetPoint(1)
+    return table.concat({ tostring(path), tostring(size), tostring(flags),
+        r, g, b, a, sx or 0, sy or 0, sr, sg, sb, sa, tostring(out:GetJustifyH()),
+        tostring(point), tostring(relPoint), x or 0, y or 0,
+        tostring(cfg.showTimer), tostring(cfg.timerPosition) }, "|")
+end
+
+-- Copy the bar timer FS's look onto the engine FS. The carrier covers the
+-- status bar the timer anchors to, so the same anchor lands in the same place.
+-- Only in the button's creation window or out of aura restriction.
+local function ApplyTimerStyle(fs, carrier, out, cfg)
+    local path, size, flags = out:GetFont()
+    fs:SetFont(path or (ns.GetCDMFont and ns.GetCDMFont())
+        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf",
+        size or 11, flags or "")
+    fs:SetTextColor(out:GetTextColor())
+    fs:SetShadowOffset(out:GetShadowOffset())
+    fs:SetShadowColor(out:GetShadowColor())
+    fs:SetJustifyH(out:GetJustifyH())
+    local point, _, relPoint, x, y = out:GetPoint(1)
+    fs:ClearAllPoints()
+    fs:SetPoint(point or "RIGHT", carrier, relPoint or point or "RIGHT", x or 0, y or 0)
+    fs:SetShown(cfg.showTimer and (cfg.timerPosition or "right") ~= "none" and true or false)
+end
+
+local function OnLift()
+    if styleDirty then
+        styleDirty = nil
+        ns.TBBDecimals_Sync()
+    end
+end
 
 local function SyncAfterCombat()
     if pendingRegen then
@@ -170,10 +211,9 @@ local function UnmarkAll()
     for idx in pairs(boundIndex) do
         local bar = ns.GetTBBFrame and ns.GetTBBFrame(idx)
         if bar then
-            bar._tbbEngineText = nil
             bar._tbbEngineFS = nil
-            -- The mirror gates the timer FS alpha from the secret aura
-            -- presence; an unbound bar must never keep a stuck alpha-0 FS.
+            -- The tick holds the bar's timer FS at alpha 0 while bound; an
+            -- unbound bar must never keep a stuck alpha-0 FS.
             if bar._tbbAlphaGated then
                 if bar._timerText then bar._timerText:SetAlpha(1) end
                 bar._tbbAlphaGated = nil
@@ -182,13 +222,23 @@ local function UnmarkAll()
     end
     wipe(boundIndex)
     wipe(boundThr)
+    wipe(boundCarrier)
+    wipe(boundStyle)
 end
 
 local function ReleaseCurrent()
     UnmarkAll()
-    if container then
-        AK.ReleaseContainer(container) -- hides it: the engine stops driving
-        container = nil
+    -- Hide our holders first: hiding an engine container can be refused under
+    -- aura restriction, and a surviving one draws its emptied slot as "0".
+    if holders then
+        for i = 1, #holders do holders[i]:Hide() end
+        holders = nil
+    end
+    if containers then
+        for i = 1, #containers do
+            AK.ReleaseContainer(containers[i]) -- hides it: the engine stops driving
+        end
+        containers = nil
         signature = nil
     end
 end
@@ -247,7 +297,7 @@ local function CollectDesired()
         table.sort(ids)
         -- thr intentionally stays OUT of the signature: a slider move
         -- re-registers the live binding in place (no container swap).
-        desired[#desired + 1] = { index = w.index, include = w.include, ids = ids,
+        desired[#desired + 1] = { index = w.index, cfg = w.cfg, include = w.include, ids = ids,
             thr = ClampThr(w.cfg.timerDecimalThreshold) }
         sigParts[#sigParts + 1] = w.index .. "=" .. table.concat(ids, ",")
     end
@@ -255,26 +305,13 @@ local function CollectDesired()
 end
 
 local function BuildContainer(desired)
-    if not host then
-        -- Shown but invisible: the engine only processes VISIBLE containers,
-        -- and the noRegions slot buttons render nothing anyway. Alpha 0 on
-        -- the host is belt-and-braces; it does not reach the bound timer
-        -- FontStrings (they live on the TBB bars, not in this tree).
-        host = CreateFrame("Frame", nil, UIParent)
-        host:SetSize(1, 1)
-        host:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 0, 0)
-        host:SetFrameStrata("BACKGROUND")
-        host:SetAlpha(0)
-        host:EnableMouse(false)
-    end
-
     AK.styles.tbbDecimalText = AK.styles.tbbDecimalText
         or { width = 1, height = 1, noRegions = true }
 
-    local slots = {}
+    containers, holders = {}, {}
     for n = 1, #desired do
         local want = desired[n]
-        slots[n] = {
+        local slot = {
             key = "tbb" .. want.index,
             filter = { "HELPFUL" },
             candidateFilters = { includeSpellIDs = want.include },
@@ -282,41 +319,60 @@ local function BuildContainer(desired)
             extraInit = function(button)
                 if button.SetMouseMotionEnabled then button:SetMouseMotionEnabled(false) end
                 local fmt = GetDecimalFormatter(want.thr)
-                if not fmt then return end -- rejected: tick keeps its mirror
+                -- Any early return leaves the bar unbound: whole-second passthrough.
+                if not fmt then return end
                 local bar = ns.GetTBBFrame and ns.GetTBBFrame(want.index)
-                if not (bar and bar._timerText) then return end -- unbound: tick keeps its mirror
+                if not (bar and bar._timerText) then return end
                 -- The bound FS MUST be a descendant of the aura button (aspect
-                -- inheritance) -- so the engine writes into this hidden one and
-                -- the tick copies its string to the bar's real timer FS. Same
-                -- carrier arrangement as the standard AuraKit regions; fonted
-                -- BEFORE registration (style-before-register contract). It is
-                -- never rendered (alpha-0 host); only its string is read.
+                -- inheritance), and addon code may not read it back, so it IS
+                -- the bar's visible timer text. Styled BEFORE registration
+                -- (style-before-register contract).
+                -- The engine never places slot buttons: cover the status bar the
+                -- timer text anchors to, so its anchor copies over exactly.
+                local out = bar._timerText
+                button:SetAllPoints(bar._bar or bar)
                 local carrier = CreateFrame("Frame", nil, button)
                 carrier:SetAllPoints(button)
                 local fs = carrier:CreateFontString(nil, "OVERLAY")
-                fs:SetFont((ns.GetCDMFont and ns.GetCDMFont())
-                    or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\EUI Highway.ttf", 12, "")
-                fs:SetPoint("CENTER", button, "CENTER", 0, 0)
+                ApplyTimerStyle(fs, carrier, out, want.cfg)
                 -- 68914 schema: updateInterval is a binding-level knob now,
                 -- so the formatter + 0.05s interval travel on a configured
                 -- DurationTextBinding via options.binding (BuildDurationTextOpts).
-                AK.SetDurationTextSafe(button, fs, AK.BuildDurationTextOpts(fmt, nil, 0.05))
+                if not AK.SetDurationTextSafe(button, fs,
+                    AK.BuildDurationTextOpts(fmt, nil, 0.05)) then
+                    fs:Hide()
+                    return
+                end
                 boundIndex[want.index] = button
                 boundThr[want.index] = want.thr
-                bar._tbbEngineText = button
+                boundCarrier[want.index] = carrier
+                boundStyle[want.index] = TimerStyleSig(out, want.cfg)
                 bar._tbbEngineFS = fs
             end,
         }
-    end
 
-    -- point is REQUIRED: the engine parses auras from a run-when-visible
-    -- OnUpdate, and an unanchored container has no renderable rect -- it
-    -- builds, binds slots, and then never processes a single aura (silent:
-    -- the hidden FS stays empty and the tick falls back to whole seconds).
-    container = AK.CreateContainer(host, "player", {
-        point = { "BOTTOMLEFT", host, "BOTTOMLEFT", 0, 0 },
-        slots = slots,
-    })
+        -- One container per bar, inside a holder of ours on the bar's text
+        -- overlay: it hides, fades and layers with the bar's own text, and the
+        -- holder can always be hidden on teardown. Strata and level set by hand
+        -- (the CDM aura icons do the same) so it never draws under the bar fill.
+        -- point is REQUIRED: the engine parses auras from a run-when-visible
+        -- OnUpdate, and an unanchored container never processes a single aura.
+        local bar = ns.GetTBBFrame and ns.GetTBBFrame(want.index)
+        local parent = bar and bar._timerText and bar._timerText:GetParent()
+        if parent then
+            local holder = CreateFrame("Frame", nil, parent)
+            holder:SetAllPoints(parent)
+            holder:SetFrameLevel(parent:GetFrameLevel() + 1)
+            local c = AK.CreateContainer(holder, "player", {
+                point = { "BOTTOMLEFT", holder, "BOTTOMLEFT", 0, 0 },
+                slots = { slot },
+            })
+            c:SetFrameStrata(holder:GetFrameStrata())
+            c:SetFrameLevel(holder:GetFrameLevel() + 1)
+            containers[#containers + 1] = c
+            holders[#holders + 1] = holder
+        end
+    end
 end
 
 function ns.TBBDecimals_Sync()
@@ -326,22 +382,19 @@ function ns.TBBDecimals_Sync()
     local desired, sig = CollectDesired()
 
     if not desired then
-        if container then ReleaseCurrent() end
+        if containers then ReleaseCurrent() end
         return
     end
 
-    if container and sig == signature then
-        -- Same slot set: re-stamp the tick contract flags (BuildTrackedBuffBars
-        -- runs often between swaps and nothing else ever sets these), and
-        -- re-register any binding whose threshold slider moved -- a fresh
-        -- SetDurationText on the live button swaps the formatter in place
-        -- (established re-registration pattern; no container swap needed).
+    if containers and sig == signature then
+        -- Same slot set: re-register any binding whose threshold slider moved
+        -- -- a fresh SetDurationText on the live button swaps the formatter in
+        -- place (no container swap needed) -- and re-copy a changed timer look.
         for n = 1, #desired do
             local want = desired[n]
             local button = boundIndex[want.index]
             local bar = ns.GetTBBFrame and ns.GetTBBFrame(want.index)
             if button and bar then
-                bar._tbbEngineText = button
                 if bar._tbbEngineFS and boundThr[want.index] ~= want.thr then
                     local fmt = GetDecimalFormatter(want.thr)
                     if fmt then
@@ -353,7 +406,25 @@ function ns.TBBDecimals_Sync()
                         if ok then boundThr[want.index] = want.thr end
                     end
                 end
+                -- Timer look changed in the options: re-copy it. Refused under
+                -- aura restriction -> stays unstamped and retries at the lift.
+                local fs, carrier = bar._tbbEngineFS, boundCarrier[want.index]
+                if fs and carrier and bar._timerText then
+                    local styleSig = TimerStyleSig(bar._timerText, want.cfg)
+                    if styleSig ~= boundStyle[want.index] then
+                        if AK.CanTouchButton(button)
+                            and pcall(ApplyTimerStyle, fs, carrier, bar._timerText, want.cfg) then
+                            boundStyle[want.index] = styleSig
+                        else
+                            styleDirty = true
+                        end
+                    end
+                end
             end
+        end
+        if styleDirty and not liftHooked and AK.OnRestrictionLift then
+            liftHooked = true
+            AK.OnRestrictionLift(OnLift)
         end
         return
     end
@@ -361,7 +432,7 @@ function ns.TBBDecimals_Sync()
     -- Slot set changed. The old bindings would keep writing the OLD spell's
     -- time onto re-purposed bar indexes, so tear down FIRST (bars fall back
     -- to the accurate whole-second passthrough for the gap), then build.
-    -- Container creation is combat-illegal: defer the build, not the teardown.
+    -- The build waits for regen; the teardown does not.
     ReleaseCurrent()
 
     if InCombatLockdown() then
@@ -372,6 +443,6 @@ function ns.TBBDecimals_Sync()
     pendingRegen = nil
 
     BuildContainer(desired)
-    signature = container and sig or nil
+    signature = containers and sig or nil
 end
 

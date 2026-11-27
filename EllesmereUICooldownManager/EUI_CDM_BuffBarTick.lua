@@ -540,9 +540,9 @@ function ns.UpdateTrackedBuffBarTimers()
                             bar._nameSet = true
                         end
                     end
-                    -- Timer: engine-bound decimal mirror first (the engine formats the secret
-                    -- remaining time into a hidden FS we copy). Fallback: passthrough from
-                    -- Blizzard's FontString every frame (it changes constantly).
+                    -- Timer: an engine-bound decimal FS draws it itself (the engine formats
+                    -- the secret remaining time). Fallback: passthrough from Blizzard's
+                    -- FontString every frame (it changes constantly).
                     if MirrorEngineTimer(bar, cfg) then
                         bar._timerText:Show()
                     else

@@ -246,37 +246,18 @@ local function CooldownBarSpellID(cfg)
     return EffectiveIconSpellID(cfg)
 end
 
--- Mirror the 12.1 engine-written decimal timer string (hidden FS on the aura slot
--- button; see EllesmereUICdmTbbDecimals.lua) onto the bar's timer FS. SECRET RULES:
--- the slot button's IsShown() is a SECRET BOOLEAN (aura presence) -- never test it in
--- Lua, route through engine-side SetAlphaFromBoolean (present->1, gone->0) so a stale
--- string can never be visible on a filter miss. The engine string may itself be
--- secret: nil-check via type tag only, SetText accepts secret strings. Returns true
--- only when a string was written AND the alpha gate applied (failure degrades
--- precision, never accuracy); bar._tbbAlphaGated tracks the gate so the fallback
--- path never inherits a stuck alpha-0 FS.
-local function MirrorEngineTimer(bar, cfg)
-    local engBtn = bar._tbbEngineText
-    if not engBtn then return false end
-    local out = bar._timerText
-    local engFS = bar._tbbEngineFS
-    local wrote = false
-    if cfg.showTimer and out and engFS then
-        local ok, txt = pcall(engFS.GetText, engFS)
-        if ok and type(txt) ~= "nil" then
-            wrote = (pcall(out.SetText, out, txt))
-        end
-    end
-    -- Alpha gate is best-effort: every call site has already established aura presence
-    -- (viewer isActive/a live aura read), so a missing setter must not disable the mirror itself.
-    if wrote and out.SetAlphaFromBoolean then
-        pcall(out.SetAlphaFromBoolean, out, engBtn:IsShown(), 1, 0)
+-- The 12.1 engine-written decimal FS (see EllesmereUICdmTbbDecimals.lua) draws the
+-- bar's timer itself, in and out of combat: addon code may not read it (forbidden
+-- object), so nothing is copied. While it is bound, hold the bar's own timer FS at
+-- alpha 0 and return true so callers skip their own timer text. bar._tbbAlphaGated
+-- lets the unbind restore the alpha.
+local function MirrorEngineTimer(bar)
+    if not bar._tbbEngineFS then return false end
+    if not bar._tbbAlphaGated and bar._timerText then
+        bar._timerText:SetAlpha(0)
         bar._tbbAlphaGated = true
-    elseif bar._tbbAlphaGated then
-        if out then out:SetAlpha(1) end
-        bar._tbbAlphaGated = nil
     end
-    return wrote
+    return true
 end
 
 -------------------------------------------------------------------------------
