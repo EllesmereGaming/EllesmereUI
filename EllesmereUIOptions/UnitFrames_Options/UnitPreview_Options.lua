@@ -551,13 +551,14 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             if content == "level" then return levelText
             elseif content == "levelname" then return levelText .. " | " .. _pvName()
             else return _pvName() .. " | " .. levelText end
-        elseif content == "both" or content == "bothdash" or content == "curhpshort" or content == "healthshort" or content == "curmaxhp" or content == "perhp" or content == "perhpnosign" or content == "perhpnum" or content == "perhpnumdash" then
+        elseif content == "both" or content == "bothdash" or content == "curhpshort" or content == "healthshort" or content == "curmaxhp" or content == "missinghp" or content == "perhp" or content == "perhpnosign" or content == "perhpnum" or content == "perhpnumdash" then
             local maxHP = UnitHealthMax("player") or 1
             local pct = optState._previewHealthPct or 0.70
             local curHP = math.floor(maxHP * pct)
             if content == "healthshort" then return ns.AbbreviateShortHealth(curHP)
             elseif content == "curhpshort" then return _pvAbbrev(curHP, "health")
             elseif content == "curmaxhp" then return _pvAbbrev(curHP, "health") .. " / " .. _pvAbbrev(maxHP, "maxHealth")
+            elseif content == "missinghp" then return (maxHP > curHP) and _pvAbbrev(maxHP - curHP, "health") or ""
             elseif content == "perhp" then return _pvPct(pct) .. "%"
             elseif content == "perhpnosign" then return _pvPct(pct)
             elseif content == "perhpnum" then return _pvPct(pct) .. "% | " .. _pvAbbrev(curHP, "health")
@@ -737,7 +738,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             local barW = s.frameWidth or 181
             if rc ~= "none" then
                 local UF_TEXT_PADDING = 10
-                local ufTW = { both = 75, curhpshort = 38, healthshort = 38, curmaxhp = 75, curmaxpp = 75, perhp = 38, perpp = 38, curpp = 38, curhp_curpp = 75, perhp_perpp = 75, level = 24 }
+                local ufTW = { both = 75, curhpshort = 38, healthshort = 38, curmaxhp = 75, missinghp = 38, curmaxpp = 75, perhp = 38, perpp = 38, curpp = 38, curhp_curpp = 75, perhp_perpp = 75, level = 24 }
                 local rightUsed = (ufTW[rc] or 0) + UF_TEXT_PADDING
                 if rc == "custom" then
                     rightUsed = ns.UF_EstimateTextWidth(rc, s.rightTextCustomFormat, true)
