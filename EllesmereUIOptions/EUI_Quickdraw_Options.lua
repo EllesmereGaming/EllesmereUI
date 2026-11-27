@@ -207,7 +207,12 @@ initFrame:SetScript("OnEvent", function(self)
         if not ns.BarMacroName then return end
         local name = ns.BarMacroName(editPalette)
         local icon = PaletteListIcon(PaletteRead(editPalette))
+        -- A macro takes a file ID or an icon name, not an atlas table (Pings,
+        -- outfits, a picked atlas) or another texture path.
         if type(icon) == "string" then icon = icon:gsub("^[Ii]nterface\\[Ii]cons\\", "") end
+        if type(icon) ~= "number" and (type(icon) ~= "string" or icon:find("\\", 1, true)) then
+            icon = "INV_Misc_Bag_08"
+        end
         if GetMacroIndexByName(name) == 0 then
             if GetNumMacros() >= Constants.MacroConsts.MAX_ACCOUNT_MACROS then
                 Complain("Quickdraw: all account macro slots are in use. Delete one to make the menu macro.")
