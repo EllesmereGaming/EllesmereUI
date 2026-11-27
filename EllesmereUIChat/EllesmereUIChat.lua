@@ -930,12 +930,15 @@ local function ShowSidebarIconTooltip(owner, label)
         and (not EllesmereUIDB or EllesmereUIDB.customTooltips ~= false)
         and GameTooltip
     owner._euiSidebarUsesGameTooltip = useGameTooltip and true or false
+    -- Optional grey second line (the Chat Menu icon's "General tab" note).
+    local note = owner._euiSidebarTipNote
     if useGameTooltip then
         GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
         GameTooltip:SetText(EUI.L(label), 1, 1, 1)
+        if note then GameTooltip:AddLine(EUI.L(note), 0.6, 0.6, 0.6) end
         GameTooltip:Show()
     elseif EUI.ShowWidgetTooltip then
-        EUI.ShowWidgetTooltip(owner, label)
+        EUI.ShowWidgetTooltip(owner, note and (EUI.L(label) .. "\n" .. EUI.L(note)) or label)
     end
 end
 

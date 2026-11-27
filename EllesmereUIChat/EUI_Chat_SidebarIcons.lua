@@ -248,6 +248,24 @@ do
         Fwd("OnMouseUp", button)
     end
 
+    -- Blizzard's button rides ChatFrame1, so it is gone while another docked
+    -- tab is selected (the stock UI shows no menu there either): dim the icon.
+    local function PaintTabGate()
+        local live = _G.ChatFrameMenuButton:IsVisible()
+        host:SetAlpha(live and 1 or 0.35)
+        -- Clicks go to Blizzard's button while it is up; else the icon keeps
+        -- them (Free Move still drags it).
+        host:SetMouseClickEnabled(not live)
+        host._euiSidebarTipNote = not live and EllesmereUI.L("Only works in the General tab") or nil
+    end
+
+    -- The button only takes clicks in its parent's strata, so a stock
+    -- column (MEDIUM) catches them first: let the click fall through there.
+    local function PassClicks(on)
+        local sb = host:GetParent()
+        if sb then sb:SetMouseClickEnabled(not on) end
+    end
+
     -- Called once, as the icon is built (only with Chat Menu on at login).
     function ECHAT.AttachChatMenu(btn)
         local mb = _G.ChatFrameMenuButton
@@ -257,13 +275,19 @@ do
         mb:HookScript("OnLeave", OnLeave)
         mb:HookScript("OnMouseDown", OnMouseDown)
         mb:HookScript("OnMouseUp", OnMouseUp)
+        mb:HookScript("OnShow", PaintTabGate)
+        mb:HookScript("OnHide", PaintTabGate)
+        btn:HookScript("OnEnter", function() PassClicks(mb:IsVisible()) end)
+        btn:HookScript("OnLeave", function() PassClicks(false) end)
         btn:HookScript("OnShow", function() mb:EnableMouse(true) end)
         btn:HookScript("OnHide", function()
             mb:EnableMouse(false)
             btn:UnlockHighlight()
             btn:SetButtonState("NORMAL")
+            PassClicks(false)
         end)
         ECHAT.SeatChatMenu()
+        PaintTabGate()
     end
 
     -- The button over the icon, pinned one level above it. The sidebar's
