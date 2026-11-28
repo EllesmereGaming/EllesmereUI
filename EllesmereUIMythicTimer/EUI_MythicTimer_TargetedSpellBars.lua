@@ -109,7 +109,10 @@ end
 local function EnsureContainer()
     if container then return container end
     container = CreateFrame("Frame", nil, UIParent)
-    container:SetSize(240, 20)
+    -- Sized from settings: a container first built after the login refresh
+    -- (Where to Show held the bars off) would keep a stale size until the next one.
+    local cfg = Cfg()
+    container:SetSize((cfg and cfg.width) or 240, (cfg and cfg.height) or 20)
     ApplyContainerPosition()
     return container
 end
