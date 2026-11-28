@@ -614,6 +614,9 @@ local function StartAddon()
     end)
     -- Close with that window; frame is nil for non-window closes
     hooksecurefunc("CloseAllBags", function(frame)
+        -- MailFrame_Hide passes an undefined `self` (nil): an opener already
+        -- hidden is the one closing.
+        if not frame and bagsOpener and not bagsOpener:IsShown() then frame = bagsOpener end
         if not frame or frame ~= bagsOpener then return end
         bagsOpener = nil
         if EUI_Bags:IsShown() and ns.BagAutoWindowOn("bagAutoCloseWindows", ns.BagAutoWindowKey(frame)) then
