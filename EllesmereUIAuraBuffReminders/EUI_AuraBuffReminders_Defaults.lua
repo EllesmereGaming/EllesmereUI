@@ -119,6 +119,7 @@ local defaults = {
                 motw=true, bshout=true, fort=true, ai=true, bronze=true, sky=true, hmark=true,
                 -- WoW Forever's Divine Spirit (no key on retail).
                 spirit = EABR.FOREVER or nil,
+                -- Forever's Shadow Protection (shadowprot) is opt-in: absent = off.
             },
             -- Per-section "Where to Show". Stores only unchecked buckets
             -- (value false); an absent bucket = shown. Open world defaults

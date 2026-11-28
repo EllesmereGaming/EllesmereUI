@@ -604,6 +604,10 @@ if EllesmereUI.IS_FOREVER == true then
             amounts = { [14752] = 17, [14818] = 23, [14819] = 33, [16875] = 40, [27841] = 40, [27681] = 40 },
             -- Spirit regenerates mana: mana users only.
             beneficiaries = MANA_USERS },
+        -- Only these four apply the resistance; same-named potions are absorbs.
+        shadowprot = { names = { 976, 27683 },
+            single = { 976, 10957, 10958 }, group = { 27683 },
+            ids = { 976, 10957, 10958, 27683 } },
         thorns = { names = { 467 },
             single = { 467, 782, 1075, 8914, 9756, 9910 }, group = {},
             ids = { 467, 782, 1075, 8914, 9756, 9910, 15438, 16877, 21335, 21337, 22128, 22351, 22696,

@@ -78,6 +78,8 @@ if EABR.FOREVER then
           fam=EllesmereUI.FOREVER_BUFF_FAMILIES.ai, benefit="intellect" },
         { key="spirit", class="PRIEST",  name="Divine Spirit",         castSpell=14752, dismissKey="raidbuff:spirit",
           fam=EllesmereUI.FOREVER_BUFF_FAMILIES.spirit, benefit="spirit", talent=true },
+        { key="shadowprot", class="PRIEST", name="Shadow Protection",   castSpell=976, dismissKey="raidbuff:shadowprot",
+          fam=EllesmereUI.FOREVER_BUFF_FAMILIES.shadowprot },
     }
 end
 
