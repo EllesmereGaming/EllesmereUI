@@ -197,20 +197,149 @@ local function SkinLFGTooltip(t)
     FontTip(t, 0)
 end
 
+-- The List Self restyle (retail checks, the expand squares, the padded comment
+-- box) goes with the Group Finder's own list: only while it is loaded and on.
+-- Turning it on or off reloads, so reading it once per skin pass is enough.
+local function GroupFinderOn()
+    local t = EllesmereUIDB and EllesmereUIDB.groupFinder
+    return type(t) == "table" and t.enabled == true
+        and C_AddOns.IsAddOnLoaded("EllesmereUIGroupFinder") and true or false
+end
+
+-- A dungeon row's check as retail's: a 14x14 bordered box on the left, the
+-- accent filling it when ticked (half strength when only some of a group is),
+-- a soft wash on hover or ticked. Blizzard's art stays, clear; state is read
+-- through hooks, never written.
+local function RetailCheck(cb)
+    local d = GetFFD(cb)
+    if d.skinned then return end
+    d.skinned = true
+    local function Clear()
+        for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture",
+                             "GetCheckedTexture", "GetDisabledCheckedTexture" }) do
+            local t = cb[g] and cb[g](cb)
+            if t and t.SetAlpha then t:SetAlpha(0) end
+        end
+    end
+    Clear()
+    local box = CreateFrame("Frame", nil, cb)
+    box:SetSize(14, 14)
+    box:SetPoint("LEFT", cb, "LEFT", 4, 0)
+    box:SetFrameLevel(cb:GetFrameLevel() + 1)
+    box:EnableMouse(false)
+    local fill = box:CreateTexture(nil, "BACKGROUND")
+    fill:SetAllPoints()
+    fill:SetColorTexture(0.02, 0.02, 0.02, 1)
+    WSkin.AddBorder(box, 0.25, 0.25, 0.25, 1)
+    local T = WSkin.Theme
+    local tick = box:CreateTexture(nil, "OVERLAY")
+    tick:SetPoint("TOPLEFT", 3, -3)
+    tick:SetPoint("BOTTOMRIGHT", -3, 3)
+    tick:SetColorTexture(T.accR, T.accG, T.accB, 1)
+    local wash = box:CreateTexture(nil, "ARTWORK")
+    wash:SetAllPoints()
+    wash:SetColorTexture(1, 1, 1, 0.1)
+    wash:Hide()
+    local hovering, partial = false, false
+    local function Paint()
+        local on = cb:GetChecked() and true or false
+        tick:SetShown(on)
+        tick:SetAlpha(partial and 0.5 or 1)
+        wash:SetShown(hovering or on)
+        box:SetAlpha(cb:IsEnabled() and 1 or 0.5)
+    end
+    local function Hover(on) hovering = on; Paint() end
+    cb:HookScript("OnEnter", function() Hover(true) end)
+    cb:HookScript("OnLeave", function() Hover(false) end)
+    -- the row's name lights the box through blizzard's lock
+    hooksecurefunc(cb, "LockHighlight", function() Hover(true) end)
+    hooksecurefunc(cb, "UnlockHighlight", function() Hover(false) end)
+    cb:HookScript("OnClick", Paint)
+    cb:HookScript("OnEnable", Paint)
+    cb:HookScript("OnDisable", Paint)
+    hooksecurefunc(cb, "SetChecked", Paint)
+    -- blizzard swaps in its part-ticked art for a part-picked group
+    hooksecurefunc(cb, "SetCheckedTexture", function(_, tex)
+        partial = type(tex) == "string" and tex:find("MultiCheck", 1, true) ~= nil
+        Clear()
+        Paint()
+    end)
+    hooksecurefunc(cb, "SetDisabledCheckedTexture", Clear)
+    Paint()
+end
+
 -- Checkboxes in the List Self view (roles, Show All Level Ranges, dungeon rows).
 local function SkinChecksIn(fr, depth)
     if depth > 6 or not fr or fr:IsForbidden() then return end
     if depth > 0 and WSkin.IsForeignFrame(fr) then return end
-    if fr:IsObjectType("CheckButton") then WSkin.Checkbox(fr, CHECK_OPTS) end
+    if fr:IsObjectType("CheckButton") then
+        local row = fr:GetParent()
+        if row and row.NameButton and row.CheckButton == fr and GroupFinderOn() then RetailCheck(fr)
+        else WSkin.Checkbox(fr, CHECK_OPTS) end
+    end
     local children = { fr:GetChildren() }
     for i = 1, #children do SkinChecksIn(children[i], depth + 1) end
 end
 -- A pooled dungeon row, once (a pooled frame keeps its template).
+-- A dungeon group's expand/collapse as a skinned square with a +/- of ours.
+-- Blizzard's button stays the clicker, its art clear; which sign shows is read
+-- from the texture blizzard sets.
+local function SkinExpand(btn)
+    local d = GetFFD(btn)
+    if d.skinned then return end
+    d.skinned = true
+    local box = CreateFrame("Button", nil, btn)
+    box:SetSize(14, 14)
+    box:SetPoint("LEFT", btn, "LEFT", 4, 0)
+    box:SetFrameLevel(btn:GetFrameLevel() + 1)
+    box:EnableMouse(false)
+    box:SetText(" ")
+    WSkin.Button(box)
+    local top = CreateFrame("Frame", nil, box)
+    top:SetAllPoints()
+    top:SetFrameLevel(box:GetFrameLevel() + 3)
+    top:EnableMouse(false)
+    local px = (EllesmereUI.PP and EllesmereUI.PP.mult) or 1
+    local bar = top:CreateTexture(nil, "OVERLAY")
+    bar:SetSize(8, 2 * px)
+    bar:SetPoint("CENTER")
+    local stem = top:CreateTexture(nil, "OVERLAY")
+    stem:SetSize(2 * px, 8)
+    stem:SetPoint("CENTER")
+    local hover, collapsed = false, false
+    local function Paint()
+        local a = hover and 1 or 0.8
+        bar:SetColorTexture(1, 1, 1, a)
+        stem:SetColorTexture(1, 1, 1, a)
+        stem:SetShown(collapsed)
+        if hover then box:LockHighlight() else box:UnlockHighlight() end
+    end
+    local function Clear()
+        for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture" }) do
+            local t = btn[g] and btn[g](btn)
+            if t and t.SetAlpha then t:SetAlpha(0) end
+        end
+    end
+    hooksecurefunc(btn, "SetNormalTexture", function(_, tex)
+        if type(tex) == "string" then collapsed = tex:lower():find("plus", 1, true) ~= nil end
+        Clear()
+        Paint()
+    end)
+    btn:HookScript("OnEnter", function() hover = true; Paint() end)
+    btn:HookScript("OnLeave", function() hover = false; Paint() end)
+    local nt = btn:GetNormalTexture()
+    local file = nt and nt.GetTexture and nt:GetTexture()
+    collapsed = type(file) == "string" and file:lower():find("plus", 1, true) ~= nil
+    Clear()
+    Paint()
+end
+
 local function SkinActivityRow(row)
     local d = GetFFD(row)
     if d.checksSkinned then return end
     d.checksSkinned = true
     SkinChecksIn(row, 0)
+    if row.ExpandOrCollapseButton and GroupFinderOn() then SkinExpand(row.ExpandOrCollapseButton) end
 end
 
 -- 1px border hugging a tile's content (its Icon, else its largest visible art).
@@ -314,7 +443,11 @@ local function Skin_LFGVanilla()
     if av and av.VoiceChatDropdown then WSkin.Dropdown(av.VoiceChatDropdown) end
     for _, n in ipairs(BUTTONS) do
         local b = _G[n]
-        if b then WSkin.Button(b); WSkin.WhiteButtonLabel(b) end
+        -- list self greys while blizzard has it off (no category or activity picked yet)
+        if b then
+            WSkin.Button(b)
+            if n == "LFGListingFramePostButton" then WSkin.StateButtonLabel(b) else WSkin.WhiteButtonLabel(b) end
+        end
     end
     -- The browser's refresh button: the house glyph, as on retail.
     WSkin.RefreshGlyph(_G.LFGBrowseFrameRefreshButton)
@@ -347,7 +480,8 @@ local function Skin_LFGVanilla()
 
     -- "More details" comment box: its border is loose BACKGROUND textures on the
     -- ScrollFrame wrapper, so the wrapper gets the dark fill and border; the inner
-    -- EditBox stays stock.
+    -- EditBox stays stock. With the Group Finder on, a black box of ours a little
+    -- outside it instead (the text padded off the edges, as the list's search boxes).
     local cmt = _G.LFGListingComment
     if cmt then
         local cd = GetFFD(cmt)
@@ -359,11 +493,27 @@ local function Skin_LFGVanilla()
                 r:SetAlpha(0)
             end
         end
-        if not cd.commentFill then
+        if not cd.commentFill and not GroupFinderOn() then
             cd.commentFill = cmt:CreateTexture(nil, "BACKGROUND", nil, -8)
             cd.commentFill:SetColorTexture(0.08, 0.08, 0.08, 0.92)
             cd.commentFill:SetAllPoints(cmt)
             WSkin.AddBorder(cmt)
+        end
+        if not cd.commentFill then
+            local PAD_X, PAD_Y = 6, 5
+            local box = CreateFrame("Frame", nil, cmt:GetParent())
+            box:SetPoint("TOPLEFT", cmt, "TOPLEFT", -PAD_X, PAD_Y)
+            box:SetPoint("BOTTOMRIGHT", cmt, "BOTTOMRIGHT", PAD_X, -PAD_Y)
+            box:SetFrameLevel(math.max(0, cmt:GetFrameLevel() - 1))
+            box:EnableMouse(false)
+            cd.commentFill = box:CreateTexture(nil, "BACKGROUND", nil, -8)
+            cd.commentFill:SetColorTexture(0.02, 0.02, 0.02, 1)  -- the search boxes' black
+            cd.commentFill:SetAllPoints(box)
+            WSkin.AddBorder(box)
+            -- the box goes where the comment goes (blizzard hides it for some views)
+            box:SetShown(cmt:IsShown())
+            cmt:HookScript("OnShow", function() box:Show() end)
+            cmt:HookScript("OnHide", function() box:Hide() end)
         end
     end
 

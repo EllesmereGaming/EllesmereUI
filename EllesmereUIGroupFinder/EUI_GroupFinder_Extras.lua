@@ -6,6 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local FOLDER, ns = ...
 if EllesmereUI.HELD_BACK_ADDONS[FOLDER] then return end -- held back (EllesmereUIGroupFinder.lua)
+if EllesmereUI.IS_FOREVER then return end -- retail premade groups only, forever has its own file
 ns.EUI = EllesmereUI
 
 -- runs fn once blizzard's group finder loads

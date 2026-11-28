@@ -1,5 +1,5 @@
 ## Interface: 120000, 120001, 120005, 120007, 120100, 120105, 16001
-## AllowLoadGameType: standard
+## AllowLoadGameType: standard, camelot
 ## Title: |cff0cd29fEllesmereUI|r Group Finder
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
@@ -21,3 +21,4 @@ EUI_GroupFinder_Extras.lua
 EUI_GroupFinder_Expressions.lua
 EUI_GroupFinder_ResultsList.lua
 EUI_GroupFinder_ApplicantList.lua
+EUI_GroupFinder_Forever.lua
