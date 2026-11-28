@@ -109,7 +109,8 @@ end
 local function EnsureContainer()
     if container then return container end
     container = CreateFrame("Frame", nil, UIParent)
-    container:SetSize(240, 20)
+    local cfg = Cfg()
+    container:SetSize((cfg and cfg.width) or 240, (cfg and cfg.height) or 20)
     ApplyContainerPosition()
     return container
 end
