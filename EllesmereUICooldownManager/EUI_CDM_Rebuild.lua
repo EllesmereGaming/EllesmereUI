@@ -695,6 +695,41 @@ local function StableKeybindsEnabled()
 end
 ns.CDMStableKeybindsEnabled = StableKeybindsEnabled
 
+-- Include Quickdraw Menus: a spell or item reached through a Quickdraw menu
+-- shows the menu's key, below every action bar key (_TIER_QUICKDRAW). Global,
+-- like the toggle above; off by default.
+local _TIER_QUICKDRAW = 50
+local function QuickdrawKeybindsEnabled()
+    local p = ECME.db and ECME.db.profile
+    return (p and p.cdmBars and p.cdmBars.quickdrawKeybinds) == true
+end
+ns.CDMQuickdrawKeybindsEnabled = QuickdrawKeybindsEnabled
+
+-- One entry of EllesmereUI.QuickdrawForEachBoundEntry. A macro entry resolves
+-- the way a macro on a bar does in _ResolveSlotBinding, at the macro rank.
+local function _RegisterQuickdrawEntry(key, kind, value)
+    local formatted = FormatKeybindKey(key)
+    if not formatted then return end
+    if kind == "spell" then
+        _SetSpellKeybind(value, formatted, _TIER_QUICKDRAW)
+    elseif kind == "item" then
+        _SetKeybind(-value, formatted, _TIER_QUICKDRAW)
+    else
+        local macroRank = _TIER_QUICKDRAW + _RANK_MACRO_PENALTY
+        local body
+        if kind == "macrotext" then
+            body = value
+        else
+            local macroIndex = type(value) == "number" and value or GetMacroIndexByName(value)
+            if not macroIndex or macroIndex < 1 then return end
+            local live = GetMacroSpell(macroIndex)
+            if live then _SetSpellKeybind(live, formatted, macroRank) end
+            body = GetMacroBody and GetMacroBody(macroIndex)
+        end
+        if body then _RegisterMacroTargets(body, formatted, macroRank) end
+    end
+end
+
 -- A page swap in live mode. The live scan reads the page from the Action Bars
 -- frames, whose state driver applies it a frame after the page event fires, so
 -- with Action Bars loaded the bars' own page edge (their "state-page" write,
@@ -771,6 +806,9 @@ local function RebuildKeybindCache()
     for i = 1, 12 do
         local key = GetBindingKey("ACTIONBUTTON" .. i)
         if key then scanMainBar(i, key) end
+    end
+    if QuickdrawKeybindsEnabled() and EllesmereUI.QuickdrawForEachBoundEntry then
+        EllesmereUI.QuickdrawForEachBoundEntry(_RegisterQuickdrawEntry)
     end
 end
 

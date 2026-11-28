@@ -676,6 +676,9 @@ local DEFAULTS = {
             -- seeds it into existing profiles at login, and an explicit
             -- false (user turned it off) survives the logout default-strip.
             stableKeybinds = true,
+            -- Keybind text for spells and items reached through a Quickdraw
+            -- menu, as the menu's key (global, all bars). Off by default.
+            quickdrawKeybinds = false,
             -- Suppress every CDM glow while out of combat (global, all bars).
             -- Off by default: opt-in, and off means the gate in StartNativeGlow
             -- is a single boolean test that never fires.

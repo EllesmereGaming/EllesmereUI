@@ -2051,6 +2051,20 @@ initFrame:SetScript("OnEvent", function(self)
                           if ns.UpdateCDMKeybinds then ns.UpdateCDMKeybinds() end
                           RefreshKeybindStyle()
                       end },
+                    -- Global for the same reason as the toggle above.
+                    { type = "toggle", label = "Include Quickdraw Menus (global)",
+                      tooltip = "Show a Quickdraw menu's keybind on spells and items you use from that menu, including its nested menus.\n\nA key from your action bars always wins over a menu's key.\n\nApplies to every CDM bar at once.",
+                      get = function()
+                          local p = DB()
+                          return (p and p.cdmBars and p.cdmBars.quickdrawKeybinds) == true
+                      end,
+                      set = function(v)
+                          local p = DB()
+                          if not p or not p.cdmBars then return end
+                          p.cdmBars.quickdrawKeybinds = v and true or false
+                          if ns.UpdateCDMKeybinds then ns.UpdateCDMKeybinds() end
+                          RefreshKeybindStyle()
+                      end },
                 },
             })
 

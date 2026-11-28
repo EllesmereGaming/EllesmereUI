@@ -880,6 +880,70 @@ function ns.ShareOwner(index)
     return owner
 end
 
+-- For the Cooldown Manager's keybind text: fn(key, kind, value) for every entry
+-- a menu's keybind reaches, nested menus included, under the first key that
+-- opens it. kind is "spell" (spellID), "item" (itemID, toys too), "macro"
+-- (macro name or index) or "macrotext" (macro body); other kinds are skipped.
+-- A menu's keys open the menu UpdateBindings routes them to this spec (its own,
+-- or the sharer that loads); I.BarKeys, where present, adds the keys of its
+-- action bar macro (Action Bar Macros). Nothing while the module is off.
+local EXPORT_KINDS = { spell = "spell", item = "item", toy = "item",
+    macro = "macro", macrotext = "macrotext" }
+local function ExportPalette(index, key, fn, nested)
+    local palette = ReadPalette(index)
+    if not palette then return end
+    for i = 1, #palette.slots do
+        local slot = palette.slots[i]
+        local kind = type(slot) == "table" and EXPORT_KINDS[slot.kind]
+        if kind then
+            local value
+            if kind == "macro" then
+                value = slot.name or slot.id
+            elseif kind == "macrotext" then
+                value = slot.macrotext
+            else
+                value = tonumber(slot.id)
+            end
+            if value then fn(key, kind, value) end
+        elseif not nested and ChildIndex(slot) then
+            ExportPalette(ChildIndex(slot), key, fn, true)
+        end
+    end
+end
+
+function EllesmereUI.QuickdrawForEachBoundEntry(fn)
+    local p = P()
+    if not (p and p.enabled) then return end
+    -- rawget: the internals table errors on a missing entry, and BarKeys is
+    -- only there with Action Bar Macros.
+    local I = ns._qdInternals
+    local barKeys = I and rawget(I, "BarKeys")
+    local count = PaletteCount()
+    local scratch
+    for i = 1, count do
+        local key = GetBindingKey(BINDING_PREFIX .. i)
+        if not key and barKeys then
+            scratch = scratch or {}
+            if barKeys(i, scratch) > 0 then key = scratch[1] end
+        end
+        -- Where the key goes this spec: KeyTarget (EUI_Quickdraw_Runtime.lua).
+        local target
+        if key then
+            if ns.PaletteActive(i) then
+                target = i
+            else
+                for j = 1, count do
+                    if j ~= i and ns.ShareOwner(j) == i and ns.PaletteActive(j) then
+                        target = j
+                        break
+                    end
+                end
+            end
+        end
+        if target then ExportPalette(target, key, fn) end
+    end
+end
+
 -- p is the palette view the caller draws from (self:P()) -- the color keys
 -- are per-menu appearance. Falls back to the profile for a caller with none.
 local function SelectColor(p)
