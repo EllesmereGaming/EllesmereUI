@@ -52,6 +52,7 @@ EllesmereUI_Panel.lua
 EllesmereUI_VisibilityRules.lua
 EllesmereUI_SharedHelpers.lua
 EllesmereUI_Popups.lua
+EllesmereUI_DebugMode.lua
 EllesmereUI_IconPicker.lua
 EllesmereUI_TextTags.lua
 EllesmereUI_Colors.lua

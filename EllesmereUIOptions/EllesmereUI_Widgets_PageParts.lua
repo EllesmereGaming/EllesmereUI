@@ -223,12 +223,14 @@ end
 -- the other text a card can switch to), the texts shrinking together when the
 -- line would not fit opts.width, centred; a hero card there is a button in
 -- the equal cards' boxed look. opts.footer (px, inline) leaves that much free
--- under the line for the caller (a link). Returns the new y and the card
+-- under the line for the caller (a link). opts.columns (inline) wraps the
+-- items into lines of that many, each column as wide as its widest item (the
+-- others centred in it), so the dividers line up; the footer sits under the first line. Returns the new y and the card
 -- buttons (in cards order); card:SetCardContent(icon, title, desc) swaps all
 -- three in place. An equal card built with pulse = true also takes
 -- card:SetPulse(on): a breathing accent outline for an action that wants
 -- attention now, animated only while the card shows.
-local function BuildInlineRow(parent, y, cards, availW, fullW, footer)
+local function BuildInlineRow(parent, y, cards, availW, fullW, footer, cols)
     local PP = EllesmereUI.PanelPP
     local L  = EllesmereUI.L
     local ROW_H, ICON, DIV_GAP, DIV_H = 60, 26, 24, 40
@@ -237,13 +239,16 @@ local function BuildInlineRow(parent, y, cards, availW, fullW, footer)
     -- icon-to-text gap, right pad, alphas, outline).
     local GAP, ICON_A, TITLE_A, DESC_A = 14, 0.75, 0.9, 0.45
     local BOX_L, BOX_GAP, BOX_R, BOX_ICON_A, BOX_DESC_A, BOX_BRD_A = 24, 20, 14, 0.6, 0.35, 0.12
+    local LINE_GAP = 6
     local n = #cards
-    local blockH = ROW_H + (footer or 0)
+    cols = math.min(cols or n, n)
+    local lines = math.ceil(n / cols)
+    local blockH = lines * ROW_H + (lines - 1) * LINE_GAP + (footer or 0)
     local rowFrame = CreateFrame("Frame", nil, parent)
 
     -- Build each item and measure its text: the wider of its two lines, over
     -- every text it can show.
-    local parts, built, sumText, fixed = {}, {}, 0, (n - 1) * (DIV_GAP * 2 + 1)
+    local parts, built = {}, {}
     for i = 1, n do
         local spec = cards[i]
         local boxed = spec.hero and true or false
@@ -277,41 +282,61 @@ local function BuildInlineRow(parent, y, cards, availW, fullW, footer)
         Measure(spec.title, spec.desc)
         card:SetCardContent(spec.icon, spec.title, spec.desc)
         p.card, p.icon, p.titleFs, p.descFs, p.textW = card, icon, titleFs, descFs, w
+        p.fixed = p.padL + ICON + p.gap + p.padR
         parts[i] = p
-        sumText = sumText + w
-        fixed = fixed + p.padL + ICON + p.gap + p.padR
         built[i] = card
     end
 
+    -- Each column: its widest item, and the most its items need beside text.
+    local colW, colFixed = {}, {}
+    for i = 1, n do
+        local c, p = (i - 1) % cols + 1, parts[i]
+        colW[c] = math.max(colW[c] or 0, p.fixed + p.textW)
+        colFixed[c] = math.max(colFixed[c] or 0, p.fixed)
+    end
+    local fixed, sumText = (cols - 1) * (DIV_GAP * 2 + 1), 0
+    for c = 1, cols do
+        fixed = fixed + colFixed[c]
+        sumText = sumText + colW[c] - colFixed[c]
+    end
     local scale = 1
     if sumText > 0 and fixed + sumText > availW then
         scale = math.max(0, availW - fixed) / sumText
     end
-    local totalW = fixed
+    local totalW = (cols - 1) * (DIV_GAP * 2 + 1)
+    for c = 1, cols do
+        colW[c] = colFixed[c] + math.floor((colW[c] - colFixed[c]) * scale)
+        totalW = totalW + colW[c]
+    end
     for i = 1, n do
-        parts[i].textW = math.floor(parts[i].textW * scale)
-        totalW = totalW + parts[i].textW
+        local p = parts[i]
+        p.textW = math.min(math.floor(p.textW * scale), colW[(i - 1) % cols + 1] - p.fixed)
     end
     PP.Size(rowFrame, totalW, blockH)
     PP.Point(rowFrame, "TOPLEFT", parent, "TOPLEFT",
         EllesmereUI.CONTENT_PAD + math.floor((fullW - totalW) / 2), y)
 
-    local x = 0
+    local x, lineY = 0, 0
     for i = 1, n do
         local spec, p = cards[i], parts[i]
         local card, icon, titleFs, descFs, boxed = p.card, p.icon, p.titleFs, p.descFs, p.boxed
-        if i > 1 then
+        local c = (i - 1) % cols + 1
+        if c == 1 and i > 1 then
+            x = 0
+            lineY = lineY - ROW_H - LINE_GAP - (i == cols + 1 and (footer or 0) or 0)
+        end
+        if c > 1 then
             local div = rowFrame:CreateTexture(nil, "ARTWORK")
             div:SetColorTexture(1, 1, 1, 0.10)
             div:SetWidth(1)
             div:SetHeight(DIV_H)
-            PP.Point(div, "TOPLEFT", rowFrame, "TOPLEFT", x + DIV_GAP, -math.floor((ROW_H - DIV_H) / 2))
+            PP.Point(div, "TOPLEFT", rowFrame, "TOPLEFT", x + DIV_GAP, lineY - math.floor((ROW_H - DIV_H) / 2))
             x = x + DIV_GAP * 2 + 1
         end
-        local w = p.padL + ICON + p.gap + p.textW + p.padR
+        local w = p.fixed + p.textW
         PP.Size(card, w, ROW_H)
-        PP.Point(card, "TOPLEFT", rowFrame, "TOPLEFT", x, 0)
-        x = x + w
+        PP.Point(card, "TOPLEFT", rowFrame, "TOPLEFT", x + math.floor((colW[c] - w) / 2), lineY)
+        x = x + colW[c]
 
         local iconSz = spec.iconSize or ICON
         icon:SetSize(iconSz, iconSz)
@@ -369,7 +394,7 @@ function EllesmereUI.BuildActionCardRow(parent, y, cards, opts)
     local fullW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
     local totalW = (opts and opts.width) and math.floor(fullW * opts.width) or fullW
     if opts and opts.inline then
-        return BuildInlineRow(parent, y, cards, totalW, fullW, opts.footer)
+        return BuildInlineRow(parent, y, cards, totalW, fullW, opts.footer, opts.columns)
     end
 
     local CARD_H, CARD_GAP = 66, 14
