@@ -421,6 +421,17 @@ do
   TagFns.curhpshort = MakeAbbrevHP(UnitHealth, true, nil, "health")
   TagFns.healthshort = MakeAbbrevHP(UnitHealth, true, true)
   TagFns.maxhpshort = MakeAbbrevHP(UnitHealthMax, nil, nil, "maxHealth")
+
+  -- Health Missing #: abbreviated like curhpshort, empty at full health (the raid
+  -- frames' "missing" mode). IsZeroValue keeps the full-health test secret-safe.
+  local missingAbbrev = MakeAbbrevHP(UnitHealthMissing, true, nil, "health")
+  TagFns.missinghp = function(unit)
+    if unit and UnitExists(unit) and UnitIsConnected(unit) and not UnitIsDeadOrGhost(unit)
+        and EllesmereUI.IsZeroValue(UnitHealthMissing(unit) or 0) then
+      return ""
+    end
+    return missingAbbrev(unit)
+  end
 end
 
 do
@@ -908,6 +919,7 @@ do
     P.curhpshort  = TagFns.curhpshort
     P.healthshort = TagFns.healthshort
     P.maxhpshort  = TagFns.maxhpshort
+    P.missinghp   = TagFns.missinghp
     P.perhp       = TagFns.perhp
     P.perhpnosign = TagFns.perhpnosign
     P.level       = TagFns.level
@@ -1064,6 +1076,7 @@ do
         curhpshort   = { "%s", "curhpshort" },
         healthshort  = { "%s", "healthshort" },
         curmaxhp     = { "%s / %s", "curhpshort", "maxhpshort" },
+        missinghp    = { "%s", "missinghp" },
         perhp        = { "%s%%", "perhp" },
         perhpnosign  = { "%s", "perhpnosign" },
         perpp        = { "%s%%", "perpp" },
@@ -1104,6 +1117,7 @@ do
     local PIECE_READS = {
         [P.perhp] = "hp", [P.perhpnosign] = "hp", [P.curhpshort] = "hp",
         [P.healthshort] = "hp", [P.maxhpshort] = "hp", [P.curhp] = "hp", [P.maxhp] = "hp",
+        [P.missinghp] = "hp",
         [P.perpp] = "pp", [P.curpp] = "pp", [P.maxpp] = "pp", [P.curppfull] = "pp", [P.maxppfull] = "pp",
         [P.absorb] = "abs", [P.absorbshort] = "abs",
         [P.healabsorb] = "habs", [P.healabsorbshort] = "habs",

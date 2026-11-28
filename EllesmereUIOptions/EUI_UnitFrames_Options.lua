@@ -1441,6 +1441,7 @@ initFrame:SetScript("OnEvent", function(self)
         ["curhpshort"]   = "Health #",
         ["healthshort"]  = "Health # Short (230.5K)",
         ["curmaxhp"]     = "Health # / Max #",
+        ["missinghp"]    = "Health Missing #",
         ["perhpnum"]     = "Health % | #",
         ["both"]         = "Health # | %",
         ["bothdash"]     = "Health # - %",
@@ -1453,12 +1454,12 @@ initFrame:SetScript("OnEvent", function(self)
         ["custom"]       = "Custom",
         ["none"]         = "None",
     }
-    local healthTextOrder = { "none", "---", "custom", "---", "name", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both" }
+    local healthTextOrder = { "none", "---", "custom", "---", "name", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "missinghp", "perhpnum", "both" }
     -- Boss frames also get "Name > Target" (the boss's target); ToT/FoT/Pet do not.
-    local healthTextOrderBoss = { "none", "---", "custom", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort" }
-    local healthTextOrderPlayer = { "none", "---", "custom", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort", "group" }
+    local healthTextOrderBoss = { "none", "---", "custom", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "missinghp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort" }
+    local healthTextOrderPlayer = { "none", "---", "custom", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "missinghp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort", "group" }
     -- Target/Focus: player's absorb options minus "group" (raid group number is meaningless off the player).
-    local healthTextOrderTargetFocus = { "none", "---", "custom", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort" }
+    local healthTextOrderTargetFocus = { "none", "---", "custom", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "missinghp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort" }
 
     -- Text bar (BTB) text dropdown values (includes power options)
     local btbTextValues = {
