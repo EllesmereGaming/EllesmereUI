@@ -173,13 +173,32 @@ function ns.SyncHealthVisibilityEvents()
     end
 end
 
+-- Mini frames (pet, ToT, FoT) have no visibility settings of their own: a hover
+-- on one reveals its owner, which lifts the mini along with it.
+local MINI_OWNER = { pet = "player", targettarget = "target", focustarget = "focus" }
+
+-- The frame whose visibility settings a hover on self drives, or nil.
+local function HoverOwner(self, unitKey)
+    local ownerKey = MINI_OWNER[unitKey]
+    if not ownerKey then return self, unitKey end
+    -- Always Show Pet Frame: the pet opted out of inheriting the player's visibility.
+    if ownerKey == "player" and db.profile.pet and db.profile.pet.alwaysShow then return nil end
+    local owner = frames[ownerKey]
+    if owner and owner:IsShown() then return owner, ownerKey end
+    return nil
+end
+
 local function UnitFrame_OnEnter(self)
     local unit = self._euiUnit
     if not unit then return end
     local unitKey = unit:match("^boss%d$") and "boss" or unit
-    local s = db and db.profile and db.profile[unitKey]
-    if s and s.showWhenHealthMissing then self._healthVisHovered = true end
-    if ns.VisMouseoverWired(s) then
+    local tipS = db and db.profile and db.profile[unitKey]
+    local hoverSelf, hoverKey = nil, nil
+    if tipS then hoverSelf, hoverKey = HoverOwner(self, unitKey) end
+    local s = hoverKey and db.profile[hoverKey]
+    if hoverSelf and s and s.showWhenHealthMissing then hoverSelf._healthVisHovered = true end
+    if hoverSelf and ns.VisMouseoverWired(s) then
+        local self, unitKey = hoverSelf, hoverKey
         -- Reveal only what is actually hover-gated right now. Under Any the frame may
         -- already be shown on another passing disjunct, in which case there is nothing to
         -- reveal and OnLeave must not undo anything either -- both handlers read the same
@@ -202,7 +221,7 @@ local function UnitFrame_OnEnter(self)
         end
     end
     if unit and GameTooltip and GameTooltip_SetDefaultAnchor then
-        local showTooltip = not s or s.showUnitTooltip ~= false
+        local showTooltip = not tipS or tipS.showUnitTooltip ~= false
         if showTooltip then
             GameTooltip_SetDefaultAnchor(GameTooltip, self)
             if GameTooltip:SetUnit(unit) then
@@ -228,8 +247,12 @@ local function UnitFrame_OnLeave(self)
     local unit = self._euiUnit
     if not unit then return end
     local unitKey = unit:match("^boss%d$") and "boss" or unit
-    local s = db and db.profile and db.profile[unitKey]
-    if ns.VisMouseoverWired(s) then
+    local hoverSelf, hoverKey = nil, nil
+    if db and db.profile and db.profile[unitKey] then hoverSelf, hoverKey = HoverOwner(self, unitKey) end
+    local s = hoverKey and db.profile[hoverKey]
+    if hoverSelf then hoverSelf._healthVisHovered = nil end
+    if hoverSelf and ns.VisMouseoverWired(s) then
+        local self, unitKey = hoverSelf, hoverKey
         -- Return to the resting alpha the visibility pass would paint, never a hardcoded
         -- 0: under Any a passing disjunct keeps the frame visible with no hover involved,
         -- and hiding it here would leave it wrong until the next visibility event fires.
