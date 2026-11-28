@@ -886,7 +886,7 @@ local TBB_STYLE_KEYS = {
     "chargeHashLines", "chargeHashLineWidth",
     "chargeHashLineR", "chargeHashLineG", "chargeHashLineB", "chargeHashLineA",
     "chargeHashShade", "chargeHashShadeAlpha",
-    "texture", "strata",
+    "texture", "textureBg", "strata",
     "fillColorMode", "fillR", "fillG", "fillB", "fillA",
     "bgR", "bgG", "bgB", "bgA",
     "gradientEnabled", "gradientR", "gradientG", "gradientB", "gradientA", "gradientDir",

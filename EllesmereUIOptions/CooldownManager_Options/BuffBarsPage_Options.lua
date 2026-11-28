@@ -3585,6 +3585,40 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                   bd.texture = v; RefreshTBB()
               end })
         );  y = y - h
+        -- Inline cog on Bar Texture: Textured Background (greyed with the dropdown).
+        do
+            local tbbTexRow = _  -- the row DualRow just returned
+            EllesmereUI.BuildInlineCog(tbbTexRow._rightRegion, {
+                -- Classic keeps the user's texture and background: only Blizzard Style blocks it.
+                disabled = function() return EllesmereUI.BlizzStyle.Active("cdmbars") == "blizzard" end,
+                disabledTooltip = function() return EllesmereUI.BlizzStyle.Label("cdmbars") end,
+                requireState = "disabled",
+                title = "Texture Settings",
+                rows = {
+                    { type = "toggle", label = "Textured Background",
+                      tooltip = "Draws the bar texture on the background too.",
+                      disabled = function()
+                          local bd = SelectedTBB(); if not bd or (bd.texture or "none") == "none" then return true end
+                          -- As live: flat while the fill (or its gradient, EUI style only) is see-through.
+                          if (bd.fillA or 1) < 1 then return true end
+                          return bd.gradientEnabled and not EllesmereUI.BlizzStyle.Get("cdmbars") and (bd.gradientA or 1) < 1
+                      end,
+                      disabledTooltip = function()
+                          local bd = SelectedTBB()
+                          if not bd or (bd.texture or "none") == "none" then
+                              return "This option requires a Bar Texture other than None."
+                          end
+                          return "This option requires a fully opaque Fill Color."
+                      end,
+                      rawTooltip = true,
+                      get = function() local bd = SelectedTBB(); return (bd and bd.textureBg) or false end,
+                      set = function(v)
+                          local bd = SelectedTBB(); if not bd then return end
+                          bd.textureBg = v and true or false; RefreshTBB()
+                      end },
+                },
+            })
+        end
 
         -- Name Text (dropdown + cog) | Duration Text (dropdown + cog)
         local TBB_POS_VALUES = { none = "None", center = "Center", top = "Top", bottom = "Bottom", left = "Left", right = "Right" }
