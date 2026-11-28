@@ -948,7 +948,25 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         end
         bbg:Show()
     elseif bar._bg then
-        bar._bg:SetColorTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgA or 0.4)
+        local bg = bar._bg
+        local bR, bG, bB, bA = cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgA or 0.4
+        -- Textured Background: the bar texture tinted by the background color;
+        -- flat while the fill (or gradient) is see-through.
+        local bgPath = cfg.textureBg and fA >= 1
+            and not (cfg.gradientEnabled and not blizzBar and (cfg.gradientA or 1) < 1)
+            and EllesmereUI.ResolveTexturePath(TBB_TEXTURES, cfg.texture or "none", nil)
+        if bgPath then
+            bg:SetTexture(bgPath)
+            bg:SetVertexColor(bR, bG, bB, bA)
+            bg._tbbTexBg = true
+        else
+            -- SetColorTexture keeps the tint a texture left behind.
+            if bg._tbbTexBg then
+                bg._tbbTexBg = nil
+                bg:SetVertexColor(1, 1, 1, 1)
+            end
+            bg:SetColorTexture(bR, bG, bB, bA)
+        end
     end
     -- Classic WoW UI: the vanilla cast bar frame over the fill and background.
     if classicBar then ns.ApplyTBBClassicChrome(bar, sb, isVert, isVert and w or h, cfg.stockBorderScale) end
