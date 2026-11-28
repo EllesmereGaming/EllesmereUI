@@ -28,6 +28,9 @@ local WORDS = {
     score = "score", ilvl = "ilvl", age = "age", friends = "friends", voice = "voice",
 }
 for w, cls in pairs(CLASS_WORDS) do WORDS[w] = cls end
+-- words Fill reads from each member's class
+local MEMBER_VARS = { hasBL = true, hasBR = true, myClass = true }
+for _, cls in pairs(CLASS_WORDS) do MEMBER_VARS[cls] = true end
 local LUST = { SHAMAN = true, MAGE = true, HUNTER = true, EVOKER = true }
 local BREZ = { DRUID = true, DEATHKNIGHT = true, WARLOCK = true, PALADIN = true }
 
@@ -50,20 +53,20 @@ local function Tokens(src)
             local word = not num and src:match("^[%a_][%w_]*", i)
             local two = src:sub(i, i + 1)
             if num then
-                out[#out + 1] = { t = "num", v = tonumber(num) }
+                out[#out + 1] = { t = "num", v = tonumber(num), s = num }
                 i = i + #num
             elseif word then
                 local lw = word:lower()
-                if KEYWORDS[lw] then out[#out + 1] = { t = KEYWORDS[lw] }
-                elseif lw == "true" or lw == "false" then out[#out + 1] = { t = "num", v = lw == "true" and 1 or 0 }
-                elseif WORDS[lw] then out[#out + 1] = { t = "var", v = WORDS[lw] }
+                if KEYWORDS[lw] then out[#out + 1] = { t = KEYWORDS[lw], s = word }
+                elseif lw == "true" or lw == "false" then out[#out + 1] = { t = "num", v = lw == "true" and 1 or 0, s = word }
+                elseif WORDS[lw] then out[#out + 1] = { t = "var", v = WORDS[lw], s = word }
                 else return nil, EllesmereUI.Lf("unknown word: %1$s", word) end
                 i = i + #word
             elseif TWO[two] then
-                out[#out + 1] = { t = TWO[two] }
+                out[#out + 1] = { t = TWO[two], s = two }
                 i = i + 2
             elseif ONE[c] then
-                out[#out + 1] = { t = ONE[c] }
+                out[#out + 1] = { t = ONE[c], s = c }
                 i = i + 1
             else
                 return nil, EllesmereUI.Lf("can't use \"%1$s\"", c)
@@ -107,7 +110,7 @@ local function Compile(src)
             if take() == nil or toks[pos - 1].t ~= ")" then error(EllesmereUI.L("missing )"), 0) end
             return f
         end
-        error(EllesmereUI.Lf("unexpected \"%1$s\"", tk.t), 0)
+        error(EllesmereUI.Lf("unexpected \"%1$s\"", tk.s or tk.t), 0)
     end
     local function Unary()
         if peek() == "-" then
@@ -179,22 +182,26 @@ local function Compile(src)
 
     local ok, f = pcall(Or)
     if not ok then return nil, f end
-    if pos <= #toks then return nil, EllesmereUI.Lf("unexpected \"%1$s\"", toks[pos].t) end
-    return f
+    if pos <= #toks then return nil, EllesmereUI.Lf("unexpected \"%1$s\"", toks[pos].s or toks[pos].t) end
+    local members = false
+    for _, tk in ipairs(toks) do
+        if tk.t == "var" and MEMBER_VARS[tk.v] then members = true end
+    end
+    return f, nil, members
 end
 
 -------------------------------------------------------------------------------
 --  the saved expression, recompiled when it changes
 -------------------------------------------------------------------------------
-local compiled, compiledFor, compileErr
+local compiled, compiledFor, compileErr, compiledMembers
 
 local function Current()
     local c = GFNS.Cfg and GFNS.Cfg()
     local text = c and c.extraExpr
     if text ~= compiledFor then
         compiledFor = text
-        compiled, compileErr = nil, nil
-        if type(text) == "string" and text:find("%S") then compiled, compileErr = Compile(text) end
+        compiled, compileErr, compiledMembers = nil, nil, false
+        if type(text) == "string" and text:find("%S") then compiled, compileErr, compiledMembers = Compile(text) end
     end
     return compiled, compileErr
 end
@@ -214,7 +221,8 @@ local function Fill(id, info)
     end
     local n = num(info.numMembers)
     env.members = n
-    if n then
+    -- skip the per-member reads when the expression names no class word
+    if n and compiledMembers then
         local _, mine = UnitClass("player")
         local lust, brez, same, all = 0, 0, 0, true
         for _, cls in pairs(CLASS_WORDS) do env[cls] = 0 end
