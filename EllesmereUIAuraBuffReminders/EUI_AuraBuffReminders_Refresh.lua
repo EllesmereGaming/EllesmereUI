@@ -1176,13 +1176,60 @@ local protectionConsumables = {
     },
 }
 -- The single reminder uses the first eligible stat in dropdown order.
+local spellPowerConsumables = {
+    label = "Spell Power", dismissKey = "forever:spellPower", iconSpell = 1245244,
+    setting = "spellPowerConsumableByClass",
+    items = { { 13454, 35, 17539 }, { 9155, 20, 11390 }, { 250342, 15, 1250971 }, { 247754, 5, 1245244 } },
+}
+local WICKED_REGENERATION_ITEM = 250336
+local WICKED_REGENERATION_AURA = 1250932
+local wickedMana = { WICKED_REGENERATION_ITEM, 10, WICKED_REGENERATION_AURA }
+local wickedHealth = { WICKED_REGENERATION_ITEM, 9, WICKED_REGENERATION_AURA }
+local manaRegenConsumables = {
+    label = "Mana Regen", dismissKey = "forever:manaRegen", iconSpell = 24363,
+    setting = "manaRegenConsumableByClass", wicked = wickedMana,
+    items = {
+        { 250341, 20, 1250948 }, { 20007, 12, 24363 }, wickedMana,
+        { 250340, 6, 1250944 }, { 250339, 3, 1250942 },
+    },
+}
+local healthRegenConsumables = {
+    label = "Health Regen", dismissKey = "forever:healthRegen", iconSpell = 24361,
+    setting = "healthRegenConsumableByClass", wicked = wickedHealth,
+    items = { { 20004, 20, 24361 }, { 3826, 12, 3223 }, wickedHealth, { 3388, 6, 3222 }, { 3382, 2, 3219 } },
+}
+-- The single reminder uses the first eligible stat in dropdown order.
 local statConsumables = {
     intellectConsumables, strengthConsumables, agilityConsumables, staminaConsumables, spiritConsumables, protectionConsumables,
 }
-local statBonusesToBeat = {}
-local statExpirations = {}
-local statConsumableDismissKey = "forever:scrollsAndElixirs"
-local statConsumableChoices, statConsumableMacros
+local elixirConsumables = {
+    spellPowerConsumables, manaRegenConsumables, healthRegenConsumables,
+    {
+        label = "Healing Done", dismissKey = "forever:healingDone", iconSpell = 1250926,
+        setting = "healingDoneConsumableByClass",
+        items = { { 250333, 40, 1250926 }, { 250332, 30, 1250925 }, { 250331, 20, 1250924 }, { 250330, 10, 1250922 } },
+    },
+    {
+        label = "Attack Power", dismissKey = "forever:attackPower", iconSpell = 17038,
+        setting = "attackPowerConsumableByClass",
+        items = { { 246948, 35, 17038 }, { 12820, 35, 17038 } },
+    },
+}
+local statReminderGroups = {
+    {
+        stats = statConsumables, dismissKey = "forever:scrollsAndElixirs",
+        separateKey = "statConsumableSeparateReminders", upgradeKey = "statConsumableShowUpgrades",
+        rankKey = "statConsumableLowRank", expiryKey = "statConsumableShowBelow",
+        pickerKey = "statConsumablePickerByClass",
+    },
+    {
+        stats = elixirConsumables, dismissKey = "forever:elixirs",
+        separateKey = "elixirConsumableSeparateReminders", upgradeKey = "elixirConsumableShowUpgrades",
+        rankKey = "elixirConsumableLowRank", expiryKey = "elixirConsumableShowBelow",
+        pickerKey = "elixirConsumablePickerByClass",
+    },
+}
+local statConsumableMacros
 local statConsumableBuffClasses = { ai = "MAGE", fort = "PRIEST", spirit = "PRIEST" }
 local campStatAuraID, campStatExpiration, campIntellectAmount, campFirstAidKit
 
@@ -1316,7 +1363,22 @@ local function StatBonusToBeat(stat, restricted, warnSec, showUpgrades, campInte
     if showUpgrades and active < items[1][2] then return math.max(amount, active) end
 end
 
-local function PickStatConsumable(stat, activeBonus, level, choices, low)
+-- A refresh of Wicked Regeneration can replace itself near expiry, but it
+-- must beat every other active regen elixir in both stats.
+local function HasBlockingRegenAura(stat, restricted)
+    for _, item in ipairs(stat.items) do
+        if item[2] < stat.wicked[2] then break end
+        local spellID = item[3]
+        if spellID ~= WICKED_REGENERATION_AURA then
+            if restricted and not EABR.IsRuntimeNonSecret(spellID) then return true end
+            local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, spellID)
+            if not ok or isSecret(aura) or aura then return true end
+        end
+    end
+    return false
+end
+
+local function PickStatConsumable(stat, activeBonus, level, choices, low, wickedAllowed)
     local watchLevel = false
     local firstID
     local first, last, step = 1, #stat.items, 1
@@ -1326,7 +1388,7 @@ local function PickStatConsumable(stat, activeBonus, level, choices, low)
         local itemID, bonus = consumable[1], consumable[2]
         if not low and bonus <= activeBonus then break end
         local count = bonus > activeBonus and CachedGetItemCount(itemID) or 0
-        if count > 0 then
+        if count > 0 and (itemID ~= WICKED_REGENERATION_ITEM or wickedAllowed) then
             local requiredLevel = EABR.FvConsumableItemLevel(itemID)
             if requiredLevel then
                 if level >= requiredLevel then
@@ -1342,7 +1404,7 @@ local function PickStatConsumable(stat, activeBonus, level, choices, low)
     return firstID, watchLevel
 end
 
-local function AddStatConsumableEntry(missing, stat, itemID, expiration, choices, separate, automaticItemID)
+local function AddStatConsumableEntry(missing, group, stat, itemID, expiration, choices, separate, automaticItemID)
     if not statConsumableMacros then statConsumableMacros = {} end
     local macro = statConsumableMacros[itemID]
     if not macro then
@@ -1357,12 +1419,141 @@ local function AddStatConsumableEntry(missing, stat, itemID, expiration, choices
     e.label = EllesmereUI.L(stat.label)
     e.cooldownItemID = itemID
     e.cat = "forever"
-    e.dismissKey = separate and stat.dismissKey or statConsumableDismissKey
+    e.dismissKey = separate and stat.dismissKey or group.dismissKey
     e.foreverStatItems = choices
+    e.foreverStatGroup = choices and group or nil
     e.foreverStatAutomaticItem = choices and automaticItemID or nil
     e.foreverStatFamily = separate and stat.dismissKey or nil
     if expiration then e.expireAt, e.expireTotal = expiration, expiration - GetTime() end
     missing[#missing + 1] = e
+end
+
+local function ReadStatReminderGroup(group, fo, playerClass)
+    local statConsumableNeeded = false
+    local statWaitsForItem = false
+    local watchStatSpells = false
+    local healthBonus, healthExpiration
+    local wickedAllowed
+    local separate = fo[group.separateKey] == true
+    if separate or not _dismissedUntilLoad[group.dismissKey] then
+        local restricted, campIntellect, firstAidKit, warnSec
+        local minutes = fo[group.expiryKey] or 0
+        local showUpgrades = fo[group.upgradeKey] == true
+        for _, stat in ipairs(group.stats) do
+            local picks = fo[stat.setting]
+            local enabled = picks and picks[playerClass]
+            local bonus, expiration
+            if enabled == true and not (separate and _dismissedUntilLoad[stat.dismissKey]) then
+                local locked, tracksSpell = ns.FvStatConsumableLocked(stat.family, playerClass)
+                if tracksSpell then watchStatSpells = true end
+                if not locked then
+                    -- The bags first (a hash lookup per item): a stat with none of its
+                    -- items owned cannot show, so its buffs are not read; the bag
+                    -- listener stays on to hear one arrive.
+                    local own = ItemsOwned(stat.items)
+                    local ownHealth = stat.health and ItemsOwned(stat.health.items)
+                    if own or ownHealth then
+                        if restricted == nil then
+                            restricted = EllesmereUI.AuraKit.AurasRestricted()
+                            warnSec = minutes > 0 and EABR.ShowUnderThresholdApplies() and minutes * 60 or nil
+                        end
+                        if own and not restricted and campIntellect == nil and (stat == intellectConsumables or stat == staminaConsumables) then
+                            campIntellect, firstAidKit = FvCampStatBonuses()
+                        end
+                        if own then
+                            bonus, expiration = StatBonusToBeat(stat, restricted, warnSec, showUpgrades, campIntellect, firstAidKit)
+                            if wickedAllowed == nil and stat.wicked and bonus and bonus < stat.wicked[2]
+                                and CachedGetItemCount(WICKED_REGENERATION_ITEM) > 0 then
+                                wickedAllowed = not HasBlockingRegenAura(manaRegenConsumables, restricted)
+                                    and not HasBlockingRegenAura(healthRegenConsumables, restricted)
+                            end
+                        end
+                        if ownHealth then
+                            healthBonus, healthExpiration = StatBonusToBeat(stat.health, restricted, warnSec, showUpgrades)
+                        end
+                        if bonus ~= nil or (ownHealth and healthBonus ~= nil) then statConsumableNeeded = true end
+                    else
+                        statWaitsForItem = true
+                    end
+                end
+            end
+            stat.bonus = bonus
+            stat.expiration = expiration
+        end
+    end
+    group.needed = statConsumableNeeded
+    group.healthBonus, group.healthExpiration = healthBonus, healthExpiration
+    group.wickedAllowed = wickedAllowed
+    return statConsumableNeeded, statWaitsForItem, watchStatSpells
+end
+
+local function AddStatReminderGroup(missing, group, fo, playerClass, level, pickerEnabled)
+    local watchLevel = false
+    local separate = fo[group.separateKey] == true
+    local healthBonus, healthExpiration = group.healthBonus, group.healthExpiration
+    local sharedChoices, preferred, familyPicks
+    if pickerEnabled then
+        if separate then
+            familyPicks = fo.statConsumablePickerByFamily and fo.statConsumablePickerByFamily[playerClass]
+        else
+            if not group.choices then group.choices = {} end
+            sharedChoices = group.choices
+            wipe(sharedChoices)
+            preferred = fo[group.pickerKey] and fo[group.pickerKey][playerClass]
+        end
+    end
+    local chosenID, chosenIndex, chosenExpiration, automaticItemID
+    local low = fo[group.rankKey] == true
+    for i, stat in ipairs(group.stats) do
+        local bonus = stat.bonus
+        local canUseHealth = stat.health and healthBonus ~= nil
+        if bonus or canUseHealth then
+            local choices = sharedChoices
+            if separate and pickerEnabled then
+                if not stat.choices then stat.choices = {} end
+                choices = stat.choices
+                wipe(choices)
+            end
+            local itemID, blockedByLevel
+            local expiration = stat.expiration
+            local pinned = separate and familyPicks and familyPicks[stat.dismissKey] or preferred
+            if bonus then
+                itemID, blockedByLevel = PickStatConsumable(stat, bonus, level, choices, low, group.wickedAllowed)
+                if blockedByLevel then watchLevel = true end
+            end
+            local pinnedScroll = pinned and choices[pinned]
+            -- Prefer a scroll automatically. A pinned elixir uses its own aura timer.
+            if canUseHealth and (choices or not itemID) then
+                local healthID
+                healthID, blockedByLevel = PickStatConsumable(stat.health, healthBonus, level, choices, low)
+                if blockedByLevel then watchLevel = true end
+                if not itemID then
+                    itemID, expiration = healthID, healthExpiration
+                elseif pinned and choices[pinned] and not pinnedScroll then
+                    expiration = healthExpiration
+                end
+            end
+            local automatic = itemID
+            if pinned and choices[pinned] then itemID = pinned end
+            if separate then
+                if itemID then AddStatConsumableEntry(missing, group, stat, itemID, expiration, choices, true, automatic) end
+            else
+                automaticItemID = automaticItemID or automatic
+                if itemID and not chosenID then
+                    chosenID, chosenIndex, chosenExpiration = itemID, i, expiration
+                    if not choices then break end
+                end
+                if preferred and choices[preferred] then
+                    chosenID, chosenIndex, chosenExpiration = preferred, i, expiration
+                    preferred = nil
+                end
+            end
+        end
+    end
+    if chosenID then
+        AddStatConsumableEntry(missing, group, group.stats[chosenIndex], chosenID, chosenExpiration, sharedChoices, false, automaticItemID)
+    end
+    return watchLevel
 end
 
 -- WoW Forever collector: the Camp Benefits campfire buff, the Sleeping Bag's
@@ -1427,48 +1618,13 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
         and not (EllesmereUI.AuraKit.AurasRestricted() and not EABR.FvRanksReadable(censerIDs))
     if wantCenser and not censerMissing then EABR._fvCenser = nil end
     local censer = censerMissing and EABR.FvCenserOwned() or false
-    local statConsumableNeeded = false
-    local statWaitsForItem = false
-    local watchStatSpells = false
-    local healthBonus, healthExpiration
-    local separate = fo and fo.statConsumableSeparateReminders == true
-    if itemShows and not inPvP and playerClass and (separate or not _dismissedUntilLoad[statConsumableDismissKey]) then
-        local restricted, campIntellect, firstAidKit
-        local minutes = fo.statConsumableShowBelow or 0
-        local warnSec = minutes > 0 and EABR.ShowUnderThresholdApplies() and minutes * 60 or nil
-        local showUpgrades = fo.statConsumableShowUpgrades == true
-        for i, stat in ipairs(statConsumables) do
-            local picks = fo[stat.setting]
-            local enabled = picks and picks[playerClass]
-            local bonus, expiration
-            if enabled == true and not (separate and _dismissedUntilLoad[stat.dismissKey]) then
-                local locked, tracksSpell = ns.FvStatConsumableLocked(stat.family, playerClass)
-                if tracksSpell then watchStatSpells = true end
-                if not locked then
-                    -- The bags first (a hash lookup per item): a stat with none of its
-                    -- items owned cannot show, so its buffs are not read; the bag
-                    -- listener stays on to hear one arrive.
-                    local own = ItemsOwned(stat.items)
-                    local ownHealth = stat.health and ItemsOwned(stat.health.items)
-                    if own or ownHealth then
-                        if restricted == nil then restricted = EllesmereUI.AuraKit.AurasRestricted() end
-                        if own and not restricted and campIntellect == nil and (stat == intellectConsumables or stat == staminaConsumables) then
-                            campIntellect, firstAidKit = FvCampStatBonuses()
-                        end
-                        if own then
-                            bonus, expiration = StatBonusToBeat(stat, restricted, warnSec, showUpgrades, campIntellect, firstAidKit)
-                        end
-                        if ownHealth then
-                            healthBonus, healthExpiration = StatBonusToBeat(stat.health, restricted, warnSec, showUpgrades)
-                        end
-                        if bonus ~= nil or (ownHealth and healthBonus ~= nil) then statConsumableNeeded = true end
-                    else
-                        statWaitsForItem = true
-                    end
-                end
-            end
-            statBonusesToBeat[i] = bonus
-            statExpirations[i] = expiration
+    local statConsumableNeeded, statWaitsForItem, watchStatSpells = false, false, false
+    if itemShows and not inPvP and playerClass then
+        for _, group in ipairs(statReminderGroups) do
+            local needed, waitsForItem, tracksSpells = ReadStatReminderGroup(group, fo, playerClass)
+            statConsumableNeeded = statConsumableNeeded or needed
+            statWaitsForItem = statWaitsForItem or waitsForItem
+            watchStatSpells = watchStatSpells or tracksSpells
         end
     end
     -- A plain boolean: censer is the item ID, and the listener's sync compares by value.
@@ -1517,67 +1673,10 @@ function EABR.CollectForever(missing, inInstance, inPvP, playerClass)
     local beforeStatCount = #missing
     if statConsumableNeeded then
         local level = UnitLevel("player")
-        local sharedChoices, preferred, familyPicks
-        if pickerEnabled then
-            if separate then
-                familyPicks = fo.statConsumablePickerByFamily and fo.statConsumablePickerByFamily[playerClass]
-            else
-                if not statConsumableChoices then statConsumableChoices = {} end
-                sharedChoices = statConsumableChoices
-                wipe(sharedChoices)
-                preferred = fo.statConsumablePickerByClass and fo.statConsumablePickerByClass[playerClass]
+        for _, group in ipairs(statReminderGroups) do
+            if group.needed and AddStatReminderGroup(missing, group, fo, playerClass, level, pickerEnabled) then
+                watchLevel = true
             end
-        end
-        local chosenID, chosenIndex, chosenExpiration, automaticItemID
-        local low = fo.statConsumableLowRank == true
-        for i, stat in ipairs(statConsumables) do
-            local bonus = statBonusesToBeat[i]
-            local canUseHealth = stat.health and healthBonus ~= nil
-            if bonus or canUseHealth then
-                local choices = sharedChoices
-                if separate and pickerEnabled then
-                    if not stat.choices then stat.choices = {} end
-                    choices = stat.choices
-                    wipe(choices)
-                end
-                local itemID, blockedByLevel
-                local expiration = statExpirations[i]
-                local pinned = separate and familyPicks and familyPicks[stat.dismissKey] or preferred
-                if bonus then
-                    itemID, blockedByLevel = PickStatConsumable(stat, bonus, level, choices, low)
-                    if blockedByLevel then watchLevel = true end
-                end
-                local pinnedScroll = pinned and choices[pinned]
-                -- Prefer a scroll automatically. A pinned elixir uses its own aura timer.
-                if canUseHealth and (choices or not itemID) then
-                    local healthID
-                    healthID, blockedByLevel = PickStatConsumable(stat.health, healthBonus, level, choices, low)
-                    if blockedByLevel then watchLevel = true end
-                    if not itemID then
-                        itemID, expiration = healthID, healthExpiration
-                    elseif pinned and choices[pinned] and not pinnedScroll then
-                        expiration = healthExpiration
-                    end
-                end
-                local automatic = itemID
-                if pinned and choices[pinned] then itemID = pinned end
-                if separate then
-                    if itemID then AddStatConsumableEntry(missing, stat, itemID, expiration, choices, true, automatic) end
-                else
-                    automaticItemID = automaticItemID or automatic
-                    if itemID and not chosenID then
-                        chosenID, chosenIndex, chosenExpiration = itemID, i, expiration
-                        if not choices then break end
-                    end
-                    if preferred and choices[preferred] then
-                        chosenID, chosenIndex, chosenExpiration = preferred, i, expiration
-                        preferred = nil
-                    end
-                end
-            end
-        end
-        if chosenID then
-            AddStatConsumableEntry(missing, statConsumables[chosenIndex], chosenID, chosenExpiration, sharedChoices, false, automaticItemID)
         end
     end
     EABR.FvSyncConsumableItemEvents(statConsumableNeeded, watchLevel, #missing > beforeStatCount)

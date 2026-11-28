@@ -174,6 +174,7 @@ local function ShowIcon(iconIdx, m)
     btn._foreverStatItems = m.foreverStatItems
     btn._foreverStatAutomaticItem = m.foreverStatAutomaticItem
     btn._foreverStatFamily = m.foreverStatFamily
+    btn._foreverStatGroup = m.foreverStatGroup
     btn._cooldownItemID = m.cooldownItemID
     btn._foreverGroup = m.foreverGroup
     btn._requestKey = m.requestKey or nil
