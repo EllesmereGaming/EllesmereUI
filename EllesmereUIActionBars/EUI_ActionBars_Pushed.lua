@@ -469,6 +469,9 @@ do
         -- ActionButtonDown/MultiActionButtonDown fire on key press regardless
         -- of "cast on key down" CVar. This ensures pushed texture shows while
         -- the key is held for both key-down and key-up casting modes.
+        -- Quickdraw's Action Bar Macros take a bar key over, so the hooks
+        -- below never see its press: it lights the button through this.
+        EllesmereUI.ActionBarPushedFlash = ShowPushedForSlot
         hooksecurefunc("ActionButtonDown", function(id) ShowPushedForSlot(id) end)
         hooksecurefunc("ActionButtonUp", function(id) HidePushedForSlot(id) end)
         if MultiActionButtonDown then

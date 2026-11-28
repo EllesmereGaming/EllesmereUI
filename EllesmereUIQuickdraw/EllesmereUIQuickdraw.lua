@@ -371,6 +371,10 @@ local DB_DEFAULTS = {
         -- same reason as confirmKey.
         cancelKey = "",
 
+        -- Action Bar Macros: a menu macro on an action bar lends that
+        -- button's keybind to its menu (EUI_Quickdraw_BarMacros.lua).
+        barMacros = false,
+
         paletteCount   = 1,
         -- palette.slots is a DENSE, ORDERED array: the palette auto-sizes to what the
         -- user has actually assigned, so three actions means three big entries

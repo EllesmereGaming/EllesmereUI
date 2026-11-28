@@ -35,6 +35,9 @@ local ReleaseEscape, EnsureCancelButton = I.ReleaseEscape, I.EnsureCancelButton
 local LayoutModel, SNIPPET_POST, SNIPPET_PRE = I.LayoutModel, I.SNIPPET_POST, I.SNIPPET_PRE
 local EnsureGates, EnsureLatticeGates = I.EnsureGates, I.EnsureLatticeGates
 local gatePools, SetDB, SetReleaseSecureState = I.gatePools, I.SetDB, I.SetReleaseSecureState
+local BarKeys, SyncBarMacros, BarSlotPressed = I.BarKeys, I.SyncBarMacros, I.BarSlotPressed
+-- The signature loop's bar keys, reused: it runs on every options refresh.
+local sigBarKeys = {}
 
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
@@ -131,6 +134,14 @@ local function OnPreClick(self, button, down)
     -- already up. Everything they do happens in the snippet and in OnPostClick.
     if button == CONFIRM_BUTTON or button == CANCEL_BUTTON then return end
     if down then
+        -- A bar key (Action Bar Macros) shows its button pressed, as it would
+        -- with the bar's own action. Action Bars lights it and puts it out
+        -- when the key comes up.
+        local flash = EllesmereUI.ActionBarPushedFlash
+        if flash then
+            local slot = BarSlotPressed()
+            if slot then flash(slot) end
+        end
         -- A latched menu whose key is pressed again is toggling shut, not
         -- opening. Read before the snippet, which runs after this and is what
         -- clears the flag -- so this is the last moment it still says which of
@@ -872,12 +883,16 @@ function ns.UpdateBindings()
 
     local sig = p.enabled and "on" or "off"
     local count = PaletteCount()
+    local bar = sigBarKeys
     for i = 1, count do
         local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
         sig = sig .. "|" .. (k1 or "") .. "/" .. (k2 or "")
         sig = sig .. ModifierSig(k1) .. ModifierSig(k2)
+        -- Keys lent by this palette's macro on an action bar (Action Bar Macros)
+        local nb = BarKeys(i, bar)
+        for b = 1, nb do sig = sig .. "#" .. bar[b] .. ModifierSig(bar[b]) end
         -- Which palette the keys open this spec
-        if k1 or k2 then sig = sig .. ">" .. (KeyTarget(i, count) or 0) end
+        if k1 or k2 or nb > 0 then sig = sig .. ">" .. (KeyTarget(i, count) or 0) end
     end
     if sig == bindingSig then return end
 
@@ -917,13 +932,20 @@ function ns.UpdateBindings()
     -- A palette's keys go to its KeyTarget: itself, or in a spec it does not
     -- load in, the palette sharing them that does. `targets` keeps that pick
     -- for the second pass.
+    --
+    -- A palette's bar keys (Action Bar Macros) go with its own keys in both
+    -- passes. Each pass fills a table of its own: the re-entry described above
+    -- runs the signature loop, which writes into sigBarKeys.
     local built = false
-    local claimed, targets = {}, {}
+    local claimed, targets, barKeys = {}, {}, {}
     for i = 1, count do
         local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
-        local target = (k1 or k2) and KeyTarget(i, count)
+        local keys = {}
+        local nb = BarKeys(i, keys)
+        local target = (k1 or k2 or nb > 0) and KeyTarget(i, count)
         if target then
             targets[i] = target
+            barKeys[i] = keys
             built = built or not secureButtons[target]
             local name = GetSecureButton(target):GetName()
             if k1 then
@@ -934,6 +956,16 @@ function ns.UpdateBindings()
                 SetOverrideBindingClick(bindOwner, false, k2, name)
                 claimed[k2] = true
             end
+            -- Priority: the bar's own button holds an override on the same key
+            -- (EllesmereUI's action bars click-route or command-route every
+            -- bar key), and between two plain overrides the last one set wins,
+            -- which at login is whichever module binds later. Its modifier
+            -- variants need nothing of the kind: BindWithModifiers only takes
+            -- a combination nothing is bound to.
+            for b = 1, nb do
+                SetOverrideBindingClick(bindOwner, true, keys[b], name)
+                claimed[keys[b]] = true
+            end
         end
     end
     for i = 1, count do
@@ -943,6 +975,8 @@ function ns.UpdateBindings()
             local name = secureButtons[target]:GetName()
             BindWithModifiers(name, k1, claimed)
             BindWithModifiers(name, k2, claimed)
+            local keys = barKeys[i]
+            for b = 1, #keys do BindWithModifiers(name, keys[b], claimed) end
         end
     end
 
@@ -1064,7 +1098,11 @@ function SetEventsEnabled(on)
         -- coalesced by RequestPush, refused in combat and paid off by
         -- PLAYER_REGEN_ENABLED like every other push.
         EQD:RegisterEvent("SPELLS_CHANGED", RequestPush)
-        EQD:RegisterEvent("UPDATE_MACROS", RequestPush)
+        EQD:RegisterEvent("UPDATE_MACROS", function()
+            RequestPush()
+            -- A menu macro renamed or deleted under a bar (Action Bar Macros)
+            if I.BarMacrosRescan() then ns.UpdateBindings() end
+        end)
         -- Re-resolve player-facing indexes after outfits change order.
         EQD:RegisterEvent("TRANSMOG_OUTFITS_CHANGED", RequestPush)
         EQD:RegisterEvent("EQUIPMENT_SETS_CHANGED", RequestPush)
@@ -1149,6 +1187,7 @@ function ns.Refresh()
     -- runs, and applying such a profile is exactly what reaches here.
     MigrateActiveProfile()
 
+    SyncBarMacros()
     ns.UpdateBindings()
     SetEventsEnabled(EventsWanted())
 
@@ -1243,6 +1282,7 @@ function EQD:OnEnable()
     if not p.enabled then return end
 
     for i = 1, PaletteCount() do EnsurePalette(i) end
+    SyncBarMacros()
     ns.UpdateBindings()
     PushAllPalettes()
     activeSig = ActiveSig()

@@ -195,6 +195,83 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end
 
+    -- Action Bar Macros. A menu's macro carries the menu's name, cut to the
+    -- macro limit, and its number in the body (ns.BarMacroBody), which is what
+    -- the module reads; the body is a comment because the bar button's keybind
+    -- is taken over by the menu (EUI_Quickdraw_BarMacros.lua) and the macro
+    -- never needs to run. Account macros only: Pick Up makes them there.
+    local MACRO_NAME_MAX = 16
+    local function MenuMacroName(index)
+        local name = MenuName(index)
+        -- Whole characters only: drop the last UTF-8 sequence until it fits.
+        while #name > MACRO_NAME_MAX do
+            name = name:gsub("[%z\1-\127\192-\255][\128-\191]*$", "")
+        end
+        return name
+    end
+
+    -- The account macro of menu `index`, by its body (or a pre-rename name).
+    local function FindMenuMacro(index)
+        if not ns.BarMacroPalette then return nil end
+        for m = 1, (GetNumMacros()) do
+            local name, _, body = GetMacroInfo(m)
+            if ns.BarMacroPalette(name, body) == index then return m end
+        end
+    end
+
+    -- A menu renamed: its macro follows, so the bar shows the new name.
+    local function RenameMenuMacro(index)
+        if InCombatLockdown() then return end
+        local m = FindMenuMacro(index)
+        if m then EditMacro(m, MenuMacroName(index)) end
+    end
+
+    -- A menu deleted: its macros are orphaned (menu 0, which binds nothing)
+    -- and the ones above it move down with their menus. Ascending, so a macro
+    -- just moved down is never found again under the number it left.
+    local function RenumberMenuMacros(deleted, oldCount)
+        for t = deleted, oldCount do
+            local m = FindMenuMacro(t)
+            while m do
+                EditMacro(m, nil, nil, ns.BarMacroBody(t == deleted and 0 or t - 1))
+                m = FindMenuMacro(t)
+            end
+        end
+    end
+
+    -- The edited menu's macro, made once (and given the menu's current name
+    -- and icon on every pick up), handed to the cursor to drop on a bar.
+    local function PickUpMenuMacro()
+        if InCombatLockdown() then
+            Complain("Quickdraw: leave combat to pick up a menu macro.")
+            return
+        end
+        if not ns.BarMacroBody then return end
+        local name = MenuMacroName(editPalette)
+        local body = ns.BarMacroBody(editPalette)
+        local icon = PaletteListIcon(PaletteRead(editPalette))
+        -- A macro takes a file ID or an icon name, not an atlas table (such as
+        -- the Pings and outfit entries) or another texture path.
+        if type(icon) == "string" then icon = icon:gsub("^[Ii]nterface\\[Ii]cons\\", "") end
+        if type(icon) ~= "number" and (type(icon) ~= "string" or icon:find("\\", 1, true)) then
+            icon = "INV_Misc_Bag_08"
+        end
+        local m = FindMenuMacro(editPalette)
+        if m then
+            EditMacro(m, name, icon, body)
+        else
+            if GetNumMacros() >= Constants.MacroConsts.MAX_ACCOUNT_MACROS then
+                Complain("Quickdraw: all account macro slots are in use. Delete one to make the menu macro.")
+                return
+            end
+            CreateMacro(name, icon, body, nil)
+        end
+        -- Found again: macro handlers that run inside CreateMacro and
+        -- EditMacro may reorder the list.
+        m = FindMenuMacro(editPalette)
+        if m then PickupMacro(m) end
+    end
+
     -- What the user calls the action a chord is currently bound to. The binding
     -- system stores an action string; BINDING_NAME_<action> is the label every
     -- keybind UI shows, and our own palettes declare one each.
@@ -2373,6 +2450,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         table.remove(p.palettes, index)
         Set("paletteCount", count - 1)
+        RenumberMenuMacros(index, count)
 
         -- The auto-names close ranks with everything else. A palette the user
         -- never renamed carries the number it was made under, so deleting
@@ -2653,6 +2731,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if newName == "" then newName = AutoName(idx) end
                         if newName == pal3.name then return end
                         pal3.name = newName
+                        RenameMenuMacro(idx)
                         RebuildPage()
                     end,
                 })
@@ -3343,6 +3422,29 @@ initFrame:SetScript("OnEvent", function(self)
               -- frame it anchors under some other way.
               onClick=function() ShowAddPaletteMenu(addPaletteBtn) end })
         addPaletteBtn = row._rightRegion and row._rightRegion._control
+        y = y - h
+
+        -- Action Bar Macros: the switch, and the macro of the menu being
+        -- edited below, handed to the cursor to drop on a bar.
+        local function BarMacrosOff() return Disabled() or Cfg("barMacros") ~= true end
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Action Bar Macros",
+              disabled=Disabled, disabledTooltip="the module",
+              tooltip="Put a menu's macro on an action bar, and that button's "
+                  .. "keybind opens the menu.\nMove the macro to move the key. "
+                  .. "Works on Action Bars 2 to 10, not the main bar, which "
+                  .. "changes with stances and forms.",
+              getValue=function() return Cfg("barMacros") == true end,
+              setValue=function(v) Set("barMacros", v); Refresh() end },
+            { type="labeledButton", text="Menu Macro",
+              disabled=BarMacrosOff,
+              disabledTooltip=function()
+                  return Disabled() and "the module" or "Action Bar Macros"
+              end,
+              tooltip="Puts the macro of the action menu you are editing below "
+                  .. "on your cursor. Drop it on an action bar.",
+              buttonText="Pick Up",
+              onClick=PickUpMenuMacro })
         y = y - h
 
         -----------------------------------------------------------------------
