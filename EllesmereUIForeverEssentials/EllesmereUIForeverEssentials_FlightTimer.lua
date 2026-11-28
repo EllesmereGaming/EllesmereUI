@@ -63,6 +63,7 @@ local DEFAULTS = {
     destText = "show", destSize = 12, destX = 0, destY = 0,
     timeText = "show", timeSize = 12, timeX = 0, timeY = 0,
     showTotal = false, earlyExit = true, fade = false,
+    printChat = false,
 }
 
 local BAR_TEXTURES, BAR_TEXTURE_NAMES, BAR_TEXTURE_ORDER = EllesmereUI.BuildBarTextureTables()
@@ -671,6 +672,14 @@ end
 Land = function()
     local fl = flight
     local secs = GetTime() - fl.takeoff
+    -- Print to Chat: the whole time in the air, from the real takeoff.
+    if Get("printChat") and secs > 1 then
+        local last = fl.points and fl.points[#fl.points]
+        local text = last and last.name
+            and string.format(EllesmereUI.L("Flight to %s took %s"), last.name, FormatTime(secs))
+            or string.format(EllesmereUI.L("Flight took %s"), FormatTime(secs))
+        EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r " .. text)
+    end
     if not fl.early and secs > 1 then
         if fl.yards and not fl.boosted then
             local measured = fl.yards / secs / fl.mult
