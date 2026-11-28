@@ -244,12 +244,14 @@ end
 --- Create or open a database backed by the central EllesmereUIDB store.
 -- Returns a db object with .profile pointing to the active profile table
 -- inside EllesmereUIDB.profiles[name].addons[folder].
--- @param svName  Global SavedVariables name (string), e.g. "EllesmereUIActionBarsDB"
+-- @param svName  Optional legacy SavedVariables name (string)
 -- @param defaults  Table with a .profile sub-table of default values
 -- @param defaultToCharKey  (ignored, kept for call-site compat)
-function EUILite.NewDB(svName, defaults, defaultToCharKey)
+-- @param folderName  Explicit suite folder key when no legacy SV is used
+function EUILite.NewDB(svName, defaults, defaultToCharKey, folderName)
     -- Derive the addon folder name from the SV name (strip trailing "DB")
-    local folder = svName:match("^(.+)DB$") or svName
+    local folder = folderName or (type(svName) == "string" and (svName:match("^(.+)DB$") or svName))
+    if type(folder) ~= "string" or folder == "" then return nil end
 
     -- Resolve the active profile name from the central DB
     local profileName = "Default"
@@ -273,10 +275,12 @@ function EUILite.NewDB(svName, defaults, defaultToCharKey)
     -- Child SV globals are vestigial (all data lives in EllesmereUIDB).
     -- Wipe in-place (not replace) so WoW's SV serializer, which holds
     -- the original table reference from load time, saves the empty table.
-    if _G[svName] and type(_G[svName]) == "table" then
-        wipe(_G[svName])
-    else
-        _G[svName] = {}
+    if type(svName) == "string" and svName ~= "" then
+        if _G[svName] and type(_G[svName]) == "table" then
+            wipe(_G[svName])
+        else
+            _G[svName] = {}
+        end
     end
 
     -- Merge defaults into profile (fills missing keys only)
@@ -434,10 +438,12 @@ local function RerootPreSVDBs()
         db.sv = EllesmereUIDB
         db._profileName = profileName
         db.profile = profile
-        if _G[db.svName] and type(_G[db.svName]) == "table" then
-            wipe(_G[db.svName])
-        else
-            _G[db.svName] = {}
+        if db.svName then
+            if _G[db.svName] and type(_G[db.svName]) == "table" then
+                wipe(_G[db.svName])
+            else
+                _G[db.svName] = {}
+            end
         end
     end
     wipe(_preSVDBs)
