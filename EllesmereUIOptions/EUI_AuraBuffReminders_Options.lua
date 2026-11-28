@@ -781,38 +781,35 @@ initFrame:SetScript("OnEvent", function(self)
               values={ _placeholder="..." }, order={ "_placeholder" },
               getValue=function() return "_placeholder" end, setValue=function() end },
             rightCfg or { type="label", text="" })
-        if EllesmereUI._prebuilding then
-            -- the index pass reads the sound cog's rows; the dropdowns below make frames
-            if cfg.showWhenStore and cfg.soundSec then AddSectionSoundCog(row._rightRegion, cfg.soundSec, cfg.soundField or "sectionSound", cfg.cogRows, cfg.cogTitle) end
-            return row, h
-        end
+        -- The dropdowns make frames; the sound cog stays outside so the index pass reads its rows.
+        if not EllesmereUI._prebuilding then
+            local lrgn = row._leftRegion
+            if lrgn._control then lrgn._control:Hide() end
+            local whereDD, whereRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                lrgn, 220, lrgn:GetFrameLevel() + 2, cfg.whereItems or WHERE_ITEMS,
+                WhereGet(cfg.whereStore), WhereSet(cfg.whereStore, cfg.onChange))
+            PP.Point(whereDD, "RIGHT", lrgn, "RIGHT", -20, 0)
+            lrgn._control = whereDD
+            lrgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(whereRefresh)
 
-        local lrgn = row._leftRegion
-        if lrgn._control then lrgn._control:Hide() end
-        local whereDD, whereRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-            lrgn, 220, lrgn:GetFrameLevel() + 2, cfg.whereItems or WHERE_ITEMS,
-            WhereGet(cfg.whereStore), WhereSet(cfg.whereStore, cfg.onChange))
-        PP.Point(whereDD, "RIGHT", lrgn, "RIGHT", -20, 0)
-        lrgn._control = whereDD
-        lrgn._lastInline = nil
-        EllesmereUI.RegisterWidgetRefresh(whereRefresh)
-
-        if cfg.showWhenStore then
-            local rrgn = row._rightRegion
-            if rrgn._control then rrgn._control:Hide() end
-            local whenDD, whenRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rrgn, 220, rrgn:GetFrameLevel() + 2, SHOWWHEN_ITEMS,
-                WhenGet(cfg.showWhenStore),
-                WhenSet(cfg.showWhenStore, function()
-                    if cfg.onShowWhenChange then cfg.onShowWhenChange() end
-                    if cfg.onChange then cfg.onChange() end
-                end))
-            PP.Point(whenDD, "RIGHT", rrgn, "RIGHT", -20, 0)
-            rrgn._control = whenDD
-            rrgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(whenRefresh)
-            if cfg.soundSec then AddSectionSoundCog(rrgn, cfg.soundSec, cfg.soundField or "sectionSound", cfg.cogRows, cfg.cogTitle) end
+            if cfg.showWhenStore then
+                local rrgn = row._rightRegion
+                if rrgn._control then rrgn._control:Hide() end
+                local whenDD, whenRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    rrgn, 220, rrgn:GetFrameLevel() + 2, SHOWWHEN_ITEMS,
+                    WhenGet(cfg.showWhenStore),
+                    WhenSet(cfg.showWhenStore, function()
+                        if cfg.onShowWhenChange then cfg.onShowWhenChange() end
+                        if cfg.onChange then cfg.onChange() end
+                    end))
+                PP.Point(whenDD, "RIGHT", rrgn, "RIGHT", -20, 0)
+                rrgn._control = whenDD
+                rrgn._lastInline = nil
+                EllesmereUI.RegisterWidgetRefresh(whenRefresh)
+            end
         end
+        if cfg.showWhenStore and cfg.soundSec then AddSectionSoundCog(row._rightRegion, cfg.soundSec, cfg.soundField or "sectionSound", cfg.cogRows, cfg.cogTitle) end
         return row, h
     end
 
