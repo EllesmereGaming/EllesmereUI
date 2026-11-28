@@ -326,40 +326,36 @@ end
 -- A style chosen for the whole UI (the first-install picker, the Style page's
 -- Apply to All) swaps the window skins through per-style slots:
 -- EllesmereUIDB.windowSkinStyleSlots = { active = the look whose windows are
--- live, eui/blizzard/classic/forever = that look's enable keys }. Leaving a
--- look saves its windows into its slot; entering one loads its slot, so each
--- look comes back as it was left, per-window picks included. First visit:
--- Blizzard Style and Classic WoW UI keep Blizzard's own windows, every one at
--- Blizz Default; the EllesmereUI look and WoW Forever put every one back to
--- its default (on), the character sheet on its EllesmereUI skin -- except
--- that WoW Forever keeps the micro menu and the bag bar at Blizz Default, and
--- no look turns on a window that starts there (STOCK_WINDOWS). The Friends List window rides them whatever the
--- Friends module's state (its pack stands down by itself under a stock
--- Friends style), so a key saved in one swap is always loaded back in the
--- next. A slot holds on/off booleans; a window a slot never recorded (one
--- added later) takes the look's first-visit value. Styles
--- (blizzWindowSkinStyles) are never touched, so a window turned back on keeps
--- its skin -- except the character sheet's, which the slots carry as
--- `charsheetStyle`: Blizz Default is a style there (Blizzard Style's and
--- Classic WoW UI's first visit), and its Off (with the inspect sheet riding
--- its card) stays out of the slots, so a sheet turned off stays off in every
--- look. A one-way seed record from before the slots
--- (windowSkinsStockSeeded) converts on the first swap: its windows were on
--- under the EllesmereUI look, and legacyStock names the look it belongs to.
+-- live, eui/blizzard/classic/forever = that look's enable keys when it was
+-- left (the third-party skin vote reads the EllesmereUI one) }. A Style page
+-- pick gives the look its own windows, never a slot's; a profile switch
+-- (restore) loads the slot instead, so each profile comes back as it was
+-- left. A look's own windows (also a slot's missing keys): Blizzard Style,
+-- Classic WoW UI and WoW Forever keep Blizzard's own windows, every one at
+-- Blizz Default; the EllesmereUI look puts every one back to its default
+-- (on), the character sheet on its EllesmereUI skin, and no look turns on a
+-- window that starts there (STOCK_WINDOWS). The Friends List window rides
+-- them whatever the Friends module's state (its pack stands down by itself
+-- under a stock Friends style). Styles (blizzWindowSkinStyles) are never
+-- touched, so a window turned back on keeps its skin -- except the character
+-- sheet's: Blizz Default is a style there (every stock look's), and its Off
+-- (with the inspect sheet riding its card) stays out of the swap, so a sheet
+-- turned off stays off in every look. A one-way seed record from before the
+-- slots (windowSkinsStockSeeded) converts on the first swap: its windows were
+-- on under the EllesmereUI look, and legacyStock names the look it belongs
+-- to.
 -- dryRun: only report whether the whole UI's window look would change.
+-- restore: load the look's saved slot (profile switches).
 local function WindowInSlots(winKey)
     return winKey ~= "charsheet" and winKey ~= "inspect"
 end
--- The looks whose first visit skins the windows (winKey nil: the look as a
--- whole). WoW Forever leaves the micro menu and the bag bar at Blizz Default,
--- every look a window that starts there.
-local FOREVER_STOCK = { micromenu = true, bagbar = true }
+-- The looks that skin the windows (winKey nil: the look as a whole): the
+-- EllesmereUI look only, never a window that starts at Blizz Default.
 local function LookSkinsWindows(look, winKey)
     if winKey and STOCK_WINDOWS[winKey] then return false end
-    if look == "forever" then return not (winKey and FOREVER_STOCK[winKey]) end
     return look == "eui"
 end
-function EllesmereUI.SwapWindowSkinStyle(to, dryRun, legacyStock)
+function EllesmereUI.SwapWindowSkinStyle(to, dryRun, legacyStock, restore)
     if not EllesmereUIDB then EllesmereUIDB = {} end
     local slots = EllesmereUIDB.windowSkinStyleSlots
     if type(slots) ~= "table" then slots = nil end
@@ -390,7 +386,7 @@ function EllesmereUI.SwapWindowSkinStyle(to, dryRun, legacyStock)
     end
     out.charsheetStyle = (styles and styles.charsheet) or "eui"
     slots[from] = out
-    local saved = slots[to]
+    local saved = restore and slots[to] or nil
     if type(saved) ~= "table" then saved = nil end
     for winKey, ek in pairs(WINDOW_ENABLE_KEYS) do
         if WindowInSlots(winKey) then
@@ -402,10 +398,9 @@ function EllesmereUI.SwapWindowSkinStyle(to, dryRun, legacyStock)
             if v then EllesmereUIDB[ek] = OnValue(winKey) else EllesmereUIDB[ek] = false end
         end
     end
-    -- The character sheet's style. A look's first visit (or a slot saved
-    -- before the sheet rode them): Blizz Default on Blizzard Style and
-    -- Classic WoW UI; on the EllesmereUI look and WoW Forever a Blizz Default
-    -- goes back to the EllesmereUI skin and any other pick stays.
+    -- The character sheet's style (a restored slot's own pick first): Blizz
+    -- Default on every stock look; on the EllesmereUI look a Blizz Default
+    -- goes back to the EllesmereUI skin and any other pick (Modern) stays.
     local cs = saved and saved.charsheetStyle
     if cs == nil then
         if not LookSkinsWindows(to) then
@@ -460,7 +455,7 @@ function EllesmereUI.ReconcileWindowSkinLook()
     if type(db) ~= "table" then return end
     local prof = EllesmereUI.GetActiveProfileData()
     local look = EllesmereUI.ProfileWindowSkinLook(prof, db.fonts)
-    if look then EllesmereUI.SwapWindowSkinStyle(look, false, look ~= "eui" and look or nil) end
+    if look then EllesmereUI.SwapWindowSkinStyle(look, false, look ~= "eui" and look or nil, true) end
 end
 
 -- Main-chunk locals the EUI_BlizzardSkin_*.lua files re-import by name.
