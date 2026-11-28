@@ -100,6 +100,183 @@ local function ModelOnShow(self)
     local u = bd._pvUnit or (owner and not bd._preview and owner:GetAttribute("unit"))
     if u and UnitExists(u) then ns.RF_PtPaint(st, u, "Show") end
 end
+-- Auto-Scale Portraits (default off). Above 300 the 3D Zoom pulls the camera
+-- out toward the whole model. The client frames a character by its height,
+-- but a model longer or wider than it is tall (a druid's bear, cat or travel
+-- form, a ghost wolf) gets a camera from its own creature data, and comes out
+-- far bigger or smaller than a character. With the option on, each model
+-- file is measured once on a probe actor (its bounding box), and such a
+-- model's camera distance is set so its front, seen from the camera, has the
+-- size FIT_SIZE, and the model is moved up or down to sit on the camera's aim
+-- like a character, blended in from 3D Zoom 300 to 500. Characters keep the
+-- client's camera.
+local FIT_SIZE, FIT_MIN, FIT_MAX, FIT_AIM = 0.4, 0.75, 3, 0.45
+local fitBounds = {}    -- model file -> bounding box, or false (unmeasurable)
+local fitWaiting = {}   -- model file -> { [bd] = true } while it is measured
+local fitPending = {}   -- bd -> true until the next frame's fit
+local fitScene, fitIdle, fitTimer
+local Fit
+local function ProbeRelease(actor)
+    actor._fid = nil
+    fitIdle[#fitIdle + 1] = actor
+    if #fitIdle == fitScene._actors then fitScene:Hide() end
+end
+-- A probe actor has its size once its model is in: the template's OnUpdate
+-- after the load, where Blizzard reads a bounding box too.
+local function ProbeSized(actor)
+    local fid = actor._fid
+    if not fid then return end
+    local bx, by, bz, tx, ty, tz = actor:GetActiveBoundingBox()
+    fitBounds[fid] = (bx and tz and tz - bz > 0.05) and { bx, by, bz, tx, ty, tz } or false
+    actor:ClearModel()
+    ProbeRelease(actor)
+    local list = fitWaiting[fid]
+    fitWaiting[fid] = nil
+    if list then for bd in pairs(list) do Fit(bd) end end
+end
+local function Measure(fid, bd)
+    local list = fitWaiting[fid]
+    if list then list[bd] = true; return end
+    if not fitScene then
+        -- Off screen and invisible; shown only while a model is measured.
+        fitScene = CreateFrame("ModelScene")
+        fitScene:SetSize(1, 1)
+        fitScene:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", -8, -8)
+        fitScene:SetAlpha(0)
+        fitScene._actors, fitIdle = 0, {}
+    end
+    local actor = table.remove(fitIdle)
+    if not actor then
+        actor = fitScene:CreateActor(nil, "ModelSceneActorTemplate")
+        actor:SetOnSizeChangedCallback(ProbeSized)
+        fitScene._actors = fitScene._actors + 1
+    end
+    fitWaiting[fid] = { [bd] = true }
+    actor._fid = fid
+    fitScene:Show()
+    if not actor:SetModelByFileID(fid) then
+        fitBounds[fid], fitWaiting[fid] = false, nil
+        ProbeRelease(actor)
+    end
+end
+-- Back to the client's distance and position. The client places its camera
+-- on the model where it stands whenever the camera changes, so a moved model
+-- always goes back to the origin before any camera call (here, on a zoom
+-- change, a reload and a resize), and moves again only after them.
+local function Unfit(bd)
+    bd._fitWant, bd._fitLift = nil, nil
+    local m = bd._3d
+    local live = m and bd._3dOn and bd._camZ
+    if bd._fitPos then
+        bd._fitPos = nil
+        if live then m:SetPosition(0, 0, 0) end
+    end
+    if bd._fitMul then
+        bd._fitMul = nil
+        if live then m:SetCamDistanceScale(bd._camZ) end
+    end
+end
+local function Num(v) return type(v) == "number" and not issecretvalue(v) end
+-- The multiplier on the client's camera distance and the model position that
+-- size and place box b like a character. Camera positions are in model units
+-- times the world scale; the model position is in model units. The client aims a
+-- character's camera at FIT_AIM of its height, but a creature's can aim far
+-- off it (a travel form's at its feet): the model is lifted or lowered to put
+-- that point on the aim. Seen from the camera, the box's front (its nearest
+-- point along the line of sight) then has a size of sqrt(width * height) over
+-- its distance. A typical character at full body is about 0.5; FIT_SIZE is a
+-- little under, as a form fills its box where a character's box is mostly air.
+local function FitWant(m, b, z3)
+    local ws = m:GetWorldScale()
+    local cx, cy, cz = m:GetCameraPosition()
+    local tx, ty, tz = m:GetCameraTarget()
+    if not (Num(ws) and Num(cx) and Num(cy) and Num(cz) and Num(tx) and Num(ty) and Num(tz)) or ws <= 0 then
+        return
+    end
+    local dx, dy, dz = cx - tx, cy - ty, cz - tz
+    local d = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if d < 1e-4 then return end
+    dx, dy, dz = dx / d, dy / d, dz / d
+    d, tx, ty, tz = d / ws, tx / ws, ty / ws, tz / ws
+    local t = (math.min(z3, ZOOM3D_MAX) - ZOOM3D_STOCK) / (ZOOM3D_MAX - ZOOM3D_STOCK)
+    local lift = (tz - b[3] - FIT_AIM * (b[6] - b[3])) * t
+    local front = math.max((b[1] - tx) * dx, (b[4] - tx) * dx)
+        + math.max((b[2] - ty) * dy, (b[5] - ty) * dy)
+        + math.max((b[3] + lift - tz) * dz, (b[6] + lift - tz) * dz)
+    local want = (front + math.sqrt((b[5] - b[2]) * (b[6] - b[3])) / FIT_SIZE) / d
+    want = 1 + (want - 1) * t
+    return math.max(FIT_MIN, math.min(FIT_MAX, want)), lift
+end
+-- Size and place a long model like a character (or let it go). A multiplier
+-- on the client's distance keeps its aim and the 3D Zoom framing. Both are
+-- worked out once from the client's camera, before any multiplier (the model
+-- position does not move the camera), and kept until a reload or a zoom
+-- change sets the camera again.
+function Fit(bd)
+    local m = bd._3d
+    if not (m and bd._autoScale and bd._3dOn and bd._camZ and (bd._z3 or 100) > ZOOM3D_STOCK) then
+        return Unfit(bd)
+    end
+    local fid = m:GetModelFileID()
+    if issecretvalue(fid) or type(fid) ~= "number" then return end
+    local b = fitBounds[fid]
+    if b == nil then return Measure(fid, bd) end
+    -- Unmeasurable, or as tall as it is long and wide: a character's camera.
+    if not b or b[6] - b[3] >= math.max(b[4] - b[1], b[5] - b[2]) then return Unfit(bd) end
+    local want, lift = bd._fitWant, bd._fitLift
+    if not want then
+        if bd._fitMul then return end
+        want, lift = FitWant(m, b, bd._z3)
+        if not want then return end
+        bd._fitWant, bd._fitLift = want, lift
+    end
+    if want ~= (bd._fitMul or 1) then
+        if bd._fitPos then bd._fitPos = nil; m:SetPosition(0, 0, 0) end
+        bd._fitMul = (want ~= 1) and want or nil
+        m:SetCamDistanceScale(bd._camZ * want)
+    end
+    if lift ~= (bd._fitPos or 0) then
+        bd._fitPos = (lift ~= 0) and lift or nil
+        m:SetPosition(0, 0, lift)
+    end
+end
+-- The client moves its camera a frame after a load or a zoom change: the
+-- fit reads it on the next frame.
+local function RunFits()
+    fitTimer = nil
+    for bd in pairs(fitPending) do
+        fitPending[bd] = nil
+        Fit(bd)
+    end
+end
+local function ScheduleFit(bd)
+    fitPending[bd] = true
+    if not fitTimer then
+        fitTimer = true
+        C_Timer.After(0, RunFits)
+    end
+end
+local function ModelOnLoaded(self)
+    local bd = self._bd
+    if bd then ScheduleFit(bd) end
+end
+local function ModelSizeChanged(self)
+    local bd = self._bd
+    if bd and (bd._fitMul or bd._fitPos) then
+        Unfit(bd)
+        ScheduleFit(bd)
+    end
+end
+-- The load script sits on the model only while the option is on (off, the
+-- model is stock); turning it on fits on the next frame, off lets go now.
+local function AutoScale(bd, on)
+    local m = bd._3d
+    if not m or (bd._autoScale or false) == on then return end
+    bd._autoScale = on or nil
+    m:SetScript("OnModelLoaded", on and ModelOnLoaded or nil)
+    m:SetScript("OnSizeChanged", on and ModelSizeChanged or nil)
+    if on then ScheduleFit(bd) else Unfit(bd) end
+end
 local function Ensure3D(bd)
     local m = bd._3d
     if m then return m end
@@ -450,6 +627,10 @@ function ns.RF_PtPaint(st, unit, event)
         if m and (changed or bd._state ~= avail or event == "Force" or event == "UNIT_MODEL_CHANGED"
             or event == "UNIT_PORTRAIT_UPDATE" or event == "Show" or event == "PLAYER_ENTERING_WORLD"
             or (event == "PORTRAITS_UPDATED" and m:GetModelFileID() == nil)) then
+            -- The reload sets the client's camera again (Auto-Scale Portraits
+            -- refits once the model is in); a moved model goes back first.
+            if bd._fitPos then m:SetPosition(0, 0, 0) end
+            bd._fitMul, bd._fitWant, bd._fitPos, bd._fitLift = nil, nil, nil, nil
             if avail then
                 m:ClearModel()
                 m:SetUnit(unit)
@@ -472,6 +653,8 @@ function ns.RF_PtPaint(st, unit, event)
             local reseat = (bd._charK or 1) ~= 1 and (bd._state == false) ~= (avail == false)
             bd._state = avail
             if reseat then SeatModel(bd) end
+            -- A cached model is in already: fit it (a later one on load).
+            if bd._autoScale then ScheduleFit(bd) end
             repainted = true
         end
     else
@@ -573,8 +756,9 @@ function ns.RF_PtApply(owner, st, s, bw, bh, unit)
             bd._on = nil
             bd:Hide()
             SetMode(bd, nil)
-            -- Off drops the Character Size script with the model.
+            -- Off drops the Character Size and Auto-Scale scripts with the model.
             if (bd._charK or 1) ~= 1 then bd._charK = 1; SeatModel(bd) end
+            AutoScale(bd, false)
         end
         if not bd._preview then EllesmereUI.SyncPortraitClick(owner, PORTRAIT_CLICK) end
         return
@@ -588,6 +772,7 @@ function ns.RF_PtApply(owner, st, s, bw, bh, unit)
     local cs = s.partyPortraitClassStyle or "modern"
     if bd._style ~= cs then bd._style = cs; bd._ct = nil end
     bd._pz3d, bd._zoom3d = Zoom3DOf(s.partyPortrait3dZoom)
+    bd._z3 = s.partyPortrait3dZoom or 100
     -- Character Size: Inside positions only (the box that clips it).
     local charK = inside and ((s.partyPortraitCharScale or 100) / 100) or 1
     local charKChanged = (bd._charK or 1) ~= charK
@@ -609,16 +794,23 @@ function ns.RF_PtApply(owner, st, s, bw, bh, unit)
     -- A new scale re-seats the model (a re-shape already did); so does a
     -- swap into or out of 3D while scaled (Shape seated before the swap).
     if (charKChanged and not reshaped) or (swapped and charK ~= 1) then SeatModel(bd) end
+    -- Auto-Scale Portraits on a 3D model, set before the first show paints.
+    AutoScale(bd, mode == "3d" and s.partyPortraitAutoScale and true or false)
     if not wasOn then bd:Show() end
     -- A 3D Zoom change on a loaded model: the camera alone.
     local m = bd._3dOn and bd._3d
     if m and bd._state and bd._camZ and (bd._camZ ~= bd._zoom3d or bd._camP ~= bd._pz3d) then
+        -- Auto-Scale Portraits: a moved model goes back before the camera.
+        if bd._fitPos then bd._fitPos = nil; m:SetPosition(0, 0, 0) end
         if bd._camP ~= bd._pz3d then
             bd._camP = bd._pz3d
             m:SetPortraitZoom(bd._pz3d)
         end
         bd._camZ = bd._zoom3d
         m:SetCamDistanceScale(bd._zoom3d)
+        -- The new zoom set the client's distance again: refitted next frame.
+        bd._fitMul, bd._fitWant, bd._fitLift = nil, nil, nil
+        if bd._autoScale then ScheduleFit(bd) end
     end
     if unit then
         ns.RF_PtPaint(st, unit, "Apply")

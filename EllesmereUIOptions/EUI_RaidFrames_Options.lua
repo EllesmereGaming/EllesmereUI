@@ -312,6 +312,12 @@ function ns.RF_BuildPartyPortrait(parent, y, W, PSSet)
           disabledTooltip="This option requires an Inside position",
           get=function() return PV("partyPortraitCharScale", 100) end,
           set=function(v) PtSet("partyPortraitCharScale", v) end },
+        { type="toggle", label="Auto-Scale Portraits",
+          tooltip="Sizes druid forms and other long models like a character when 3D Zoom is above 300. Characters are not changed.",
+          disabled=function() return PV("partyPortraitMode", "2d") ~= "3d" end,
+          disabledTooltip="This option requires Art Style to be set to 3D Portrait",
+          get=function() return PV("partyPortraitAutoScale", false) end,
+          set=function(v) PtSet("partyPortraitAutoScale", v or nil) end },
     } })
     EllesmereUI.BuildInlineCog(sizePosRow._rightRegion, { title = "Portrait Position Offsets", rows = {
         { type="slider", label="X Offset", min=-100, max=100, step=1,
