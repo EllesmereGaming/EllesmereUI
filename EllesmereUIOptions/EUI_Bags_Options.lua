@@ -262,6 +262,7 @@ initFrame:SetScript("OnEvent", function(self)
                 bags._asCols = nil
                 bags._asMaxGridW = nil
                 bags._asMaxH = nil
+                bags._compactCols, bags._compactW = nil, nil
                 if bags.RefreshInventory then bags:RefreshInventory() end
             end
 
@@ -343,13 +344,9 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="slider", text="Window Scale", min=50, max=150, step=5,
                   getValue=function() return math.floor((db.profile.bagScale or 1) * 100 + 0.5) end,
                   setValue=function(v)
-                      db.profile.bagScale = v / 100
-                      local s = v / 100
-                      if _G.EUI_Bags then _G.EUI_Bags:SetScale(s) end
-                      if _G.EUI_BagsReagent then _G.EUI_BagsReagent:SetScale(s) end
-                      if _G.EUI_BagsWindow then _G.EUI_BagsWindow:SetScale(s) end
-                      local bank = _G.EUI_BankFrame
-                      if bank and bank:IsVisible() then bank:SetScale(s) end
+                      BagsNS.SetBagScale(v / 100)
+                      -- Auto-Size's caps are in the window's scale
+                      RelayoutSoon()
                   end },
                 -- Unset reads the retired Allow Windows Over Bags (BagFrameStrata)
                 { type="dropdown", text="Frame Strata",

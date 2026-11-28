@@ -517,6 +517,30 @@ local function ApplyBagScale()
     if keyring then keyring:SetScale(s) end
 end
 
+-- Window Scale moved: point offsets are in the window's own scale, so the bag
+-- and bank windows' live and saved offsets are rescaled to keep them where
+-- they stand (as Blizzard's EditModeSystemMixin:SetScaleOverride).
+function ns.SetBagScale(s)
+    local p = BP()
+    local r = (p.bagScale or 1) / s
+    p.bagScale = s
+    for key, f in pairs({ bagsPosition = EUI_Bags, bankPosition = _G.EUI_BankFrame }) do
+        local pos = p[key]
+        if pos then pos.x, pos.y = pos.x * r, pos.y * r end
+        for i = 1, f:GetNumPoints() do
+            local point, rel, relPoint, x, y = f:GetPoint(i)
+            f:SetPoint(point, rel, relPoint, x * r, y * r)
+        end
+        -- The default spot was never saved: save it, or a reload puts it back
+        if not pos and f:IsShown() and f:GetNumPoints() > 0 then
+            local point, _, relPoint, x, y = f:GetPoint(1)
+            p[key] = { point = point, relativePoint = relPoint, x = x, y = y }
+        end
+        f:SetScale(s)
+    end
+    ApplyBagScale()
+end
+
 -- Locale-safe gear detection: GetItemInfo type strings are localized ("Armor" only on enUS), so use GetItemInfoInstant's numeric classID.
 local ITEM_CLASS_WEAPON = Enum.ItemClass.Weapon  -- 2
 local ITEM_CLASS_ARMOR  = Enum.ItemClass.Armor   -- 4
