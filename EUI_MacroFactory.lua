@@ -222,6 +222,8 @@ if EllesmereUI.IS_FOREVER == true then
                 {5350, "Conjured Water"}, {{8766, 287964}, "Morning Glory Dew", 8766},
                 {1645, "Moonberry Juice"}, {1708, "Sweet Nectar"}, {1205, "Melon Juice"},
                 {1179, "Ice Cold Milk"}, {159, "Refreshing Spring Water"},
+                -- Out of rank order: a new option goes last, so saved orders and checkboxes keep their slots.
+                {13724, "Enriched Manna Biscuit"},
             }),
         },
         {
