@@ -182,8 +182,8 @@ function EAB_VTABLE.Hover.RefreshCustomFadeBar(barKey, animate, force)
     if current == target then return true end
     StopFade(frame, current)
     if animate and abs(current - target) >= 0.01 then
-        local duration = hoverHidden and (s.mouseoverSpeed or 0.15)
-            or ((target > current) and (s.fadeInSpeed or 0.15) or (s.fadeOutSpeed or 0.15))
+        -- Fade Out Time also covers the mouseover hide, as Fade In Time covers the reveal.
+        local duration = (target > current) and (s.fadeInSpeed or 0.15) or (s.fadeOutSpeed or 0.15)
         if duration < 0.01 then duration = 0.01 end
         FadeTo(frame, target, duration)
     else
