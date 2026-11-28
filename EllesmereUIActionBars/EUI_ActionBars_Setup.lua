@@ -18,6 +18,8 @@ local EFD = ns.EFD
 
 local EAB, EAB_VTABLE, barButtons = ns.EAB, ns.EAB_VTABLE, ns.barButtons
 local I = ns._internals
+local SetActionBarCVar = I.SetActionBarCVar
+local LatchMasqueBarOwnership = I.LatchMasqueBarOwnership
 local _dragState, _gridState, _quickKeybindState = I._dragState, I._gridState, I._quickKeybindState
 local ALL_BARS, BAR_CONFIG, BAR_LOOKUP, FadeTo = I.ALL_BARS, I.BAR_CONFIG, I.BAR_LOOKUP, I.FadeTo
 local ShouldQuickKeybindSurfaceBar, STOCK_BAR_DISPOSAL = I.ShouldQuickKeybindSurfaceBar, I.STOCK_BAR_DISPOSAL
@@ -49,6 +51,12 @@ local RegisterWithUnlockMode, RestoreBarPositions = I.RegisterWithUnlockMode, I.
 local function SyncEditModeIconCounts()
     if InCombatLockdown() then return end
     if not C_EditMode or not C_EditMode.GetLayouts or not C_EditMode.SaveLayouts then return end
+    -- A missing shared helper must not abort visual setup before proc-glow
+    -- events are registered. Skip the sync rather than save layouts without
+    -- the shared preset merge and restore tracking.
+    if type(EllesmereUI.EditModeOpen) ~= "function"
+       or type(EllesmereUI.EditModeLayoutsForSave) ~= "function"
+       or type(EllesmereUI.NoteEditModeSetting) ~= "function" then return end
 
     -- Never write while Blizzard's Edit Mode is open. The manager keeps its OWN copy of
     -- layoutInfo for the whole session and pushes that copy whole on Save, so a write from here
@@ -145,6 +153,18 @@ function EAB:FinishSetup()
     -- can't be unhooked -- and the pet/stance event frames would duplicate.
     if ns._eabFinishSetupDone then return end
     ns._eabFinishSetupDone = true
+
+    -- Masque group and AddButton registration are one-time for the session, so
+    -- lock ownership to the current profile snapshot before any layout or style
+    -- path asks ns.MasqueOwnsBar().
+    LatchMasqueBarOwnership()
+    for _, info in ipairs(BAR_CONFIG) do
+        if ns._masqueBarsLatched[info.key] == true then
+            ns.InitializeMasque()
+            break
+        end
+    end
+
     local function DoSetupSecure()
         -- Non-protected setup: create bar frames, compute layout, register events.
         -- Protected operations (SetParent, SetPoint on Blizzard buttons) are
@@ -180,10 +200,10 @@ function EAB:FinishSetup()
             -- Combat reload: non-protected setup only; secure handler does the rest.
             -- Stock bar disposal (including ActionBarParent) already happened at
             -- file load time. OverrideActionBar is fully Blizzard-owned.
-            EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_1", "1", "EllesmereUIActionBars")
-            EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_2", "1", "EllesmereUIActionBars")
-            EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_3", "1", "EllesmereUIActionBars")
-            EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_4", "1", "EllesmereUIActionBars")
+            SetActionBarCVar("SHOW_MULTI_ACTIONBAR_1", "1", "EllesmereUIActionBars")
+            SetActionBarCVar("SHOW_MULTI_ACTIONBAR_2", "1", "EllesmereUIActionBars")
+            SetActionBarCVar("SHOW_MULTI_ACTIONBAR_3", "1", "EllesmereUIActionBars")
+            SetActionBarCVar("SHOW_MULTI_ACTIONBAR_4", "1", "EllesmereUIActionBars")
 
             -- Create bar frames and buttons (no protected ops)
             for _, info in ipairs(BAR_CONFIG) do
