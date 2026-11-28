@@ -605,10 +605,24 @@ end
 
 -- The line under the overlay's name: an NPC's subtitle (Show NPC Titles) or a
 -- pet's owner, which always shows. null-safe on the unit's own kind.
-local function SetOverlayTitle(overlay, unit)
+local SetOverlayTitle
+local function RetryOverlayTitle(overlay)
+    overlay._titleRetrying = nil
+    if overlay.unit and overlay:IsShown() then SetOverlayTitle(overlay, overlay.unit) end
+end
+
+SetOverlayTitle = function(overlay, unit)
     local show = overlay.isPet or ShowNPCTitles()
     if show and unit then
-        local titleText = GetCachedNPCTitle(unit)
+        local titleText, pending = GetCachedNPCTitle(unit)
+        -- Tooltip not built yet: repaint once it may be, not only when the plate
+        -- comes up again. Capped so a title that stays secret stops asking.
+        if pending and not overlay._titleRetrying and (overlay._titleTries or 0) < 5 then
+            overlay._titleRetrying = true
+            overlay._titleTries = (overlay._titleTries or 0) + 1
+            overlay._titleRetryFn = overlay._titleRetryFn or function() RetryOverlayTitle(overlay) end
+            C_Timer.After(2.1, overlay._titleRetryFn)
+        end
         if titleText then
             overlay.title:SetText("<" .. titleText .. ">")
             overlay.title:Show()
@@ -657,6 +671,7 @@ local function ShowNPCOverlay(nameplate, unit)
         overlay:SetScript("OnEvent", OnOverlayEvent)
     end
     overlay.unit = unit
+    overlay._titleTries = 0
     overlay.isPet = IsPetUnit(unit)
     if overlay:GetParent() ~= nameplate then
         overlay:SetParent(nameplate)

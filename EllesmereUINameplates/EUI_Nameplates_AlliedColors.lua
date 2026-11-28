@@ -242,7 +242,7 @@ local function CachedNPCTitle(unit)
     local title = titleByGUID[guid]
     -- A number is the time an unreadable answer may be asked again.
     if type(title) == "number" then
-        if GetTime() < title then return nil end
+        if GetTime() < title then return nil, true end
     elseif title ~= nil then
         return title or nil
     else
@@ -257,13 +257,15 @@ local function CachedNPCTitle(unit)
         titleByGUID[guid] = title or false
     else
         titleByGUID[guid] = GetTime() + 2
+        return nil, true
     end
     return title
 end
 
 -- A unit's subtitle, cached by GUID: the tooltip build is the expensive part, and
 -- every plate that draws the line (the name-only overlay, the health bar plate)
--- reads the same answer.
+-- reads the same answer. The second return is true while an unreadable answer
+-- waits to be asked again.
 function Allied.GetCachedNPCTitle(unit) return CachedNPCTitle(unit) end
 
 -- Pet or minion: a unit a player controls -- a player's pet, minion or vehicle.
