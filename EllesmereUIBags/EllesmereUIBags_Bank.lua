@@ -467,10 +467,50 @@ if EUI.IS_FOREVER then
         return btn
     end
 
+    -- Buying a bag slot buys the next character tab, and PurchaseBankTab is
+    -- protected: Blizzard's own purchase button, laid over the next slot, takes
+    -- the click and its confirmation does the buying.
+    local buyBtn
+    local function NextSlotCost()
+        local data = C_Bank.CanPurchaseBankTab(Enum.BankType.Character)
+            and C_Bank.FetchNextPurchasableBankTabData(Enum.BankType.Character)
+        return data and data.tabCost
+    end
+    local function PlaceBuyButton(slot)
+        if not slot or not NextSlotCost() then
+            if buyBtn then buyBtn:Hide() end
+            return
+        end
+        if not buyBtn then
+            buyBtn = CreateFrame("Button", nil, bagsWin, "BankPanelPurchaseButtonScriptTemplate")
+            buyBtn:SetAttribute("overrideBankType", Enum.BankType.Character)
+            buyBtn:SetScript("OnEnter", function(self)
+                local s = self._slot
+                if not s then return end
+                SetInsetBorderColor(s, 1, 1, 1, 1)
+                local cost = NextSlotCost()
+                local text = BANK_BAG_PURCHASE
+                if cost then text = text .. "\n" .. GetMoneyString(cost, true) end
+                EUI.ShowWidgetTooltip(self, text)
+            end)
+            buyBtn:SetScript("OnLeave", function(self)
+                local s = self._slot
+                if s then SetInsetBorderColor(s, s._bdrR, s._bdrG, s._bdrB, 1) end
+                EUI.HideWidgetTooltip()
+            end)
+        end
+        buyBtn._slot = slot
+        buyBtn:ClearAllPoints()
+        buyBtn:SetAllPoints(slot)
+        buyBtn:SetFrameLevel(slot:GetFrameLevel() + 5)
+        buyBtn:Show()
+    end
+
     RefreshBankBags = function()
         if not bagsWin:IsShown() then return end
         local maxBags = C_Bank.FetchMaxNumBankTabs(Enum.BankType.Character)
         local bought = C_Bank.FetchPurchasedBankTabData(Enum.BankType.Character)
+        local nextSlot
         local z = BP().bagItemIconZoom or 0.08
         local n = 0
         -- Slot 1 is the bank itself; bag slots start at 2.
@@ -479,6 +519,8 @@ if EUI.IS_FOREVER then
             local btn = GetOrCreateBagSlot(n)
             btn.bagSlot = bagSlot
             btn.bought = bought[bagSlot] ~= nil
+            -- Tabs are bought in order: the first slot not bought is the next one.
+            if not btn.bought and not nextSlot then nextSlot = btn end
             local info = btn.bought and C_Container.GetContainerItemInfo(BANK_BAG_SLOTS, bagSlot)
             btn.hasBag = info and true or false
             btn.icon:SetTexCoord(z, 1 - z, z, 1 - z)
@@ -504,6 +546,8 @@ if EUI.IS_FOREVER then
             btn:Show()
         end
         for i = n + 1, #slots do slots[i]:Hide() end
+        -- Until the free base tab is opened, the next tab bought is that one.
+        PlaceBuyButton(nextSlot and nextSlot.bagSlot == #bought + 1 and nextSlot or nil)
         bagsWin:SetSize(math.max(n, 1) * (SLOT_SIZE + SPACING) + 16, SLOT_SIZE + 20)
     end
     bagsWin:SetScript("OnShow", function(self)
