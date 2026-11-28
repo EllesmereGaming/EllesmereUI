@@ -78,7 +78,8 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
     hdr, h = W:SectionHeader(parent, "FLIGHT TIMER", y);  y = y - h
     EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_FlightTimer", disabled = off, disabledTooltip = "Flight Timer" })
 
-    _, h = W:DualRow(parent, y,
+    local enableRow
+    enableRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Enable Flight Timer",
           tooltip = "Shows a bar with the time left while you ride a flight path.",
           getValue = function() return not off() end,
@@ -93,6 +94,14 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
           getValue = function() return FT.Get("fade") end,
           setValue = function(v) FT.Cfg().fade = v end }
     );  y = y - h
+    EllesmereUI.BuildInlineCog(enableRow._leftRegion, { title = "Flight Timer Settings",
+        disabled = off, disabledTooltip = "Flight Timer",
+        rows = {
+            { type = "toggle", label = "Print to Chat",
+              tooltip = "Prints the total flight time to chat upon landing.",
+              get = function() return FT.Get("printChat") end,
+              set = function(v) FT.Cfg().printChat = v end },
+        } })
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
 
