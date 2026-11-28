@@ -295,6 +295,9 @@ end
 -- Drop the highlight tracking if `plate` is the one currently highlighted.
 -- Called from both enemy and friendly plate removal.
 function ns._ClearMouseoverPlate(plate)
+    -- Only a hovered or targeted plate going away moves what the NPC overlays show.
+    local pointed = ns._currentMouseoverPlate == plate
+        or (plate.unit and UnitIsUnit(plate.unit, "target"))
     if ns._currentMouseoverPlate == plate then
         ns._currentMouseoverPlate = nil
         if ns._mouseoverTicker then ns._mouseoverTicker:Cancel(); ns._mouseoverTicker = nil end
@@ -306,8 +309,8 @@ function ns._ClearMouseoverPlate(plate)
         if plate.ApplyBorder then plate:ApplyBorder() end
     end
     plate._hoverFxOn = nil
-    if ns.FriendlyOverlayActive and ns.FriendlyOverlayActive() then
-        ns.OnTargetChangedNPCOverlays()
+    if pointed and ns.FriendlyOverlayActive and ns.FriendlyOverlayActive() then
+        ns.QueueNPCOverlayPass()
     end
 end
 
@@ -494,7 +497,7 @@ manager:SetScript("OnEvent", function(self, event, unit)
             -- Second pass on the next frame: the plate's own unit is not always
             -- settled when PLAYER_TARGET_CHANGED runs.
             ns.OnTargetChangedNPCOverlays()
-            C_Timer.After(0, ns.OnTargetChangedNPCOverlays)
+            ns.QueueNPCOverlayPass()
         end
     elseif event == "PLAYER_FOCUS_CHANGED" then
         -- PERF: only update old + new focus plates instead of iterating all
