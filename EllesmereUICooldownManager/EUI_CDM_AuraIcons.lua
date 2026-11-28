@@ -11,16 +11,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  works while aura data is hidden from addon code. Under it the frame shows
 --  the entry's idle icon.
 --
---  Two kinds of entry:
---    * a custom buff spell ID on a cooldown or utility bar (the Add Buff
---      menu's Custom Spell ID, stored as a hosted-buff marker): drawn here
---      while no Blizzard frame or placeholder claims it, its idle icon grey,
---      as a hosted buff keeps its slot on such a bar;
---    * a spell ID a provider registered (ns.CDM_AuraIconProvider): a stand-in
---      for an entry Blizzard's Cooldown Manager fails to draw. No file
---      registers one at present. The drop pass and the repopulate keep such
---      an ID, and the options preview never dims it as unlearned
---      (ns.CDM_AuraIconKeeps).
+--  The entry: a custom buff spell ID on a cooldown or utility bar (the Add
+--  Buff menu's Custom Spell ID, stored as a hosted-buff marker), drawn here
+--  while no Blizzard frame or placeholder claims it, its idle icon grey, as a
+--  hosted buff keeps its slot on such a bar.
 --
 --  One slot per entry, moved between bars through its proxy: a frame of ours
 --  the slot button fills, parented to the host frame, so the slot takes the
@@ -34,9 +28,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  Reached from: EUI_CDM_HookReanchor.lua (Phase 3 injection, the buff bar
 --  injection, and the end of every reanchor), EUI_CDM_Icons.lua
---  (RefreshCDMIconAppearance), ns._AuraCustomPoke (bar layout, opacity and
---  visibility), and the drop pass, the repopulate and the options preview
---  (ns.CDM_AuraIconKeeps).
+--  (RefreshCDMIconAppearance) and ns._AuraCustomPoke (bar layout, opacity and
+--  visibility).
 -------------------------------------------------------------------------------
 local _, ns = ...
 local I = ns._hookInternals
@@ -56,8 +49,6 @@ local SLOT_LEVEL = 14
 
 local entries = {}         -- provider key -> entry
 local placed = {}          -- entries attached since the last post-reanchor pass
-local byID = {}            -- spell ID -> the provider that draws it
-local pendingAliases = {}  -- providers whose Aliases have not been read yet
 local buffProviders = {}   -- custom buff spell ID -> its provider
 -- host frame -> the entry it holds (one frame per bar and entry)
 local hostEntry = setmetatable({}, { __mode = "k" })
@@ -66,7 +57,7 @@ local hostEntry = setmetatable({}, { __mode = "k" })
 local kept, keptByBar = {}, {}
 
 -------------------------------------------------------------------------------
---  Providers
+--  Providers (BuffProvider below)
 --
 --  provider = {
 --    key,           unique entry key
@@ -74,40 +65,7 @@ local kept, keptByBar = {}, {}
 --    Include(),     -> the aura spell IDs (a set, never empty) and a signature
 --    Icon(),        -> the idle art
 --    Desaturate(),  -> whether the idle art is grey
---    Off(),         optional: true once the entry stands down
---    Aliases(),     optional: more spell IDs it draws, read once Blizzard's
---                   cooldown data has loaded
---    Placed(),      optional: after each reanchor that placed it
 --  }
--------------------------------------------------------------------------------
-function ns.CDM_AuraIconProvider(spellID, provider)
-    byID[spellID] = provider
-    if provider.Aliases then pendingAliases[#pendingAliases + 1] = provider end
-end
-
-local function ReadAliases()
-    if not ns._cdmDataLoaded then return end
-    for i = #pendingAliases, 1, -1 do
-        local p = table.remove(pendingAliases, i)
-        local ids = p.Aliases()
-        if ids then
-            for j = 1, #ids do
-                if byID[ids[j]] == nil then byID[ids[j]] = p end
-            end
-        end
-        -- What it read can widen the include set of an entry built earlier.
-        local E = entries[p.key]
-        if E then E.dirty = true end
-    end
-end
-
--- An assigned spell ID a provider draws: kept by the drop pass and the
--- repopulate, never dimmed as unlearned by the options preview.
-function ns.CDM_AuraIconKeeps(id)
-    if pendingAliases[1] then ReadAliases() end
-    return byID[id] ~= nil
-end
-
 -------------------------------------------------------------------------------
 --  The engine slot
 -------------------------------------------------------------------------------
@@ -335,7 +293,6 @@ local function PaintIdle(f, provider)
 end
 
 local function Place(barKey, provider)
-    if provider.Off and provider.Off() then return nil end
     local f = HostFrame(barKey, provider.key)
     -- Attach first: the include read is what tells the idle paint whether
     -- the entry's spell is known.
@@ -347,15 +304,6 @@ end
 -------------------------------------------------------------------------------
 --  Phase 3 entry points
 -------------------------------------------------------------------------------
--- A positive spell ID no Blizzard frame claimed: the frame of the provider
--- that draws it, or nil.
-function ns.CDM_AuraIconFor(barKey, sid)
-    if pendingAliases[1] then ReadAliases() end
-    local p = byID[sid]
-    if not p then return nil end
-    return Place(barKey, p)
-end
-
 -- One provider per custom buff spell ID, made on first use. Its aura IDs are
 -- the spell's own forms (typed, override, base), as on a buff bar, and on WoW
 -- Forever every other rank of it (_AC.AddSpellForms).
@@ -428,12 +376,10 @@ follow:Hide()
 -- A frame that parents an engine container cannot show or hide in lockdown:
 -- in combat alpha stands in for a hide, and every slot is placed again once
 -- combat ends.
-local regen = ns.TakeShell()
-regen:SetScript("OnEvent", function(self)
-    self:UnregisterAllEvents()
+local function AfterCombat()
     for E in pairs(kept) do keptDue[E] = true end
     follow:Show()
-end)
+end
 
 local function ProxyShown(E, on)
     local proxy = E.proxy
@@ -443,7 +389,7 @@ local function ProxyShown(E, on)
             E.alpha = 0
             proxy:SetAlpha(0)
         end
-        regen:RegisterEvent("PLAYER_REGEN_ENABLED")
+        ns.CombatQueue.Defer("CDMKeptAuraShown", AfterCombat)
         return
     end
     proxy:SetShown(on)
@@ -642,16 +588,14 @@ end
 -------------------------------------------------------------------------------
 --  After every reanchor; on a bar's look change
 -------------------------------------------------------------------------------
--- Level the slots the pass placed (the reparent can move a host's level), run
--- their providers' checks, and let the listener go once nothing is placed.
+-- Level the slots the pass placed (the reparent can move a host's level), and
+-- let the listener go once nothing is placed.
 function ns.CDM_AuraIconsPlaced()
     local any = false
     for E in pairs(placed) do
         placed[E] = nil
         any = true
         Level(E)
-        local after = E.provider.Placed
-        if after then after() end
     end
     for E in pairs(keptPlaced) do
         keptPlaced[E] = nil
