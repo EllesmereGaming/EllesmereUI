@@ -2137,7 +2137,8 @@ def _prebuilding_test(cond):
 # BuildInlineCog and the helpers that build a cog popup through it.
 COG_CALLS = ("BuildInlineCog", "AttachInline", "AttachToggleCog", "AttachFrameSourceCog",
              "BuildHashCog", "MakeTextColoringInline", "AddSectionSoundCog",
-             "BuildRestedIndicatorCog", "OrientCog", "TextCog")
+             "BuildRestedIndicatorCog", "OrientCog", "TextCog",
+             "BuildStatReminderCog", "DressScrollsSlot", "DressElixirsSlot")
 
 
 def hidden_cog_calls(tokens):

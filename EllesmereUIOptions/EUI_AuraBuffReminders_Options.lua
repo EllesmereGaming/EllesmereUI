@@ -1062,11 +1062,100 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  WoW Forever Scrolls and Elixirs: the row label, the checkbox dropdown of
-    --  the stats this class is reminded of (per class, forever.<stat>ConsumableByClass)
-    --  and its cog, beside Weapon Stones and Oils in CONSUMABLES.
+    --  WoW Forever consumables: two per-class dropdowns with independent reminder settings.
     ---------------------------------------------------------------------------
-    local STAT_KEYS = { "intellect", "strength", "agility", "stamina", "spirit", "protection" }
+    local SCROLL_STAT_KEYS = { "intellect", "strength", "agility", "stamina", "spirit", "protection" }
+    local ELIXIR_STAT_KEYS = { "spellPower", "manaRegen", "healthRegen", "healingDone", "attackPower" }
+    local function StatTicked(f, class, key, locks)
+        if locks and locks[key] and locks[key]() then return false end
+        local picks = f[key .. "ConsumableByClass"]
+        return picks and picks[class] == true or false
+    end
+    local function AttachStatDropdown(rgn, class, slotCfg, items, locks)
+        local profile = FDB()
+        local dd, refresh = EllesmereUI.BuildVisOptsCBDropdown(rgn, 170, rgn:GetFrameLevel() + 2, items,
+            function(key)
+                local f = FDB()
+                return f and class and StatTicked(f, class, key, locks) or false
+            end,
+            function(key, v)
+                local f = FDB()
+                if not (f and f == profile and class) then return end
+                if locks and locks[key] and locks[key]() then return end
+                local field = key .. "ConsumableByClass"
+                local picks = f[field]
+                if v then
+                    if not picks then picks = {}; f[field] = picks end
+                    picks[class] = true
+                elseif picks then
+                    picks[class] = nil
+                end
+                local cog = rgn._euiCog
+                if cog then cog._euiCogState() end
+                RefreshAll()
+            end, nil, nil, nil, nil, nil, { dimLocked = true })
+        EllesmereUI.PanelPP.Point(dd, "RIGHT", rgn, "RIGHT", -20, 0)
+        dd._ttText = slotCfg.tooltip
+        rgn._control = dd
+        rgn._lastInline = nil
+        EllesmereUI.RegisterWidgetRefresh(refresh)
+        return dd, refresh
+    end
+    local function BuildStatReminderCog(rgn, class, title, keys, prefix, locks)
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = title,
+            disabled = function()
+                local f = FDB(); if not (f and class) then return true end
+                for _, key in ipairs(keys) do
+                    if StatTicked(f, class, key, locks) then return false end
+                end
+                return true
+            end,
+            disabledTooltip = title,
+            minWidth = 320,
+            rows = {
+                { type="toggle", label=EllesmereUI.L("Separate Reminders"),
+                  tooltip=EllesmereUI.L("Show a separate icon for each selected stat with an eligible scroll or elixir."),
+                  get=function() local f = FDB(); return f and f[prefix .. "SeparateReminders"] == true end,
+                  set=function(v) local f = FDB(); if f then f[prefix .. "SeparateReminders"] = v == true; RefreshAll() end end },
+                { type="toggle", label=EllesmereUI.L("Show Stronger Buffs"),
+                  tooltip=EllesmereUI.L("Suggest a usable scroll or elixir from your bags if it gives more of the stat than your current buff."),
+                  get=function() local f = FDB(); return f and f[prefix .. "ShowUpgrades"] == true end,
+                  set=function(v) local f = FDB(); if f then f[prefix .. "ShowUpgrades"] = v == true; RefreshAll() end end },
+                { type="dropdown", label="Rank to Use", ddWidth=200,
+                  values={ high = "Highest Owned", low = "Lowest Owned" }, order={ "high", "low" },
+                  tooltip=EllesmereUI.L("Choose the highest or lowest eligible item for each stat. An eligible Action Picker choice takes priority."),
+                  get=function() local f = FDB(); return f and f[prefix .. "LowRank"] and "low" or "high" end,
+                  set=function(v) local f = FDB(); if f then f[prefix .. "LowRank"] = v == "low"; RefreshAll() end end },
+                { type="slider", label="Show Below (Minutes)", min=0, max=10, step=1,
+                  tooltip=EllesmereUI.L("Show a countdown before a tracked scroll or elixir buff expires. 0 = show only after it expires."),
+                  get=function() local f = FDB(); return f and f[prefix .. "ShowBelow"] or 0 end,
+                  set=function(v) local f = FDB(); if f then f[prefix .. "ShowBelow"] = v; RefreshAll() end end },
+            },
+        })
+    end
+    local function ElixirsSlot()
+        return { type="label", text=EllesmereUI.L("Elixirs"),
+            tooltip=EllesmereUI.L("Reminds you when a selected elixir buff is missing and an eligible elixir is in your bags. Click the icon to use it.\nOne reminder by default. The cog can show one per stat.\nWith Action Picker on, right-click to choose another item.") }
+    end
+    local function DressElixirsSlot(rgn, class, slotCfg)
+        if not EllesmereUI._prebuilding then
+            AttachStatDropdown(rgn, class, slotCfg, {
+                { key = "spellPower", label = EllesmereUI.L("Spell Power"), tooltip = EllesmereUI.L("Arcane Elixirs") },
+                { key = "manaRegen", label = EllesmereUI.L("Mana Regen"),
+                  tooltip = EllesmereUI.L("Mageblood Elixirs") .. "\n" .. EllesmereUI.L("Elixir of Wicked Regeneration")
+                      .. "\n\n" .. EllesmereUI.L("Mageblood Elixirs do not stack with Elixir of Wicked Regeneration.") },
+                { key = "healthRegen", label = EllesmereUI.L("Health Regen"),
+                  tooltip = EllesmereUI.L("Troll's Blood Elixirs") .. "\n" .. EllesmereUI.L("Elixir of Wicked Regeneration")
+                      .. "\n\n" .. EllesmereUI.L("Health Regen from Troll's Blood and Elixir of Wicked Regeneration does not stack.") },
+                { key = "healingDone", label = EllesmereUI.L("Healing Done"), tooltip = EllesmereUI.L("Cleric's Elixirs") },
+                { key = "attackPower", label = EllesmereUI.L("Attack Power"),
+                  tooltip = EllesmereUI.L("Distilled Firewater") .. "\n" .. EllesmereUI.L("Winterfall Firewater")
+                      .. "\n\n" .. EllesmereUI.L("Can stack with Blessing of Might and Battle Shout.") },
+            })
+        end
+        BuildStatReminderCog(rgn, class, slotCfg.text, ELIXIR_STAT_KEYS, "elixirConsumable")
+    end
     local function ScrollsSlot()
         return { type="label", text=EllesmereUI.L("Scrolls and Elixirs"),
             tooltip=EllesmereUI.L("Reminds you when a ticked stat has no scroll or elixir buff while one is in your bags. Click the icon to use it.\nOne reminder by default; the cog can show one per stat.\nWith Action Picker on, right-click to choose another item.") }
@@ -1076,13 +1165,7 @@ initFrame:SetScript("OnEvent", function(self)
         local function StaminaLocked() return ns.FvStatConsumableLocked("fort", class) end
         local function SpiritLocked() return ns.FvStatConsumableLocked("spirit", class) end
         local locks = { intellect = IntellectLocked, stamina = StaminaLocked, spirit = SpiritLocked }
-        local function Ticked(f, key)
-            if locks[key] and locks[key]() then return false end
-            local picks = f[key .. "ConsumableByClass"]
-            return picks and picks[class] == true or false
-        end
         if not EllesmereUI._prebuilding then
-            local profile = FDB()
             local items = {
                 { key = "intellect", label = EllesmereUI.L("Intellect"),
                   lockedFn = IntellectLocked,
@@ -1114,64 +1197,12 @@ initFrame:SetScript("OnEvent", function(self)
                     item.lockedTooltip = item.lockedTooltip .. "\n\n" .. item.tooltip
                 end
             end
-            local dd, refresh = EllesmereUI.BuildVisOptsCBDropdown(rgn, 170, rgn:GetFrameLevel() + 2, items,
-                function(key)
-                    local f = FDB(); if not (f and class) then return false end
-                    return Ticked(f, key)
-                end,
-                function(key, v)
-                    local f = FDB(); if not (f and f == profile and class) then return end
-                    if locks[key] and locks[key]() then return end
-                    local field = key .. "ConsumableByClass"
-                    local picks = f[field]
-                    if v then
-                        if not picks then picks = {}; f[field] = picks end
-                        picks[class] = true
-                    elseif picks then
-                        picks[class] = nil
-                    end
-                    RefreshAll()
-                end, nil, nil, nil, nil, nil, { dimLocked = true })
-            EllesmereUI.PanelPP.Point(dd, "RIGHT", rgn, "RIGHT", -20, 0)
-            dd._ttText = slotCfg.tooltip
-            rgn._control = dd
-            rgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(refresh)
+            local dd, refresh = AttachStatDropdown(rgn, class, slotCfg, items, locks)
             ns.RefreshStatConsumableOptions = function()
                 if dd:IsVisible() then refresh() end
             end
         end
-        EllesmereUI.BuildInlineCog(rgn, {
-            title = "Scrolls and Elixirs",
-            disabled = function()
-                local f = FDB(); if not (f and class) then return true end
-                for _, key in ipairs(STAT_KEYS) do
-                    if Ticked(f, key) then return false end
-                end
-                return true
-            end,
-            disabledTooltip = "Scrolls and Elixirs",
-            minWidth = 320,
-            rows = {
-                { type="toggle", label=EllesmereUI.L("Separate Reminders"),
-                  tooltip=EllesmereUI.L("Show a separate icon for each selected stat with an eligible scroll or elixir."),
-                  get=function() local f = FDB(); return f and f.statConsumableSeparateReminders == true end,
-                  set=function(v) local f = FDB(); if f then f.statConsumableSeparateReminders = v == true; RefreshAll() end end },
-                { type="toggle", label=EllesmereUI.L("Show Stronger Buffs"),
-                  tooltip=EllesmereUI.L("Suggest a usable scroll or elixir from your bags if it gives more of the stat than your current buff."),
-                  get=function() local f = FDB(); return f and f.statConsumableShowUpgrades == true end,
-                  set=function(v) local f = FDB(); if f then f.statConsumableShowUpgrades = v == true; RefreshAll() end end },
-                { type="dropdown", label="Rank to Use", ddWidth=200,
-                  values={ high = "Highest Owned", low = "Lowest Owned" }, order={ "high", "low" },
-                  tooltip=EllesmereUI.L("Choose the highest or lowest eligible item for each stat. An eligible Action Picker choice takes priority."),
-                  get=function() local f = FDB(); return f and f.statConsumableLowRank and "low" or "high" end,
-                  set=function(v) local f = FDB(); if f then f.statConsumableLowRank = v == "low"; RefreshAll() end end },
-                { type="slider", label="Show Below (Minutes)", min=0, max=10, step=1,
-                  tooltip=EllesmereUI.L("Show a countdown before a tracked scroll or elixir buff expires. 0 = show only after it expires."),
-                  get=function() local f = FDB(); return f and f.statConsumableShowBelow or 0 end,
-                  set=function(v) local f = FDB(); if f then f.statConsumableShowBelow = v; RefreshAll() end end },
-            },
-        })
+        BuildStatReminderCog(rgn, class, slotCfg.text, SCROLL_STAT_KEYS, "statConsumable", locks)
     end
 
     ---------------------------------------------------------------------------
@@ -2318,6 +2349,12 @@ initFrame:SetScript("OnEvent", function(self)
                 if offHand then rows[2] = HandRow("Off Hand Stone or Oil", "ohTemp", tempValues, tempOrder) end
                 BuildWeaponCog(stonesRow._rightRegion, "Weapon Stones and Oils", "weapon", rows)
             end
+
+            local elixirs = ElixirsSlot()
+            local elixirsRow
+            elixirsRow, h = W:DualRow(parent, y, elixirs, EllesmereUI.BlankRowCfg())
+            DressElixirsSlot(elixirsRow._leftRegion, class, elixirs)
+            y = y - h
 
             -- No preview header here, so no click-to-scroll mappings to wire.
             return math.abs(y)
